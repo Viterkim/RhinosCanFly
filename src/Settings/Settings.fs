@@ -1,0 +1,55 @@
+module RhinosCanFly.Settings
+
+open System
+open Rhino
+
+let show_raw (control: SettingsControl) =
+    match Config.read_raw () with
+    | Ok(path, content) -> control.ShowRaw(path, content)
+    | Error error -> control.ShowRaw(Config.path (), $"Could not read config: {error}")
+
+let current_lens () =
+    let document = RhinoDoc.ActiveDoc
+
+    if isNull document || isNull document.Views.ActiveView then
+        None
+    else
+        Some document.Views.ActiveView.ActiveViewport.Camera35mmLensLength
+
+let load (control: SettingsControl) =
+    control.ApplyTheme()
+
+    match Config.load () with
+    | Error error -> control.ShowStatus $"Could not load configuration: {error}"
+    | Ok result ->
+        control.LoadConfig result.config_file
+        control.ShowRuntimeState(Runtime.current_speed result.config_file.base_speed, current_lens ())
+        show_raw control
+
+        let message =
+            if List.isEmpty result.messages then
+                "Configuration loaded"
+            else
+                String.concat "; " result.messages
+
+        control.ShowStatus message
+
+let save (control: SettingsControl) =
+    match control.ReadConfig() with
+    | Error error ->
+        control.ShowStatus error
+        RhinoApp.WriteLine $"RhinosCanFly settings were not saved: {error}"
+        false
+    | Ok config ->
+        match Config.save config with
+        | Ok() ->
+            Runtime.reset_session_speed config.base_speed
+            RightClickEntry.set_enabled config.hijack_right_click_to_enter
+            control.ShowRuntimeState(Runtime.current_speed config.base_speed, current_lens ())
+            show_raw control
+            control.ShowStatus "Configuration saved"
+            true
+        | Error error ->
+            control.ShowStatus error
+            RhinoApp.WriteLine $"RhinosCanFly settings were not saved: {error}"
+            false

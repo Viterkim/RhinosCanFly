@@ -1,0 +1,67 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RhinoMajorVersion Condition="'$(RhinoMajorVersion)' == '' and (Exists('C:\Program Files\Rhino 9\System\RhinoCommon.dll') or Exists('C:\Program Files\Rhino 9\System\netcore\RhinoCommon.dll'))">9</RhinoMajorVersion>
+    <RhinoMajorVersion Condition="'$(RhinoMajorVersion)' == ''">8</RhinoMajorVersion>
+    <TargetFramework Condition="'$(TargetFramework)' == '' and '$(RhinoMajorVersion)' == '9'">net10.0-windows</TargetFramework>
+    <TargetFramework Condition="'$(TargetFramework)' == ''">net8.0-windows</TargetFramework>
+    <OutputType>Library</OutputType>
+    <TargetExt>.rhp</TargetExt>
+    <AssemblyName>RhinosCanFly</AssemblyName>
+    <RootNamespace>RhinosCanFly</RootNamespace>
+    <RhinoCommonPackageVersion>8.32.26160.13001</RhinoCommonPackageVersion>
+    <ExplicitInputTypesSeverity Condition="'$(ExplicitInputTypesSeverity)' == ''">error</ExplicitInputTypesSeverity>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- Allow restore/design-time project loading on non-Windows hosts. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+  <PropertyGroup>
+    <RhinoSystemDir Condition="'$(RhinoSystemDir)' == '' and Exists('C:\Program Files\Rhino 9\System\RhinoCommon.dll')">C:\Program Files\Rhino 9\System</RhinoSystemDir>
+    <RhinoSystemDir Condition="'$(RhinoSystemDir)' == '' and Exists('C:\Program Files\Rhino 9\System\netcore\RhinoCommon.dll')">C:\Program Files\Rhino 9\System\netcore</RhinoSystemDir>
+    <RhinoSystemDir Condition="'$(RhinoSystemDir)' == '' and Exists('C:\Program Files\Rhino 8\System\netcore\RhinoCommon.dll')">C:\Program Files\Rhino 8\System\netcore</RhinoSystemDir>
+    <UseLocalRhinoCommon Condition="Exists('$(RhinoSystemDir)/RhinoCommon.dll')">true</UseLocalRhinoCommon>
+  </PropertyGroup>
+    <PropertyGroup>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/Viterkim/RhinosCanFly</RepositoryUrl>
+    </PropertyGroup>
+  <ItemGroup Condition="'$(UseLocalRhinoCommon)' == 'true'">
+    <Reference Include="RhinoCommon">
+      <HintPath>$(RhinoSystemDir)/RhinoCommon.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalRhinoCommon)' != 'true'">
+    <!-- Lets editors and CI type-check without a local Rhino installation. -->
+    <PackageReference Include="RhinoCommon" Version="$(RhinoCommonPackageVersion)" PrivateAssets="all" />
+  </ItemGroup>
+  <Target Name="CheckExplicitInputTypes" BeforeTargets="CoreCompile">
+    <Exec Command="dotnet fsi &quot;$(MSBuildProjectDirectory)/tools/check-explicit-input-types.fsx&quot; -- &quot;$(MSBuildProjectDirectory)/src&quot;" IgnoreExitCode="true">
+      <Output TaskParameter="ExitCode" PropertyName="ExplicitInputTypesExitCode" />
+    </Exec>
+    <Warning Condition="'$(ExplicitInputTypesExitCode)' != '0' and '$(ExplicitInputTypesSeverity)' != 'error'" Code="RCF0001" Text="Some F# function inputs are missing explicit type annotations. Set ExplicitInputTypesSeverity=error to fail the build." />
+    <Error Condition="'$(ExplicitInputTypesExitCode)' != '0' and '$(ExplicitInputTypesSeverity)' == 'error'" Code="RCF0001" Text="Some F# function inputs are missing explicit type annotations." />
+  </Target>
+  <ItemGroup>
+    <Compile Include="src/AssemblyInfo.fs" />
+    <Compile Include="src/Core/Data.fs" />
+    <Compile Include="src/Core/MouseSensitivity.fs" />
+    <Compile Include="src/Interop/Win32.fs" />
+    <Compile Include="src/Input/KeyBindings.fs" />
+    <Compile Include="src/Configuration/Config.fs" />
+    <Compile Include="src/Fly/Movement.fs" />
+    <Compile Include="src/Input/RawInputWindow.fs" />
+    <Compile Include="src/Fly/Runtime.fs" />
+    <Compile Include="src/Input/RightClickEntry.fs" />
+    <Compile Include="src/Settings/Control.fs" />
+    <Compile Include="src/Settings/Settings.fs" />
+    <Compile Include="src/Settings/Dialog.fs" />
+    <Compile Include="src/Plugin/Plugin.fs" />
+    <Compile Include="src/Commands/Commands.fs" />
+    <Compile Include="src/Commands/FlyCommand.fs" />
+  </ItemGroup>
+</Project>

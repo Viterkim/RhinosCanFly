@@ -1,0 +1,10 @@
+bin/
+obj/
+dist/
+*.user
+*.suo
+.vs/
+.idea/
+TestResults/
+*.rhp
+setup/build-settings.ps1
