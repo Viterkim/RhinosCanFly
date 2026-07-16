@@ -117,9 +117,7 @@ let tick (state: FlyState) (dt: float) =
             state.wheel_delta <- 0
 
             if wheel <> 0 then
-                speed_step
-                    state
-                    (float wheel / float Win32.WHEEL_DELTA)
+                speed_step state (float wheel / float Win32.WHEEL_DELTA)
 
         toggles state
         let input = read_input state

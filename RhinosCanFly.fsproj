@@ -61,6 +61,7 @@
     <Compile Include="src/Interop/Win32.fs" />
     <Compile Include="src/Input/KeyBindings.fs" />
     <Compile Include="src/Configuration/Config.fs" />
+    <Compile Include="src/Commands/RepeatBehavior.fs" />
     <Compile Include="src/Fly/Movement.fs" />
     <Compile Include="src/Input/RawInputWindow.fs" />
     <Compile Include="src/Fly/Runtime.fs" />

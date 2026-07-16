@@ -28,6 +28,7 @@ let defaultValues: FlyConfigFile =
       boost_multiplier = 3.
       slow_multiplier = 0.3
       mouse_sensitivity = 15.
+      invert_mouse_x = false
       invert_mouse_y = false
       update_hz = 120.
       normalize_diagonal_movement = true
@@ -36,6 +37,7 @@ let defaultValues: FlyConfigFile =
       exit_on_mouse_right = true
       exit_on_mouse_middle = false
       hijack_right_click_to_enter = true
+      commands_do_not_repeat = true
       boost_hold_instead_of_toggle = false
       slow_hold_instead_of_toggle = false
       vertical_speed_multiplier = 0.6
@@ -98,7 +100,7 @@ let compile (source: FlyConfigFile) =
             errors.Add $"{name}: {error}"
 
             { source = if isNull value then "" else value
-              virtual_key = 0 }
+              virtual_keys = [] }
 
     let optional (name: string) (value: string) =
         if String.IsNullOrWhiteSpace value then
@@ -165,6 +167,7 @@ let compile (source: FlyConfigFile) =
             source.mouse_sensitivity
             |> ConfigMouseSensitivity
             |> MouseSensitivity.to_runtime
+          invert_mouse_x = source.invert_mouse_x
           invert_mouse_y = source.invert_mouse_y
           update_hz = source.update_hz
           normalize_diagonal_movement = source.normalize_diagonal_movement

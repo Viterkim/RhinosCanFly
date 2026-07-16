@@ -150,7 +150,10 @@ let raw_input_device_size = uint32 (Marshal.SizeOf<RawInputDevice>())
 
 let get_registered_raw_mouse () =
     let mutable deviceCount = 0u
-    let sizingResult = GetRegisteredRawInputDevices(nativeint 0, &deviceCount, raw_input_device_size)
+
+    let sizingResult =
+        GetRegisteredRawInputDevices(nativeint 0, &deviceCount, raw_input_device_size)
+
     let sizingError = Marshal.GetLastWin32Error()
 
     if sizingResult = UInt32.MaxValue && sizingError <> ERROR_INSUFFICIENT_BUFFER then
@@ -174,11 +177,8 @@ let get_registered_raw_mouse () =
                 else
                     seq { 0u .. count - 1u }
                     |> Seq.map (fun (index: uint32) ->
-                        Marshal.PtrToStructure<RawInputDevice>(
-                            IntPtr.Add(buffer, int (index * raw_input_device_size))
-                        ))
-                    |> Seq.tryFind (fun (device: RawInputDevice) ->
-                        device.usage_page = 0x01us && device.usage = 0x02us)
+                        Marshal.PtrToStructure<RawInputDevice>(IntPtr.Add(buffer, int (index * raw_input_device_size))))
+                    |> Seq.tryFind (fun (device: RawInputDevice) -> device.usage_page = 0x01us && device.usage = 0x02us)
                     |> Ok
         finally
             Marshal.FreeHGlobal buffer

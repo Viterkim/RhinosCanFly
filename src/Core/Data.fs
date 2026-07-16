@@ -24,6 +24,7 @@ type FlyConfigFile =
       boost_multiplier: float
       slow_multiplier: float
       mouse_sensitivity: float
+      invert_mouse_x: bool
       invert_mouse_y: bool
       update_hz: float
       normalize_diagonal_movement: bool
@@ -32,12 +33,15 @@ type FlyConfigFile =
       exit_on_mouse_right: bool
       exit_on_mouse_middle: bool
       hijack_right_click_to_enter: bool
+      commands_do_not_repeat: bool
       boost_hold_instead_of_toggle: bool
       slow_hold_instead_of_toggle: bool
       vertical_speed_multiplier: float
       lens_length_mm_in_mode: float }
 
-type KeyBinding = { source: string; virtual_key: int }
+type KeyBinding =
+    { source: string
+      virtual_keys: int list }
 
 [<Struct>]
 type ConfigMouseSensitivity = ConfigMouseSensitivity of float
@@ -64,6 +68,7 @@ type FlyConfig =
       boost_multiplier: float
       slow_multiplier: float
       mouse_sensitivity: RuntimeMouseSensitivity
+      invert_mouse_x: bool
       invert_mouse_y: bool
       update_hz: float
       normalize_diagonal_movement: bool

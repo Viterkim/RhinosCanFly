@@ -44,5 +44,6 @@ let initialize_from_config () =
     match Config.load () with
     | Ok loaded ->
         set_enabled loaded.config.hijack_right_click_to_enter
+        RepeatBehavior.apply loaded.config_file.commands_do_not_repeat
         Ok()
     | Error error -> Error error

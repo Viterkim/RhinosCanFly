@@ -10,7 +10,7 @@ open System.Runtime.InteropServices
 [<assembly: AssemblyCopyright("Copyright 2026")>]
 [<assembly: ComVisible(false)>]
 [<assembly: Guid("8E6E7D56-5434-4EF6-884F-6C5130291935")>]
-[<assembly: AssemblyVersion("0.1.1.0")>]
-[<assembly: AssemblyFileVersion("0.1.1.0")>]
-[<assembly: AssemblyInformationalVersion("0.1.1")>]
+[<assembly: AssemblyVersion("0.1.2.0")>]
+[<assembly: AssemblyFileVersion("0.1.2.0")>]
+[<assembly: AssemblyInformationalVersion("0.1.2")>]
 do ()

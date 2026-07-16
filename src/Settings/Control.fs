@@ -36,36 +36,47 @@ type SettingsControl() as self =
     let mouseSensitivity = new TextBox()
     let updateHz = new TextBox()
     let lensLength = new TextBox()
+    let invertMouseX = new CheckBox(Text = "Invert mouse X")
     let invertMouseY = new CheckBox(Text = "Invert mouse Y")
 
-    let normalizeDiagonal =
-        new CheckBox(Text = "Normalize diagonal movement (Normal FPS game behavior)")
+    let normalizeDiagonal = new CheckBox(Text = "Normalize diagonal movement")
 
-    let wheelChangesSpeed = new CheckBox(Text = "Mouse wheel up/down increases/decreases speed")
+    let wheelChangesSpeed = new CheckBox(Text = "Mouse wheel up/down controls speed")
 
     let exitOnMouseLeft = new CheckBox(Text = "Left mouse button exits fly mode")
     let exitOnMouseRight = new CheckBox(Text = "Right mouse button exits fly mode")
     let exitOnMouseMiddle = new CheckBox(Text = "Middle mouse button exits fly mode")
 
-    let hijackRightClick =
-        new CheckBox(Text = "Hijack right click in perspective views when no command is running")
+    let hijackRightClick = new CheckBox(Text = "Hijack right click")
+
+    let commandsDoNotRepeat =
+        new CheckBox(Text = "Don't count fly/init commands as repeatable")
 
     let boostHold = new CheckBox(Text = "Boost Mode: hold instead of toggle")
     let slowHold = new CheckBox(Text = "Slow Mode: hold instead of toggle")
-    let status = new Label(AutoSize = true, MaximumSize = Size(700, 0))
-    let runtimeSpeed = new Label(AutoSize = true)
-    let runtimeLens = new Label(AutoSize = true)
+    let statusLine = new Label(AutoSize = true, MaximumSize = Size(900, 0))
+    let runtimeLine = new Label(AutoSize = true, MaximumSize = Size(900, 0))
     let configPath = new TextBox(ReadOnly = true)
 
     let rawJson =
-        new TextBox(ReadOnly = true, Multiline = true, WordWrap = false, ScrollBars = ScrollBars.Both, Height = 220)
+        new TextBox(ReadOnly = true, Multiline = true, WordWrap = false, ScrollBars = ScrollBars.Both, Height = 120)
 
     let resetAll = new Button(Text = "Reset all to defaults", AutoSize = true)
     let github = new LinkLabel(Text = "Viterkim/RhinosCanFly", AutoSize = true)
+    let version = Assembly.GetExecutingAssembly().GetName().Version
+    let versionText = $"{version.Major}.{version.Minor}.{version.Build}"
+    let mutable configurationText = "Not loaded"
+    let mutable speedText = "Unavailable"
+    let mutable lensText = "Unavailable"
+    let mutable appliedTheme: (Color * Color * Color) option = None
 
     let format (value: float) =
         let rounded = Math.Round(value, 9, MidpointRounding.AwayFromZero)
         rounded.ToString("G15", CultureInfo.InvariantCulture)
+
+    let refresh_status () =
+        statusLine.Text <- $"Version: {versionText}  |  Configuration: {configurationText}"
+        runtimeLine.Text <- $"Current Speed: {speedText}  |  Current Lens: {lensText}"
 
     let parse_number (name: string) (field: TextBox) =
         let mutable value = 0.
@@ -98,6 +109,67 @@ type SettingsControl() as self =
         control.Dock <- DockStyle.Fill
         table.Controls.Add(caption, 0, row)
         table.Controls.Add(control, 1, row)
+
+    let two_column_grid () =
+        let grid =
+            new TableLayoutPanel(Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, Margin = Padding 0)
+
+        grid.SuspendLayout()
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50.f)) |> ignore
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50.f)) |> ignore
+        grid
+
+    let add_grid_item (grid: TableLayoutPanel) (label: string) (control: Control) =
+        let index = grid.Controls.Count
+        let column = index % 2
+        let row = index / 2
+
+        if column = 0 then
+            grid.RowCount <- row + 1
+            grid.RowStyles.Add(new RowStyle(SizeType.AutoSize)) |> ignore
+
+        let item =
+            new TableLayoutPanel(Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2)
+
+        item.SuspendLayout()
+
+        item.Margin <-
+            if column = 0 then
+                Padding(0, 0, 8, 0)
+            else
+                Padding(8, 0, 0, 0)
+
+        item.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)) |> ignore
+        item.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100.f)) |> ignore
+
+        let caption =
+            new Label(Text = label, AutoSize = true, Anchor = AnchorStyles.Left, Margin = Padding(3, 7, 8, 3))
+
+        control.Dock <- DockStyle.Fill
+        item.Controls.Add(caption, 0, 0)
+        item.Controls.Add(control, 1, 0)
+        item.ResumeLayout(false)
+        grid.Controls.Add(item, column, row)
+
+    let add_grid_control (grid: TableLayoutPanel) (control: Control) =
+        let index = grid.Controls.Count
+        let column = index % 2
+        let row = index / 2
+
+        if column = 0 then
+            grid.RowCount <- row + 1
+            grid.RowStyles.Add(new RowStyle(SizeType.AutoSize)) |> ignore
+
+        control.AutoSize <- true
+        control.Dock <- DockStyle.Fill
+
+        control.Margin <-
+            if column = 0 then
+                Padding(3, 5, 8, 3)
+            else
+                Padding(8, 5, 3, 3)
+
+        grid.Controls.Add(control, column, row)
 
     let key_name (key: Keys) =
         match key with
@@ -133,34 +205,50 @@ type SettingsControl() as self =
         | MouseButtons.XButton2 -> Some "MouseX2"
         | _ -> None
 
-    let binding_editor (field: TextBox) (allow_empty: bool) (default_value: string) =
-        let column_count = if allow_empty then 4 else 3
+    let modifier_names (modifiers: Keys) =
+        [ if modifiers &&& Keys.Control = Keys.Control then
+              "Control"
+          if modifiers &&& Keys.Alt = Keys.Alt then
+              "Alt"
+          if modifiers &&& Keys.Shift = Keys.Shift then
+              "Shift" ]
 
+    let is_modifier_key (key: Keys) =
+        match key with
+        | Keys.ShiftKey
+        | Keys.LShiftKey
+        | Keys.RShiftKey
+        | Keys.ControlKey
+        | Keys.LControlKey
+        | Keys.RControlKey
+        | Keys.Menu
+        | Keys.LMenu
+        | Keys.RMenu -> true
+        | _ -> false
+
+    let chord_name (modifiers: Keys) (key: string) =
+        String.concat "+" (modifier_names modifiers @ [ key ])
+
+    let binding_editor (field: TextBox) (default_value: string) =
         let panel =
-            new TableLayoutPanel(Dock = DockStyle.Fill, AutoSize = true, ColumnCount = column_count)
+            new TableLayoutPanel(Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 3)
+
+        panel.SuspendLayout()
 
         let small_button (text: string) =
-            new Button(Text = text, AutoSize = false, Size = Size(66, 24), Anchor = AnchorStyles.Left)
+            new Button(Text = text, AutoSize = false, Size = Size(62, 24), Anchor = AnchorStyles.Left)
 
         let setButton = small_button "Set..."
         let defaultButton = small_button "Default"
-        let clearButton = small_button "Clear"
         let mutable capturing = false
-        field.ReadOnly <- true
         field.Dock <- DockStyle.Fill
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100.f)) |> ignore
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)) |> ignore
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)) |> ignore
 
-        if allow_empty then
-            panel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)) |> ignore
-
         panel.Controls.Add(field, 0, 0)
         panel.Controls.Add(setButton, 1, 0)
         panel.Controls.Add(defaultButton, 2, 0)
-
-        if allow_empty then
-            panel.Controls.Add(clearButton, 3, 0)
 
         let stop () =
             capturing <- false
@@ -181,6 +269,15 @@ type SettingsControl() as self =
             if capturing then
                 event.Handled <- true
                 event.SuppressKeyPress <- true
+
+                if not (is_modifier_key event.KeyCode) then
+                    field.Text <- chord_name event.Modifiers (key_name event.KeyCode)
+                    stop ())
+
+        setButton.KeyUp.Add(fun (event: KeyEventArgs) ->
+            if capturing && is_modifier_key event.KeyCode then
+                event.Handled <- true
+                event.SuppressKeyPress <- true
                 field.Text <- key_name event.KeyCode
                 stop ())
 
@@ -188,7 +285,7 @@ type SettingsControl() as self =
             if capturing then
                 match mouse_name event.Button with
                 | Some binding ->
-                    field.Text <- binding
+                    field.Text <- chord_name Control.ModifierKeys binding
                     stop ()
                 | None -> ())
 
@@ -197,7 +294,7 @@ type SettingsControl() as self =
                 stop ())
 
         defaultButton.Click.Add(fun (_: EventArgs) -> field.Text <- default_value)
-        clearButton.Click.Add(fun (_: EventArgs) -> field.Text <- "")
+        panel.ResumeLayout(false)
         panel :> Control
 
     let add_heading (text: string) =
@@ -232,14 +329,6 @@ type SettingsControl() as self =
         table.Controls.Add(note, 0, row)
         table.SetColumnSpan(note, 2)
 
-    let add_checkbox (control: CheckBox) =
-        let row = table.RowCount
-        table.RowCount <- row + 1
-        control.AutoSize <- true
-        control.Margin <- Padding(3, 5, 3, 3)
-        table.Controls.Add(control, 0, row)
-        table.SetColumnSpan(control, 2)
-
     let rec apply_colors (control: Control) (panel: Color) (text: Color) (edit: Color) =
         control.ForeColor <- text
 
@@ -253,75 +342,89 @@ type SettingsControl() as self =
         for child in control.Controls do
             apply_colors child panel text edit
 
+    let dismiss_editor_focus () =
+        self.ActiveControl <- null
+        self.Focus() |> ignore
+
+    let rec dismiss_on_background_click (control: Control) =
+        match control with
+        | :? TextBox
+        | :? Button
+        | :? CheckBox
+        | :? LinkLabel -> ()
+        | _ -> control.MouseDown.Add(fun (_: MouseEventArgs) -> dismiss_editor_focus ())
+
+        for child in control.Controls do
+            dismiss_on_background_click child
+
     do
+        self.SuspendLayout()
+        table.SuspendLayout()
         self.AutoScroll <- true
-        self.Controls.Add table
+        self.SetStyle(ControlStyles.Selectable, true)
 
         let title =
             new Label(
-                Text = "Rhinos Can Fly",
+                Text = "Rhinos Can Fly Options",
                 AutoSize = true,
                 Font = new Font(self.Font.FontFamily, self.Font.Size + 5.f, FontStyle.Bold)
             )
 
         add_full_width title
-        add_note "Free-flight viewport controls and configuration"
         add_heading "Behavior"
-        add_checkbox exitOnMouseLeft
-        add_checkbox exitOnMouseRight
-        add_checkbox exitOnMouseMiddle
-        add_checkbox hijackRightClick
-        add_checkbox boostHold
-        add_checkbox slowHold
-        add_checkbox invertMouseY
-        add_checkbox normalizeDiagonal
-        add_checkbox wheelChangesSpeed
+        let behaviorGrid = two_column_grid ()
+        add_grid_control behaviorGrid exitOnMouseLeft
+        add_grid_control behaviorGrid exitOnMouseRight
+        add_grid_control behaviorGrid exitOnMouseMiddle
+        add_grid_control behaviorGrid hijackRightClick
+        add_grid_control behaviorGrid commandsDoNotRepeat
+        add_grid_control behaviorGrid normalizeDiagonal
+        add_grid_control behaviorGrid boostHold
+        add_grid_control behaviorGrid slowHold
+        add_grid_control behaviorGrid invertMouseX
+        add_grid_control behaviorGrid invertMouseY
+        add_grid_control behaviorGrid wheelChangesSpeed
+        behaviorGrid.ResumeLayout(false)
+        add_full_width behaviorGrid
         add_heading "Controls"
 
-        add_note
-            "Click Set, then press a keyboard key or mouse button. Speed increase/decrease can be cleared. Mouse wheel behavior is configured above."
-
-        add_row "Forward" (binding_editor forward false defaults.forward)
-        add_row "Backward" (binding_editor backward false defaults.backward)
-        add_row "Move left" (binding_editor left false defaults.left)
-        add_row "Move right" (binding_editor right false defaults.right)
-        add_row "Move up" (binding_editor up false defaults.up)
-        add_row "Move down" (binding_editor down false defaults.down)
-        add_row "Boost Mode (Toggle)" (binding_editor boost false defaults.boost_toggle)
-        add_row "Slow Mode (Toggle)" (binding_editor slow false defaults.slow)
-        add_row "Increase speed" (binding_editor speedIncrease true defaults.speed_increase)
-        add_row "Decrease speed" (binding_editor speedDecrease true defaults.speed_decrease)
-        add_row "Exit fly mode" (binding_editor exitKey false defaults.exit_key)
-
-        add_note
-            "Mouse wheel up/down is reserved for speed adjustment and is not a bindable key. Equals means the =/+ key; Minus means the -/_ key."
+        let controlsGrid = two_column_grid ()
+        add_grid_item controlsGrid "Forward" (binding_editor forward defaults.forward)
+        add_grid_item controlsGrid "Backward" (binding_editor backward defaults.backward)
+        add_grid_item controlsGrid "Move left" (binding_editor left defaults.left)
+        add_grid_item controlsGrid "Move right" (binding_editor right defaults.right)
+        add_grid_item controlsGrid "Move up" (binding_editor up defaults.up)
+        add_grid_item controlsGrid "Move down" (binding_editor down defaults.down)
+        add_grid_item controlsGrid "Boost Mode" (binding_editor boost defaults.boost_toggle)
+        add_grid_item controlsGrid "Slow Mode" (binding_editor slow defaults.slow)
+        add_grid_item controlsGrid "Increase speed" (binding_editor speedIncrease defaults.speed_increase)
+        add_grid_item controlsGrid "Decrease speed" (binding_editor speedDecrease defaults.speed_decrease)
+        add_grid_item controlsGrid "Exit fly mode" (binding_editor exitKey defaults.exit_key)
+        controlsGrid.ResumeLayout(false)
+        add_full_width controlsGrid
 
         add_heading "Speed and mouse"
-        add_row "Base speed (document units/second)" baseSpeed
-        add_row "Minimum speed" minimumSpeed
-        add_row "Maximum speed" maximumSpeed
-        add_row "Speed step multiplier" speedStep
-        add_row "Boost multiplier" boostMultiplier
-        add_row "Slow multiplier" slowMultiplier
-        add_row "Move up/down multiplier" verticalSpeedMultiplier
-        add_row "Mouse sensitivity (15 = default)" mouseSensitivity
-        add_note "Lower is slower, higher is faster. Values can range from tiny decimals such as 0.01 to 100 or more."
-        add_row "Update rate (Hz)" updateHz
-        add_row "Lens length in fly mode (mm)" lensLength
-
-        add_note
-            "Set to 0 to keep the viewport lens unchanged. A positive value is temporary; the original lens is restored on exit."
+        let speedGrid = two_column_grid ()
+        add_grid_item speedGrid "Base speed" baseSpeed
+        add_grid_item speedGrid "Minimum speed" minimumSpeed
+        add_grid_item speedGrid "Maximum speed" maximumSpeed
+        add_grid_item speedGrid "Speed step multiplier" speedStep
+        add_grid_item speedGrid "Boost multiplier" boostMultiplier
+        add_grid_item speedGrid "Slow multiplier" slowMultiplier
+        add_grid_item speedGrid "Move up/down multiplier" verticalSpeedMultiplier
+        add_grid_item speedGrid "Mouse sensitivity" mouseSensitivity
+        add_grid_item speedGrid "Update rate (Hz)" updateHz
+        add_grid_item speedGrid "Force lens length (mm)" lensLength
+        speedGrid.ResumeLayout(false)
+        add_full_width speedGrid
 
         add_heading "Raw JSON configuration"
         add_row "File" configPath
         add_row "Contents" rawJson
         add_heading "Status"
-        add_row "Configuration" status
-        add_heading "Runtime State"
-        add_row "Current speed" runtimeSpeed
-        add_row "Current lens" runtimeLens
-        let version = Assembly.GetExecutingAssembly().GetName().Version
-        add_note $"Version {version.Major}.{version.Minor}.{version.Build}"
+        refresh_status ()
+        add_full_width statusLine
+        add_full_width runtimeLine
 
         github.LinkClicked.Add(fun (_: LinkLabelLinkClickedEventArgs) ->
             Process.Start(ProcessStartInfo("https://github.com/Viterkim/RhinosCanFly", UseShellExecute = true))
@@ -337,33 +440,47 @@ type SettingsControl() as self =
             | Ok() ->
                 Runtime.reset_session_speed defaults.base_speed
                 RightClickEntry.set_enabled defaults.hijack_right_click_to_enter
-                runtimeSpeed.Text <- format defaults.base_speed
+                RepeatBehavior.apply defaults.commands_do_not_repeat
+                speedText <- format defaults.base_speed
+                refresh_status ()
 
                 match Config.read_raw () with
                 | Ok(path, content) -> self.ShowRaw(path, content)
                 | Error _ -> ()
 
-                self.ShowStatus "Reset all settings to defaults"
+                self.ShowStatus "Reset to defaults"
             | Error error -> self.ShowStatus $"Could not reset settings: {error}")
+
+        table.ResumeLayout(false)
+        self.Controls.Add table
+        dismiss_on_background_click self
+        self.ResumeLayout(true)
 
     member _.ApplyTheme() =
         let panel = AppearanceSettings.GetPaintColor PaintColor.PanelBackground
         let text = AppearanceSettings.GetPaintColor PaintColor.TextEnabled
         let edit = AppearanceSettings.GetPaintColor PaintColor.EditBoxBackground
-        apply_colors self panel text edit
-        github.LinkColor <- text
-        github.ActiveLinkColor <- text
-        github.VisitedLinkColor <- text
 
-    member _.ShowStatus(message: string) = status.Text <- message
+        if appliedTheme <> Some(panel, text, edit) then
+            apply_colors self panel text edit
+            github.LinkColor <- text
+            github.ActiveLinkColor <- text
+            github.VisitedLinkColor <- text
+            appliedTheme <- Some(panel, text, edit)
+
+    member _.ShowStatus(message: string) =
+        configurationText <- message
+        refresh_status ()
 
     member _.ShowRuntimeState(speed: float, lens: float option) =
-        runtimeSpeed.Text <- format speed
+        speedText <- format speed
 
-        runtimeLens.Text <-
+        lensText <-
             match lens with
             | Some value -> $"{format value} mm"
             | None -> "Unavailable"
+
+        refresh_status ()
 
     member _.ShowRaw(path: string, content: string) =
         configPath.Text <- path
@@ -391,6 +508,7 @@ type SettingsControl() as self =
         mouseSensitivity.Text <- format config.mouse_sensitivity
         updateHz.Text <- format config.update_hz
         lensLength.Text <- format config.lens_length_mm_in_mode
+        invertMouseX.Checked <- config.invert_mouse_x
         invertMouseY.Checked <- config.invert_mouse_y
         normalizeDiagonal.Checked <- config.normalize_diagonal_movement
         wheelChangesSpeed.Checked <- config.wheel_changes_speed
@@ -398,6 +516,7 @@ type SettingsControl() as self =
         exitOnMouseRight.Checked <- config.exit_on_mouse_right
         exitOnMouseMiddle.Checked <- config.exit_on_mouse_middle
         hijackRightClick.Checked <- config.hijack_right_click_to_enter
+        commandsDoNotRepeat.Checked <- config.commands_do_not_repeat
         boostHold.Checked <- config.boost_hold_instead_of_toggle
         slowHold.Checked <- config.slow_hold_instead_of_toggle
 
@@ -444,6 +563,7 @@ type SettingsControl() as self =
                   boost_multiplier = boostValue
                   slow_multiplier = slowValue
                   mouse_sensitivity = sensitivityValue
+                  invert_mouse_x = invertMouseX.Checked
                   invert_mouse_y = invertMouseY.Checked
                   update_hz = updateValue
                   normalize_diagonal_movement = normalizeDiagonal.Checked
@@ -452,6 +572,7 @@ type SettingsControl() as self =
                   exit_on_mouse_right = exitOnMouseRight.Checked
                   exit_on_mouse_middle = exitOnMouseMiddle.Checked
                   hijack_right_click_to_enter = hijackRightClick.Checked
+                  commands_do_not_repeat = commandsDoNotRepeat.Checked
                   boost_hold_instead_of_toggle = boostHold.Checked
                   slow_hold_instead_of_toggle = slowHold.Checked
                   vertical_speed_multiplier = verticalValue
