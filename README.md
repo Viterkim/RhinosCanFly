@@ -35,7 +35,6 @@ Do you want hammer source1/source2 ish old level editing camera controls, or mod
 ## Options
 
 ![image](./docs/img/options1.jpg)
-![image](./docs/img/options2.jpg)
 
 ## Main Install (Package Manager / Yak)
 

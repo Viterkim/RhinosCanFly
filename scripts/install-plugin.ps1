@@ -10,17 +10,8 @@ $ErrorActionPreference = "Stop"
 $pluginId = "8E6E7D56-5434-4EF6-884F-6C5130291935"
 $pluginName = "RhinosCanFly"
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$settings = Join-Path $PSScriptRoot "build-settings.ps1"
+$buildSetup = Join-Path $PSScriptRoot "build-setup.ps1"
 $buildScript = Join-Path $repoRoot "build.ps1"
-
-$buildParameters = @{
-    Configuration = $Configuration
-    Clean = $Clean.IsPresent
-}
-
-if ($PSBoundParameters.ContainsKey("RhinoVersion")) {
-    $buildParameters.RhinoVersion = $RhinoVersion
-}
 
 $runningRhino = Get-Process -Name "Rhino" -ErrorAction SilentlyContinue
 
@@ -28,10 +19,22 @@ if ($null -ne $runningRhino) {
     throw "Rhino is running and may have the plug-in file locked. Save your work, close Rhino, then run build-and-install.ps1 again."
 }
 
+$setupParameters = @{ Quiet = $true }
+
+if ($PSBoundParameters.ContainsKey("RhinoVersion")) {
+    $setupParameters.RhinoVersion = $RhinoVersion
+}
+
+. $buildSetup @setupParameters
+
+$buildParameters = @{
+    Configuration = $Configuration
+    Clean = $Clean.IsPresent
+    RhinoVersion = [int] $RhinoMajorVersion
+}
+
 & $buildScript @buildParameters
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-. $settings
 
 if ([string]::IsNullOrWhiteSpace($RhinoInstallDir)) {
     throw "Rhino $RhinoMajorVersion is not installed. The plug-in was built, but direct installation requires Rhino $RhinoMajorVersion."

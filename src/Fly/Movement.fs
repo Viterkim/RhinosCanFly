@@ -18,14 +18,22 @@ let direction_from_angles (yaw: float) (pitch: float) =
     let cosine = Math.Cos pitch
     Vector3d(cosine * Math.Cos yaw, cosine * Math.Sin yaw, Math.Sin pitch)
 
-let step (config: FlyConfig) (input: InputSnapshot) (dt: float) (camera: CameraState) =
-    let sign = if config.invert_mouse_y then 1. else -1.
+let look (config: FlyConfig) (mouseDx: int64) (mouseDy: int64) (camera: CameraState) =
+    let horizontal_sign = if config.invert_mouse_x then 1. else -1.
+    let vertical_sign = if config.invert_mouse_y then 1. else -1.
     let sensitivity = MouseSensitivity.radians_per_count config.mouse_sensitivity
-    let yaw = camera.yaw - float input.mouse_dx * sensitivity
+    let yaw = camera.yaw + float mouseDx * sensitivity * horizontal_sign
     let limit = RhinoMath.ToRadians 89.
 
     let pitch =
-        clamp -limit limit (camera.pitch + float input.mouse_dy * sensitivity * sign)
+        clamp -limit limit (camera.pitch + float mouseDy * sensitivity * vertical_sign)
+
+    { camera with yaw = yaw; pitch = pitch }
+
+let step (config: FlyConfig) (input: InputSnapshot) (dt: float) (camera: CameraState) =
+    let camera = look config input.mouse_dx input.mouse_dy camera
+    let yaw = camera.yaw
+    let pitch = camera.pitch
 
     let forward = direction_from_angles yaw pitch
     let right = Vector3d(Math.Sin yaw, -Math.Cos yaw, 0.)

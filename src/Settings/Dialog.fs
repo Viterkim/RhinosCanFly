@@ -13,9 +13,9 @@ open Rhino.UI
 type RhinosCanFlySettingsDialog() as self =
     inherit
         Form(
-            Text = "Rhinos Can Fly",
+            Text = "Rhinos Can Fly Options",
             StartPosition = FormStartPosition.CenterScreen,
-            Size = Size(900, 800),
+            Size = Size(900, 900),
             MinimumSize = Size(650, 500)
         )
 

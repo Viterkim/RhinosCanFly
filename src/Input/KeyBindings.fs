@@ -55,33 +55,53 @@ let aliases =
 
     d
 
+let parse_key (text: string) =
+    let mutable alias = Unchecked.defaultof<Keys>
+
+    if aliases.TryGetValue(text, &alias) then
+        Ok(int alias)
+    elif text.StartsWith("0x", StringComparison.OrdinalIgnoreCase) then
+        let mutable value = 0
+
+        if Int32.TryParse(text.Substring 2, NumberStyles.HexNumber, CultureInfo.InvariantCulture, &value) then
+            Ok value
+        else
+            Error $"'{text}' is not a valid hexadecimal virtual-key code"
+    else
+        let mutable key = Unchecked.defaultof<Keys>
+
+        if Enum.TryParse<Keys>(text, true, &key) then
+            Ok(int key)
+        else
+            Error $"unknown key '{text}'"
+
 let parse (source: string) =
     if String.IsNullOrWhiteSpace source then
         Error "key name is empty"
     else
-        let text = source.Trim()
-        let mutable alias = Unchecked.defaultof<Keys>
+        let keys = ResizeArray<int>()
+        let mutable error = None
 
-        if aliases.TryGetValue(text, &alias) then
+        for part in source.Split '+' do
+            let text = part.Trim()
+
+            if Option.isNone error then
+                if String.IsNullOrWhiteSpace text then
+                    error <- Some $"invalid key combination '{source}'"
+                else
+                    match parse_key text with
+                    | Ok key ->
+                        if not (keys.Contains key) then
+                            keys.Add key
+                    | Error message -> error <- Some message
+
+        match error with
+        | Some message -> Error message
+        | None ->
             Ok
-                { source = source
-                  virtual_key = int alias }
-        elif text.StartsWith("0x", StringComparison.OrdinalIgnoreCase) then
-            let mutable value = 0
-
-            if Int32.TryParse(text.Substring 2, NumberStyles.HexNumber, CultureInfo.InvariantCulture, &value) then
-                Ok { source = source; virtual_key = value }
-            else
-                Error $"'{source}' is not a valid hexadecimal virtual-key code"
-        else
-            let mutable key = Unchecked.defaultof<Keys>
-
-            if Enum.TryParse<Keys>(text, true, &key) then
-                Ok
-                    { source = source
-                      virtual_key = int key }
-            else
-                Error $"unknown key '{source}'"
+                { source = source.Trim()
+                  virtual_keys = List.ofSeq keys }
 
 let is_down (binding: KeyBinding) =
-    Win32.GetAsyncKeyState binding.virtual_key < 0s
+    binding.virtual_keys
+    |> List.forall (fun (virtualKey: int) -> Win32.GetAsyncKeyState virtualKey < 0s)

@@ -7,4 +7,3 @@ dist/
 .idea/
 TestResults/
 *.rhp
-scripts/build-settings.ps1

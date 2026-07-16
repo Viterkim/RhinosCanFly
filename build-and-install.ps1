@@ -7,15 +7,19 @@ param(
 
 $ErrorActionPreference = "Stop"
 $installer = Join-Path $PSScriptRoot "scripts\install-plugin.ps1"
-$settings = Join-Path $PSScriptRoot "scripts\build-settings.ps1"
+$buildSetup = Join-Path $PSScriptRoot "scripts\build-setup.ps1"
+$setupParameters = @{ Quiet = $true }
 $installParameters = @{
     Configuration = $Configuration
     Clean = $Clean.IsPresent
 }
 
 if ($PSBoundParameters.ContainsKey("RhinoVersion")) {
-    $installParameters.RhinoVersion = $RhinoVersion
+    $setupParameters.RhinoVersion = $RhinoVersion
 }
+
+. $buildSetup @setupParameters
+$installParameters.RhinoVersion = [int] $RhinoMajorVersion
 
 $runningRhino = @(Get-Process -Name "Rhino" -ErrorAction SilentlyContinue)
 
@@ -26,7 +30,6 @@ if ($runningRhino.Count -gt 0) {
 & $installer @installParameters
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-. $settings
 $rhinoExecutable = Join-Path $RhinoInstallDir "System\Rhino.exe"
 
 if (-not (Test-Path -LiteralPath $rhinoExecutable)) {

@@ -28,7 +28,7 @@ let load (control: SettingsControl) =
 
         let message =
             if List.isEmpty result.messages then
-                "Configuration loaded"
+                "Loaded"
             else
                 String.concat "; " result.messages
 
@@ -45,9 +45,15 @@ let save (control: SettingsControl) =
         | Ok() ->
             Runtime.reset_session_speed config.base_speed
             RightClickEntry.set_enabled config.hijack_right_click_to_enter
+            RepeatBehavior.apply config.commands_do_not_repeat
+            let mouseOverrideResult = MouseButtonOverrides.apply config
             control.ShowRuntimeState(Runtime.current_speed config.base_speed, current_lens ())
             show_raw control
-            control.ShowStatus "Configuration saved"
+
+            match mouseOverrideResult with
+            | Ok() -> control.ShowStatus "Saved"
+            | Error error -> control.ShowStatus $"Saved; mouse overrides unavailable: {error}"
+
             true
         | Error error ->
             control.ShowStatus error
