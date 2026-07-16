@@ -6,8 +6,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$installer = Join-Path $PSScriptRoot "setup\install-plugin.ps1"
-$settings = Join-Path $PSScriptRoot "setup\build-settings.ps1"
+$installer = Join-Path $PSScriptRoot "scripts\install-plugin.ps1"
+$settings = Join-Path $PSScriptRoot "scripts\build-settings.ps1"
 $installParameters = @{
     Configuration = $Configuration
     Clean = $Clean.IsPresent

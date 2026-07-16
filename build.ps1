@@ -6,32 +6,38 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$setupDir = Join-Path $PSScriptRoot "setup"
-$settings = Join-Path $setupDir "build-settings.ps1"
-$setup = Join-Path $setupDir "build-setup.ps1"
+$scriptsDir = Join-Path $PSScriptRoot "scripts"
+$settings = Join-Path $scriptsDir "build-settings.ps1"
+$buildSetup = Join-Path $scriptsDir "build-setup.ps1"
 $project = Join-Path $PSScriptRoot "RhinosCanFly.fsproj"
 
-$setupParameters = @{}
+$buildSetupParameters = @{}
 
 if ($PSBoundParameters.ContainsKey("RhinoVersion")) {
-    $setupParameters.RhinoVersion = $RhinoVersion
+    $buildSetupParameters.RhinoVersion = $RhinoVersion
 }
 
-& $setup @setupParameters
+& $buildSetup @buildSetupParameters
 
 . $settings
 
-$rhinoCommon = Join-Path $RhinoSystemDir "RhinoCommon.dll"
+if ($UseLocalRhinoCommon) {
+    $rhinoCommon = Join-Path $RhinoSystemDir "RhinoCommon.dll"
 
-if (-not (Test-Path -LiteralPath $rhinoCommon)) {
-    throw "RhinoCommon.dll was not found at '$rhinoCommon'. Run .\setup\build-setup.ps1 again."
+    if (-not (Test-Path -LiteralPath $rhinoCommon)) {
+        throw "RhinoCommon.dll was not found at '$rhinoCommon'. Run .\scripts\build-setup.ps1 again."
+    }
 }
 
 $properties = @(
-    "-p:RhinoSystemDir=$RhinoSystemDir"
     "-p:RhinoMajorVersion=$RhinoMajorVersion"
     "-p:TargetFramework=$TargetFramework"
+    "-p:UseLocalRhinoCommon=$UseLocalRhinoCommon"
 )
+
+if ($UseLocalRhinoCommon) {
+    $properties += "-p:RhinoSystemDir=$RhinoSystemDir"
+}
 
 if ($Clean) {
     dotnet clean $project --configuration $Configuration @properties

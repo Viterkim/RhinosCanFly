@@ -6,9 +6,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$projectRoot = $PSScriptRoot
+$projectRoot = Split-Path -Parent $PSScriptRoot
 $buildScript = Join-Path $projectRoot "build.ps1"
-$settings = Join-Path $projectRoot "setup\build-settings.ps1"
+$settings = Join-Path $PSScriptRoot "build-settings.ps1"
 $manifest = Join-Path $projectRoot "manifest.yml"
 $dist = Join-Path $projectRoot "dist"
 
@@ -41,7 +41,6 @@ New-Item -ItemType Directory -Path $stage -Force | Out-Null
 
 $packageFiles = @(
     (Join-Path $output "RhinosCanFly.rhp")
-    (Join-Path $output "FSharp.Core.dll")
     $manifest
     (Join-Path $projectRoot "icon.png")
     (Join-Path $projectRoot "README.md")
@@ -54,6 +53,15 @@ foreach ($file in $packageFiles) {
     }
 
     Copy-Item -LiteralPath $file -Destination $stage
+}
+
+$dependencyFiles = @(
+    Get-ChildItem -LiteralPath $output -Filter "*.dll" |
+        Where-Object { $_.Name -notin @("RhinoCommon.dll", "Rhino.UI.dll", "Eto.dll") }
+)
+
+foreach ($file in $dependencyFiles) {
+    Copy-Item -LiteralPath $file.FullName -Destination $stage
 }
 
 $versionMatch = Select-String -Path $manifest -Pattern '^\s*version:\s*([^\s#]+)' | Select-Object -First 1
