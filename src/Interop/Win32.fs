@@ -27,6 +27,9 @@ let WM_SYSKEYUP = 0x0105
 let WM_SYSCHAR = 0x0106
 
 [<Literal>]
+let WM_MOUSELEAVE = 0x02A3
+
+[<Literal>]
 let RID_INPUT = 0x10000003u
 
 [<Literal>]
@@ -37,6 +40,9 @@ let RIDEV_REMOVE = 0x00000001u
 
 [<Literal>]
 let RIDEV_NOLEGACY = 0x00000030u
+
+[<Literal>]
+let ERROR_INSUFFICIENT_BUFFER = 122
 
 [<Literal>]
 let MOUSE_MOVE_ABSOLUTE = 0x0001us
@@ -98,6 +104,9 @@ type RawMouse =
 extern bool RegisterRawInputDevices(RawInputDevice[] devices, uint32 device_count, uint32 device_size)
 
 [<DllImport("user32.dll", SetLastError = true)>]
+extern uint32 GetRegisteredRawInputDevices(nativeint devices, uint32& device_count, uint32 device_size)
+
+[<DllImport("user32.dll", SetLastError = true)>]
 extern uint32 GetRawInputData(nativeint raw_input, uint32 command, nativeint data, uint32& size, uint32 header_size)
 
 [<DllImport("user32.dll")>]
@@ -127,9 +136,52 @@ extern nativeint GetForegroundWindow()
 [<DllImport("user32.dll")>]
 extern nativeint GetAncestor(nativeint window, uint32 flags)
 
-let last_error (operation: string) =
-    Win32Exception(Marshal.GetLastWin32Error())
+[<DllImport("user32.dll")>]
+extern nativeint SendMessage(nativeint window, int message, nativeint wparam, nativeint lparam)
+
+let win32_error (operation: string) (errorCode: int) =
+    Win32Exception(errorCode)
     |> fun (error: Win32Exception) -> $"{operation} failed: {error.Message}"
+
+let last_error (operation: string) =
+    win32_error operation (Marshal.GetLastWin32Error())
+
+let raw_input_device_size = uint32 (Marshal.SizeOf<RawInputDevice>())
+
+let get_registered_raw_mouse () =
+    let mutable deviceCount = 0u
+    let sizingResult = GetRegisteredRawInputDevices(nativeint 0, &deviceCount, raw_input_device_size)
+    let sizingError = Marshal.GetLastWin32Error()
+
+    if sizingResult = UInt32.MaxValue && sizingError <> ERROR_INSUFFICIENT_BUFFER then
+        Error(win32_error "GetRegisteredRawInputDevices" sizingError)
+    elif deviceCount = 0u then
+        Ok None
+    else
+        let buffer = Marshal.AllocHGlobal(int (deviceCount * raw_input_device_size))
+
+        try
+            let mutable capacity = deviceCount
+            let read = GetRegisteredRawInputDevices(buffer, &capacity, raw_input_device_size)
+
+            if read = UInt32.MaxValue then
+                Error(last_error "GetRegisteredRawInputDevices")
+            else
+                let count = min read deviceCount
+
+                if count = 0u then
+                    Ok None
+                else
+                    seq { 0u .. count - 1u }
+                    |> Seq.map (fun (index: uint32) ->
+                        Marshal.PtrToStructure<RawInputDevice>(
+                            IntPtr.Add(buffer, int (index * raw_input_device_size))
+                        ))
+                    |> Seq.tryFind (fun (device: RawInputDevice) ->
+                        device.usage_page = 0x01us && device.usage = 0x02us)
+                    |> Ok
+        finally
+            Marshal.FreeHGlobal buffer
 
 let register_raw_mouse (target: nativeint) =
     let mutable device = Unchecked.defaultof<RawInputDevice>
@@ -137,7 +189,11 @@ let register_raw_mouse (target: nativeint) =
     device.usage <- 0x02us
     device.flags <- RIDEV_NOLEGACY
     device.target <- target
-    RegisterRawInputDevices([| device |], 1u, uint32 (Marshal.SizeOf<RawInputDevice>()))
+
+    if RegisterRawInputDevices([| device |], 1u, raw_input_device_size) then
+        Ok()
+    else
+        Error(last_error "RegisterRawInputDevices")
 
 let unregister_raw_mouse () =
     let mutable device = Unchecked.defaultof<RawInputDevice>
@@ -145,7 +201,20 @@ let unregister_raw_mouse () =
     device.usage <- 0x02us
     device.flags <- RIDEV_REMOVE
     device.target <- nativeint 0
-    RegisterRawInputDevices([| device |], 1u, uint32 (Marshal.SizeOf<RawInputDevice>()))
+
+    if RegisterRawInputDevices([| device |], 1u, raw_input_device_size) then
+        Ok()
+    else
+        Error(last_error "RegisterRawInputDevices(remove)")
+
+let restore_raw_mouse (previous: RawInputDevice option) =
+    match previous with
+    | Some device ->
+        if RegisterRawInputDevices([| device |], 1u, raw_input_device_size) then
+            Ok()
+        else
+            Error(last_error "RegisterRawInputDevices(restore)")
+    | None -> unregister_raw_mouse ()
 
 let raw_button_flags (mouse: RawMouse) = uint16 (mouse.buttons &&& 0xFFFFu)
 
@@ -202,3 +271,6 @@ let clear_cursor_clip () =
         Ok()
     else
         Error(last_error "ClipCursor(null)")
+
+let clear_mouse_hover (window: nativeint) =
+    SendMessage(window, WM_MOUSELEAVE, nativeint 0, nativeint 0) |> ignore
