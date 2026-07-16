@@ -40,6 +40,9 @@ if ($UseLocalRhinoCommon) {
 }
 
 if ($Clean) {
+    dotnet restore $project @properties
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
     dotnet clean $project --configuration $Configuration @properties
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
