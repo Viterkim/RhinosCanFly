@@ -21,10 +21,10 @@ let defaultValues: FlyConfigFile =
       speed_increase = "Equals"
       speed_decrease = "Minus"
       exit_key = "Escape"
-      base_speed = 40.
+      base_speed = 36.
       minimum_speed = 1.
       maximum_speed = 100000.
-      speed_step_multiplier = 1.5
+      speed_step_multiplier = 1.3
       boost_multiplier = 3.
       slow_multiplier = 0.3
       mouse_sensitivity = 15.
@@ -40,6 +40,22 @@ let defaultValues: FlyConfigFile =
       slow_hold_instead_of_toggle = false
       vertical_speed_multiplier = 0.6
       lens_length_mm_in_mode = 0. }
+
+let normalize_number (value: float) =
+    Math.Round(value, 12, MidpointRounding.AwayFromZero)
+
+let normalize_numbers (source: FlyConfigFile) =
+    { source with
+        base_speed = normalize_number source.base_speed
+        minimum_speed = normalize_number source.minimum_speed
+        maximum_speed = normalize_number source.maximum_speed
+        speed_step_multiplier = normalize_number source.speed_step_multiplier
+        boost_multiplier = normalize_number source.boost_multiplier
+        slow_multiplier = normalize_number source.slow_multiplier
+        mouse_sensitivity = normalize_number source.mouse_sensitivity
+        update_hz = normalize_number source.update_hz
+        vertical_speed_multiplier = normalize_number source.vertical_speed_multiplier
+        lens_length_mm_in_mode = normalize_number source.lens_length_mm_in_mode }
 
 let options =
     JsonSerializerOptions(
@@ -63,7 +79,7 @@ let path () =
 let default_config () = defaultValues
 
 let to_object (value: FlyConfigFile) =
-    JsonSerializer.SerializeToNode(value, options).AsObject()
+    JsonSerializer.SerializeToNode(normalize_numbers value, options).AsObject()
 
 let write_json (config_path: string) (json: JsonObject) =
     File.WriteAllText(config_path, json.ToJsonString options + Environment.NewLine)
@@ -236,6 +252,8 @@ let load () =
         let source, config =
             match parsed with
             | Ok source ->
+                let source = normalize_numbers source
+
                 match compile source with
                 | Ok config -> source, config
                 | Error _ ->
@@ -257,6 +275,12 @@ let load () =
                 | Ok config -> defaultValues, config
                 | Error error -> failwith error
 
+        let beforeNumberNormalization = json.ToJsonString()
+        merge_known_values json source
+
+        if json.ToJsonString() <> beforeNumberNormalization then
+            changed <- true
+
         if changed then
             write_json config_path json
 
@@ -270,7 +294,9 @@ let load () =
         Error error.Message
 
 let save (source: FlyConfigFile) =
-    match compile source with
+    let normalizedSource = normalize_numbers source
+
+    match compile normalizedSource with
     | Error error -> Error error
     | Ok _ ->
         try
@@ -278,7 +304,7 @@ let save (source: FlyConfigFile) =
 
             let json =
                 to_object
-                    { source with
+                    { normalizedSource with
                         config_version = CurrentVersion }
 
             let content = json.ToJsonString options + Environment.NewLine

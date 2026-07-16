@@ -1,7 +1,7 @@
 namespace RhinosCanFly
 
 open System
-open System.ComponentModel
+open System.Diagnostics
 open System.Runtime.InteropServices
 open System.Windows.Forms
 
@@ -9,14 +9,33 @@ type RawInputWindow(handle: nativeint, state: FlyState) as self =
     inherit NativeWindow()
     let buffer = Marshal.AllocHGlobal 128
     let mutable disposed = false
+    let mutable handleAssigned = false
+    let mutable bufferFreed = false
+    let mutable previousRawMouse: Win32.RawInputDevice option = None
+
+    let release_resources () =
+        if handleAssigned then
+            self.ReleaseHandle()
+            handleAssigned <- false
+
+        if not bufferFreed then
+            Marshal.FreeHGlobal buffer
+            bufferFreed <- true
 
     do
-        self.AssignHandle handle
+        try
+            self.AssignHandle handle
+            handleAssigned <- true
 
-        if not (Win32.register_raw_mouse handle) then
-            self.ReleaseHandle()
-            Marshal.FreeHGlobal buffer
-            raise (Win32Exception(Marshal.GetLastWin32Error()))
+            match Win32.get_registered_raw_mouse () with
+            | Error error -> failwith error
+            | Ok previous ->
+                match Win32.register_raw_mouse handle with
+                | Ok() -> previousRawMouse <- previous
+                | Error error -> failwith error
+        with _ ->
+            release_resources ()
+            reraise ()
 
     override _.WndProc(message: byref<Message>) =
         if message.Msg = Win32.WM_INPUT then
@@ -60,6 +79,18 @@ type RawInputWindow(handle: nativeint, state: FlyState) as self =
         member _.Dispose() =
             if not disposed then
                 disposed <- true
-                Win32.unregister_raw_mouse () |> ignore
-                self.ReleaseHandle()
-                Marshal.FreeHGlobal buffer
+
+                try
+                    match Win32.restore_raw_mouse previousRawMouse with
+                    | Ok() -> ()
+                    | Error restoreError ->
+                        Debug.WriteLine $"RhinosCanFly: {restoreError}"
+
+                        match previousRawMouse with
+                        | Some _ ->
+                            match Win32.unregister_raw_mouse () with
+                            | Ok() -> ()
+                            | Error removalError -> Debug.WriteLine $"RhinosCanFly: {removalError}"
+                        | None -> ()
+                finally
+                    release_resources ()

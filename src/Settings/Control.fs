@@ -64,9 +64,8 @@ type SettingsControl() as self =
     let github = new LinkLabel(Text = "Viterkim/RhinosCanFly", AutoSize = true)
 
     let format (value: float) =
-        // Fifteen significant digits retain useful config precision without
-        // exposing binary floating-point artifacts such as 0.59999999999999998.
-        value.ToString("G15", CultureInfo.InvariantCulture)
+        let rounded = Math.Round(value, 9, MidpointRounding.AwayFromZero)
+        rounded.ToString("G15", CultureInfo.InvariantCulture)
 
     let parse_number (name: string) (field: TextBox) =
         let mutable value = 0.

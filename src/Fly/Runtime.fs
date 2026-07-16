@@ -4,6 +4,7 @@ open System
 open System.Diagnostics
 open System.Threading
 open Rhino
+open Rhino.ApplicationSettings
 open Rhino.Display
 open Rhino.Geometry
 
@@ -193,25 +194,29 @@ let run (view: RhinoView) (config: FlyConfig) =
         try
             try
                 let state = make_state view config
+                let originalTooltipsEnabled = CursorTooltipSettings.TooltipsEnabled
                 let mutable raw = None
                 let mutable captured = false
+                let mutable cursorHidden = false
+                let mutable tooltipsChanged = false
 
                 try
+                    CursorTooltipSettings.TooltipsEnabled <- false
+                    tooltipsChanged <- true
+                    Win32.clear_mouse_hover view.Handle
+                    RhinoApp.Wait()
                     apply_entry_lens state
-                    raw <- Some(new RawInputWindow(view.Handle, state))
-
-                    match Win32.clip_cursor view.ScreenRectangle with
-                    | Ok() -> captured <- true
-                    | Error error -> failwith error
 
                     let rectangle = view.ScreenRectangle
 
-                    let center =
-                        Drawing.Point(rectangle.Left + rectangle.Width / 2, rectangle.Top + rectangle.Height / 2)
+                    match Win32.clip_cursor rectangle with
+                    | Ok() -> captured <- true
+                    | Error error -> failwith error
 
-                    Win32.set_cursor_position center |> ignore
                     Win32.SetFocus view.Handle |> ignore
+                    raw <- Some(new RawInputWindow(view.Handle, state))
                     Win32.ShowCursor false |> ignore
+                    cursorHidden <- true
                     let clock = Stopwatch.StartNew()
                     let interval = 1. / config.update_hz
                     let mutable previous = clock.Elapsed.TotalSeconds
@@ -229,19 +234,27 @@ let run (view: RhinoView) (config: FlyConfig) =
 
                     Ok()
                 finally
-                    match raw with
-                    | Some window -> (window :> IDisposable).Dispose()
-                    | None -> ()
+                    try
+                        match raw with
+                        | Some window -> (window :> IDisposable).Dispose()
+                        | None -> ()
 
-                    Win32.clear_cursor_clip () |> ignore
-                    Win32.ShowCursor true |> ignore
+                        Win32.clear_cursor_clip () |> ignore
 
-                    if captured then
-                        Win32.set_cursor_position state.original_cursor |> ignore
+                        if captured then
+                            Win32.set_cursor_position state.original_cursor |> ignore
 
-                    state.viewport.Camera35mmLensLength <- state.original_lens_length
-                    sessionSpeed <- Some state.speed
-                    view.Redraw()
+                        if cursorHidden then
+                            Win32.ShowCursor true |> ignore
+
+                        state.viewport.Camera35mmLensLength <- state.original_lens_length
+                        sessionSpeed <- Some state.speed
+                    finally
+                        try
+                            if tooltipsChanged then
+                                CursorTooltipSettings.TooltipsEnabled <- originalTooltipsEnabled
+                        finally
+                            view.Redraw()
             with error ->
                 Error error.Message
         finally
