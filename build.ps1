@@ -7,7 +7,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 $scriptsDir = Join-Path $PSScriptRoot "scripts"
-$settings = Join-Path $scriptsDir "build-settings.ps1"
 $buildSetup = Join-Path $scriptsDir "build-setup.ps1"
 $project = Join-Path $PSScriptRoot "RhinosCanFly.fsproj"
 
@@ -17,15 +16,13 @@ if ($PSBoundParameters.ContainsKey("RhinoVersion")) {
     $buildSetupParameters.RhinoVersion = $RhinoVersion
 }
 
-& $buildSetup @buildSetupParameters
-
-. $settings
+. $buildSetup @buildSetupParameters
 
 if ($UseLocalRhinoCommon) {
     $rhinoCommon = Join-Path $RhinoSystemDir "RhinoCommon.dll"
 
     if (-not (Test-Path -LiteralPath $rhinoCommon)) {
-        throw "RhinoCommon.dll was not found at '$rhinoCommon'. Run .\scripts\build-setup.ps1 again."
+        throw "RhinoCommon.dll was not found at '$rhinoCommon'. Check the Rhino $RhinoMajorVersion installation."
     }
 }
 

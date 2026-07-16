@@ -24,13 +24,12 @@ let defaultValues: FlyConfigFile =
       base_speed = 36.
       minimum_speed = 1.
       maximum_speed = 100000.
-      speed_step_multiplier = 1.3
+      speed_step_multiplier = 1.4
       boost_multiplier = 3.
       slow_multiplier = 0.3
       mouse_sensitivity = 15.
       invert_mouse_x = false
       invert_mouse_y = false
-      update_hz = 120.
       normalize_diagonal_movement = true
       wheel_changes_speed = true
       exit_on_mouse_left = false
@@ -38,6 +37,9 @@ let defaultValues: FlyConfigFile =
       exit_on_mouse_middle = false
       hijack_right_click_to_enter = true
       commands_do_not_repeat = true
+      mouse_button_overrides_enabled = false
+      mouse4_acts_as_middle = true
+      mouse5_acts_as_middle = false
       boost_hold_instead_of_toggle = false
       slow_hold_instead_of_toggle = false
       vertical_speed_multiplier = 0.6
@@ -55,7 +57,6 @@ let normalize_numbers (source: FlyConfigFile) =
         boost_multiplier = normalize_number source.boost_multiplier
         slow_multiplier = normalize_number source.slow_multiplier
         mouse_sensitivity = normalize_number source.mouse_sensitivity
-        update_hz = normalize_number source.update_hz
         vertical_speed_multiplier = normalize_number source.vertical_speed_multiplier
         lens_length_mm_in_mode = normalize_number source.lens_length_mm_in_mode }
 
@@ -119,7 +120,6 @@ let compile (source: FlyConfigFile) =
       "boost_multiplier", source.boost_multiplier
       "slow_multiplier", source.slow_multiplier
       "mouse_sensitivity", source.mouse_sensitivity
-      "update_hz", source.update_hz
       "vertical_speed_multiplier", source.vertical_speed_multiplier ]
     |> List.iter (fun (name: string, value: float) -> positive name value)
 
@@ -134,9 +134,6 @@ let compile (source: FlyConfigFile) =
 
     if source.speed_step_multiplier <= 1. then
         errors.Add "speed_step_multiplier must be greater than 1"
-
-    if source.update_hz > 1000. then
-        errors.Add "update_hz must be 1000 or lower"
 
     if
         Double.IsNaN source.lens_length_mm_in_mode
@@ -169,7 +166,6 @@ let compile (source: FlyConfigFile) =
             |> MouseSensitivity.to_runtime
           invert_mouse_x = source.invert_mouse_x
           invert_mouse_y = source.invert_mouse_y
-          update_hz = source.update_hz
           normalize_diagonal_movement = source.normalize_diagonal_movement
           wheel_changes_speed = source.wheel_changes_speed
           exit_on_mouse_left = source.exit_on_mouse_left

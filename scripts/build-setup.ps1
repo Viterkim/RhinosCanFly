@@ -1,5 +1,6 @@
 param(
-    [int] $RhinoVersion = 0
+    [int] $RhinoVersion = 0,
+    [switch] $Quiet
 )
 
 $ErrorActionPreference = "Stop"
@@ -80,16 +81,16 @@ if ($null -eq $rhino) {
     }
 }
 
-$targetFramework = $supportedTargets[$rhino.Major]
-$useLocalRhinoCommon = -not [string]::IsNullOrWhiteSpace($rhino.System)
-$yakPath = ""
+$resolvedTargetFramework = $supportedTargets[$rhino.Major]
+$resolvedUseLocalRhinoCommon = -not [string]::IsNullOrWhiteSpace($rhino.System)
+$resolvedYakPath = ""
 
 if (-not [string]::IsNullOrWhiteSpace($rhino.Install)) {
     $candidateYak = Join-Path $rhino.Install "System\Yak.exe"
-    if (Test-Path -LiteralPath $candidateYak) { $yakPath = $candidateYak }
+    if (Test-Path -LiteralPath $candidateYak) { $resolvedYakPath = $candidateYak }
 }
 
-if ([string]::IsNullOrWhiteSpace($yakPath)) {
+if ([string]::IsNullOrWhiteSpace($resolvedYakPath)) {
     foreach ($major in @(9, 8, 7)) {
         $yakRhino = Find-RhinoInstallation -Major $major
 
@@ -97,33 +98,29 @@ if ([string]::IsNullOrWhiteSpace($yakPath)) {
             $candidateYak = Join-Path $yakRhino.Install "System\Yak.exe"
 
             if (Test-Path -LiteralPath $candidateYak) {
-                $yakPath = $candidateYak
+                $resolvedYakPath = $candidateYak
                 break
             }
         }
     }
 }
 
-$settings = Join-Path $PSScriptRoot "build-settings.ps1"
-$useLocalValue = if ($useLocalRhinoCommon) { '$true' } else { '$false' }
-$content = @(
-    "`$RhinoMajorVersion = `"$($rhino.Major)`""
-    "`$RhinoInstallDir = `"$($rhino.Install)`""
-    "`$RhinoSystemDir = `"$($rhino.System)`""
-    "`$UseLocalRhinoCommon = $useLocalValue"
-    "`$TargetFramework = `"$targetFramework`""
-    "`$YakPath = `"$yakPath`""
-)
+$RhinoMajorVersion = [int] $rhino.Major
+$RhinoInstallDir = [string] $rhino.Install
+$RhinoSystemDir = [string] $rhino.System
+$UseLocalRhinoCommon = $resolvedUseLocalRhinoCommon
+$TargetFramework = $resolvedTargetFramework
+$YakPath = $resolvedYakPath
 
-Set-Content -LiteralPath $settings -Value $content -Encoding UTF8
+if (-not $Quiet) {
+    Write-Host "Configured Rhino $RhinoMajorVersion"
 
-Write-Host "Configured Rhino $($rhino.Major)"
+    if ($UseLocalRhinoCommon) {
+        Write-Host "RhinoCommon: $RhinoSystemDir"
+    }
+    else {
+        Write-Host "RhinoCommon: NuGet $RhinoMajorVersion compile-only build"
+    }
 
-if ($useLocalRhinoCommon) {
-    Write-Host "RhinoCommon: $($rhino.System)"
+    Write-Host "Target: $TargetFramework"
 }
-else {
-    Write-Host "RhinoCommon: NuGet $($rhino.Major) compile-only build"
-}
-
-Write-Host "Target: $targetFramework"

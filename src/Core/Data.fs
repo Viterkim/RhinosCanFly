@@ -26,7 +26,6 @@ type FlyConfigFile =
       mouse_sensitivity: float
       invert_mouse_x: bool
       invert_mouse_y: bool
-      update_hz: float
       normalize_diagonal_movement: bool
       wheel_changes_speed: bool
       exit_on_mouse_left: bool
@@ -34,6 +33,9 @@ type FlyConfigFile =
       exit_on_mouse_middle: bool
       hijack_right_click_to_enter: bool
       commands_do_not_repeat: bool
+      mouse_button_overrides_enabled: bool
+      mouse4_acts_as_middle: bool
+      mouse5_acts_as_middle: bool
       boost_hold_instead_of_toggle: bool
       slow_hold_instead_of_toggle: bool
       vertical_speed_multiplier: float
@@ -70,7 +72,6 @@ type FlyConfig =
       mouse_sensitivity: RuntimeMouseSensitivity
       invert_mouse_x: bool
       invert_mouse_y: bool
-      update_hz: float
       normalize_diagonal_movement: bool
       wheel_changes_speed: bool
       exit_on_mouse_left: bool

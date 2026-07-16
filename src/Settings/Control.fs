@@ -34,7 +34,6 @@ type SettingsControl() as self =
     let slowMultiplier = new TextBox()
     let verticalSpeedMultiplier = new TextBox()
     let mouseSensitivity = new TextBox()
-    let updateHz = new TextBox()
     let lensLength = new TextBox()
     let invertMouseX = new CheckBox(Text = "Invert mouse X")
     let invertMouseY = new CheckBox(Text = "Invert mouse Y")
@@ -54,6 +53,12 @@ type SettingsControl() as self =
 
     let boostHold = new CheckBox(Text = "Boost Mode: hold instead of toggle")
     let slowHold = new CheckBox(Text = "Slow Mode: hold instead of toggle")
+
+    let mouseButtonOverridesEnabled =
+        new CheckBox(Text = "Enable mouse button overrides (experimental)", AutoSize = true)
+
+    let mouse4AsMiddle = new CheckBox(Text = "Mouse 4 drag manipulates view")
+    let mouse5AsMiddle = new CheckBox(Text = "Mouse 5 drag manipulates view")
     let statusLine = new Label(AutoSize = true, MaximumSize = Size(900, 0))
     let runtimeLine = new Label(AutoSize = true, MaximumSize = Size(900, 0))
     let configPath = new TextBox(ReadOnly = true)
@@ -62,6 +67,18 @@ type SettingsControl() as self =
         new TextBox(ReadOnly = true, Multiline = true, WordWrap = false, ScrollBars = ScrollBars.Both, Height = 120)
 
     let resetAll = new Button(Text = "Reset all to defaults", AutoSize = true)
+
+    let rawJsonToggle =
+        new Button(Text = "Show raw JSON configuration", AutoSize = true)
+
+    let rawJsonPanel =
+        let value =
+            new TableLayoutPanel(Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, Visible = false)
+
+        value.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)) |> ignore
+        value.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100.f)) |> ignore
+        value
+
     let github = new LinkLabel(Text = "Viterkim/RhinosCanFly", AutoSize = true)
     let version = Assembly.GetExecutingAssembly().GetName().Version
     let versionText = $"{version.Major}.{version.Minor}.{version.Build}"
@@ -77,6 +94,10 @@ type SettingsControl() as self =
     let refresh_status () =
         statusLine.Text <- $"Version: {versionText}  |  Configuration: {configurationText}"
         runtimeLine.Text <- $"Current Speed: {speedText}  |  Current Lens: {lensText}"
+
+    let refresh_mouse_override_controls () =
+        mouse4AsMiddle.Enabled <- mouseButtonOverridesEnabled.Checked
+        mouse5AsMiddle.Enabled <- mouseButtonOverridesEnabled.Checked
 
     let parse_number (name: string) (field: TextBox) =
         let mutable value = 0.
@@ -98,17 +119,17 @@ type SettingsControl() as self =
         value.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100.f)) |> ignore
         value
 
-    let add_row (label: string) (control: Control) =
-        let row = table.RowCount
-        table.RowCount <- row + 1
-        table.RowStyles.Add(new RowStyle(SizeType.AutoSize)) |> ignore
+    let add_raw_json_row (label: string) (control: Control) =
+        let row = rawJsonPanel.RowCount
+        rawJsonPanel.RowCount <- row + 1
+        rawJsonPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize)) |> ignore
 
         let caption =
             new Label(Text = label, AutoSize = true, Anchor = AnchorStyles.Left, Margin = Padding(3, 7, 12, 3))
 
         control.Dock <- DockStyle.Fill
-        table.Controls.Add(caption, 0, row)
-        table.Controls.Add(control, 1, row)
+        rawJsonPanel.Controls.Add(caption, 0, row)
+        rawJsonPanel.Controls.Add(control, 1, row)
 
     let two_column_grid () =
         let grid =
@@ -413,14 +434,18 @@ type SettingsControl() as self =
         add_grid_item speedGrid "Slow multiplier" slowMultiplier
         add_grid_item speedGrid "Move up/down multiplier" verticalSpeedMultiplier
         add_grid_item speedGrid "Mouse sensitivity" mouseSensitivity
-        add_grid_item speedGrid "Update rate (Hz)" updateHz
         add_grid_item speedGrid "Force lens length (mm)" lensLength
         speedGrid.ResumeLayout(false)
         add_full_width speedGrid
 
-        add_heading "Raw JSON configuration"
-        add_row "File" configPath
-        add_row "Contents" rawJson
+        add_heading "Override mouse button behavior"
+        add_full_width mouseButtonOverridesEnabled
+        let mouseOverrideGrid = two_column_grid ()
+        add_grid_control mouseOverrideGrid mouse4AsMiddle
+        add_grid_control mouseOverrideGrid mouse5AsMiddle
+        mouseOverrideGrid.ResumeLayout(false)
+        add_full_width mouseOverrideGrid
+        add_note "Uses Rhino's middle-button Pan/Rotate/Swap settings. Side-button clicks are ignored."
         add_heading "Status"
         refresh_status ()
         add_full_width statusLine
@@ -432,6 +457,23 @@ type SettingsControl() as self =
 
         add_full_width github
         add_full_width resetAll
+        add_raw_json_row "File" configPath
+        add_raw_json_row "Contents" rawJson
+        add_full_width rawJsonToggle
+        add_full_width rawJsonPanel
+
+        rawJsonToggle.Click.Add(fun (_: EventArgs) ->
+            rawJsonPanel.Visible <- not rawJsonPanel.Visible
+
+            rawJsonToggle.Text <-
+                if rawJsonPanel.Visible then
+                    "Hide raw JSON configuration"
+                else
+                    "Show raw JSON configuration")
+
+        mouseButtonOverridesEnabled.CheckedChanged.Add(fun (_: EventArgs) -> refresh_mouse_override_controls ())
+
+        refresh_mouse_override_controls ()
 
         resetAll.Click.Add(fun (_: EventArgs) ->
             self.LoadConfig defaults
@@ -441,6 +483,7 @@ type SettingsControl() as self =
                 Runtime.reset_session_speed defaults.base_speed
                 RightClickEntry.set_enabled defaults.hijack_right_click_to_enter
                 RepeatBehavior.apply defaults.commands_do_not_repeat
+                let mouseOverrideResult = MouseButtonOverrides.apply defaults
                 speedText <- format defaults.base_speed
                 refresh_status ()
 
@@ -448,7 +491,9 @@ type SettingsControl() as self =
                 | Ok(path, content) -> self.ShowRaw(path, content)
                 | Error _ -> ()
 
-                self.ShowStatus "Reset to defaults"
+                match mouseOverrideResult with
+                | Ok() -> self.ShowStatus "Reset to defaults"
+                | Error error -> self.ShowStatus $"Reset to defaults; mouse overrides unavailable: {error}"
             | Error error -> self.ShowStatus $"Could not reset settings: {error}")
 
         table.ResumeLayout(false)
@@ -506,7 +551,6 @@ type SettingsControl() as self =
         slowMultiplier.Text <- format config.slow_multiplier
         verticalSpeedMultiplier.Text <- format config.vertical_speed_multiplier
         mouseSensitivity.Text <- format config.mouse_sensitivity
-        updateHz.Text <- format config.update_hz
         lensLength.Text <- format config.lens_length_mm_in_mode
         invertMouseX.Checked <- config.invert_mouse_x
         invertMouseY.Checked <- config.invert_mouse_y
@@ -517,6 +561,10 @@ type SettingsControl() as self =
         exitOnMouseMiddle.Checked <- config.exit_on_mouse_middle
         hijackRightClick.Checked <- config.hijack_right_click_to_enter
         commandsDoNotRepeat.Checked <- config.commands_do_not_repeat
+        mouseButtonOverridesEnabled.Checked <- config.mouse_button_overrides_enabled
+        mouse4AsMiddle.Checked <- config.mouse4_acts_as_middle
+        mouse5AsMiddle.Checked <- config.mouse5_acts_as_middle
+        refresh_mouse_override_controls ()
         boostHold.Checked <- config.boost_hold_instead_of_toggle
         slowHold.Checked <- config.slow_hold_instead_of_toggle
 
@@ -530,7 +578,6 @@ type SettingsControl() as self =
             parse_number "Slow multiplier" slowMultiplier,
             parse_number "Move up/down multiplier" verticalSpeedMultiplier,
             parse_number "Mouse sensitivity" mouseSensitivity,
-            parse_number "Update rate" updateHz,
             parse_number "Lens length" lensLength
         with
         | Ok baseValue,
@@ -541,7 +588,6 @@ type SettingsControl() as self =
           Ok slowValue,
           Ok verticalValue,
           Ok sensitivityValue,
-          Ok updateValue,
           Ok lensValue ->
             Ok
                 { config_version = Config.CurrentVersion
@@ -565,7 +611,6 @@ type SettingsControl() as self =
                   mouse_sensitivity = sensitivityValue
                   invert_mouse_x = invertMouseX.Checked
                   invert_mouse_y = invertMouseY.Checked
-                  update_hz = updateValue
                   normalize_diagonal_movement = normalizeDiagonal.Checked
                   wheel_changes_speed = wheelChangesSpeed.Checked
                   exit_on_mouse_left = exitOnMouseLeft.Checked
@@ -573,12 +618,15 @@ type SettingsControl() as self =
                   exit_on_mouse_middle = exitOnMouseMiddle.Checked
                   hijack_right_click_to_enter = hijackRightClick.Checked
                   commands_do_not_repeat = commandsDoNotRepeat.Checked
+                  mouse_button_overrides_enabled = mouseButtonOverridesEnabled.Checked
+                  mouse4_acts_as_middle = mouse4AsMiddle.Checked
+                  mouse5_acts_as_middle = mouse5AsMiddle.Checked
                   boost_hold_instead_of_toggle = boostHold.Checked
                   slow_hold_instead_of_toggle = slowHold.Checked
                   vertical_speed_multiplier = verticalValue
                   lens_length_mm_in_mode = lensValue }
-        | a, b, c, d, e, f, g, h, i, j ->
-            [ a; b; c; d; e; f; g; h; i; j ]
+        | a, b, c, d, e, f, g, h, i ->
+            [ a; b; c; d; e; f; g; h; i ]
             |> List.choose (function
                 | Error error -> Some error
                 | Ok _ -> None)

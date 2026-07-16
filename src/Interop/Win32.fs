@@ -30,6 +30,15 @@ let WM_SYSCHAR = 0x0106
 let WM_MOUSELEAVE = 0x02A3
 
 [<Literal>]
+let INPUT_MOUSE = 0u
+
+[<Literal>]
+let MOUSEEVENTF_MIDDLEDOWN = 0x00000020u
+
+[<Literal>]
+let MOUSEEVENTF_MIDDLEUP = 0x00000040u
+
+[<Literal>]
 let RID_INPUT = 0x10000003u
 
 [<Literal>]
@@ -65,6 +74,18 @@ let WHEEL_DELTA = 120
 [<Literal>]
 let GA_ROOT = 2u
 
+[<Literal>]
+let QS_ALLINPUT = 0x04FFu
+
+[<Literal>]
+let MWMO_INPUTAVAILABLE = 0x0004u
+
+[<Literal>]
+let WAIT_FAILED = 0xFFFFFFFFu
+
+[<Literal>]
+let INFINITE = 0xFFFFFFFFu
+
 [<Struct; StructLayout(LayoutKind.Sequential)>]
 type NativePoint =
     val mutable x: int
@@ -76,6 +97,20 @@ type NativeRect =
     val mutable top: int
     val mutable right: int
     val mutable bottom: int
+
+[<Struct; StructLayout(LayoutKind.Sequential)>]
+type MouseInput =
+    val mutable dx: int
+    val mutable dy: int
+    val mutable mouse_data: uint32
+    val mutable flags: uint32
+    val mutable time: uint32
+    val mutable extra_info: unativeint
+
+[<Struct; StructLayout(LayoutKind.Sequential)>]
+type NativeInput =
+    val mutable input_type: uint32
+    val mutable mouse: MouseInput
 
 [<Struct; StructLayout(LayoutKind.Sequential)>]
 type RawInputDevice =
@@ -138,6 +173,18 @@ extern nativeint GetAncestor(nativeint window, uint32 flags)
 
 [<DllImport("user32.dll")>]
 extern nativeint SendMessage(nativeint window, int message, nativeint wparam, nativeint lparam)
+
+[<DllImport("user32.dll", SetLastError = true)>]
+extern uint32 SendInput(uint32 input_count, NativeInput[] inputs, int input_size)
+
+[<DllImport("user32.dll", SetLastError = true)>]
+extern uint32 MsgWaitForMultipleObjectsEx(
+    uint32 object_count,
+    nativeint handles,
+    uint32 milliseconds,
+    uint32 wake_mask,
+    uint32 flags
+)
 
 let win32_error (operation: string) (errorCode: int) =
     Win32Exception(errorCode)
@@ -274,3 +321,32 @@ let clear_cursor_clip () =
 
 let clear_mouse_hover (window: nativeint) =
     SendMessage(window, WM_MOUSELEAVE, nativeint 0, nativeint 0) |> ignore
+
+let wait_for_input (timeoutMilliseconds: uint32) =
+    let result =
+        MsgWaitForMultipleObjectsEx(0u, nativeint 0, timeoutMilliseconds, QS_ALLINPUT, MWMO_INPUTAVAILABLE)
+
+    if result = WAIT_FAILED then
+        Error(last_error "MsgWaitForMultipleObjectsEx")
+    else
+        Ok()
+
+let send_middle_mouse (down: bool) (marker: unativeint) =
+    let mutable mouse = Unchecked.defaultof<MouseInput>
+
+    mouse.flags <-
+        if down then
+            MOUSEEVENTF_MIDDLEDOWN
+        else
+            MOUSEEVENTF_MIDDLEUP
+
+    mouse.extra_info <- marker
+
+    let mutable input = Unchecked.defaultof<NativeInput>
+    input.input_type <- INPUT_MOUSE
+    input.mouse <- mouse
+
+    if SendInput(1u, [| input |], Marshal.SizeOf<NativeInput>()) = 1u then
+        Ok()
+    else
+        Error(last_error "SendInput(middle mouse)")

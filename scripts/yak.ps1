@@ -8,23 +8,26 @@ param(
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $buildScript = Join-Path $projectRoot "build.ps1"
-$settings = Join-Path $PSScriptRoot "build-settings.ps1"
+$buildSetup = Join-Path $PSScriptRoot "build-setup.ps1"
 $manifest = Join-Path $projectRoot "manifest.yml"
 $dist = Join-Path $projectRoot "dist"
+
+$setupParameters = @{ Quiet = $true }
+
+if ($PSBoundParameters.ContainsKey("RhinoVersion")) {
+    $setupParameters.RhinoVersion = $RhinoVersion
+}
+
+. $buildSetup @setupParameters
 
 $buildParameters = @{
     Configuration = "Release"
     Clean = $Clean.IsPresent
-}
-
-if ($PSBoundParameters.ContainsKey("RhinoVersion")) {
-    $buildParameters.RhinoVersion = $RhinoVersion
+    RhinoVersion = [int] $RhinoMajorVersion
 }
 
 & $buildScript @buildParameters
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-. $settings
 
 if (-not (Test-Path -LiteralPath $YakPath)) {
     throw "Yak.exe was not found at '$YakPath'."

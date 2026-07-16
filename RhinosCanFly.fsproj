@@ -64,6 +64,7 @@
     <Compile Include="src/Commands/RepeatBehavior.fs" />
     <Compile Include="src/Fly/Movement.fs" />
     <Compile Include="src/Input/RawInputWindow.fs" />
+    <Compile Include="src/Input/MouseButtonOverrides.fs" />
     <Compile Include="src/Fly/Runtime.fs" />
     <Compile Include="src/Input/RightClickEntry.fs" />
     <Compile Include="src/Settings/Control.fs" />

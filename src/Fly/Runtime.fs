@@ -2,7 +2,6 @@ module RhinosCanFly.Runtime
 
 open System
 open System.Diagnostics
-open System.Threading
 open Rhino
 open Rhino.ApplicationSettings
 open Rhino.Display
@@ -62,10 +61,22 @@ let toggles (state: FlyState) =
 
     state.speed_decrease_was_down <- decrease
 
-let read_input (state: FlyState) =
+let drain_mouse_input (state: FlyState) =
     let dx, dy = state.mouse_dx, state.mouse_dy
     state.mouse_dx <- 0L
     state.mouse_dy <- 0L
+    dx, dy
+
+let apply_mouse_look (state: FlyState) =
+    let dx, dy = drain_mouse_input state
+
+    if dx = 0L && dy = 0L then
+        false
+    else
+        state.camera <- Movement.look state.config dx dy state.camera
+        true
+
+let read_movement_input (state: FlyState) =
 
     let slow_active =
         if state.config.slow_hold_instead_of_toggle then
@@ -89,8 +100,8 @@ let read_input (state: FlyState) =
       up = down state.config.up
       down = down state.config.down
       move_speed = state.speed * slow * boost
-      mouse_dx = dx
-      mouse_dy = dy }
+      mouse_dx = 0L
+      mouse_dy = 0L }
 
 let apply (state: FlyState) =
     let direction = Movement.direction_from_angles state.camera.yaw state.camera.pitch
@@ -108,9 +119,18 @@ let apply_entry_lens (state: FlyState) =
         state.viewport.Camera35mmLensLength <- lens
         state.view.Redraw()
 
-let tick (state: FlyState) (dt: float) =
+let movement_active (input: InputSnapshot) =
+    input.forward
+    || input.backward
+    || input.left
+    || input.right
+    || input.up
+    || input.down
+
+let poll_controls (state: FlyState) =
     if Win32.GetForegroundWindow() <> state.root_window || down state.config.exit_key then
         state.running <- false
+        None
     else
         if state.config.wheel_changes_speed then
             let wheel = state.wheel_delta
@@ -120,20 +140,7 @@ let tick (state: FlyState) (dt: float) =
                 speed_step state (float wheel / float Win32.WHEEL_DELTA)
 
         toggles state
-        let input = read_input state
-
-        if
-            input.mouse_dx <> 0L
-            || input.mouse_dy <> 0L
-            || input.forward
-            || input.backward
-            || input.left
-            || input.right
-            || input.up
-            || input.down
-        then
-            state.camera <- Movement.step state.config input dt state.camera
-            apply state
+        Some(read_movement_input state)
 
 let make_state (view: RhinoView) (config: FlyConfig) =
     let viewport = view.ActiveViewport
@@ -188,6 +195,7 @@ let run (view: RhinoView) (config: FlyConfig) =
         Error "Fly mode is already running."
     else
         sessionRunning <- true
+        MouseButtonOverrides.suspend ()
 
         try
             try
@@ -216,19 +224,39 @@ let run (view: RhinoView) (config: FlyConfig) =
                     Win32.ShowCursor false |> ignore
                     cursorHidden <- true
                     let clock = Stopwatch.StartNew()
-                    let interval = 1. / config.update_hz
-                    let mutable previous = clock.Elapsed.TotalSeconds
+                    let mutable previousFrame = clock.Elapsed.TotalSeconds
+                    let mutable movementActive = false
 
                     while state.running do
-                        RhinoApp.Wait()
-                        let now = clock.Elapsed.TotalSeconds
+                        if not movementActive then
+                            match Win32.wait_for_input Win32.INFINITE with
+                            | Ok() -> ()
+                            | Error error -> failwith error
 
-                        if now - previous >= interval then
-                            let dt = min (now - previous) 0.05
-                            previous <- now
-                            tick state dt
-                        else
-                            Thread.Sleep 1
+                        RhinoApp.Wait()
+
+                        if state.running then
+                            let mouseChanged = apply_mouse_look state
+
+                            match poll_controls state with
+                            | None -> ()
+                            | Some input ->
+                                let now = clock.Elapsed.TotalSeconds
+                                let currentlyMoving = movement_active input
+
+                                let movementChanged =
+                                    if movementActive && currentlyMoving then
+                                        let dt = min (now - previousFrame) 0.05
+                                        state.camera <- Movement.step state.config input dt state.camera
+                                        true
+                                    else
+                                        false
+
+                                previousFrame <- now
+                                movementActive <- currentlyMoving
+
+                                if state.running && (mouseChanged || movementChanged) then
+                                    apply state
 
                     Ok()
                 finally
@@ -257,3 +285,4 @@ let run (view: RhinoView) (config: FlyConfig) =
                 Error error.Message
         finally
             sessionRunning <- false
+            MouseButtonOverrides.resume ()
