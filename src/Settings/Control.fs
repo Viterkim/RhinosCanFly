@@ -82,7 +82,7 @@ type SettingsControl() as self =
     let github = new LinkLabel(Text = "Viterkim/RhinosCanFly", AutoSize = true)
     let version = Assembly.GetExecutingAssembly().GetName().Version
     let versionText = $"{version.Major}.{version.Minor}.{version.Build}"
-    let mutable configurationText = "Not loaded"
+    let mutable configurationError: string option = None
     let mutable speedText = "Unavailable"
     let mutable lensText = "Unavailable"
     let mutable appliedTheme: (Color * Color * Color) option = None
@@ -99,7 +99,11 @@ type SettingsControl() as self =
         rounded.ToString("G15", CultureInfo.InvariantCulture)
 
     let refresh_status () =
-        statusLine.Text <- $"Version: {versionText}  |  Configuration: {configurationText}"
+        statusLine.Text <-
+            match configurationError with
+            | Some error -> $"Version: {versionText}  |  Configuration error: {error}"
+            | None -> $"Version: {versionText}"
+
         runtimeLine.Text <- $"Current Speed: {speedText}  |  Current Lens: {lensText}"
 
     let refresh_mouse_override_controls () =
@@ -525,9 +529,9 @@ type SettingsControl() as self =
                 | Error _ -> ()
 
                 match mouseOverrideResult with
-                | Ok() -> self.ShowStatus "Reset to defaults"
-                | Error error -> self.ShowStatus $"Reset to defaults; mouse overrides unavailable: {error}"
-            | Error error -> self.ShowStatus $"Could not reset settings: {error}")
+                | Ok() -> self.ClearError()
+                | Error error -> self.ShowError $"Mouse overrides unavailable: {error}"
+            | Error error -> self.ShowError $"Could not reset settings: {error}")
 
         table.ResumeLayout(false)
         self.Controls.Add table
@@ -546,8 +550,12 @@ type SettingsControl() as self =
             github.VisitedLinkColor <- text
             appliedTheme <- Some(panel, text, edit)
 
-    member _.ShowStatus(message: string) =
-        configurationText <- message
+    member _.ShowError(message: string) =
+        configurationError <- Some message
+        refresh_status ()
+
+    member _.ClearError() =
+        configurationError <- None
         refresh_status ()
 
     member _.ShowRuntimeState(speed: float, lens: float option) =

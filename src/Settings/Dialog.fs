@@ -99,4 +99,4 @@ type RhinosCanFlyOptionsPage() =
 
     override _.OnDefaults() =
         control.Value.LoadConfig(Config.default_config ())
-        control.Value.ShowStatus "Defaults loaded; click OK or Apply to save"
+        control.Value.ClearError()

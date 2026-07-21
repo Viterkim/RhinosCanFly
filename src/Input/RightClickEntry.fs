@@ -1,6 +1,7 @@
 module RhinosCanFly.RightClickEntry
 
 open System
+open System.Diagnostics
 open Rhino
 open Rhino.Commands
 open Rhino.UI
@@ -10,31 +11,46 @@ type RightClickCallback() =
 
     let mutable queued = false
 
+    let log_error (context: string) (error: exn) =
+        Debug.WriteLine $"RhinosCanFly {context}: {error.Message}"
+
     override _.OnMouseDown(event: MouseCallbackEventArgs) =
-        let isPerspective =
-            not (isNull event.View) && event.View.ActiveViewport.IsPerspectiveProjection
+        try
+            let isPerspective =
+                not (isNull event.View) && event.View.ActiveViewport.IsPerspectiveProjection
 
-        if
-            event.MouseButton = MouseButton.Right
-            && isPerspective
-            && not (Command.InCommand())
-            && not (Runtime.is_running ())
-        then
-            event.Cancel <- true
+            if
+                event.MouseButton = MouseButton.Right
+                && isPerspective
+                && not (Command.InCommand())
+                && not (Runtime.is_running ())
+            then
+                event.Cancel <- true
 
-            if not queued then
-                queued <- true
-                let mutable idleHandler = Unchecked.defaultof<EventHandler>
+                if not queued then
+                    queued <- true
+                    let mutable idleHandler = Unchecked.defaultof<EventHandler>
 
-                idleHandler <-
-                    EventHandler(fun (_: obj) (_: EventArgs) ->
-                        RhinoApp.Idle.RemoveHandler idleHandler
-                        queued <- false
+                    idleHandler <-
+                        EventHandler(fun (_: obj) (_: EventArgs) ->
+                            try
+                                RhinoApp.Idle.RemoveHandler idleHandler
+                                queued <- false
 
-                        if not (Command.InCommand()) && not (Runtime.is_running ()) then
-                            RhinoApp.RunScript("! _RhinosCanFly", false) |> ignore)
+                                if not (Command.InCommand()) && not (Runtime.is_running ()) then
+                                    RhinoApp.RunScript("! _RhinosCanFly", false) |> ignore
+                            with error ->
+                                queued <- false
+                                log_error "right-click idle handler" error)
 
-                RhinoApp.Idle.AddHandler idleHandler
+                    RhinoApp.Idle.AddHandler idleHandler
+        with error ->
+            try
+                event.Cancel <- false
+            with _ ->
+                ()
+
+            log_error "right-click callback" error
 
 let callback = RightClickCallback()
 

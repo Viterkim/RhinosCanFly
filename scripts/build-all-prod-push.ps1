@@ -19,7 +19,7 @@ if ($null -eq $versionMatch) {
 $version = $versionMatch.Matches[0].Groups[1].Value.Trim("'`"")
 $packages = @()
 
-foreach ($rhinoVersion in @(7, 8)) {
+foreach ($rhinoVersion in $ReleaseRhinoVersions) {
     $pattern = "rhinoscanfly-$version-rh$($rhinoVersion)_*-win.yak"
     $matches = @(Get-ChildItem -LiteralPath $dist -Filter $pattern -File -ErrorAction SilentlyContinue)
 
@@ -39,4 +39,5 @@ foreach ($package in $packages) {
     }
 }
 
-Write-Host "Published Rhino 7 and Rhino 8 packages for version $version."
+$releaseNames = ($ReleaseRhinoVersions | ForEach-Object { "Rhino $_" }) -join " and "
+Write-Host "Published $releaseNames packages for version $version."

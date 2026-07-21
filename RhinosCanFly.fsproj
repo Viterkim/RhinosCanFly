@@ -1,16 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <RhinoMajorVersion Condition="'$(RhinoMajorVersion)' == '' and (Exists('C:\Program Files\Rhino 9\System\RhinoCommon.dll') or Exists('C:\Program Files\Rhino 9\System\netcore\RhinoCommon.dll'))">9</RhinoMajorVersion>
-    <RhinoMajorVersion Condition="'$(RhinoMajorVersion)' == ''">8</RhinoMajorVersion>
-    <TargetFramework Condition="'$(TargetFramework)' == '' and '$(RhinoMajorVersion)' == '7'">net48</TargetFramework>
-    <TargetFramework Condition="'$(TargetFramework)' == '' and '$(RhinoMajorVersion)' == '9'">net10.0-windows</TargetFramework>
-    <TargetFramework Condition="'$(TargetFramework)' == ''">net8.0-windows</TargetFramework>
     <OutputType>Library</OutputType>
     <TargetExt>.rhp</TargetExt>
     <AssemblyName>RhinosCanFly</AssemblyName>
     <RootNamespace>RhinosCanFly</RootNamespace>
-    <RhinoCommonPackageVersion Condition="'$(RhinoMajorVersion)' == '7'">7.38.24338.17001</RhinoCommonPackageVersion>
-    <RhinoCommonPackageVersion Condition="'$(RhinoCommonPackageVersion)' == ''">8.32.26160.13001</RhinoCommonPackageVersion>
     <ExplicitInputTypesSeverity Condition="'$(ExplicitInputTypesSeverity)' == ''">error</ExplicitInputTypesSeverity>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <!-- Allow restore/design-time project loading on non-Windows hosts. -->
@@ -22,11 +15,6 @@
     <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <PropertyGroup>
-    <RhinoSystemDir Condition="'$(RhinoSystemDir)' == '' and '$(RhinoMajorVersion)' == '9' and Exists('C:\Program Files\Rhino 9\System\RhinoCommon.dll')">C:\Program Files\Rhino 9\System</RhinoSystemDir>
-    <RhinoSystemDir Condition="'$(RhinoSystemDir)' == '' and '$(RhinoMajorVersion)' == '9' and Exists('C:\Program Files\Rhino 9\System\netcore\RhinoCommon.dll')">C:\Program Files\Rhino 9\System\netcore</RhinoSystemDir>
-    <RhinoSystemDir Condition="'$(RhinoSystemDir)' == '' and '$(RhinoMajorVersion)' == '8' and Exists('C:\Program Files\Rhino 8\System\netcore\RhinoCommon.dll')">C:\Program Files\Rhino 8\System\netcore</RhinoSystemDir>
-    <RhinoSystemDir Condition="'$(RhinoSystemDir)' == '' and '$(RhinoMajorVersion)' == '7' and Exists('C:\Program Files\Rhino 7\System\RhinoCommon.dll')">C:\Program Files\Rhino 7\System</RhinoSystemDir>
-    <UseLocalRhinoCommon Condition="'$(UseLocalRhinoCommon)' == '' and Exists('$(RhinoSystemDir)/RhinoCommon.dll')">true</UseLocalRhinoCommon>
     <UseLocalRhinoCommon Condition="'$(UseLocalRhinoCommon)' == ''">false</UseLocalRhinoCommon>
   </PropertyGroup>
   <PropertyGroup>
