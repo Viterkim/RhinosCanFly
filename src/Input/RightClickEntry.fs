@@ -45,6 +45,8 @@ type RightClickCallback() =
 
                     RhinoApp.Idle.AddHandler idleHandler
         with error ->
+            queued <- false
+
             try
                 event.Cancel <- false
             with _ ->
