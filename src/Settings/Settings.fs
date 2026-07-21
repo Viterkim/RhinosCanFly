@@ -22,10 +22,17 @@ let load (control: SettingsControl) =
     match Config.load () with
     | Error error -> control.ShowError $"Could not load configuration: {error}"
     | Ok result ->
-        control.ClearError()
         control.LoadConfig result.config_file
         control.ShowRuntimeState(Runtime.current_speed result.config_file.base_speed, current_lens ())
         show_raw control
+
+        let repairMessages =
+            result.messages
+            |> List.filter (fun (message: string) -> message.StartsWith("reset ", StringComparison.Ordinal))
+
+        match repairMessages with
+        | [] -> control.ClearError()
+        | messages -> control.ShowError(String.concat "; " messages)
 
 let save (control: SettingsControl) =
     match control.ReadConfig() with

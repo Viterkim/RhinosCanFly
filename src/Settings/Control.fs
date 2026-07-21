@@ -324,7 +324,7 @@ type SettingsControl() as self =
             if capturing then
                 match mouse_name event.Button with
                 | Some binding ->
-                    suppressNextClick <- true
+                    suppressNextClick <- event.Button = MouseButtons.Left
                     field.Text <- chord_name Control.ModifierKeys binding
                     stop ()
                 | None -> ())
