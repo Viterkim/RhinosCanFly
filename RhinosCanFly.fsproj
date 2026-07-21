@@ -47,6 +47,9 @@
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48" Version="1.0.3" PrivateAssets="all" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="src/Resources/RhinosCanFly.ico" LogicalName="RhinosCanFly.Resources.PluginIcon.ico" />
+  </ItemGroup>
   <Target Name="CheckExplicitInputTypes" BeforeTargets="CoreCompile">
     <Exec Command="dotnet fsi &quot;$(MSBuildProjectDirectory)/tools/check-explicit-input-types.fsx&quot; -- &quot;$(MSBuildProjectDirectory)/src&quot;" IgnoreExitCode="true">
       <Output TaskParameter="ExitCode" PropertyName="ExplicitInputTypesExitCode" />

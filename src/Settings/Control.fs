@@ -87,6 +87,13 @@ type SettingsControl() as self =
     let mutable lensText = "Unavailable"
     let mutable appliedTheme: (Color * Color * Color) option = None
 
+    let optionsIcon =
+        DrawingUtilities.BitmapFromIconResource(
+            "RhinosCanFly.Resources.PluginIcon.ico",
+            Size(32, 32),
+            Assembly.GetExecutingAssembly()
+        )
+
     let format (value: float) =
         let rounded = Math.Round(value, 9, MidpointRounding.AwayFromZero)
         rounded.ToString("G15", CultureInfo.InvariantCulture)
@@ -262,6 +269,7 @@ type SettingsControl() as self =
         let setButton = small_button "Set..."
         let defaultButton = small_button "Default"
         let mutable capturing = false
+        let mutable suppressNextClick = false
         field.Dock <- DockStyle.Fill
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100.f)) |> ignore
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)) |> ignore
@@ -276,11 +284,17 @@ type SettingsControl() as self =
             setButton.Capture <- false
             setButton.Text <- "Set..."
 
-        setButton.Click.Add(fun (_: EventArgs) ->
+        let start () =
             capturing <- true
             setButton.Text <- "Press..."
             setButton.Capture <- true
-            setButton.Focus() |> ignore)
+            setButton.Focus() |> ignore
+
+        setButton.Click.Add(fun (_: EventArgs) ->
+            if suppressNextClick then
+                suppressNextClick <- false
+            elif not capturing then
+                start ())
 
         setButton.PreviewKeyDown.Add(fun (event: PreviewKeyDownEventArgs) ->
             if capturing then
@@ -306,6 +320,7 @@ type SettingsControl() as self =
             if capturing then
                 match mouse_name event.Button with
                 | Some binding ->
+                    suppressNextClick <- true
                     field.Text <- chord_name Control.ModifierKeys binding
                     stop ()
                 | None -> ())
@@ -384,14 +399,32 @@ type SettingsControl() as self =
         self.AutoScroll <- true
         self.SetStyle(ControlStyles.Selectable, true)
 
+        let titleRow =
+            new FlowLayoutPanel(
+                AutoSize = true,
+                Dock = DockStyle.Top,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false
+            )
+
+        let titleIcon =
+            new PictureBox(Image = optionsIcon, Size = Size(32, 32), SizeMode = PictureBoxSizeMode.Zoom)
+
         let title =
             new Label(
                 Text = "Rhinos Can Fly Options",
                 AutoSize = true,
-                Font = new Font(self.Font.FontFamily, self.Font.Size + 5.f, FontStyle.Bold)
+                Font = new Font(self.Font.FontFamily, self.Font.Size + 5.f, FontStyle.Bold),
+                Margin = Padding(8, 4, 0, 0)
             )
 
-        add_full_width title
+        titleRow.Controls.Add(titleIcon)
+        titleRow.Controls.Add(title)
+        add_full_width titleRow
+
+        if not (isNull optionsIcon) then
+            self.Disposed.Add(fun (_: EventArgs) -> optionsIcon.Dispose())
+
         add_heading "Behavior"
         let behaviorGrid = two_column_grid ()
         add_grid_control behaviorGrid exitOnMouseLeft

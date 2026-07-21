@@ -52,9 +52,9 @@ Install in Rhino itself, run `PackageManager` and search for `RhinosCanFly`, cli
 
 ## Artistic Logo / Icon
 
-TODO: Waiting for peter's contribution in mspaint
+![image](./docs/img/rcf-logo.png)
 
-![image](./docs/img/full-icon.jpg)
+We might have to use cardboard wings, but it works. Credit to Peter for the artistic logo.
 
 ## Disclaimer
 
