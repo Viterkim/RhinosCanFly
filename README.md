@@ -44,7 +44,7 @@ Install in Rhino itself, run `PackageManager` and search for `RhinosCanFly`, cli
 
 [Forum Link](https://discourse.mcneel.com/t/rhinos-can-fly-wasd-game-engine-fly-camera-controls-for-rhino/220880)
 
-[Food 4 Rhino Link](https://www.food4rhino.com/en/app/rhinoscanfly)
+[Food 4 Rhino Link](https://www.food4rhino.com/en/app/rhinos-can-fly-rhinoscanfly-flying-custom-perspective-view)
 
 [Building On Windows](./docs/building-on-windows.md)
 
