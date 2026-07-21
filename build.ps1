@@ -2,6 +2,7 @@ param(
     [ValidateSet("Debug", "Release")]
     [string] $Configuration = "Release",
     [switch] $Clean,
+    [switch] $UseNuGetRhinoCommon,
     [int] $RhinoVersion = 0
 )
 
@@ -11,6 +12,10 @@ $buildSetup = Join-Path $scriptsDir "build-setup.ps1"
 $project = Join-Path $PSScriptRoot "RhinosCanFly.fsproj"
 
 $buildSetupParameters = @{}
+
+if ($UseNuGetRhinoCommon) {
+    $buildSetupParameters.UseNuGetRhinoCommon = $true
+}
 
 if ($PSBoundParameters.ContainsKey("RhinoVersion")) {
     $buildSetupParameters.RhinoVersion = $RhinoVersion
@@ -29,6 +34,7 @@ if ($UseLocalRhinoCommon) {
 $properties = @(
     "-p:RhinoMajorVersion=$RhinoMajorVersion"
     "-p:TargetFramework=$TargetFramework"
+    "-p:RhinoCommonPackageVersion=$RhinoCommonPackageVersion"
     "-p:UseLocalRhinoCommon=$UseLocalRhinoCommon"
 )
 

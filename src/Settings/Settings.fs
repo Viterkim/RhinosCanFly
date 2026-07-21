@@ -20,24 +20,17 @@ let load (control: SettingsControl) =
     control.ApplyTheme()
 
     match Config.load () with
-    | Error error -> control.ShowStatus $"Could not load configuration: {error}"
+    | Error error -> control.ShowError $"Could not load configuration: {error}"
     | Ok result ->
+        control.ClearError()
         control.LoadConfig result.config_file
         control.ShowRuntimeState(Runtime.current_speed result.config_file.base_speed, current_lens ())
         show_raw control
 
-        let message =
-            if List.isEmpty result.messages then
-                "Loaded"
-            else
-                String.concat "; " result.messages
-
-        control.ShowStatus message
-
 let save (control: SettingsControl) =
     match control.ReadConfig() with
     | Error error ->
-        control.ShowStatus error
+        control.ShowError error
         RhinoApp.WriteLine $"RhinosCanFly settings were not saved: {error}"
         false
     | Ok config ->
@@ -51,11 +44,11 @@ let save (control: SettingsControl) =
             show_raw control
 
             match mouseOverrideResult with
-            | Ok() -> control.ShowStatus "Saved"
-            | Error error -> control.ShowStatus $"Saved; mouse overrides unavailable: {error}"
+            | Ok() -> control.ClearError()
+            | Error error -> control.ShowError $"Mouse overrides unavailable: {error}"
 
             true
         | Error error ->
-            control.ShowStatus error
+            control.ShowError error
             RhinoApp.WriteLine $"RhinosCanFly settings were not saved: {error}"
             false

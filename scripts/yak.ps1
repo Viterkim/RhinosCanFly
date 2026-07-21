@@ -24,6 +24,7 @@ $buildParameters = @{
     Configuration = "Release"
     Clean = $Clean.IsPresent
     RhinoVersion = [int] $RhinoMajorVersion
+    UseNuGetRhinoCommon = $true
 }
 
 & $buildScript @buildParameters

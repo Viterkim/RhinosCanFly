@@ -99,7 +99,7 @@ let read_movement_input (state: FlyState) =
       right = down state.config.right
       up = down state.config.up
       down = down state.config.down
-      move_speed = state.speed * slow * boost
+      move_speed = state.speed * slow * boost * state.movement_units_per_speed_unit
       mouse_dx = 0L
       mouse_dy = 0L }
 
@@ -144,6 +144,17 @@ let poll_controls (state: FlyState) =
 
 let make_state (view: RhinoView) (config: FlyConfig) =
     let viewport = view.ActiveViewport
+    let gridSpacing = viewport.GetConstructionPlane().GridSpacing
+
+    let movementScale =
+        if
+            not (Double.IsNaN gridSpacing)
+            && not (Double.IsInfinity gridSpacing)
+            && gridSpacing > 0.
+        then
+            gridSpacing
+        else
+            1.
 
     let original_cursor =
         match Win32.get_cursor_position () with
@@ -170,6 +181,7 @@ let make_state (view: RhinoView) (config: FlyConfig) =
       original_cursor = original_cursor
       original_lens_length = viewport.Camera35mmLensLength
       target_distance = target_distance
+      movement_units_per_speed_unit = movementScale
       running = true
       camera =
         { position = viewport.CameraLocation

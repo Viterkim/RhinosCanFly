@@ -22,6 +22,13 @@ type RhinosCanFlySettingsDialog() as self =
     let control = new SettingsControl(Dock = DockStyle.Fill)
     let saveButton = new Button(Text = "Save", AutoSize = true)
 
+    let windowIcon =
+        DrawingUtilities.IconFromResource(
+            "RhinosCanFly.Resources.PluginIcon.ico",
+            Size(32, 32),
+            Assembly.GetExecutingAssembly()
+        )
+
     let cancelButton =
         new Button(Text = "Cancel", AutoSize = true, DialogResult = DialogResult.Cancel)
 
@@ -46,6 +53,11 @@ type RhinosCanFlySettingsDialog() as self =
             button.ForeColor <- text
 
     do
+        self.Icon <- windowIcon
+
+        if not (isNull windowIcon) then
+            self.Disposed.Add(fun (_: EventArgs) -> windowIcon.Dispose())
+
         buttons.Controls.Add cancelButton
         buttons.Controls.Add saveButton
         self.Controls.Add control
@@ -87,4 +99,4 @@ type RhinosCanFlyOptionsPage() =
 
     override _.OnDefaults() =
         control.Value.LoadConfig(Config.default_config ())
-        control.Value.ShowStatus "Defaults loaded; click OK or Apply to save"
+        control.Value.ClearError()

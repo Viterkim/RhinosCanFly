@@ -145,16 +145,23 @@ let update_from_viewport_move () =
 type SideButtonCallback() =
     inherit MouseCallback()
 
-    override _.OnMouseMove(_event: MouseCallbackEventArgs) = update_from_viewport_move ()
+    override _.OnMouseMove(_event: MouseCallbackEventArgs) =
+        try
+            update_from_viewport_move ()
+        with error ->
+            Debug.WriteLine $"RhinosCanFly mouse override callback: {error.Message}"
 
 let callback = SideButtonCallback()
 
 releaseTimer.Tick.Add(fun (_: EventArgs) ->
-    if not (is_down Mouse4) then
-        finish_button Mouse4
+    try
+        if not (is_down Mouse4) then
+            finish_button Mouse4
 
-    if not (is_down Mouse5) then
-        finish_button Mouse5)
+        if not (is_down Mouse5) then
+            finish_button Mouse5
+    with error ->
+        Debug.WriteLine $"RhinosCanFly mouse override timer: {error.Message}")
 
 let apply (source: FlyConfigFile) =
     match release_all () with

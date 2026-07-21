@@ -114,6 +114,7 @@ type FlyState =
       original_cursor: System.Drawing.Point
       original_lens_length: float
       target_distance: float
+      movement_units_per_speed_unit: float
       mutable running: bool
       mutable camera: CameraState
       mutable speed: float
