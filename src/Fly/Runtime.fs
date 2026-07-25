@@ -27,6 +27,14 @@ let mutable sessionRunning = false
 
 let is_running () = sessionRunning
 
+let viewport_gesture_active (view: RhinoView) = view.MouseCaptured(false)
+
+let wait_for_viewport_gesture (view: RhinoView) =
+    while viewport_gesture_active view do
+        match Win32.wait_for_input Win32.INFINITE with
+        | Ok() -> RhinoApp.Wait()
+        | Error error -> failwith error
+
 let document_serial_number (document: RhinoDoc) =
     if isNull document then
         None
@@ -268,9 +276,11 @@ let run (view: RhinoView) (config: FlyConfig) =
         Error "Fly mode is already running."
     else
         sessionRunning <- true
-        MouseButtonOverrides.suspend ()
 
         try
+            wait_for_viewport_gesture view
+            MouseButtonOverrides.suspend ()
+
             try
                 let state = make_state view config
                 let originalTooltipsEnabled = CursorTooltipSettings.TooltipsEnabled

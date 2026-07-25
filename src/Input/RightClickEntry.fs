@@ -41,7 +41,7 @@ type RightClickCallback() =
                                 if isNull view then
                                     RhinoApp.Idle.RemoveHandler idleHandler
                                     queued <- false
-                                elif not (view.MouseCaptured(false)) then
+                                elif not (Runtime.viewport_gesture_active view) then
                                     RhinoApp.Idle.RemoveHandler idleHandler
                                     queued <- false
 
