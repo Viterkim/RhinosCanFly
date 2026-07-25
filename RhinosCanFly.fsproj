@@ -48,6 +48,7 @@
   <ItemGroup>
     <Compile Include="src/AssemblyInfo.fs" />
     <Compile Include="src/Core/Data.fs" />
+    <Compile Include="src/Core/Speed.fs" />
     <Compile Include="src/Core/MouseSensitivity.fs" />
     <Compile Include="src/Interop/Win32.fs" />
     <Compile Include="src/Input/KeyBindings.fs" />
@@ -58,6 +59,7 @@
     <Compile Include="src/Input/MouseButtonOverrides.fs" />
     <Compile Include="src/Fly/Runtime.fs" />
     <Compile Include="src/Input/RightClickEntry.fs" />
+    <Compile Include="src/Configuration/LiveSettings.fs" />
     <Compile Include="src/Settings/Control.fs" />
     <Compile Include="src/Settings/Settings.fs" />
     <Compile Include="src/Settings/Dialog.fs" />

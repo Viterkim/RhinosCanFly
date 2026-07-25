@@ -40,6 +40,9 @@ type SettingsControl() as self =
 
     let normalizeDiagonal = new CheckBox(Text = "Normalize diagonal movement")
 
+    let saveSpeedToDocument = new CheckBox(Text = "Save current speed to file")
+    let loadSpeedFromDocument = new CheckBox(Text = "Load speed from file")
+
     let wheelChangesSpeed = new CheckBox(Text = "Mouse wheel up/down controls speed")
 
     let exitOnMouseLeft = new CheckBox(Text = "Left mouse button exits fly mode")
@@ -441,6 +444,8 @@ type SettingsControl() as self =
         add_grid_control behaviorGrid slowHold
         add_grid_control behaviorGrid invertMouseX
         add_grid_control behaviorGrid invertMouseY
+        add_grid_control behaviorGrid saveSpeedToDocument
+        add_grid_control behaviorGrid loadSpeedFromDocument
         add_grid_control behaviorGrid wheelChangesSpeed
         behaviorGrid.ResumeLayout(false)
         add_full_width behaviorGrid
@@ -517,10 +522,9 @@ type SettingsControl() as self =
 
             match Config.save defaults with
             | Ok() ->
-                Runtime.reset_session_speed defaults.base_speed
-                RightClickEntry.set_enabled defaults.hijack_right_click_to_enter
-                RepeatBehavior.apply defaults.commands_do_not_repeat
-                let mouseOverrideResult = MouseButtonOverrides.apply defaults
+                let applyResult =
+                    LiveSettings.apply_with_speed RhinoDoc.ActiveDoc defaults defaults.base_speed
+
                 speedText <- format defaults.base_speed
                 refresh_status ()
 
@@ -528,9 +532,9 @@ type SettingsControl() as self =
                 | Ok(path, content) -> self.ShowRaw(path, content)
                 | Error _ -> ()
 
-                match mouseOverrideResult with
-                | Ok() -> self.ClearError()
-                | Error error -> self.ShowError $"Mouse overrides unavailable: {error}"
+                match applyResult with
+                | Ok _ -> self.ClearError()
+                | Error error -> self.ShowError error
             | Error error -> self.ShowError $"Could not reset settings: {error}")
 
         table.ResumeLayout(false)
@@ -596,6 +600,8 @@ type SettingsControl() as self =
         invertMouseX.Checked <- config.invert_mouse_x
         invertMouseY.Checked <- config.invert_mouse_y
         normalizeDiagonal.Checked <- config.normalize_diagonal_movement
+        saveSpeedToDocument.Checked <- config.save_speed_to_document
+        loadSpeedFromDocument.Checked <- config.load_speed_from_document
         wheelChangesSpeed.Checked <- config.wheel_changes_speed
         exitOnMouseLeft.Checked <- config.exit_on_mouse_left
         exitOnMouseRight.Checked <- config.exit_on_mouse_right
@@ -653,6 +659,8 @@ type SettingsControl() as self =
                   invert_mouse_x = invertMouseX.Checked
                   invert_mouse_y = invertMouseY.Checked
                   normalize_diagonal_movement = normalizeDiagonal.Checked
+                  save_speed_to_document = saveSpeedToDocument.Checked
+                  load_speed_from_document = loadSpeedFromDocument.Checked
                   wheel_changes_speed = wheelChangesSpeed.Checked
                   exit_on_mouse_left = exitOnMouseLeft.Checked
                   exit_on_mouse_right = exitOnMouseRight.Checked

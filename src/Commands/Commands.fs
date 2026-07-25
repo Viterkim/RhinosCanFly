@@ -3,6 +3,18 @@ module RhinosCanFly.Commands
 open System
 open Rhino
 open Rhino.Commands
+open Rhino.Input
+
+let with_config (run: ConfigLoadResult -> Result) =
+    match Config.load () with
+    | Error error ->
+        RhinoApp.WriteLine $"RhinosCanFly config error:{Environment.NewLine}{error}"
+        Result.Failure
+    | Ok loaded ->
+        for message in loaded.messages do
+            RhinoApp.WriteLine $"RhinosCanFly: {message}."
+
+        run loaded
 
 let run (document: RhinoDoc) =
     let view = document.Views.ActiveView
@@ -14,16 +26,41 @@ let run (document: RhinoDoc) =
         RhinoApp.WriteLine "RhinosCanFly: use a perspective viewport."
         Result.Cancel
     else
-        match Config.load () with
-        | Error error ->
-            RhinoApp.WriteLine $"RhinosCanFly config error:{Environment.NewLine}{error}"
-            Result.Failure
-        | Ok loaded ->
-            for message in loaded.messages do
-                RhinoApp.WriteLine $"RhinosCanFly: {message}."
-
+        with_config (fun (loaded: ConfigLoadResult) ->
             match Runtime.run view loaded.config with
             | Ok() -> Result.Success
             | Error error ->
                 RhinoApp.WriteLine $"RhinosCanFly failed: {error}"
-                Result.Failure
+                Result.Failure)
+
+let set_speed (document: RhinoDoc) =
+    with_config (fun (loaded: ConfigLoadResult) ->
+        let config = loaded.config
+
+        let mutable speed =
+            Runtime.current_speed
+                document
+                config.load_speed_from_document
+                config.minimum_speed
+                config.maximum_speed
+                config.base_speed
+
+        let result = RhinoGet.GetNumber("Flying speed", false, &speed)
+
+        if result <> Result.Success then
+            result
+        else
+            match
+                Runtime.set_speed
+                    document
+                    config.save_speed_to_document
+                    config.minimum_speed
+                    config.maximum_speed
+                    speed
+            with
+            | Ok saved ->
+                RhinoApp.WriteLine $"RhinosCanFly speed set to {saved}."
+                Result.Success
+            | Error error ->
+                RhinoApp.WriteLine $"RhinosCanFly: {error}"
+                Result.Failure)

@@ -7,26 +7,97 @@ open Rhino.ApplicationSettings
 open Rhino.Display
 open Rhino.Geometry
 
-let clamp (a: float) (b: float) (x: float) = max a (min b x)
+[<Literal>]
+let documentSpeedSection = "RhinosCanFly"
+
+[<Literal>]
+let documentSpeedEntry = "FlyingSpeed"
+
 let down (key: KeyBinding) = KeyBindings.is_down key
 
 let opt (key: KeyBinding option) =
     key |> Option.map down |> Option.defaultValue false
 
-let mutable sessionSpeed: float option = None
+type private SessionSpeed =
+    { document_serial_number: uint32 option
+      value: float }
+
+let mutable private sessionSpeed: SessionSpeed option = None
 let mutable sessionRunning = false
 
 let is_running () = sessionRunning
 
-let current_speed (fallback: float) =
-    sessionSpeed |> Option.defaultValue fallback
+let document_serial_number (document: RhinoDoc) =
+    if isNull document then
+        None
+    else
+        Some document.RuntimeSerialNumber
 
-let reset_session_speed (speed: float) =
-    sessionSpeed <- Some(Math.Ceiling speed)
+let try_document_speed (document: RhinoDoc) =
+    if isNull document then
+        None
+    else
+        document.Strings.GetValue(documentSpeedSection, documentSpeedEntry)
+        |> Option.ofObj
+        |> Option.bind Speed.try_parse
+
+let current_speed
+    (document: RhinoDoc)
+    (loadFromDocument: bool)
+    (minimumSpeed: float)
+    (maximumSpeed: float)
+    (fallback: float)
+    =
+    let documentSerialNumber = document_serial_number document
+
+    let sessionValue =
+        sessionSpeed |> Option.map (fun (session: SessionSpeed) -> session.value)
+
+    let requestedSpeed =
+        match sessionSpeed with
+        | Some session when session.document_serial_number = documentSerialNumber -> session.value
+        | _ when loadFromDocument ->
+            try_document_speed document
+            |> Option.orElse sessionValue
+            |> Option.defaultValue fallback
+        | _ -> sessionValue |> Option.defaultValue fallback
+
+    Speed.allowed minimumSpeed maximumSpeed requestedSpeed
+
+let set_speed
+    (document: RhinoDoc)
+    (saveToDocument: bool)
+    (minimumSpeed: float)
+    (maximumSpeed: float)
+    (requestedSpeed: float)
+    =
+    let speed = Speed.allowed minimumSpeed maximumSpeed requestedSpeed
+
+    sessionSpeed <-
+        Some
+            { document_serial_number = document_serial_number document
+              value = speed }
+
+    try
+        if saveToDocument && not (isNull document) then
+            let value = Speed.format speed
+            let existing = document.Strings.GetValue(documentSpeedSection, documentSpeedEntry)
+
+            if not (String.Equals(existing, value, StringComparison.Ordinal)) then
+                document.Strings.SetString(documentSpeedSection, documentSpeedEntry, value)
+                |> ignore
+
+                document.Modified <- true
+
+        Ok speed
+    with error ->
+        Error $"Could not save flying speed to the document: {error.Message}"
 
 let speed_step (state: FlyState) (direction: float) =
-    let stepped = state.speed * Math.Pow(state.config.speed_step_multiplier, direction)
-    state.speed <- clamp state.config.minimum_speed state.config.maximum_speed (Math.Ceiling stepped)
+    let requestedSpeed =
+        state.speed * Math.Pow(state.config.speed_step_multiplier, direction)
+
+    state.speed <- Speed.allowed state.config.minimum_speed state.config.maximum_speed requestedSpeed
 
 let toggles (state: FlyState) =
     let boost = down state.config.boost_toggle
@@ -176,10 +247,12 @@ let make_state (view: RhinoView) (config: FlyConfig) =
           yaw = yaw
           pitch = pitch }
       speed =
-        clamp
+        current_speed
+            view.Document
+            config.load_speed_from_document
             config.minimum_speed
             config.maximum_speed
-            (sessionSpeed |> Option.defaultValue config.base_speed |> Math.Ceiling)
+            config.base_speed
       mouse_dx = 0L
       mouse_dy = 0L
       wheel_delta = 0
@@ -274,7 +347,17 @@ let run (view: RhinoView) (config: FlyConfig) =
                             Win32.ShowCursor true |> ignore
 
                         state.viewport.Camera35mmLensLength <- state.original_lens_length
-                        sessionSpeed <- Some state.speed
+
+                        match
+                            set_speed
+                                view.Document
+                                state.config.save_speed_to_document
+                                state.config.minimum_speed
+                                state.config.maximum_speed
+                                state.speed
+                        with
+                        | Ok _ -> ()
+                        | Error error -> RhinoApp.WriteLine $"RhinosCanFly: {error}"
                     finally
                         try
                             if tooltipsChanged then

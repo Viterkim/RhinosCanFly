@@ -27,6 +27,8 @@ type FlyConfigFile =
       invert_mouse_x: bool
       invert_mouse_y: bool
       normalize_diagonal_movement: bool
+      save_speed_to_document: bool
+      load_speed_from_document: bool
       wheel_changes_speed: bool
       exit_on_mouse_left: bool
       exit_on_mouse_right: bool
@@ -73,6 +75,8 @@ type FlyConfig =
       invert_mouse_x: bool
       invert_mouse_y: bool
       normalize_diagonal_movement: bool
+      save_speed_to_document: bool
+      load_speed_from_document: bool
       wheel_changes_speed: bool
       exit_on_mouse_left: bool
       exit_on_mouse_right: bool

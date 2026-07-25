@@ -187,11 +187,6 @@ let resume () =
     suspended <- false
     callback.Enabled <- routing.enabled && (routing.mouse4 || routing.mouse5)
 
-let initialize_from_config () =
-    match Config.load () with
-    | Ok loaded -> apply loaded.config_file
-    | Error error -> Error error
-
 let shutdown () =
     suspended <- true
     callback.Enabled <- false
