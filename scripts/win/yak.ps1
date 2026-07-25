@@ -24,7 +24,6 @@ $buildParameters = @{
     Configuration = "Release"
     Clean = $Clean.IsPresent
     RhinoVersion = [int] $RhinoMajorVersion
-    UseNuGetRhinoCommon = $true
 }
 
 & $buildScript @buildParameters
@@ -61,7 +60,7 @@ foreach ($file in $packageFiles) {
 
 $dependencyFiles = @(
     Get-ChildItem -LiteralPath $output -Filter "*.dll" |
-        Where-Object { $_.Name -notin @("RhinoCommon.dll", "Rhino.UI.dll", "Eto.dll") }
+        Where-Object { $_.Name -notin @("RhinoCommon.dll", "Rhino.UI.dll", "Eto.dll", "Ed.Eto.dll") }
 )
 
 foreach ($file in $dependencyFiles) {

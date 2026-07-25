@@ -15,9 +15,9 @@ type RhinosCanFlyOptionsCommand() =
     inherit Command()
     override _.EnglishName = "RhinosCanFlyOptions"
 
-    override _.RunCommand(_document: RhinoDoc, _mode: RunMode) =
+    override _.RunCommand(document: RhinoDoc, _mode: RunMode) =
         use dialog = new RhinosCanFlySettingsDialog()
-        dialog.ShowForRhino()
+        dialog.ShowForRhino document
         Result.Success
 
 [<Guid("EAB2EC5E-2183-4661-B523-30BB72EA12EE")>]

@@ -27,8 +27,6 @@ let current_speed (config: FlyConfigFile) =
         config.base_speed
 
 let load (control: SettingsControl) =
-    control.ApplyTheme()
-
     match Config.load () with
     | Error error -> control.ShowError $"Could not load configuration: {error}"
     | Ok result ->
