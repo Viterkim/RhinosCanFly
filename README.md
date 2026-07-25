@@ -56,6 +56,14 @@ Install in Rhino itself, run `PackageManager` and search for `RhinosCanFly`, cli
 
 We might have to use cardboard wings, but it works. Credit to Peter for the artistic logo.
 
+## If you care about file meta data
+
+If you enable "save speed to file" it will write the current speed to your document/file. Just disable it if you don't want any persisted state.
+
+It only saves "RhinosCanFly\FlyingSpeed"
+
+The project still has a config file for the normal settings, and the options menu will show you the full path like `C:\Users\<username>\AppData\Roaming\McNeel\Rhinoceros\8.0\settings\rhinos-can-fly-config.json` and the raw json content.
+
 ## Disclaimer
 
 Gippity was a major contributor in this, even that is an understatement.
