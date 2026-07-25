@@ -30,6 +30,8 @@ Do you want hammer source1/source2 ish old level editing camera controls, or mod
 
 `RhinosCanFlyOptions` pops up a panel where you can change keybindings / features (same menu is also in Tools -> Options... -> Rhinos Can Fly).
 
+`RhinosCanFlySetSpeed` sets the current flying speed, you can also use a bind or the mousewheel up / down in settings.
+
 `RhinosCanFlyInit` is only used at startup to not have delay going into the view the first time.
 
 ## Options
