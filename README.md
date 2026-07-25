@@ -30,6 +30,8 @@ Do you want hammer source1/source2 ish old level editing camera controls, or mod
 
 `RhinosCanFlyOptions` pops up a panel where you can change keybindings / features (same menu is also in Tools -> Options... -> Rhinos Can Fly).
 
+`RhinosCanFlySetSpeed` sets the current flying speed, you can also use a bind or the mousewheel up / down in settings.
+
 `RhinosCanFlyInit` is only used at startup to not have delay going into the view the first time.
 
 ## Options
@@ -55,6 +57,14 @@ Install in Rhino itself, run `PackageManager` and search for `RhinosCanFly`, cli
 ![image](./docs/img/rcf-logo.png)
 
 We might have to use cardboard wings, but it works. Credit to Peter for the artistic logo.
+
+## If you care about file meta data
+
+If you enable "save speed to file" it will write the current speed to your document/file. Just disable it if you don't want any persisted state.
+
+It only saves "RhinosCanFly\FlyingSpeed"
+
+The project still has a config file for the normal settings, and the options menu will show you the full path like `C:\Users\<username>\AppData\Roaming\McNeel\Rhinoceros\8.0\settings\rhinos-can-fly-config.json` and the raw json content.
 
 ## Disclaimer
 

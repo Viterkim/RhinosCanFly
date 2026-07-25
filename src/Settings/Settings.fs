@@ -16,14 +16,24 @@ let current_lens () =
     else
         Some document.Views.ActiveView.ActiveViewport.Camera35mmLensLength
 
-let load (control: SettingsControl) =
-    control.ApplyTheme()
+let current_speed (config: FlyConfigFile) =
+    let document = RhinoDoc.ActiveDoc
 
+    Runtime.current_speed
+        document
+        config.load_speed_from_document
+        config.minimum_speed
+        config.maximum_speed
+        config.base_speed
+
+let load (control: SettingsControl) =
     match Config.load () with
     | Error error -> control.ShowError $"Could not load configuration: {error}"
     | Ok result ->
         control.LoadConfig result.config_file
-        control.ShowRuntimeState(Runtime.current_speed result.config_file.base_speed, current_lens ())
+
+        control.ShowRuntimeState(current_speed result.config_file, current_lens ())
+
         show_raw control
 
         let repairMessages =
@@ -43,16 +53,17 @@ let save (control: SettingsControl) =
     | Ok config ->
         match Config.save config with
         | Ok() ->
-            Runtime.reset_session_speed config.base_speed
-            RightClickEntry.set_enabled config.hijack_right_click_to_enter
-            RepeatBehavior.apply config.commands_do_not_repeat
-            let mouseOverrideResult = MouseButtonOverrides.apply config
-            control.ShowRuntimeState(Runtime.current_speed config.base_speed, current_lens ())
+            let speed = current_speed config
+
+            let applyResult = LiveSettings.apply_with_speed RhinoDoc.ActiveDoc config speed
+
+            control.ShowRuntimeState(current_speed config, current_lens ())
+
             show_raw control
 
-            match mouseOverrideResult with
-            | Ok() -> control.ClearError()
-            | Error error -> control.ShowError $"Mouse overrides unavailable: {error}"
+            match applyResult with
+            | Ok _ -> control.ClearError()
+            | Error error -> control.ShowError error
 
             true
         | Error error ->

@@ -4,6 +4,7 @@ open System
 open System.Diagnostics
 open Rhino
 open Rhino.Commands
+open Rhino.Display
 open Rhino.UI
 
 type RightClickCallback() =
@@ -29,17 +30,25 @@ type RightClickCallback() =
 
                 if not queued then
                     queued <- true
+                    let viewSerialNumber = event.View.RuntimeSerialNumber
                     let mutable idleHandler = Unchecked.defaultof<EventHandler>
 
                     idleHandler <-
                         EventHandler(fun (_: obj) (_: EventArgs) ->
                             try
-                                RhinoApp.Idle.RemoveHandler idleHandler
-                                queued <- false
+                                let view = RhinoView.FromRuntimeSerialNumber viewSerialNumber
 
-                                if not (Command.InCommand()) && not (Runtime.is_running ()) then
-                                    RhinoApp.RunScript("! _RhinosCanFly", false) |> ignore
+                                if isNull view then
+                                    RhinoApp.Idle.RemoveHandler idleHandler
+                                    queued <- false
+                                elif not (Runtime.viewport_gesture_active view) then
+                                    RhinoApp.Idle.RemoveHandler idleHandler
+                                    queued <- false
+
+                                    if not (Command.InCommand()) && not (Runtime.is_running ()) then
+                                        RhinoApp.RunScript("! _RhinosCanFly", false) |> ignore
                             with error ->
+                                RhinoApp.Idle.RemoveHandler idleHandler
                                 queued <- false
                                 log_error "right-click idle handler" error)
 
@@ -54,14 +63,10 @@ type RightClickCallback() =
 
             log_error "right-click callback" error
 
+    override _.OnMouseUp(event: MouseCallbackEventArgs) =
+        if queued && event.MouseButton = MouseButton.Right then
+            event.Cancel <- true
+
 let callback = RightClickCallback()
 
 let set_enabled (enabled: bool) = callback.Enabled <- enabled
-
-let initialize_from_config () =
-    match Config.load () with
-    | Ok loaded ->
-        set_enabled loaded.config.hijack_right_click_to_enter
-        RepeatBehavior.apply loaded.config_file.commands_do_not_repeat
-        Ok()
-    | Error error -> Error error

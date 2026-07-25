@@ -1,9 +1,10 @@
-module RhinosCanFly.KeyBindings
+module RhinosCanFly.Platform.Win.KeyBindings
 
 open System
 open System.Collections.Generic
 open System.Globalization
 open System.Windows.Forms
+open RhinosCanFly
 
 let aliases =
     let d = Dictionary<string, Keys> StringComparer.OrdinalIgnoreCase

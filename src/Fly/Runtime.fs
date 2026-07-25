@@ -7,26 +7,105 @@ open Rhino.ApplicationSettings
 open Rhino.Display
 open Rhino.Geometry
 
-let clamp (a: float) (b: float) (x: float) = max a (min b x)
-let down (key: KeyBinding) = KeyBindings.is_down key
+[<Literal>]
+let documentSpeedSection = "RhinosCanFly"
+
+[<Literal>]
+let documentSpeedEntry = "FlyingSpeed"
+
+let down (key: KeyBinding) = PlatformBindings.is_down key
 
 let opt (key: KeyBinding option) =
     key |> Option.map down |> Option.defaultValue false
 
-let mutable sessionSpeed: float option = None
+type private SessionSpeed =
+    { document_serial_number: uint32 option
+      value: float }
+
+let mutable private sessionSpeed: SessionSpeed option = None
 let mutable sessionRunning = false
 
 let is_running () = sessionRunning
 
-let current_speed (fallback: float) =
-    sessionSpeed |> Option.defaultValue fallback
+let viewport_gesture_active (view: RhinoView) = view.MouseCaptured(false)
 
-let reset_session_speed (speed: float) =
-    sessionSpeed <- Some(Math.Ceiling speed)
+let wait_for_viewport_gesture (view: RhinoView) =
+    while viewport_gesture_active view do
+        match PlatformInput.wait_for_input () with
+        | Ok() -> RhinoApp.Wait()
+        | Error error -> failwith error
+
+let document_serial_number (document: RhinoDoc) =
+    if isNull document then
+        None
+    else
+        Some document.RuntimeSerialNumber
+
+let try_document_speed (document: RhinoDoc) =
+    if isNull document then
+        None
+    else
+        document.Strings.GetValue(documentSpeedSection, documentSpeedEntry)
+        |> Option.ofObj
+        |> Option.bind Speed.try_parse
+
+let current_speed
+    (document: RhinoDoc)
+    (loadFromDocument: bool)
+    (minimumSpeed: float)
+    (maximumSpeed: float)
+    (fallback: float)
+    =
+    let documentSerialNumber = document_serial_number document
+
+    let sessionValue =
+        sessionSpeed |> Option.map (fun (session: SessionSpeed) -> session.value)
+
+    let requestedSpeed =
+        match sessionSpeed with
+        | Some session when session.document_serial_number = documentSerialNumber -> session.value
+        | _ when loadFromDocument ->
+            try_document_speed document
+            |> Option.orElse sessionValue
+            |> Option.defaultValue fallback
+        | _ -> sessionValue |> Option.defaultValue fallback
+
+    Speed.allowed minimumSpeed maximumSpeed requestedSpeed
+
+let set_speed
+    (document: RhinoDoc)
+    (saveToDocument: bool)
+    (minimumSpeed: float)
+    (maximumSpeed: float)
+    (requestedSpeed: float)
+    =
+    let speed = Speed.allowed minimumSpeed maximumSpeed requestedSpeed
+
+    sessionSpeed <-
+        Some
+            { document_serial_number = document_serial_number document
+              value = speed }
+
+    try
+        if saveToDocument && not (isNull document) then
+            let value = Speed.format speed
+            let existing = document.Strings.GetValue(documentSpeedSection, documentSpeedEntry)
+
+            if not (String.Equals(existing, value, StringComparison.Ordinal)) then
+                document.Strings.SetString(documentSpeedSection, documentSpeedEntry, value)
+                |> ignore
+
+                document.Modified <- true
+
+        Ok speed
+    with error ->
+        Error $"Could not save flying speed to the document: {error.Message}"
 
 let speed_step (state: FlyState) (direction: float) =
-    let stepped = state.speed * Math.Pow(state.config.speed_step_multiplier, direction)
-    state.speed <- clamp state.config.minimum_speed state.config.maximum_speed (Math.Ceiling stepped)
+    let requestedSpeed =
+        state.speed * Math.Pow(state.config.speed_step_multiplier, direction)
+
+    state.speed <- Speed.allowed state.config.minimum_speed state.config.maximum_speed requestedSpeed
 
 let toggles (state: FlyState) =
     let boost = down state.config.boost_toggle
@@ -128,7 +207,10 @@ let movement_active (input: InputSnapshot) =
     || input.down
 
 let poll_controls (state: FlyState) =
-    if Win32.GetForegroundWindow() <> state.root_window || down state.config.exit_key then
+    if
+        PlatformInput.foreground_window () <> state.root_window
+        || down state.config.exit_key
+    then
         state.running <- false
         None
     else
@@ -137,7 +219,7 @@ let poll_controls (state: FlyState) =
             state.wheel_delta <- 0
 
             if wheel <> 0 then
-                speed_step state (float wheel / float Win32.WHEEL_DELTA)
+                speed_step state (float wheel / float PlatformInput.wheel_delta)
 
         toggles state
         Some(read_movement_input state)
@@ -146,7 +228,7 @@ let make_state (view: RhinoView) (config: FlyConfig) =
     let viewport = view.ActiveViewport
 
     let original_cursor =
-        match Win32.get_cursor_position () with
+        match PlatformInput.get_cursor_position () with
         | Ok point -> point
         | Error error -> failwith error
 
@@ -155,13 +237,7 @@ let make_state (view: RhinoView) (config: FlyConfig) =
     let target_distance =
         max 0.001 (viewport.CameraLocation.DistanceTo viewport.CameraTarget)
 
-    let ancestor = Win32.GetAncestor(view.Handle, Win32.GA_ROOT)
-
-    let root_window =
-        if ancestor = nativeint 0 then
-            Win32.GetForegroundWindow()
-        else
-            ancestor
+    let root_window = PlatformInput.root_window view.Handle
 
     { view = view
       viewport = viewport
@@ -176,10 +252,12 @@ let make_state (view: RhinoView) (config: FlyConfig) =
           yaw = yaw
           pitch = pitch }
       speed =
-        clamp
+        current_speed
+            view.Document
+            config.load_speed_from_document
             config.minimum_speed
             config.maximum_speed
-            (sessionSpeed |> Option.defaultValue config.base_speed |> Math.Ceiling)
+            config.base_speed
       mouse_dx = 0L
       mouse_dy = 0L
       wheel_delta = 0
@@ -195,9 +273,11 @@ let run (view: RhinoView) (config: FlyConfig) =
         Error "Fly mode is already running."
     else
         sessionRunning <- true
-        MouseButtonOverrides.suspend ()
 
         try
+            wait_for_viewport_gesture view
+            PlatformInput.suspend_mouse_button_overrides ()
+
             try
                 let state = make_state view config
                 let originalTooltipsEnabled = CursorTooltipSettings.TooltipsEnabled
@@ -209,19 +289,19 @@ let run (view: RhinoView) (config: FlyConfig) =
                 try
                     CursorTooltipSettings.TooltipsEnabled <- false
                     tooltipsChanged <- true
-                    Win32.clear_mouse_hover view.Handle
+                    PlatformInput.clear_mouse_hover view.Handle
                     RhinoApp.Wait()
                     apply_entry_lens state
 
                     let rectangle = view.ScreenRectangle
 
-                    match Win32.clip_cursor rectangle with
+                    match PlatformInput.clip_cursor rectangle with
                     | Ok() -> captured <- true
                     | Error error -> failwith error
 
-                    Win32.SetFocus view.Handle |> ignore
-                    raw <- Some(new RawInputWindow(view.Handle, state))
-                    Win32.ShowCursor false |> ignore
+                    PlatformInput.focus view.Handle
+                    raw <- Some(PlatformInput.open_raw_input view.Handle state)
+                    PlatformInput.hide_cursor ()
                     cursorHidden <- true
                     let clock = Stopwatch.StartNew()
                     let mutable previousFrame = clock.Elapsed.TotalSeconds
@@ -229,7 +309,7 @@ let run (view: RhinoView) (config: FlyConfig) =
 
                     while state.running do
                         if not movementActive then
-                            match Win32.wait_for_input Win32.INFINITE with
+                            match PlatformInput.wait_for_input () with
                             | Ok() -> ()
                             | Error error -> failwith error
 
@@ -262,19 +342,29 @@ let run (view: RhinoView) (config: FlyConfig) =
                 finally
                     try
                         match raw with
-                        | Some window -> (window :> IDisposable).Dispose()
+                        | Some window -> window.Dispose()
                         | None -> ()
 
-                        Win32.clear_cursor_clip () |> ignore
+                        PlatformInput.clear_cursor_clip () |> ignore
 
                         if captured then
-                            Win32.set_cursor_position state.original_cursor |> ignore
+                            PlatformInput.set_cursor_position state.original_cursor |> ignore
 
                         if cursorHidden then
-                            Win32.ShowCursor true |> ignore
+                            PlatformInput.show_cursor ()
 
                         state.viewport.Camera35mmLensLength <- state.original_lens_length
-                        sessionSpeed <- Some state.speed
+
+                        match
+                            set_speed
+                                view.Document
+                                state.config.save_speed_to_document
+                                state.config.minimum_speed
+                                state.config.maximum_speed
+                                state.speed
+                        with
+                        | Ok _ -> ()
+                        | Error error -> RhinoApp.WriteLine $"RhinosCanFly: {error}"
                     finally
                         try
                             if tooltipsChanged then
@@ -285,4 +375,4 @@ let run (view: RhinoView) (config: FlyConfig) =
                 Error error.Message
         finally
             sessionRunning <- false
-            MouseButtonOverrides.resume ()
+            PlatformInput.resume_mouse_button_overrides ()

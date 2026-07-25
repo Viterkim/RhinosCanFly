@@ -1,9 +1,10 @@
-namespace RhinosCanFly
+namespace RhinosCanFly.Platform.Win
 
 open System
 open System.Diagnostics
 open System.Runtime.InteropServices
 open System.Windows.Forms
+open RhinosCanFly
 
 type RawInputWindow(handle: nativeint, state: FlyState) as self =
     inherit NativeWindow()

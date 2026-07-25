@@ -1,11 +1,10 @@
 param(
     [int] $RhinoVersion = 0,
-    [switch] $Quiet,
-    [switch] $UseNuGetRhinoCommon
+    [switch] $Quiet
 )
 
 $ErrorActionPreference = "Stop"
-$projectRoot = Split-Path -Parent $PSScriptRoot
+$projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $project = Join-Path $projectRoot "RhinosCanFly.fsproj"
 
 function Get-RhinoBuildProperties {
@@ -68,15 +67,12 @@ function Find-RhinoInstallation {
     }
 
     if ($installPath) {
-        foreach ($relative in @("System\netcore", "System")) {
-            $system = Join-Path $installPath $relative
+        $executable = Join-Path $installPath "System\Rhino.exe"
 
-            if (Test-Path -LiteralPath (Join-Path $system "RhinoCommon.dll")) {
-                return [PSCustomObject]@{
-                    Major = $Major
-                    Install = $installPath
-                    System = $system
-                }
+        if (Test-Path -LiteralPath $executable) {
+            return [PSCustomObject]@{
+                Major = $Major
+                Install = $installPath
             }
         }
     }
@@ -125,12 +121,8 @@ if ($null -eq $rhino) {
     $rhino = [PSCustomObject]@{
         Major = $resolvedVersion
         Install = ""
-        System = ""
     }
 }
-
-$resolvedUseLocalRhinoCommon =
-    -not $UseNuGetRhinoCommon.IsPresent -and -not [string]::IsNullOrWhiteSpace($rhino.System)
 
 $resolvedYakPath = ""
 
@@ -156,21 +148,12 @@ if ([string]::IsNullOrWhiteSpace($resolvedYakPath)) {
 
 $RhinoMajorVersion = $resolvedVersion
 $RhinoInstallDir = [string] $rhino.Install
-$RhinoSystemDir = [string] $rhino.System
 $RhinoCommonPackageVersion = $resolvedPackageVersion
-$UseLocalRhinoCommon = $resolvedUseLocalRhinoCommon
 $TargetFramework = $resolvedTargetFramework
 $YakPath = $resolvedYakPath
 
 if (-not $Quiet) {
     Write-Host "Configured Rhino $RhinoMajorVersion"
-
-    if ($UseLocalRhinoCommon) {
-        Write-Host "RhinoCommon: $RhinoSystemDir"
-    }
-    else {
-        Write-Host "RhinoCommon: NuGet $RhinoCommonPackageVersion"
-    }
-
+    Write-Host "RhinoCommon: NuGet $RhinoCommonPackageVersion"
     Write-Host "Target: $TargetFramework"
 }

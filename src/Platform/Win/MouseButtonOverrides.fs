@@ -1,9 +1,10 @@
-module RhinosCanFly.MouseButtonOverrides
+module RhinosCanFly.Platform.Win.MouseButtonOverrides
 
 open System
 open System.Diagnostics
 open System.Drawing
 open System.Windows.Forms
+open RhinosCanFly
 open Rhino.UI
 
 type RoutingConfig =
@@ -186,11 +187,6 @@ let suspend () =
 let resume () =
     suspended <- false
     callback.Enabled <- routing.enabled && (routing.mouse4 || routing.mouse5)
-
-let initialize_from_config () =
-    match Config.load () with
-    | Ok loaded -> apply loaded.config_file
-    | Error error -> Error error
 
 let shutdown () =
     suspended <- true

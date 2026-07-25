@@ -1,7 +1,6 @@
 namespace RhinosCanFly
 
 open System.Runtime.InteropServices
-open System.Windows.Forms
 open Rhino
 open Rhino.Commands
 
@@ -16,17 +15,16 @@ type RhinosCanFlyOptionsCommand() =
     inherit Command()
     override _.EnglishName = "RhinosCanFlyOptions"
 
-    override _.RunCommand(_document: RhinoDoc, _mode: RunMode) =
+    override _.RunCommand(document: RhinoDoc, _mode: RunMode) =
         use dialog = new RhinosCanFlySettingsDialog()
-        let owner = new NativeWindow()
-        owner.AssignHandle(RhinoApp.MainWindowHandle())
-
-        try
-            dialog.ShowDialog owner |> ignore
-        finally
-            owner.ReleaseHandle()
-
+        dialog.ShowForRhino document
         Result.Success
+
+[<Guid("EAB2EC5E-2183-4661-B523-30BB72EA12EE")>]
+type RhinosCanFlySetSpeedCommand() =
+    inherit Command()
+    override _.EnglishName = "RhinosCanFlySetSpeed"
+    override _.RunCommand(document: RhinoDoc, _mode: RunMode) = Commands.set_speed document
 
 [<Guid("5E1A4D2C-7F60-4D59-9E18-864D20F137B8")>]
 type RhinosCanFlyInitCommand() =
@@ -34,7 +32,7 @@ type RhinosCanFlyInitCommand() =
     override _.EnglishName = "RhinosCanFlyInit"
 
     override _.RunCommand(_document: RhinoDoc, _mode: RunMode) =
-        match RightClickEntry.initialize_from_config () with
+        match LiveSettings.load_and_apply () with
         | Ok() -> Result.Success
         | Error error ->
             RhinoApp.WriteLine $"RhinosCanFly initialization failed: {error}"

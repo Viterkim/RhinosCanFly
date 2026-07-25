@@ -24,13 +24,15 @@ let defaultValues: FlyConfigFile =
       base_speed = 36.
       minimum_speed = 1.
       maximum_speed = 100000.
-      speed_step_multiplier = 1.4
+      speed_step_multiplier = 1.2
       boost_multiplier = 3.
       slow_multiplier = 0.3
       mouse_sensitivity = 15.
       invert_mouse_x = false
       invert_mouse_y = false
       normalize_diagonal_movement = true
+      save_speed_to_document = true
+      load_speed_from_document = true
       wheel_changes_speed = true
       exit_on_mouse_left = false
       exit_on_mouse_right = true
@@ -95,7 +97,7 @@ let compile (source: FlyConfigFile) =
     let errors = ResizeArray<string>()
 
     let required (name: string) (value: string) =
-        match KeyBindings.parse value with
+        match PlatformBindings.parse value with
         | Ok key -> key
         | Error error ->
             errors.Add $"{name}: {error}"
@@ -167,6 +169,8 @@ let compile (source: FlyConfigFile) =
           invert_mouse_x = source.invert_mouse_x
           invert_mouse_y = source.invert_mouse_y
           normalize_diagonal_movement = source.normalize_diagonal_movement
+          save_speed_to_document = source.save_speed_to_document
+          load_speed_from_document = source.load_speed_from_document
           wheel_changes_speed = source.wheel_changes_speed
           exit_on_mouse_left = source.exit_on_mouse_left
           exit_on_mouse_right = source.exit_on_mouse_right

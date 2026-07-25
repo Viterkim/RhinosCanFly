@@ -10,15 +10,15 @@ type RhinosCanFlyPlugin() as self =
 
     do
         Config.initialize self.SettingsDirectory
-        RightClickEntry.initialize_from_config () |> ignore
 
-        match MouseButtonOverrides.initialize_from_config () with
+        match LiveSettings.load_and_apply () with
         | Ok() -> ()
-        | Error error -> RhinoApp.WriteLine $"RhinosCanFly mouse overrides disabled: {error}"
+        | Error error -> RhinoApp.WriteLine $"RhinosCanFly settings unavailable: {error}"
 
     override _.LoadTime = PlugInLoadTime.AtStartup
 
     override _.OptionsDialogPages(pages: List<OptionsDialogPage>) =
         pages.Add(new RhinosCanFlyOptionsPage())
 
-    override _.OnShutdown() = MouseButtonOverrides.shutdown ()
+    override _.OnShutdown() =
+        PlatformInput.shutdown_mouse_button_overrides ()

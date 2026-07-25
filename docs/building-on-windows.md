@@ -32,5 +32,5 @@ $yak = "C:\Program Files\Rhino 8\System\yak.exe"
 Then to build, this makes `dist`, if you add `-Publish Test` you push to the Yak test/staging servers, and `-Publish Production` pushes to the real production servers.
 
 ```powershell
-.\scripts\yak.ps1 -RhinoVersion 8
+.\scripts\win\yak.ps1 -RhinoVersion 8
 ```
