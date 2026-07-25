@@ -9,7 +9,7 @@ $ErrorActionPreference = "Stop"
 
 $pluginId = "8E6E7D56-5434-4EF6-884F-6C5130291935"
 $pluginName = "RhinosCanFly"
-$repoRoot = Split-Path -Parent $PSScriptRoot
+$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $buildSetup = Join-Path $PSScriptRoot "build-setup.ps1"
 $buildScript = Join-Path $repoRoot "build.ps1"
 

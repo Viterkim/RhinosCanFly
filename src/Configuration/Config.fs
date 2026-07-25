@@ -97,7 +97,7 @@ let compile (source: FlyConfigFile) =
     let errors = ResizeArray<string>()
 
     let required (name: string) (value: string) =
-        match KeyBindings.parse value with
+        match PlatformBindings.parse value with
         | Ok key -> key
         | Error error ->
             errors.Add $"{name}: {error}"

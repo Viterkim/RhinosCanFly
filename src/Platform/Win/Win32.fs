@@ -1,4 +1,4 @@
-module RhinosCanFly.Win32
+module RhinosCanFly.Platform.Win.Win32
 
 open System
 open System.ComponentModel

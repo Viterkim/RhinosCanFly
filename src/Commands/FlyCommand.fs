@@ -1,7 +1,6 @@
 namespace RhinosCanFly
 
 open System.Runtime.InteropServices
-open System.Windows.Forms
 open Rhino
 open Rhino.Commands
 
@@ -18,14 +17,7 @@ type RhinosCanFlyOptionsCommand() =
 
     override _.RunCommand(_document: RhinoDoc, _mode: RunMode) =
         use dialog = new RhinosCanFlySettingsDialog()
-        let owner = new NativeWindow()
-        owner.AssignHandle(RhinoApp.MainWindowHandle())
-
-        try
-            dialog.ShowDialog owner |> ignore
-        finally
-            owner.ReleaseHandle()
-
+        dialog.ShowForRhino()
         Result.Success
 
 [<Guid("EAB2EC5E-2183-4661-B523-30BB72EA12EE")>]

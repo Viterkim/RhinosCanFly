@@ -6,7 +6,7 @@ $runningRhino = @(Get-Process -Name "Rhino" -ErrorAction SilentlyContinue)
 . $buildSetup -Quiet
 
 if ($runningRhino.Count -gt 0) {
-    throw "Rhino is running. Save your work, close Rhino yourself, then run scripts\build-all-prod.ps1 again."
+    throw "Rhino is running. Save your work, close Rhino yourself, then run scripts\win\build-all-prod.ps1 again."
 }
 
 foreach ($rhinoVersion in $ReleaseRhinoVersions) {

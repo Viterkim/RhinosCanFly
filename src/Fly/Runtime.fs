@@ -13,7 +13,7 @@ let documentSpeedSection = "RhinosCanFly"
 [<Literal>]
 let documentSpeedEntry = "FlyingSpeed"
 
-let down (key: KeyBinding) = KeyBindings.is_down key
+let down (key: KeyBinding) = PlatformBindings.is_down key
 
 let opt (key: KeyBinding option) =
     key |> Option.map down |> Option.defaultValue false
@@ -31,7 +31,7 @@ let viewport_gesture_active (view: RhinoView) = view.MouseCaptured(false)
 
 let wait_for_viewport_gesture (view: RhinoView) =
     while viewport_gesture_active view do
-        match Win32.wait_for_input Win32.INFINITE with
+        match PlatformInput.wait_for_input () with
         | Ok() -> RhinoApp.Wait()
         | Error error -> failwith error
 
@@ -207,7 +207,10 @@ let movement_active (input: InputSnapshot) =
     || input.down
 
 let poll_controls (state: FlyState) =
-    if Win32.GetForegroundWindow() <> state.root_window || down state.config.exit_key then
+    if
+        PlatformInput.foreground_window () <> state.root_window
+        || down state.config.exit_key
+    then
         state.running <- false
         None
     else
@@ -216,7 +219,7 @@ let poll_controls (state: FlyState) =
             state.wheel_delta <- 0
 
             if wheel <> 0 then
-                speed_step state (float wheel / float Win32.WHEEL_DELTA)
+                speed_step state (float wheel / float PlatformInput.wheel_delta)
 
         toggles state
         Some(read_movement_input state)
@@ -225,7 +228,7 @@ let make_state (view: RhinoView) (config: FlyConfig) =
     let viewport = view.ActiveViewport
 
     let original_cursor =
-        match Win32.get_cursor_position () with
+        match PlatformInput.get_cursor_position () with
         | Ok point -> point
         | Error error -> failwith error
 
@@ -234,13 +237,7 @@ let make_state (view: RhinoView) (config: FlyConfig) =
     let target_distance =
         max 0.001 (viewport.CameraLocation.DistanceTo viewport.CameraTarget)
 
-    let ancestor = Win32.GetAncestor(view.Handle, Win32.GA_ROOT)
-
-    let root_window =
-        if ancestor = nativeint 0 then
-            Win32.GetForegroundWindow()
-        else
-            ancestor
+    let root_window = PlatformInput.root_window view.Handle
 
     { view = view
       viewport = viewport
@@ -279,7 +276,7 @@ let run (view: RhinoView) (config: FlyConfig) =
 
         try
             wait_for_viewport_gesture view
-            MouseButtonOverrides.suspend ()
+            PlatformInput.suspend_mouse_button_overrides ()
 
             try
                 let state = make_state view config
@@ -292,19 +289,19 @@ let run (view: RhinoView) (config: FlyConfig) =
                 try
                     CursorTooltipSettings.TooltipsEnabled <- false
                     tooltipsChanged <- true
-                    Win32.clear_mouse_hover view.Handle
+                    PlatformInput.clear_mouse_hover view.Handle
                     RhinoApp.Wait()
                     apply_entry_lens state
 
                     let rectangle = view.ScreenRectangle
 
-                    match Win32.clip_cursor rectangle with
+                    match PlatformInput.clip_cursor rectangle with
                     | Ok() -> captured <- true
                     | Error error -> failwith error
 
-                    Win32.SetFocus view.Handle |> ignore
-                    raw <- Some(new RawInputWindow(view.Handle, state))
-                    Win32.ShowCursor false |> ignore
+                    PlatformInput.focus view.Handle
+                    raw <- Some(PlatformInput.open_raw_input view.Handle state)
+                    PlatformInput.hide_cursor ()
                     cursorHidden <- true
                     let clock = Stopwatch.StartNew()
                     let mutable previousFrame = clock.Elapsed.TotalSeconds
@@ -312,7 +309,7 @@ let run (view: RhinoView) (config: FlyConfig) =
 
                     while state.running do
                         if not movementActive then
-                            match Win32.wait_for_input Win32.INFINITE with
+                            match PlatformInput.wait_for_input () with
                             | Ok() -> ()
                             | Error error -> failwith error
 
@@ -345,16 +342,16 @@ let run (view: RhinoView) (config: FlyConfig) =
                 finally
                     try
                         match raw with
-                        | Some window -> (window :> IDisposable).Dispose()
+                        | Some window -> window.Dispose()
                         | None -> ()
 
-                        Win32.clear_cursor_clip () |> ignore
+                        PlatformInput.clear_cursor_clip () |> ignore
 
                         if captured then
-                            Win32.set_cursor_position state.original_cursor |> ignore
+                            PlatformInput.set_cursor_position state.original_cursor |> ignore
 
                         if cursorHidden then
-                            Win32.ShowCursor true |> ignore
+                            PlatformInput.show_cursor ()
 
                         state.viewport.Camera35mmLensLength <- state.original_lens_length
 
@@ -378,4 +375,4 @@ let run (view: RhinoView) (config: FlyConfig) =
                 Error error.Message
         finally
             sessionRunning <- false
-            MouseButtonOverrides.resume ()
+            PlatformInput.resume_mouse_button_overrides ()

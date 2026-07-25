@@ -7,7 +7,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$scriptsDir = Join-Path $PSScriptRoot "scripts"
+$scriptsDir = Join-Path $PSScriptRoot "scripts\win"
 $buildSetup = Join-Path $scriptsDir "build-setup.ps1"
 $project = Join-Path $PSScriptRoot "RhinosCanFly.fsproj"
 

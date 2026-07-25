@@ -1,9 +1,10 @@
-module RhinosCanFly.MouseButtonOverrides
+module RhinosCanFly.Platform.Win.MouseButtonOverrides
 
 open System
 open System.Diagnostics
 open System.Drawing
 open System.Windows.Forms
+open RhinosCanFly
 open Rhino.UI
 
 type RoutingConfig =

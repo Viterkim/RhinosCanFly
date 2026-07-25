@@ -9,7 +9,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$projectRoot = Split-Path -Parent $PSScriptRoot
+$projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $manifestPath = Join-Path $projectRoot "manifest.yml"
 $assemblyInfoPath = Join-Path $projectRoot "src\AssemblyInfo.fs"
 

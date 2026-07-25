@@ -73,6 +73,15 @@ type RhinosCanFlySettingsDialog() as self =
 
         Settings.load control
 
+    member _.ShowForRhino() =
+        let owner = new NativeWindow()
+        owner.AssignHandle(RhinoApp.MainWindowHandle())
+
+        try
+            self.ShowDialog owner |> ignore
+        finally
+            owner.ReleaseHandle()
+
 type RhinosCanFlyOptionsPage() =
     inherit OptionsDialogPage "RhinosCanFly"
 

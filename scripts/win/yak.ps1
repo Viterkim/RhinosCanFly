@@ -6,7 +6,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$projectRoot = Split-Path -Parent $PSScriptRoot
+$projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $buildScript = Join-Path $projectRoot "build.ps1"
 $buildSetup = Join-Path $PSScriptRoot "build-setup.ps1"
 $manifest = Join-Path $projectRoot "manifest.yml"

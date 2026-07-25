@@ -1,5 +1,5 @@
 $ErrorActionPreference = "Stop"
-$projectRoot = Split-Path -Parent $PSScriptRoot
+$projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $buildSetup = Join-Path $PSScriptRoot "build-setup.ps1"
 $manifest = Join-Path $projectRoot "manifest.yml"
 $dist = Join-Path $projectRoot "dist"
@@ -24,7 +24,7 @@ foreach ($rhinoVersion in $ReleaseRhinoVersions) {
     $matches = @(Get-ChildItem -LiteralPath $dist -Filter $pattern -File -ErrorAction SilentlyContinue)
 
     if ($matches.Count -ne 1) {
-        throw "Expected one Rhino $rhinoVersion Yak package matching '$pattern' in '$dist', found $($matches.Count). Run scripts\build-all-prod.ps1 first."
+        throw "Expected one Rhino $rhinoVersion Yak package matching '$pattern' in '$dist', found $($matches.Count). Run scripts\win\build-all-prod.ps1 first."
     }
 
     $packages += $matches[0]

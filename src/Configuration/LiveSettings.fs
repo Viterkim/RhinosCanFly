@@ -5,7 +5,7 @@ open Rhino
 let apply (config: FlyConfigFile) =
     RightClickEntry.set_enabled config.hijack_right_click_to_enter
     RepeatBehavior.apply config.commands_do_not_repeat
-    MouseButtonOverrides.apply config
+    PlatformInput.apply_mouse_button_overrides config
 
 let apply_with_speed (document: RhinoDoc) (config: FlyConfigFile) (requestedSpeed: float) =
     let speedResult =
