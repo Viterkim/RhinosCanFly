@@ -117,7 +117,6 @@ type FlyState =
       root_window: nativeint
       original_cursor: System.Drawing.Point
       original_lens_length: float
-      target_distance: float
       mutable running: bool
       mutable camera: CameraState
       mutable speed: float

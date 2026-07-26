@@ -40,8 +40,12 @@ type RawInputWindow(handle: nativeint, state: FlyState) as self =
 
     override _.WndProc(message: byref<Message>) =
         if message.Msg = Win32.WM_INPUT then
-            match Win32.try_read_raw_mouse message.LParam buffer 128 with
-            | Some mouse ->
+            let mutable header = Unchecked.defaultof<Win32.RawInputHeader>
+            let mutable mouse = Unchecked.defaultof<Win32.RawMouse>
+            let mutable errorCode = 0
+
+            match Win32.read_raw_input message.LParam buffer 128 &header &mouse &errorCode with
+            | Win32.RawInputReadStatus.Mouse ->
                 if mouse.flags &&& Win32.MOUSE_MOVE_ABSOLUTE = 0us then
                     state.mouse_dx <- state.mouse_dx + int64 mouse.last_x
                     state.mouse_dy <- state.mouse_dy + int64 mouse.last_y
@@ -60,7 +64,7 @@ type RawInputWindow(handle: nativeint, state: FlyState) as self =
                        && flags &&& Win32.RI_MOUSE_MIDDLE_BUTTON_DOWN <> 0us
                 then
                     state.running <- false
-            | None -> ()
+            | _ -> ()
 
             base.WndProc(&message)
         elif

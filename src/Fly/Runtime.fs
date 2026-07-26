@@ -22,6 +22,11 @@ type private SessionSpeed =
     { document_serial_number: uint32 option
       value: float }
 
+type private MouseExitState =
+    { mutable left_was_down: bool
+      mutable right_was_down: bool
+      mutable middle_was_down: bool }
+
 let mutable private sessionSpeed: SessionSpeed option = None
 let mutable sessionRunning = false
 
@@ -182,13 +187,19 @@ let read_movement_input (state: FlyState) =
       mouse_dx = 0L
       mouse_dy = 0L }
 
-let apply (state: FlyState) =
-    let direction = Movement.direction_from_angles state.camera.yaw state.camera.pitch
-    let target = state.camera.position + direction * state.target_distance
-    state.viewport.CameraUp <- Vector3d.ZAxis
+let camera_direction (camera: CameraState) =
+    Movement.direction_from_angles camera.yaw camera.pitch
 
-    // Rhino expects target first and camera location second.
-    state.viewport.SetCameraLocations(target, state.camera.position) |> ignore
+let set_camera_direction (viewport: RhinoViewport) (camera: CameraState) =
+    viewport.SetCameraDirection(camera_direction camera, true)
+
+let apply_camera (state: FlyState) (mouseChanged: bool) (movementChanged: bool) =
+    if movementChanged then
+        state.viewport.SetCameraLocation(state.camera.position, true)
+
+    if mouseChanged then
+        set_camera_direction state.viewport state.camera
+
     state.view.Redraw()
 
 let apply_entry_lens (state: FlyState) =
@@ -196,7 +207,6 @@ let apply_entry_lens (state: FlyState) =
 
     if lens > 0. then
         state.viewport.Camera35mmLensLength <- lens
-        state.view.Redraw()
 
 let movement_active (input: InputSnapshot) =
     input.forward
@@ -206,10 +216,34 @@ let movement_active (input: InputSnapshot) =
     || input.up
     || input.down
 
-let poll_controls (state: FlyState) =
+let private initialize_mouse_exit_state () =
+    let buttons = PlatformInput.sample_mouse_buttons ()
+
+    { left_was_down = buttons.left.is_down
+      right_was_down = buttons.right.is_down
+      middle_was_down = buttons.middle.is_down }
+
+let private mouse_exit_requested (config: FlyConfig) (state: MouseExitState) =
+    let buttons = PlatformInput.sample_mouse_buttons ()
+
+    let pressed (enabled: bool) (previouslyDown: bool) (button: PlatformInput.MouseButtonSample) =
+        enabled && (button.was_pressed || button.is_down && not previouslyDown)
+
+    let requested =
+        pressed config.exit_on_mouse_left state.left_was_down buttons.left
+        || pressed config.exit_on_mouse_right state.right_was_down buttons.right
+        || pressed config.exit_on_mouse_middle state.middle_was_down buttons.middle
+
+    state.left_was_down <- buttons.left.is_down
+    state.right_was_down <- buttons.right.is_down
+    state.middle_was_down <- buttons.middle.is_down
+    requested
+
+let private poll_controls (state: FlyState) (mouseExitState: MouseExitState) =
     if
         PlatformInput.foreground_window () <> state.root_window
         || down state.config.exit_key
+        || mouse_exit_requested state.config mouseExitState
     then
         state.running <- false
         None
@@ -234,9 +268,6 @@ let make_state (view: RhinoView) (config: FlyConfig) =
 
     let yaw, pitch = Movement.angles_from_direction viewport.CameraDirection
 
-    let target_distance =
-        max 0.001 (viewport.CameraLocation.DistanceTo viewport.CameraTarget)
-
     let root_window = PlatformInput.root_window view.Handle
 
     { view = view
@@ -245,7 +276,6 @@ let make_state (view: RhinoView) (config: FlyConfig) =
       root_window = root_window
       original_cursor = original_cursor
       original_lens_length = viewport.Camera35mmLensLength
-      target_distance = target_distance
       running = true
       camera =
         { position = viewport.CameraLocation
@@ -289,9 +319,6 @@ let run (view: RhinoView) (config: FlyConfig) =
                 try
                     CursorTooltipSettings.TooltipsEnabled <- false
                     tooltipsChanged <- true
-                    PlatformInput.clear_mouse_hover view.Handle
-                    RhinoApp.Wait()
-                    apply_entry_lens state
 
                     let rectangle = view.ScreenRectangle
 
@@ -300,9 +327,14 @@ let run (view: RhinoView) (config: FlyConfig) =
                     | Error error -> failwith error
 
                     PlatformInput.focus view.Handle
+                    state.viewport.CameraUp <- Vector3d.ZAxis
                     raw <- Some(PlatformInput.open_raw_input view.Handle state)
+                    let mouseExitState = initialize_mouse_exit_state ()
                     PlatformInput.hide_cursor ()
                     cursorHidden <- true
+                    PlatformInput.clear_mouse_hover view.Handle
+                    apply_entry_lens state
+                    view.Redraw()
                     let clock = Stopwatch.StartNew()
                     let mutable previousFrame = clock.Elapsed.TotalSeconds
                     let mutable movementActive = false
@@ -318,7 +350,7 @@ let run (view: RhinoView) (config: FlyConfig) =
                         if state.running then
                             let mouseChanged = apply_mouse_look state
 
-                            match poll_controls state with
+                            match poll_controls state mouseExitState with
                             | None -> ()
                             | Some input ->
                                 let now = clock.Elapsed.TotalSeconds
@@ -327,7 +359,9 @@ let run (view: RhinoView) (config: FlyConfig) =
                                 let movementChanged =
                                     if movementActive && currentlyMoving then
                                         let dt = min (now - previousFrame) 0.05
+
                                         state.camera <- Movement.step state.config input dt state.camera
+
                                         true
                                     else
                                         false
@@ -336,7 +370,7 @@ let run (view: RhinoView) (config: FlyConfig) =
                                 movementActive <- currentlyMoving
 
                                 if state.running && (mouseChanged || movementChanged) then
-                                    apply state
+                                    apply_camera state mouseChanged movementChanged
 
                     Ok()
                 finally

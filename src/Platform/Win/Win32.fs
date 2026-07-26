@@ -135,6 +135,12 @@ type RawMouse =
     val mutable last_y: int
     val mutable extra_information: uint32
 
+type RawInputReadStatus =
+    | Mouse = 0
+    | NonMouse = 1
+    | ZeroBytes = 2
+    | Error = 3
+
 [<DllImport("user32.dll", SetLastError = true)>]
 extern bool RegisterRawInputDevices(RawInputDevice[] devices, uint32 device_count, uint32 device_size)
 
@@ -272,20 +278,31 @@ let signed_button_data (mouse: RawMouse) =
     let value = int (raw_button_data mouse)
     if value >= 0x8000 then value - 0x10000 else value
 
-let try_read_raw_mouse (raw_input: nativeint) (buffer: nativeint) (buffer_capacity: int) =
+let read_raw_input
+    (raw_input: nativeint)
+    (buffer: nativeint)
+    (buffer_capacity: int)
+    (header: byref<RawInputHeader>)
+    (mouse: byref<RawMouse>)
+    (errorCode: byref<int>)
+    =
     let header_size = uint32 (Marshal.SizeOf<RawInputHeader>())
     let mutable bytes = uint32 buffer_capacity
     let read = GetRawInputData(raw_input, RID_INPUT, buffer, &bytes, header_size)
 
-    if read = UInt32.MaxValue || read = 0u then
-        None
+    if read = UInt32.MaxValue then
+        errorCode <- Marshal.GetLastWin32Error()
+        RawInputReadStatus.Error
+    elif read = 0u then
+        RawInputReadStatus.ZeroBytes
     else
-        let header = Marshal.PtrToStructure<RawInputHeader> buffer
+        header <- Marshal.PtrToStructure<RawInputHeader> buffer
 
         if header.input_type <> RIM_TYPEMOUSE then
-            None
+            RawInputReadStatus.NonMouse
         else
-            Some(Marshal.PtrToStructure<RawMouse>(IntPtr.Add(buffer, int header_size)))
+            mouse <- Marshal.PtrToStructure<RawMouse>(IntPtr.Add(buffer, int header_size))
+            RawInputReadStatus.Mouse
 
 let get_cursor_position () =
     let mutable point = Unchecked.defaultof<NativePoint>

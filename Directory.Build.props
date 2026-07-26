@@ -1,11 +1,13 @@
 <Project>
   <PropertyGroup>
     <RhinoDefaultVersion>8</RhinoDefaultVersion>
-    <RhinoSupportedVersions>7;8</RhinoSupportedVersions>
-    <RhinoExperimentalVersions>9</RhinoExperimentalVersions>
+    <RhinoSupportedVersions>7;8;9</RhinoSupportedVersions>
+    <RhinoExperimentalVersions></RhinoExperimentalVersions>
     <RhinoBuildVersions>$(RhinoSupportedVersions);$(RhinoExperimentalVersions)</RhinoBuildVersions>
     <RhinoReleaseVersions>$(RhinoSupportedVersions)</RhinoReleaseVersions>
     <RhinoMajorVersion Condition="'$(RhinoMajorVersion)' == ''">$(RhinoDefaultVersion)</RhinoMajorVersion>
+    <BaseOutputPath>bin\rh$(RhinoMajorVersion)\</BaseOutputPath>
+    <BaseIntermediateOutputPath>obj\rh$(RhinoMajorVersion)\</BaseIntermediateOutputPath>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(RhinoMajorVersion)' == '7'">
