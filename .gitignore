@@ -7,3 +7,4 @@ dist/
 .idea/
 TestResults/
 *.rhp
+/plan.txt

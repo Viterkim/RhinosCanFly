@@ -40,7 +40,7 @@ if ([string]::IsNullOrWhiteSpace($RhinoInstallDir)) {
     throw "Rhino $RhinoMajorVersion is not installed. The plug-in was built, but direct installation requires Rhino $RhinoMajorVersion."
 }
 
-$pluginFile = Join-Path $repoRoot "bin\$Configuration\$TargetFramework\RhinosCanFly.rhp"
+$pluginFile = Join-Path $repoRoot "bin\rh$RhinoMajorVersion\$Configuration\$TargetFramework\RhinosCanFly.rhp"
 $registryPath = "HKCU:\Software\McNeel\Rhinoceros\$RhinoMajorVersion.0\Plug-ins\$pluginId"
 $pluginRegistryPath = Join-Path $registryPath "PlugIn"
 

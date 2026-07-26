@@ -33,7 +33,7 @@ if (-not (Test-Path -LiteralPath $YakPath)) {
     throw "Yak.exe was not found at '$YakPath'."
 }
 
-$output = Join-Path $projectRoot "bin\Release\$TargetFramework"
+$output = Join-Path $projectRoot "bin\rh$RhinoMajorVersion\Release\$TargetFramework"
 $stage = Join-Path $dist "stage-rh$RhinoMajorVersion"
 
 if (Test-Path -LiteralPath $stage) {

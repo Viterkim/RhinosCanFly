@@ -25,15 +25,21 @@ $properties = @(
 )
 
 if ($Clean) {
-    dotnet restore $project @properties
+    dotnet clean $project --configuration $Configuration @properties
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-    dotnet clean $project --configuration $Configuration @properties
+    dotnet restore $project @properties
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
-dotnet build $project --configuration $Configuration @properties
+$buildArguments = @()
+
+if ($Clean) {
+    $buildArguments += "--no-restore"
+}
+
+dotnet build $project --configuration $Configuration @properties @buildArguments
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-$output = Join-Path $PSScriptRoot "bin\$Configuration\$TargetFramework\RhinosCanFly.rhp"
+$output = Join-Path $PSScriptRoot "bin\rh$RhinoMajorVersion\$Configuration\$TargetFramework\RhinosCanFly.rhp"
 Write-Host "Built: $output"

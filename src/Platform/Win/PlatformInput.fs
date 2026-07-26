@@ -4,8 +4,26 @@ open System
 open System.Drawing
 open RhinosCanFly.Platform.Win
 
+type MouseButtonSample = { is_down: bool; was_pressed: bool }
+
+type MouseButtonsSample =
+    { left: MouseButtonSample
+      right: MouseButtonSample
+      middle: MouseButtonSample }
+
 [<Literal>]
 let wheel_delta = Win32.WHEEL_DELTA
+
+let private sample_mouse_button (virtualKey: int) =
+    let state = Win32.GetAsyncKeyState virtualKey
+
+    { is_down = state < 0s
+      was_pressed = state &&& 1s <> 0s }
+
+let sample_mouse_buttons () =
+    { left = sample_mouse_button 0x01
+      right = sample_mouse_button 0x02
+      middle = sample_mouse_button 0x04 }
 
 let wait_for_input () = Win32.wait_for_input Win32.INFINITE
 
