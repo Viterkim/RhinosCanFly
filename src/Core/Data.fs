@@ -106,9 +106,7 @@ type InputSnapshot =
       right: bool
       up: bool
       down: bool
-      move_speed: float
-      mouse_dx: int64
-      mouse_dy: int64 }
+      move_speed: float }
 
 type FlyState =
     { view: RhinoView
@@ -120,9 +118,6 @@ type FlyState =
       mutable running: bool
       mutable camera: CameraState
       mutable speed: float
-      mutable mouse_dx: int64
-      mutable mouse_dy: int64
-      mutable wheel_delta: int
       mutable boost_enabled: bool
       mutable boost_was_down: bool
       mutable slow_enabled: bool

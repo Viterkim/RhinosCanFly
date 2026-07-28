@@ -3,64 +3,141 @@ module RhinosCanFly.Platform.Win.KeyBindings
 open System
 open System.Collections.Generic
 open System.Globalization
-open System.Windows.Forms
 open RhinosCanFly
 
 let aliases =
-    let d = Dictionary<string, Keys> StringComparer.OrdinalIgnoreCase
+    let d = Dictionary<string, int> StringComparer.OrdinalIgnoreCase
 
-    [ "LeftShift", Keys.LShiftKey
-      "RightShift", Keys.RShiftKey
-      "Shift", Keys.ShiftKey
-      "LeftAlt", Keys.LMenu
-      "RightAlt", Keys.RMenu
-      "Alt", Keys.Menu
-      "LeftControl", Keys.LControlKey
-      "RightControl", Keys.RControlKey
-      "Control", Keys.ControlKey
-      "Ctrl", Keys.ControlKey
-      "ArrowUp", Keys.Up
-      "ArrowDown", Keys.Down
-      "ArrowLeft", Keys.Left
-      "ArrowRight", Keys.Right
-      "Escape", Keys.Escape
-      "Esc", Keys.Escape
-      "Space", Keys.Space
-      "Enter", Keys.Enter
-      "Tab", Keys.Tab
-      "Backspace", Keys.Back
-      "PageUp", Keys.PageUp
-      "PageDown", Keys.PageDown
-      "Home", Keys.Home
-      "End", Keys.End
-      "Insert", Keys.Insert
-      "Delete", Keys.Delete
-      "MouseLeft", Keys.LButton
-      "MouseRight", Keys.RButton
-      "MouseMiddle", Keys.MButton
-      "MouseX1", Keys.XButton1
-      "MouseX2", Keys.XButton2
-      "Minus", Keys.OemMinus
-      "Equals", Keys.Oemplus
-      "Plus", Keys.Oemplus
-      "Comma", Keys.Oemcomma
-      "Period", Keys.OemPeriod
-      "Slash", Keys.OemQuestion
-      "Semicolon", Keys.OemSemicolon
-      "Quote", Keys.OemQuotes
-      "LeftBracket", Keys.OemOpenBrackets
-      "RightBracket", Keys.OemCloseBrackets
-      "Backslash", Keys.OemPipe
-      "Backtick", Keys.Oemtilde ]
-    |> List.iter (fun (k: string, v: Keys) -> d[k] <- v)
+    [ "LeftShift", Win32.VK_LSHIFT
+      "LShiftKey", Win32.VK_LSHIFT
+      "RightShift", Win32.VK_RSHIFT
+      "RShiftKey", Win32.VK_RSHIFT
+      "Shift", Win32.VK_SHIFT
+      "ShiftKey", Win32.VK_SHIFT
+      "LeftAlt", Win32.VK_LMENU
+      "LMenu", Win32.VK_LMENU
+      "RightAlt", Win32.VK_RMENU
+      "RMenu", Win32.VK_RMENU
+      "Alt", Win32.VK_MENU
+      "Menu", Win32.VK_MENU
+      "LeftControl", Win32.VK_LCONTROL
+      "LControlKey", Win32.VK_LCONTROL
+      "RightControl", Win32.VK_RCONTROL
+      "RControlKey", Win32.VK_RCONTROL
+      "Control", Win32.VK_CONTROL
+      "ControlKey", Win32.VK_CONTROL
+      "Ctrl", Win32.VK_CONTROL
+      "ArrowUp", 0x26
+      "Up", 0x26
+      "ArrowDown", 0x28
+      "Down", 0x28
+      "ArrowLeft", 0x25
+      "Left", 0x25
+      "ArrowRight", 0x27
+      "Right", 0x27
+      "Escape", 0x1B
+      "Esc", 0x1B
+      "Space", 0x20
+      "Enter", 0x0D
+      "Return", 0x0D
+      "Tab", 0x09
+      "Backspace", 0x08
+      "Back", 0x08
+      "PageUp", 0x21
+      "Prior", 0x21
+      "PageDown", 0x22
+      "Next", 0x22
+      "Home", 0x24
+      "End", 0x23
+      "Insert", 0x2D
+      "Delete", 0x2E
+      "CapsLock", 0x14
+      "Capital", 0x14
+      "Pause", 0x13
+      "Clear", 0x0C
+      "Help", 0x2F
+      "PrintScreen", 0x2C
+      "Snapshot", 0x2C
+      "NumLock", 0x90
+      "NumberLock", 0x90
+      "ScrollLock", 0x91
+      "Scroll", 0x91
+      "LeftWindows", 0x5B
+      "LWin", 0x5B
+      "LeftApplication", 0x5B
+      "RightWindows", 0x5C
+      "RWin", 0x5C
+      "RightApplication", 0x5C
+      "Applications", 0x5D
+      "Apps", 0x5D
+      "ContextMenu", 0x5D
+      "MouseLeft", Win32.VK_LBUTTON
+      "LButton", Win32.VK_LBUTTON
+      "MouseRight", Win32.VK_RBUTTON
+      "RButton", Win32.VK_RBUTTON
+      "MouseMiddle", Win32.VK_MBUTTON
+      "MButton", Win32.VK_MBUTTON
+      "MouseX1", Win32.VK_XBUTTON1
+      "XButton1", Win32.VK_XBUTTON1
+      "MouseX2", Win32.VK_XBUTTON2
+      "XButton2", Win32.VK_XBUTTON2
+      "Minus", 0xBD
+      "OemMinus", 0xBD
+      "Equals", 0xBB
+      "Plus", 0xBB
+      "Oemplus", 0xBB
+      "Comma", 0xBC
+      "Oemcomma", 0xBC
+      "Period", 0xBE
+      "OemPeriod", 0xBE
+      "Slash", 0xBF
+      "ForwardSlash", 0xBF
+      "OemQuestion", 0xBF
+      "Semicolon", 0xBA
+      "OemSemicolon", 0xBA
+      "Quote", 0xDE
+      "OemQuotes", 0xDE
+      "LeftBracket", 0xDB
+      "OemOpenBrackets", 0xDB
+      "RightBracket", 0xDD
+      "OemCloseBrackets", 0xDD
+      "Backslash", 0xDC
+      "OemPipe", 0xDC
+      "Backtick", 0xC0
+      "Oemtilde", 0xC0
+      "Oem102", 0xE2
+      "Multiply", 0x6A
+      "Add", 0x6B
+      "KeypadEqual", 0x92
+      "Separator", 0x6C
+      "Subtract", 0x6D
+      "Decimal", 0x6E
+      "Divide", 0x6F ]
+    |> List.iter (fun (name: string, virtualKey: int) -> d[name] <- virtualKey)
+
+    for code in int 'A' .. int 'Z' do
+        d[string (char code)] <- code
+
+    for digit in 0..9 do
+        let topRow = 0x30 + digit
+        let numberPad = 0x60 + digit
+        d[string digit] <- topRow
+        d[$"D{digit}"] <- topRow
+        d[$"Number{digit}"] <- topRow
+        d[$"NumPad{digit}"] <- numberPad
+        d[$"NumberPad{digit}"] <- numberPad
+        d[$"Keypad{digit}"] <- numberPad
+
+    for number in 1..24 do
+        d[$"F{number}"] <- 0x6F + number
 
     d
 
 let parse_key (text: string) =
-    let mutable alias = Unchecked.defaultof<Keys>
+    let mutable alias = 0
 
     if aliases.TryGetValue(text, &alias) then
-        Ok(int alias)
+        Ok alias
     elif text.StartsWith("0x", StringComparison.OrdinalIgnoreCase) then
         let mutable value = 0
 
@@ -69,12 +146,7 @@ let parse_key (text: string) =
         else
             Error $"'{text}' is not a valid hexadecimal virtual-key code"
     else
-        let mutable key = Unchecked.defaultof<Keys>
-
-        if Enum.TryParse<Keys>(text, true, &key) then
-            Ok(int key)
-        else
-            Error $"unknown key '{text}'"
+        Error $"unknown key '{text}'"
 
 let parse (source: string) =
     if String.IsNullOrWhiteSpace source then

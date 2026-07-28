@@ -31,7 +31,6 @@ let look (config: FlyConfig) (mouseDx: int64) (mouseDy: int64) (camera: CameraSt
     { camera with yaw = yaw; pitch = pitch }
 
 let step (config: FlyConfig) (input: InputSnapshot) (dt: float) (camera: CameraState) =
-    let camera = look config input.mouse_dx input.mouse_dy camera
     let yaw = camera.yaw
     let pitch = camera.pitch
 

@@ -11,9 +11,19 @@ type RightClickCallback() =
     inherit MouseCallback()
 
     let mutable queued = false
+    let mutable idleHandler: EventHandler option = None
 
     let log_error (context: string) (error: exn) =
         Debug.WriteLine $"RhinosCanFly {context}: {error.Message}"
+
+    let clear_queue () =
+        match idleHandler with
+        | Some handler ->
+            RhinoApp.Idle.RemoveHandler handler
+            idleHandler <- None
+        | None -> ()
+
+        queued <- false
 
     override _.OnMouseDown(event: MouseCallbackEventArgs) =
         try
@@ -31,30 +41,27 @@ type RightClickCallback() =
                 if not queued then
                     queued <- true
                     let viewSerialNumber = event.View.RuntimeSerialNumber
-                    let mutable idleHandler = Unchecked.defaultof<EventHandler>
 
-                    idleHandler <-
+                    let handler =
                         EventHandler(fun (_: obj) (_: EventArgs) ->
                             try
                                 let view = RhinoView.FromRuntimeSerialNumber viewSerialNumber
 
                                 if isNull view then
-                                    RhinoApp.Idle.RemoveHandler idleHandler
-                                    queued <- false
+                                    clear_queue ()
                                 elif not (Runtime.viewport_gesture_active view) then
-                                    RhinoApp.Idle.RemoveHandler idleHandler
-                                    queued <- false
+                                    clear_queue ()
 
                                     if not (Command.InCommand()) && not (Runtime.is_running ()) then
                                         RhinoApp.RunScript("! _RhinosCanFly", false) |> ignore
                             with error ->
-                                RhinoApp.Idle.RemoveHandler idleHandler
-                                queued <- false
+                                clear_queue ()
                                 log_error "right-click idle handler" error)
 
-                    RhinoApp.Idle.AddHandler idleHandler
+                    idleHandler <- Some handler
+                    RhinoApp.Idle.AddHandler handler
         with error ->
-            queued <- false
+            clear_queue ()
 
             try
                 event.Cancel <- false
@@ -67,6 +74,16 @@ type RightClickCallback() =
         if queued && event.MouseButton = MouseButton.Right then
             event.Cancel <- true
 
+    member this.SetEnabled(enabled: bool) =
+        if not enabled then
+            clear_queue ()
+
+        this.Enabled <- enabled
+
+    member this.Shutdown() = this.SetEnabled false
+
 let callback = RightClickCallback()
 
-let set_enabled (enabled: bool) = callback.Enabled <- enabled
+let set_enabled (enabled: bool) = callback.SetEnabled enabled
+
+let shutdown () = callback.Shutdown()

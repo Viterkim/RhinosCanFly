@@ -36,7 +36,7 @@ module internal SettingsUi =
         if not (isNull method) then
             method.Invoke(null, [| control :> obj |]) |> ignore
 
-type private BindingCapture = { field: TextBox; button: Button }
+type BindingCapture = { field: TextBox; button: Button }
 
 type SettingsControl() as self =
     inherit Panel()

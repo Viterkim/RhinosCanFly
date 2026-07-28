@@ -9,12 +9,7 @@ let apply (config: FlyConfigFile) =
 
 let apply_with_speed (document: RhinoDoc) (config: FlyConfigFile) (requestedSpeed: float) =
     let speedResult =
-        Runtime.set_speed
-            document
-            config.save_speed_to_document
-            config.minimum_speed
-            config.maximum_speed
-            requestedSpeed
+        FlightSpeed.set document config.save_speed_to_document config.minimum_speed config.maximum_speed requestedSpeed
 
     let settingsResult = apply config
 

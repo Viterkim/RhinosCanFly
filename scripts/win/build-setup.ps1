@@ -80,6 +80,46 @@ function Find-RhinoInstallation {
     return $null
 }
 
+function Get-RunningRhinoProcess {
+    param([string] $ExecutablePath)
+
+    if ([string]::IsNullOrWhiteSpace($ExecutablePath)) {
+        return @()
+    }
+
+    $targetPath = [IO.Path]::GetFullPath($ExecutablePath)
+
+    return @(
+        Get-Process -Name "Rhino" -ErrorAction SilentlyContinue |
+            Where-Object {
+                $processPath = $null
+
+                try {
+                    $processPath = $_.Path
+                }
+                catch {
+                    $processPath = $null
+                }
+
+                if ([string]::IsNullOrWhiteSpace($processPath)) {
+                    try {
+                        $processPath = $_.MainModule.FileName
+                    }
+                    catch {
+                        $processPath = $null
+                    }
+                }
+
+                -not [string]::IsNullOrWhiteSpace($processPath) -and
+                    [string]::Equals(
+                        [IO.Path]::GetFullPath($processPath),
+                        $targetPath,
+                        [StringComparison]::OrdinalIgnoreCase
+                    )
+            }
+    )
+}
+
 $requestedVersion = $RhinoVersion
 
 if ($requestedVersion -eq 0 -and -not [string]::IsNullOrWhiteSpace($env:RCF_RHINO_VERSION)) {

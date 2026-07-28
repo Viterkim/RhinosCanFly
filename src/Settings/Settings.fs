@@ -19,7 +19,7 @@ let current_lens () =
 let current_speed (config: FlyConfigFile) =
     let document = RhinoDoc.ActiveDoc
 
-    Runtime.current_speed
+    FlightSpeed.current
         document
         config.load_speed_from_document
         config.minimum_speed

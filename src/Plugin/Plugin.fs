@@ -21,4 +21,5 @@ type RhinosCanFlyPlugin() as self =
         pages.Add(new RhinosCanFlyOptionsPage())
 
     override _.OnShutdown() =
+        RightClickEntry.shutdown ()
         PlatformInput.shutdown_mouse_button_overrides ()

@@ -14,16 +14,16 @@ type MouseButtonsSample =
 [<Literal>]
 let wheel_delta = Win32.WHEEL_DELTA
 
-let private sample_mouse_button (virtualKey: int) =
+let sample_mouse_button (virtualKey: int) =
     let state = Win32.GetAsyncKeyState virtualKey
 
     { is_down = state < 0s
       was_pressed = state &&& 1s <> 0s }
 
 let sample_mouse_buttons () =
-    { left = sample_mouse_button 0x01
-      right = sample_mouse_button 0x02
-      middle = sample_mouse_button 0x04 }
+    { left = sample_mouse_button Win32.VK_LBUTTON
+      right = sample_mouse_button Win32.VK_RBUTTON
+      middle = sample_mouse_button Win32.VK_MBUTTON }
 
 let wait_for_input () = Win32.wait_for_input Win32.INFINITE
 
@@ -43,6 +43,10 @@ let set_cursor_position (point: Point) = Win32.set_cursor_position point
 
 let clear_mouse_hover (window: nativeint) = Win32.clear_mouse_hover window
 
+let request_view_redraw (window: nativeint) = Win32.invalidate_window window
+
+let update_view (window: nativeint) = Win32.update_window window
+
 let clip_cursor (rectangle: Rectangle) = Win32.clip_cursor rectangle
 
 let clear_cursor_clip () = Win32.clear_cursor_clip ()
@@ -53,12 +57,38 @@ let hide_cursor () = Win32.ShowCursor false |> ignore
 
 let show_cursor () = Win32.ShowCursor true |> ignore
 
-let open_raw_input (window: nativeint) (state: FlyState) : IDisposable = new RawInputWindow(window, state)
+type RawInputSession = RawInputThread.Session
+type InputWake = RawInputWake.State
 
-let apply_mouse_button_overrides (config: FlyConfigFile) = MouseButtonOverrides.apply config
+let create_raw_input_wake () = RawInputWake.create ()
 
-let suspend_mouse_button_overrides () = MouseButtonOverrides.suspend ()
+let reset_raw_input_wake (wake: InputWake) = RawInputWake.reset wake
 
-let resume_mouse_button_overrides () = MouseButtonOverrides.resume ()
+let raw_input_wake_action (wake: InputWake) = RawInputWake.action wake
 
-let shutdown_mouse_button_overrides () = MouseButtonOverrides.shutdown ()
+let open_raw_input (config: FlyConfig) (input: InputAccumulator.State) (inputAvailable: Action) =
+    RawInputThread.start config input inputAvailable
+
+let close_raw_input (session: RawInputSession) = RawInputThread.stop session
+
+let mutable mouseButtonOverridesInitialized = false
+
+let apply_mouse_button_overrides (config: FlyConfigFile) =
+    if config.mouse_button_overrides_enabled || mouseButtonOverridesInitialized then
+        mouseButtonOverridesInitialized <- true
+        MouseButtonOverrides.apply config
+    else
+        Ok()
+
+let suspend_mouse_button_overrides () =
+    if mouseButtonOverridesInitialized then
+        MouseButtonOverrides.suspend ()
+
+let resume_mouse_button_overrides () =
+    if mouseButtonOverridesInitialized then
+        MouseButtonOverrides.resume ()
+
+let shutdown_mouse_button_overrides () =
+    if mouseButtonOverridesInitialized then
+        MouseButtonOverrides.shutdown ()
+        mouseButtonOverridesInitialized <- false
