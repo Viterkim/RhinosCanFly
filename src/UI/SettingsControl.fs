@@ -9,7 +9,7 @@ open Eto.Forms
 open Rhino
 open Rhino.UI
 
-module internal SettingsUi =
+module SettingsUi =
     let load_icon () =
         let assembly = Assembly.GetExecutingAssembly()
 
@@ -35,8 +35,6 @@ module internal SettingsUi =
 
         if not (isNull method) then
             method.Invoke(null, [| control :> obj |]) |> ignore
-
-type private BindingCapture = { field: TextBox; button: Button }
 
 type SettingsControl() as self =
     inherit Panel()
@@ -77,7 +75,7 @@ type SettingsControl() as self =
     let hijackRightClick = new CheckBox(Text = "Hijack right click")
 
     let commandsDoNotRepeat =
-        new CheckBox(Text = "Don't count fly/init commands as repeatable")
+        new CheckBox(Text = "Don't count fly command as repeatable")
 
     let boostHold = new CheckBox(Text = "Boost Mode: hold instead of toggle")
     let slowHold = new CheckBox(Text = "Slow Mode: hold instead of toggle")
@@ -102,10 +100,7 @@ type SettingsControl() as self =
     let mutable speedText = "Unavailable"
     let mutable lensText = "Unavailable"
     let optionsIcon = SettingsUi.load_icon ()
-    let mutable capture: BindingCapture option = None
-    let mutable suppressNextSetClick: Button option = None
-    let sideButtonTimer = new UITimer(Interval = 0.015)
-    let focusSink = new Drawable(CanFocus = true, Size = Size(1, 1))
+    let bindingCapture = BindingCapture.create ()
 
     let format (value: float) =
         let rounded = Math.Round(value, 9, MidpointRounding.AwayFromZero)
@@ -173,69 +168,8 @@ type SettingsControl() as self =
         add_rows controls
         grid
 
-    let stop_capture () =
-        match capture with
-        | Some active -> active.button.Text <- "Set..."
-        | None -> ()
-
-        capture <- None
-
-        if sideButtonTimer.Started then
-            sideButtonTimer.Stop()
-
-    let complete_capture (binding: string) =
-        match capture with
-        | Some active ->
-            active.field.Text <- binding
-            stop_capture ()
-        | None -> ()
-
-    let start_capture (field: TextBox) (button: Button) =
-        stop_capture ()
-        capture <- Some { field = field; button = button }
-        button.Text <- "Press..."
-        button.Focus()
-        sideButtonTimer.Start()
-
-    let same_button (left: Button) (right: Button) = Object.ReferenceEquals(left, right)
-
     let binding_editor (field: TextBox) (defaultValue: string) =
-        let setButton = new Button(Text = "Set...", Width = 62, Height = 24)
-        let defaultButton = new Button(Text = "Default", Width = 66, Height = 24)
-        let panel = new TableLayout(Spacing = Size(6, 0))
-
-        panel.Rows.Add(
-            make_row
-                [ new TableCell(field, true)
-                  new TableCell(setButton, false)
-                  new TableCell(defaultButton, false) ]
-        )
-
-        setButton.Click.Add(fun (_: EventArgs) ->
-            match suppressNextSetClick with
-            | Some suppressed when same_button suppressed setButton -> suppressNextSetClick <- None
-            | _ -> start_capture field setButton)
-
-        setButton.KeyDown.Add(fun (event: KeyEventArgs) ->
-            match capture with
-            | Some active when same_button active.button setButton ->
-                event.Handled <- true
-
-                if not (PlatformBindings.is_modifier_key event.Key) then
-                    PlatformBindings.binding_from_key event.Key event.Modifiers |> complete_capture
-            | _ -> ())
-
-        setButton.KeyUp.Add(fun (event: KeyEventArgs) ->
-            match capture with
-            | Some active when same_button active.button setButton ->
-                event.Handled <- true
-
-                if PlatformBindings.is_modifier_key event.Key then
-                    PlatformBindings.key_name event.Key |> complete_capture
-            | _ -> ())
-
-        defaultButton.Click.Add(fun (_: EventArgs) -> field.Text <- defaultValue)
-        panel :> Control
+        BindingCapture.editor bindingCapture field defaultValue
 
     let heading (text: string) =
         let label =
@@ -272,39 +206,6 @@ type SettingsControl() as self =
         layout
 
     let rawJsonPanel = new Panel(Content = rawJsonLayout, Visible = false)
-
-    let is_editor_control (control: Control) =
-        match control with
-        | :? TextBox
-        | :? TextArea
-        | :? Button
-        | :? CheckBox -> true
-        | _ -> false
-
-    let try_capture_mouse (source: Control) (event: MouseEventArgs) =
-        match capture, PlatformBindings.binding_from_mouse event.Buttons event.Modifiers with
-        | Some _, Some binding ->
-            match source with
-            | :? Button as button when event.Buttons = MouseButtons.Primary -> suppressNextSetClick <- Some button
-            | _ -> ()
-
-            complete_capture binding
-            true
-        | _ -> false
-
-    let rec attach_mouse_behavior (control: Control) =
-        control.MouseDown.Add(fun (event: MouseEventArgs) ->
-            if try_capture_mouse control event then
-                event.Handled <- true
-            elif not (is_editor_control control) then
-                stop_capture ()
-                focusSink.Focus())
-
-        match control with
-        | :? Container as container ->
-            for child in container.Children do
-                attach_mouse_behavior child
-        | _ -> ()
 
     let mainTable = new TableLayout(Padding = Padding 12, Spacing = Size(0, 4))
 
@@ -385,16 +286,13 @@ type SettingsControl() as self =
             new Scrollable(Border = BorderType.None, ExpandContentWidth = true, Content = mainTable)
 
         let host = new TableLayout(Spacing = Size.Empty)
-        host.Rows.Add(make_row [ new TableCell(focusSink, false) ])
+        host.Rows.Add(make_row [ new TableCell(bindingCapture.focus_sink, false) ])
 
         let contentRow = make_row [ new TableCell(scrollable, true) ]
         contentRow.ScaleHeight <- true
         host.Rows.Add contentRow
 
         self.Content <- host
-
-        sideButtonTimer.Elapsed.Add(fun (_: EventArgs) ->
-            PlatformBindings.try_side_mouse_binding () |> Option.iter complete_capture)
 
         mouseButtonOverridesEnabled.CheckedChanged.Add(fun (_: EventArgs) -> refresh_mouse_override_controls ())
 
@@ -416,11 +314,8 @@ type SettingsControl() as self =
         resetAll.Click.Add(fun (_: EventArgs) ->
             self.LoadConfig defaults
 
-            match Config.save defaults with
-            | Ok() ->
-                let applyResult =
-                    LiveSettings.apply_with_speed RhinoDoc.ActiveDoc defaults defaults.base_speed
-
+            match RuntimeSettings.save_and_apply RhinoDoc.ActiveDoc defaults defaults.base_speed with
+            | Ok _ ->
                 speedText <- format defaults.base_speed
                 refresh_status ()
 
@@ -428,19 +323,16 @@ type SettingsControl() as self =
                 | Ok(path, content) -> self.ShowRaw(path, content)
                 | Error _ -> ()
 
-                match applyResult with
-                | Ok _ -> self.ClearError()
-                | Error error -> self.ShowError error
-            | Error error -> self.ShowError $"Could not reset settings: {error}")
+                self.ClearError()
+            | Error error -> self.ShowError error)
 
-        attach_mouse_behavior self
+        BindingCapture.attach_mouse_behavior bindingCapture self
         SettingsUi.use_rhino_style self
-        self.UnLoad.Add(fun (_: EventArgs) -> stop_capture ())
+        self.UnLoad.Add(fun (_: EventArgs) -> BindingCapture.stop bindingCapture)
 
     override _.Dispose(disposing: bool) =
         if disposing then
-            stop_capture ()
-            sideButtonTimer.Dispose()
+            BindingCapture.dispose bindingCapture
 
         base.Dispose disposing
 

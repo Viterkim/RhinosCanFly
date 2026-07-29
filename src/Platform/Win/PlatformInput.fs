@@ -4,26 +4,8 @@ open System
 open System.Drawing
 open RhinosCanFly.Platform.Win
 
-type MouseButtonSample = { is_down: bool; was_pressed: bool }
-
-type MouseButtonsSample =
-    { left: MouseButtonSample
-      right: MouseButtonSample
-      middle: MouseButtonSample }
-
 [<Literal>]
 let wheel_delta = Win32.WHEEL_DELTA
-
-let private sample_mouse_button (virtualKey: int) =
-    let state = Win32.GetAsyncKeyState virtualKey
-
-    { is_down = state < 0s
-      was_pressed = state &&& 1s <> 0s }
-
-let sample_mouse_buttons () =
-    { left = sample_mouse_button 0x01
-      right = sample_mouse_button 0x02
-      middle = sample_mouse_button 0x04 }
 
 let wait_for_input () = Win32.wait_for_input Win32.INFINITE
 
@@ -53,12 +35,38 @@ let hide_cursor () = Win32.ShowCursor false |> ignore
 
 let show_cursor () = Win32.ShowCursor true |> ignore
 
-let open_raw_input (window: nativeint) (state: FlyState) : IDisposable = new RawInputWindow(window, state)
+type RawInputSession = RawInputThread.Session
+type InputWake = RawInputWake.State
 
-let apply_mouse_button_overrides (config: FlyConfigFile) = MouseButtonOverrides.apply config
+let create_raw_input_wake () = RawInputWake.create ()
 
-let suspend_mouse_button_overrides () = MouseButtonOverrides.suspend ()
+let reset_raw_input_wake (wake: InputWake) = RawInputWake.reset wake
 
-let resume_mouse_button_overrides () = MouseButtonOverrides.resume ()
+let raw_input_wake_action (wake: InputWake) = RawInputWake.action wake
 
-let shutdown_mouse_button_overrides () = MouseButtonOverrides.shutdown ()
+let open_raw_input (config: FlyConfig) (input: InputAccumulator.State) (inputAvailable: Action) =
+    RawInputThread.start config input inputAvailable
+
+let close_raw_input (session: RawInputSession) = RawInputThread.stop session
+
+let mutable mouseButtonOverridesInitialized = false
+
+let apply_mouse_button_overrides (config: FlyConfigFile) =
+    if config.mouse_button_overrides_enabled || mouseButtonOverridesInitialized then
+        mouseButtonOverridesInitialized <- true
+        MouseButtonOverrides.apply config
+    else
+        Ok()
+
+let suspend_mouse_button_overrides () =
+    if mouseButtonOverridesInitialized then
+        MouseButtonOverrides.suspend ()
+
+let resume_mouse_button_overrides () =
+    if mouseButtonOverridesInitialized then
+        MouseButtonOverrides.resume ()
+
+let shutdown_mouse_button_overrides () =
+    if mouseButtonOverridesInitialized then
+        MouseButtonOverrides.shutdown ()
+        mouseButtonOverridesInitialized <- false

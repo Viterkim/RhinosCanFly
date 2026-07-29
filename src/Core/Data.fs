@@ -43,9 +43,7 @@ type FlyConfigFile =
       vertical_speed_multiplier: float
       lens_length_mm_in_mode: float }
 
-type KeyBinding =
-    { source: string
-      virtual_keys: int list }
+type KeyBinding = { virtual_keys: int list }
 
 [<Struct>]
 type ConfigMouseSensitivity = ConfigMouseSensitivity of float
@@ -81,7 +79,6 @@ type FlyConfig =
       exit_on_mouse_left: bool
       exit_on_mouse_right: bool
       exit_on_mouse_middle: bool
-      hijack_right_click_to_enter: bool
       boost_hold_instead_of_toggle: bool
       slow_hold_instead_of_toggle: bool
       vertical_speed_multiplier: float
@@ -90,8 +87,6 @@ type FlyConfig =
 type ConfigLoadResult =
     { config_file: FlyConfigFile
       config: FlyConfig
-      path: string
-      created: bool
       messages: string list }
 
 type CameraState =
@@ -106,9 +101,7 @@ type InputSnapshot =
       right: bool
       up: bool
       down: bool
-      move_speed: float
-      mouse_dx: int64
-      mouse_dy: int64 }
+      move_speed: float }
 
 type FlyState =
     { view: RhinoView
@@ -120,9 +113,6 @@ type FlyState =
       mutable running: bool
       mutable camera: CameraState
       mutable speed: float
-      mutable mouse_dx: int64
-      mutable mouse_dy: int64
-      mutable wheel_delta: int
       mutable boost_enabled: bool
       mutable boost_was_down: bool
       mutable slow_enabled: bool

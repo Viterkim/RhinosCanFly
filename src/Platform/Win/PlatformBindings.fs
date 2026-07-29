@@ -8,7 +8,7 @@ let parse (source: string) = KeyBindings.parse source
 
 let is_down (binding: KeyBinding) = KeyBindings.is_down binding
 
-let private key_value (key: Keys) =
+let key_value (key: Keys) =
     let value = key &&& Keys.KeyMask
 
     if value = Keys.None && key <> Keys.None then key else value
@@ -63,7 +63,7 @@ let is_modifier_key (key: Keys) =
     | Keys.RightAlt -> true
     | _ -> false
 
-let private chord_name (modifiers: string list) (key: string) = String.concat "+" (modifiers @ [ key ])
+let chord_name (modifiers: string list) (key: string) = String.concat "+" (modifiers @ [ key ])
 
 let binding_from_key (key: Keys) (modifiers: Keys) =
     chord_name (modifier_names modifiers) (key_name key)
@@ -78,32 +78,20 @@ let binding_from_mouse (button: MouseButtons) (modifiers: Keys) =
 
     name |> Option.map (chord_name (modifier_names modifiers))
 
-let private win_key_down (key: System.Windows.Forms.Keys) = Win32.GetAsyncKeyState(int key) < 0s
+let win_key_down (virtualKey: int) = Win32.GetAsyncKeyState virtualKey < 0s
 
-let private win_modifier_names () =
-    [ if
-          win_key_down System.Windows.Forms.Keys.LControlKey
-          || win_key_down System.Windows.Forms.Keys.RControlKey
-      then
+let win_modifier_names () =
+    [ if win_key_down Win32.VK_LCONTROL || win_key_down Win32.VK_RCONTROL then
           "Control"
-      if
-          win_key_down System.Windows.Forms.Keys.LMenu
-          || win_key_down System.Windows.Forms.Keys.RMenu
-      then
+      if win_key_down Win32.VK_LMENU || win_key_down Win32.VK_RMENU then
           "Alt"
-      if
-          win_key_down System.Windows.Forms.Keys.LShiftKey
-          || win_key_down System.Windows.Forms.Keys.RShiftKey
-      then
+      if win_key_down Win32.VK_LSHIFT || win_key_down Win32.VK_RSHIFT then
           "Shift" ]
 
 let try_side_mouse_binding () =
     let name =
-        if win_key_down System.Windows.Forms.Keys.XButton1 then
-            Some "MouseX1"
-        elif win_key_down System.Windows.Forms.Keys.XButton2 then
-            Some "MouseX2"
-        else
-            None
+        if win_key_down Win32.VK_XBUTTON1 then Some "MouseX1"
+        elif win_key_down Win32.VK_XBUTTON2 then Some "MouseX2"
+        else None
 
     name |> Option.map (chord_name (win_modifier_names ()))

@@ -38,7 +38,7 @@ let set_speed (document: RhinoDoc) =
         let config = loaded.config
 
         let mutable speed =
-            Runtime.current_speed
+            FlightSpeed.current
                 document
                 config.load_speed_from_document
                 config.minimum_speed
@@ -51,12 +51,7 @@ let set_speed (document: RhinoDoc) =
             result
         else
             match
-                Runtime.set_speed
-                    document
-                    config.save_speed_to_document
-                    config.minimum_speed
-                    config.maximum_speed
-                    speed
+                FlightSpeed.set document config.save_speed_to_document config.minimum_speed config.maximum_speed speed
             with
             | Ok saved ->
                 RhinoApp.WriteLine $"RhinosCanFly speed set to {saved}."

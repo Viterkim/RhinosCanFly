@@ -3,7 +3,7 @@ module RhinosCanFly.RepeatBehavior
 open System
 open Rhino.ApplicationSettings
 
-let commandNames = [| "RhinosCanFly"; "RhinosCanFlyInit" |]
+let commandNames = [| "RhinosCanFly" |]
 
 let contains_name (names: string array) (candidate: string) =
     names
@@ -20,11 +20,13 @@ let apply (doNotRepeat: bool) =
             commandNames
             |> Array.filter (fun (name: string) -> not (contains_name current name))
 
-        if missing.Length > 0 || not NeverRepeatList.UseNeverRepeatList then
-            NeverRepeatList.SetList(Array.append current missing) |> ignore
+        let updated = Array.append current missing
+
+        if updated <> current || not NeverRepeatList.UseNeverRepeatList then
+            NeverRepeatList.SetList updated |> ignore
     else
         let updated =
             current |> Array.filter (fun (name: string) -> not (is_plugin_command name))
 
-        if updated.Length <> current.Length then
+        if updated <> current then
             NeverRepeatList.SetList updated |> ignore

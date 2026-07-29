@@ -19,7 +19,7 @@ let current_lens () =
 let current_speed (config: FlyConfigFile) =
     let document = RhinoDoc.ActiveDoc
 
-    Runtime.current_speed
+    FlightSpeed.current
         document
         config.load_speed_from_document
         config.minimum_speed
@@ -51,22 +51,16 @@ let save (control: SettingsControl) =
         RhinoApp.WriteLine $"RhinosCanFly settings were not saved: {error}"
         false
     | Ok config ->
-        match Config.save config with
-        | Ok() ->
-            let speed = current_speed config
+        let speed = current_speed config
 
-            let applyResult = LiveSettings.apply_with_speed RhinoDoc.ActiveDoc config speed
-
+        match RuntimeSettings.save_and_apply RhinoDoc.ActiveDoc config speed with
+        | Ok _ ->
             control.ShowRuntimeState(current_speed config, current_lens ())
 
             show_raw control
-
-            match applyResult with
-            | Ok _ -> control.ClearError()
-            | Error error -> control.ShowError error
-
+            control.ClearError()
             true
         | Error error ->
             control.ShowError error
-            RhinoApp.WriteLine $"RhinosCanFly settings were not saved: {error}"
+            RhinoApp.WriteLine $"RhinosCanFly settings error: {error}"
             false

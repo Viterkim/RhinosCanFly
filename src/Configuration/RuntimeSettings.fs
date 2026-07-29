@@ -1,4 +1,4 @@
-module RhinosCanFly.LiveSettings
+module RhinosCanFly.RuntimeSettings
 
 open Rhino
 
@@ -7,14 +7,9 @@ let apply (config: FlyConfigFile) =
     RepeatBehavior.apply config.commands_do_not_repeat
     PlatformInput.apply_mouse_button_overrides config
 
-let apply_with_speed (document: RhinoDoc) (config: FlyConfigFile) (requestedSpeed: float) =
+let apply_speed_and_settings (document: RhinoDoc) (config: FlyConfigFile) (requestedSpeed: float) =
     let speedResult =
-        Runtime.set_speed
-            document
-            config.save_speed_to_document
-            config.minimum_speed
-            config.maximum_speed
-            requestedSpeed
+        FlightSpeed.set document config.save_speed_to_document config.minimum_speed config.maximum_speed requestedSpeed
 
     let settingsResult = apply config
 
@@ -23,6 +18,11 @@ let apply_with_speed (document: RhinoDoc) (config: FlyConfigFile) (requestedSpee
     | Error speedError, Ok() -> Error speedError
     | Ok _, Error settingsError -> Error $"Mouse overrides unavailable: {settingsError}"
     | Error speedError, Error settingsError -> Error $"{speedError}; Mouse overrides unavailable: {settingsError}"
+
+let save_and_apply (document: RhinoDoc) (config: FlyConfigFile) (requestedSpeed: float) =
+    match Config.save config with
+    | Error error -> Error $"Could not save settings: {error}"
+    | Ok() -> apply_speed_and_settings document config requestedSpeed
 
 let load_and_apply () =
     match Config.load () with

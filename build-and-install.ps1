@@ -21,12 +21,6 @@ if ($PSBoundParameters.ContainsKey("RhinoVersion")) {
 . $buildSetup @setupParameters
 $installParameters.RhinoVersion = [int] $RhinoMajorVersion
 
-$runningRhino = @(Get-Process -Name "Rhino" -ErrorAction SilentlyContinue)
-
-if ($runningRhino.Count -gt 0) {
-    throw "Rhino is running. Save your work, close Rhino yourself, then run build-and-install.ps1 again."
-}
-
 & $installer @installParameters
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -37,4 +31,6 @@ if (-not (Test-Path -LiteralPath $rhinoExecutable)) {
 }
 
 Write-Host "Starting Rhino $RhinoMajorVersion."
-Start-Process -FilePath $rhinoExecutable
+Start-Process `
+    -FilePath $rhinoExecutable `
+    -WorkingDirectory (Split-Path -Parent $rhinoExecutable)
