@@ -102,8 +102,7 @@ let compile (source: FlyConfigFile) =
         | Error error ->
             errors.Add $"{name}: {error}"
 
-            { source = if isNull value then "" else value
-              virtual_keys = [] }
+            { virtual_keys = [] }
 
     let optional (name: string) (value: string) =
         if String.IsNullOrWhiteSpace value then
@@ -175,7 +174,6 @@ let compile (source: FlyConfigFile) =
           exit_on_mouse_left = source.exit_on_mouse_left
           exit_on_mouse_right = source.exit_on_mouse_right
           exit_on_mouse_middle = source.exit_on_mouse_middle
-          hijack_right_click_to_enter = source.hijack_right_click_to_enter
           boost_hold_instead_of_toggle = source.boost_hold_instead_of_toggle
           slow_hold_instead_of_toggle = source.slow_hold_instead_of_toggle
           vertical_speed_multiplier = source.vertical_speed_multiplier
@@ -290,8 +288,6 @@ let load () =
         Ok
             { config_file = source
               config = config
-              path = config_path
-              created = created
               messages = List.ofSeq messages }
     with error ->
         Error error.Message

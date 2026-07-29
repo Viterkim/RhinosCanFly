@@ -25,15 +25,3 @@ type RhinosCanFlySetSpeedCommand() =
     inherit Command()
     override _.EnglishName = "RhinosCanFlySetSpeed"
     override _.RunCommand(document: RhinoDoc, _mode: RunMode) = Commands.set_speed document
-
-[<Guid("5E1A4D2C-7F60-4D59-9E18-864D20F137B8")>]
-type RhinosCanFlyInitCommand() =
-    inherit Command()
-    override _.EnglishName = "RhinosCanFlyInit"
-
-    override _.RunCommand(_document: RhinoDoc, _mode: RunMode) =
-        match LiveSettings.load_and_apply () with
-        | Ok() -> Result.Success
-        | Error error ->
-            RhinoApp.WriteLine $"RhinosCanFly initialization failed: {error}"
-            Result.Failure

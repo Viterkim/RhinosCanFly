@@ -170,10 +170,7 @@ let parse (source: string) =
 
         match error with
         | Some message -> Error message
-        | None ->
-            Ok
-                { source = source.Trim()
-                  virtual_keys = List.ofSeq keys }
+        | None -> Ok { virtual_keys = List.ofSeq keys }
 
 let is_down (binding: KeyBinding) =
     binding.virtual_keys

@@ -1,5 +1,6 @@
 module RhinosCanFly.Runtime
 
+open System
 open System.Diagnostics
 open Rhino
 open Rhino.ApplicationSettings
@@ -17,6 +18,20 @@ let wait_for_viewport_gesture (view: RhinoView) =
         match PlatformInput.wait_for_input () with
         | Ok() -> RhinoApp.Wait()
         | Error error -> failwith error
+
+let error_message (error: exn) =
+    match error with
+    | :? AggregateException as aggregate ->
+        aggregate.Flatten().InnerExceptions
+        |> Seq.map (fun (inner: exn) -> inner.Message)
+        |> String.concat "; "
+    | _ -> error.Message
+
+let attempt_cleanup (errors: ResizeArray<string>) (name: string) (action: unit -> unit) =
+    try
+        action ()
+    with error ->
+        errors.Add $"{name}: {error_message error}"
 
 let make_state (view: RhinoView) (config: FlyConfig) =
     let viewport = view.ActiveViewport
@@ -61,11 +76,16 @@ let run (view: RhinoView) (config: FlyConfig) =
     else
         sessionRunning <- true
 
-        try
-            wait_for_viewport_gesture view
-            PlatformInput.suspend_mouse_button_overrides ()
+        let cleanupErrors = ResizeArray<string>()
+        let mutable rawInputClean = true
+        let mutable overridesSuspended = false
 
+        let flightResult =
             try
+                wait_for_viewport_gesture view
+                PlatformInput.suspend_mouse_button_overrides ()
+                overridesSuspended <- true
+
                 let state = make_state view config
                 let rawInput = InputAccumulator.create ()
                 let originalTooltipsEnabled = CursorTooltipSettings.TooltipsEnabled
@@ -75,109 +95,137 @@ let run (view: RhinoView) (config: FlyConfig) =
                 let mutable tooltipsChanged = false
                 let inputWake = PlatformInput.create_raw_input_wake ()
 
-                try
-                    CursorTooltipSettings.TooltipsEnabled <- false
-                    tooltipsChanged <- true
+                let activeResult =
+                    try
+                        CursorTooltipSettings.TooltipsEnabled <- false
+                        tooltipsChanged <- true
 
-                    let rectangle = view.ScreenRectangle
+                        let rectangle = view.ScreenRectangle
 
-                    match PlatformInput.clip_cursor rectangle with
-                    | Ok() -> captured <- true
-                    | Error error -> failwith error
+                        match PlatformInput.clip_cursor rectangle with
+                        | Ok() -> captured <- true
+                        | Error error -> failwith error
 
-                    PlatformInput.focus view.Handle
-                    state.viewport.CameraUp <- Vector3d.ZAxis
+                        PlatformInput.focus view.Handle
+                        state.viewport.CameraUp <- Vector3d.ZAxis
 
-                    raw <-
-                        Some(
+                        let session =
                             PlatformInput.open_raw_input
                                 state.config
                                 rawInput
                                 (PlatformInput.raw_input_wake_action inputWake)
-                        )
 
-                    let mouseExitState = FlightControls.create_mouse_exit_state ()
-                    PlatformInput.hide_cursor ()
-                    cursorHidden <- true
-                    PlatformInput.clear_mouse_hover view.Handle
-                    FlightCamera.apply_entry_lens state
-                    FlightCamera.redraw view
-                    let clock = Stopwatch.StartNew()
-                    let mutable previousFrame = clock.Elapsed.TotalSeconds
-                    let mutable movementActive = false
+                        raw <- Some session
+                        rawInputClean <- false
+                        PlatformInput.hide_cursor ()
+                        cursorHidden <- true
+                        PlatformInput.clear_mouse_hover view.Handle
+                        FlightCamera.apply_entry_lens state
+                        FlightCamera.redraw view
+                        let clock = Stopwatch.StartNew()
+                        let mutable previousFrame = clock.Elapsed.TotalSeconds
+                        let mutable movementActive = false
 
-                    while state.running do
-                        if not movementActive then
-                            match PlatformInput.wait_for_input () with
-                            | Ok() -> ()
-                            | Error error -> failwith error
+                        while state.running do
+                            if not movementActive then
+                                match PlatformInput.wait_for_input () with
+                                | Ok() -> ()
+                                | Error error -> failwith error
 
-                        RhinoApp.Wait()
-                        PlatformInput.reset_raw_input_wake inputWake
+                            RhinoApp.Wait()
+                            PlatformInput.reset_raw_input_wake inputWake
 
-                        let mouseChanged = FlightCamera.apply_mouse_look rawInput state
-                        let mutable movementChanged = false
+                            let mouseChanged = FlightCamera.apply_mouse_look rawInput state
+                            let mutable movementChanged = false
 
-                        if state.running then
-                            match FlightControls.poll rawInput state mouseExitState with
-                            | None -> ()
-                            | Some movement ->
-                                let now = clock.Elapsed.TotalSeconds
-                                let currentlyMoving = FlightControls.movement_active movement
+                            if state.running then
+                                match FlightControls.poll rawInput state with
+                                | None -> ()
+                                | Some movement ->
+                                    let now = clock.Elapsed.TotalSeconds
+                                    let currentlyMoving = FlightControls.movement_active movement
 
-                                if movementActive && currentlyMoving then
-                                    let dt = min (now - previousFrame) 0.05
+                                    if movementActive && currentlyMoving then
+                                        let dt = min (now - previousFrame) 0.05
 
-                                    state.camera <- Movement.step state.config movement dt state.camera
-                                    movementChanged <- true
+                                        state.camera <- Movement.step state.config movement dt state.camera
+                                        movementChanged <- true
 
-                                previousFrame <- now
-                                movementActive <- currentlyMoving
+                                    previousFrame <- now
+                                    movementActive <- currentlyMoving
 
-                        if mouseChanged || movementChanged then
-                            FlightCamera.apply state mouseChanged movementChanged
+                            if mouseChanged || movementChanged then
+                                FlightCamera.apply state mouseChanged movementChanged
 
-                    Ok()
-                finally
-                    try
-                        match raw with
-                        | Some session ->
-                            PlatformInput.close_raw_input session
-                            raw <- None
-                        | None -> ()
+                        Ok()
+                    with error ->
+                        Error(error_message error)
 
-                        let mouseChanged = FlightCamera.apply_mouse_look rawInput state
+                attempt_cleanup cleanupErrors "raw input shutdown" (fun () ->
+                    match raw with
+                    | Some session ->
+                        PlatformInput.close_raw_input session
+                        raw <- None
+                        rawInputClean <- true
+                    | None -> ())
 
-                        if mouseChanged then
-                            FlightCamera.apply state true false
+                attempt_cleanup cleanupErrors "final mouse input" (fun () ->
+                    let mouseChanged = FlightCamera.apply_mouse_look rawInput state
 
-                        if captured then
-                            PlatformInput.clear_cursor_clip () |> ignore
-                            PlatformInput.set_cursor_position state.original_cursor |> ignore
+                    if mouseChanged then
+                        FlightCamera.apply state true false)
 
-                        if cursorHidden then
-                            PlatformInput.show_cursor ()
+                if captured then
+                    attempt_cleanup cleanupErrors "cursor clip" (fun () ->
+                        match PlatformInput.clear_cursor_clip () with
+                        | Ok() -> ()
+                        | Error error -> failwith error)
 
-                        state.viewport.Camera35mmLensLength <- state.original_lens_length
+                    attempt_cleanup cleanupErrors "cursor position" (fun () ->
+                        match PlatformInput.set_cursor_position state.original_cursor with
+                        | Ok() -> ()
+                        | Error error -> failwith error)
 
-                        match
-                            FlightSpeed.set
-                                view.Document
-                                state.config.save_speed_to_document
-                                state.config.minimum_speed
-                                state.config.maximum_speed
-                                state.speed
-                        with
-                        | Ok _ -> ()
-                        | Error error -> RhinoApp.WriteLine $"RhinosCanFly: {error}"
-                    finally
-                        try
-                            if tooltipsChanged then
-                                CursorTooltipSettings.TooltipsEnabled <- originalTooltipsEnabled
-                        finally
-                            FlightCamera.redraw view
+                if cursorHidden then
+                    attempt_cleanup cleanupErrors "cursor visibility" (fun () -> PlatformInput.show_cursor ())
+
+                attempt_cleanup cleanupErrors "lens" (fun () ->
+                    state.viewport.Camera35mmLensLength <- state.original_lens_length)
+
+                if tooltipsChanged then
+                    attempt_cleanup cleanupErrors "tooltips" (fun () ->
+                        CursorTooltipSettings.TooltipsEnabled <- originalTooltipsEnabled)
+
+                attempt_cleanup cleanupErrors "speed" (fun () ->
+                    match
+                        FlightSpeed.set
+                            view.Document
+                            state.config.save_speed_to_document
+                            state.config.minimum_speed
+                            state.config.maximum_speed
+                            state.speed
+                    with
+                    | Ok _ -> ()
+                    | Error error -> failwith error)
+
+                attempt_cleanup cleanupErrors "redraw" (fun () -> FlightCamera.redraw view)
+                activeResult
             with error ->
-                Error error.Message
-        finally
-            sessionRunning <- false
-            PlatformInput.resume_mouse_button_overrides ()
+                Error(error_message error)
+
+        if overridesSuspended then
+            attempt_cleanup cleanupErrors "mouse button overrides" (fun () ->
+                PlatformInput.resume_mouse_button_overrides ())
+
+        if not rawInputClean then
+            cleanupErrors.Add "raw input did not shut down cleanly; restart Rhino before using fly mode again"
+
+        sessionRunning <- not rawInputClean
+
+        let cleanupMessage = cleanupErrors |> Seq.toList |> String.concat "; "
+
+        match flightResult, cleanupErrors.Count with
+        | Ok(), 0 -> Ok()
+        | Error error, 0 -> Error error
+        | Ok(), _ -> Error $"Cleanup failed: {cleanupMessage}"
+        | Error error, _ -> Error $"{error}; cleanup failed: {cleanupMessage}"

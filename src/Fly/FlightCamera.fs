@@ -17,17 +17,7 @@ let camera_direction (camera: CameraState) =
 let set_direction (viewport: RhinoViewport) (camera: CameraState) =
     viewport.SetCameraDirection(camera_direction camera, true)
 
-let redraw (view: RhinoView) =
-#if RHINO9
-    match PlatformInput.request_view_redraw view.Handle with
-    | Error error -> failwith error
-    | Ok() ->
-        match PlatformInput.update_view view.Handle with
-        | Ok() -> ()
-        | Error error -> failwith error
-#else
-    view.Redraw()
-#endif
+let redraw (view: RhinoView) = view.Redraw()
 
 let apply (state: FlyState) (mouseChanged: bool) (movementChanged: bool) =
     if movementChanged then

@@ -23,6 +23,5 @@
   <PropertyGroup Condition="'$(RhinoMajorVersion)' == '9'">
     <TargetFramework Condition="'$(TargetFramework)' == ''">net8.0-windows</TargetFramework>
     <RhinoCommonPackageVersion Condition="'$(RhinoCommonPackageVersion)' == ''">9.0.26167.11545-wip</RhinoCommonPackageVersion>
-    <DefineConstants>$(DefineConstants);RHINO9</DefineConstants>
   </PropertyGroup>
 </Project>

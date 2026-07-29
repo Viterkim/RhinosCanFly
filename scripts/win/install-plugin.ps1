@@ -66,6 +66,8 @@ $machineRegistrationComplete =
     (Test-Path -LiteralPath $machinePluginRegistryPath) -and
     (Test-Path -LiteralPath $machineCommandListRegistryPath)
 $machinePluginFile = ""
+$registrationScope = ""
+$registeredPath = ""
 
 if ($registrationComplete) {
     $registeredPluginFile =
@@ -81,7 +83,10 @@ if ($machineRegistrationComplete) {
         [string] (Get-ItemProperty -LiteralPath $machinePluginRegistryPath -ErrorAction SilentlyContinue).FileName
 }
 
-if (-not [string]::IsNullOrWhiteSpace($existingPluginFile) -and $existingPluginFile -ne $pluginFile) {
+if (
+    -not [string]::IsNullOrWhiteSpace($existingPluginFile) -and
+    -not [string]::Equals($existingPluginFile, $pluginFile, [StringComparison]::OrdinalIgnoreCase)
+) {
     Write-Warning "Replacing the existing RhinosCanFly registration at '$existingPluginFile'. Uninstall any Package Manager copy to prevent it from reclaiming this plugin GUID."
 }
 
@@ -90,6 +95,8 @@ if ($registrationComplete) {
     New-ItemProperty -Path $registryPath -Name "LoadMode" -Value 1 -PropertyType DWord -Force | Out-Null
     New-ItemProperty -Path $pluginRegistryPath -Name "FileName" -Value $pluginFile -PropertyType String -Force | Out-Null
     Remove-ItemProperty -Path $registryPath -Name "FileName" -ErrorAction SilentlyContinue
+    $registrationScope = "current user"
+    $registeredPath = $registryPath
 }
 elseif (
     $machineRegistrationComplete -and
@@ -101,19 +108,18 @@ elseif (
     }
 
     Write-Host "Using the complete machine-wide RhinosCanFly registration."
+    $registrationScope = "machine-wide"
+    $registeredPath = $machineRegistryPath
 }
 else {
     if (Test-Path -LiteralPath $registryPath) {
-        Write-Host "Replacing incomplete RhinosCanFly registration."
+        Write-Host "Removing incomplete per-user RhinosCanFly registration."
         Remove-Item -LiteralPath $registryPath -Recurse -Force
     }
 
-    New-Item -Path $registryPath -Force | Out-Null
-    New-ItemProperty -Path $registryPath -Name "Name" -Value $pluginName -PropertyType String -Force | Out-Null
-    New-ItemProperty -Path $registryPath -Name "FileName" -Value $pluginFile -PropertyType String -Force | Out-Null
-    Write-Host "Created Rhino short-form registration."
+    throw "Rhino $RhinoMajorVersion has no completed RhinosCanFly registration. Open Rhino, install '$pluginFile' once through Options > Plug-ins, close Rhino, then run build-and-install.ps1 again."
 }
 
 Write-Host "Installed: $pluginFile"
-Write-Host "Registered for Rhino $RhinoMajorVersion (current user): $registryPath"
-Write-Host "Start Rhino $RhinoMajorVersion. Rhino will complete a fresh registration automatically."
+Write-Host "Registered for Rhino $RhinoMajorVersion ($registrationScope): $registeredPath"
+Write-Host "Start Rhino $RhinoMajorVersion."

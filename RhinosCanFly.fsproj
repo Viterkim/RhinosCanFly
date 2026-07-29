@@ -58,7 +58,8 @@
     <Compile Include="src/Fly/FlightControls.fs" />
     <Compile Include="src/Fly/Runtime.fs" />
     <Compile Include="src/Input/RightClickEntry.fs" />
-    <Compile Include="src/Configuration/LiveSettings.fs" />
+    <Compile Include="src/Configuration/RuntimeSettings.fs" />
+    <Compile Include="src/UI/BindingCapture.fs" />
     <Compile Include="src/UI/SettingsControl.fs" />
     <Compile Include="src/Settings/Settings.fs" />
     <Compile Include="src/UI/SettingsDialog.fs" />

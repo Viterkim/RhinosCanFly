@@ -1,10 +1,5 @@
 module RhinosCanFly.FlightControls
 
-type MouseExitState =
-    { mutable left_was_down: bool
-      mutable right_was_down: bool
-      mutable middle_was_down: bool }
-
 let is_down (key: KeyBinding) = PlatformBindings.is_down key
 
 let is_optional_down (key: KeyBinding option) =
@@ -78,35 +73,11 @@ let movement_active (input: InputSnapshot) =
     || input.up
     || input.down
 
-let create_mouse_exit_state () =
-    let buttons = PlatformInput.sample_mouse_buttons ()
-
-    { left_was_down = buttons.left.is_down
-      right_was_down = buttons.right.is_down
-      middle_was_down = buttons.middle.is_down }
-
-let mouse_exit_requested (config: FlyConfig) (state: MouseExitState) =
-    let buttons = PlatformInput.sample_mouse_buttons ()
-
-    let pressed (enabled: bool) (previouslyDown: bool) (button: PlatformInput.MouseButtonSample) =
-        enabled && (button.was_pressed || button.is_down && not previouslyDown)
-
-    let requested =
-        pressed config.exit_on_mouse_left state.left_was_down buttons.left
-        || pressed config.exit_on_mouse_right state.right_was_down buttons.right
-        || pressed config.exit_on_mouse_middle state.middle_was_down buttons.middle
-
-    state.left_was_down <- buttons.left.is_down
-    state.right_was_down <- buttons.right.is_down
-    state.middle_was_down <- buttons.middle.is_down
-    requested
-
-let poll (input: InputAccumulator.State) (state: FlyState) (mouseExitState: MouseExitState) =
+let poll (input: InputAccumulator.State) (state: FlyState) =
     if
         PlatformInput.foreground_window () <> state.root_window
         || is_down state.config.exit_key
         || InputAccumulator.exit_requested input
-        || mouse_exit_requested state.config mouseExitState
     then
         state.running <- false
         None

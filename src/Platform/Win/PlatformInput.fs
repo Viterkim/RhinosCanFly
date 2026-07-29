@@ -4,26 +4,8 @@ open System
 open System.Drawing
 open RhinosCanFly.Platform.Win
 
-type MouseButtonSample = { is_down: bool; was_pressed: bool }
-
-type MouseButtonsSample =
-    { left: MouseButtonSample
-      right: MouseButtonSample
-      middle: MouseButtonSample }
-
 [<Literal>]
 let wheel_delta = Win32.WHEEL_DELTA
-
-let sample_mouse_button (virtualKey: int) =
-    let state = Win32.GetAsyncKeyState virtualKey
-
-    { is_down = state < 0s
-      was_pressed = state &&& 1s <> 0s }
-
-let sample_mouse_buttons () =
-    { left = sample_mouse_button Win32.VK_LBUTTON
-      right = sample_mouse_button Win32.VK_RBUTTON
-      middle = sample_mouse_button Win32.VK_MBUTTON }
 
 let wait_for_input () = Win32.wait_for_input Win32.INFINITE
 
@@ -42,10 +24,6 @@ let get_cursor_position () = Win32.get_cursor_position ()
 let set_cursor_position (point: Point) = Win32.set_cursor_position point
 
 let clear_mouse_hover (window: nativeint) = Win32.clear_mouse_hover window
-
-let request_view_redraw (window: nativeint) = Win32.invalidate_window window
-
-let update_view (window: nativeint) = Win32.update_window window
 
 let clip_cursor (rectangle: Rectangle) = Win32.clip_cursor rectangle
 

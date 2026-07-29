@@ -19,30 +19,47 @@ type RawInputReceiver(config: FlyConfig, input: InputAccumulator.State, inputAva
 
     let restore_registration () =
         if rawRegistered && not registrationRestored then
-            registrationRestored <- true
-
             match RawInputNative.restore_mouse previousMouse with
-            | Ok() -> ()
+            | Ok() -> registrationRestored <- true
             | Error restoreError ->
-                Debug.WriteLine $"RhinosCanFly: {restoreError}"
-
                 match previousMouse with
                 | Some _ ->
                     match RawInputNative.unregister_mouse () with
-                    | Ok() -> ()
-                    | Error removalError -> Debug.WriteLine $"RhinosCanFly: {removalError}"
-                | None -> ()
+                    | Ok() ->
+                        raise (
+                            InvalidOperationException(
+                                $"{restoreError}; the previous raw-mouse registration could not be restored"
+                            )
+                        )
+                    | Error removalError -> raise (InvalidOperationException($"{restoreError}; {removalError}"))
+                | None -> raise (InvalidOperationException restoreError)
 
     let release_resources () =
-        restore_registration ()
+        let errors = ResizeArray<exn>()
 
-        if handleCreated then
-            self.DestroyHandle()
-            handleCreated <- false
+        try
+            restore_registration ()
+        with error ->
+            errors.Add error
 
-        if not bufferFreed then
-            Marshal.FreeHGlobal buffer
-            bufferFreed <- true
+        try
+            if handleCreated then
+                self.DestroyHandle()
+                handleCreated <- false
+        with error ->
+            errors.Add error
+
+        try
+            if not bufferFreed then
+                Marshal.FreeHGlobal buffer
+                bufferFreed <- true
+        with error ->
+            errors.Add error
+
+        match errors.Count with
+        | 0 -> ()
+        | 1 -> raise errors[0]
+        | _ -> raise (AggregateException errors)
 
     let process_mouse (mouse: RawInputNative.Mouse) =
         if mouse.flags &&& RawInputNative.mouse_move_absolute = 0us then
@@ -79,9 +96,13 @@ type RawInputReceiver(config: FlyConfig, input: InputAccumulator.State, inputAva
                 match RawInputNative.register_mouse self.Handle with
                 | Ok() -> rawRegistered <- true
                 | Error error -> failwith error
-        with _ ->
-            release_resources ()
-            reraise ()
+        with error ->
+            try
+                release_resources ()
+            with cleanupError ->
+                raise (AggregateException(error, cleanupError))
+
+            raise error
 
     member _.WindowHandle = self.Handle
 

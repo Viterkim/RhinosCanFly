@@ -134,12 +134,6 @@ extern nativeint GetAncestor(nativeint window, uint32 flags)
 extern nativeint SendMessage(nativeint window, int message, nativeint wparam, nativeint lparam)
 
 [<DllImport("user32.dll", SetLastError = true)>]
-extern bool InvalidateRect(nativeint window, nativeint rectangle, bool erase)
-
-[<DllImport("user32.dll", SetLastError = true)>]
-extern bool UpdateWindow(nativeint window)
-
-[<DllImport("user32.dll", SetLastError = true)>]
 extern uint32 SendInput(uint32 input_count, NativeInput[] inputs, int input_size)
 
 [<DllImport("user32.dll", SetLastError = true)>]
@@ -193,18 +187,6 @@ let clear_cursor_clip () =
 let clear_mouse_hover (window: nativeint) =
     SendMessage(window, WM_MOUSELEAVE, nativeint 0, nativeint 0) |> ignore
 
-let invalidate_window (window: nativeint) =
-    if InvalidateRect(window, nativeint 0, false) then
-        Ok()
-    else
-        Error(last_error "InvalidateRect")
-
-let update_window (window: nativeint) =
-    if UpdateWindow window then
-        Ok()
-    else
-        Error(last_error "UpdateWindow")
-
 let wait_for_input (timeoutMilliseconds: uint32) =
     let result =
         MsgWaitForMultipleObjectsEx(0u, nativeint 0, timeoutMilliseconds, QS_ALLINPUT, MWMO_INPUTAVAILABLE)
@@ -214,7 +196,7 @@ let wait_for_input (timeoutMilliseconds: uint32) =
     else
         Ok()
 
-let send_middle_mouse (down: bool) (marker: unativeint) =
+let send_middle_mouse (down: bool) =
     let mutable mouse = Unchecked.defaultof<MouseInput>
 
     mouse.flags <-
@@ -222,8 +204,6 @@ let send_middle_mouse (down: bool) (marker: unativeint) =
             MOUSEEVENTF_MIDDLEDOWN
         else
             MOUSEEVENTF_MIDDLEUP
-
-    mouse.extra_info <- marker
 
     let mutable input = Unchecked.defaultof<NativeInput>
     input.input_type <- INPUT_MOUSE

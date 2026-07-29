@@ -43,9 +43,7 @@ type FlyConfigFile =
       vertical_speed_multiplier: float
       lens_length_mm_in_mode: float }
 
-type KeyBinding =
-    { source: string
-      virtual_keys: int list }
+type KeyBinding = { virtual_keys: int list }
 
 [<Struct>]
 type ConfigMouseSensitivity = ConfigMouseSensitivity of float
@@ -81,7 +79,6 @@ type FlyConfig =
       exit_on_mouse_left: bool
       exit_on_mouse_right: bool
       exit_on_mouse_middle: bool
-      hijack_right_click_to_enter: bool
       boost_hold_instead_of_toggle: bool
       slow_hold_instead_of_toggle: bool
       vertical_speed_multiplier: float
@@ -90,8 +87,6 @@ type FlyConfig =
 type ConfigLoadResult =
     { config_file: FlyConfigFile
       config: FlyConfig
-      path: string
-      created: bool
       messages: string list }
 
 type CameraState =
