@@ -21,7 +21,7 @@
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(RhinoMajorVersion)' == '9'">
-    <TargetFramework Condition="'$(TargetFramework)' == ''">net8.0-windows</TargetFramework>
+    <TargetFramework Condition="'$(TargetFramework)' == ''">net10.0-windows</TargetFramework>
     <RhinoCommonPackageVersion Condition="'$(RhinoCommonPackageVersion)' == ''">9.0.26167.11545-wip</RhinoCommonPackageVersion>
   </PropertyGroup>
 </Project>
