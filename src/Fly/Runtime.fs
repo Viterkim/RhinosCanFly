@@ -7,9 +7,16 @@ open Rhino.ApplicationSettings
 open Rhino.Display
 open Rhino.Geometry
 
-let mutable sessionRunning = false
+type SessionState =
+    | Ready
+    | Flying
+    | RestartRequired
 
-let is_running () = sessionRunning
+let mutable sessionState = Ready
+
+let is_running () = sessionState = Flying
+
+let can_start () = sessionState = Ready
 
 let viewport_gesture_active (view: RhinoView) = view.MouseCaptured(false)
 
@@ -36,6 +43,18 @@ let attempt_cleanup (errors: ResizeArray<string>) (name: string) (action: unit -
 let make_state (view: RhinoView) (config: FlyConfig) =
     let viewport = view.ActiveViewport
 
+    let gumballPivotTarget =
+        let mutable gumballPlane = Plane.Unset
+
+        if
+            not config.pivot_bindings_ignore_gumball
+            && RhinoSettings.rotate_view_around_gumball ()
+            && view.Document.GetGumballPlane(&gumballPlane)
+        then
+            Some gumballPlane.Origin
+        else
+            None
+
     let original_cursor =
         match PlatformInput.get_cursor_position () with
         | Ok point -> point
@@ -51,6 +70,10 @@ let make_state (view: RhinoView) (config: FlyConfig) =
       root_window = root_window
       original_cursor = original_cursor
       original_lens_length = viewport.Camera35mmLensLength
+      gumball_pivot_target = gumballPivotTarget
+      pivot_target = viewport.CameraTarget
+      pivot_direction = NoPivot
+      pivot_input_state = WaitingForNeutralPivotInput
       running = true
       camera =
         { position = viewport.CameraLocation
@@ -70,11 +93,73 @@ let make_state (view: RhinoView) (config: FlyConfig) =
       speed_increase_was_down = FlightControls.is_optional_down config.speed_increase
       speed_decrease_was_down = FlightControls.is_optional_down config.speed_decrease }
 
+[<Literal>]
+let maximumFrameDeltaSeconds = 0.05
+
+let run_loop (rawInput: InputAccumulator.State) (state: FlyState) =
+    let clock = Stopwatch.StartNew()
+    let mutable previousFrame = clock.Elapsed.TotalSeconds
+    let mutable movementActive = false
+
+    while state.running do
+        if not movementActive then
+            match PlatformInput.wait_for_input () with
+            | Ok() -> ()
+            | Error error -> failwith error
+
+        RhinoApp.Wait()
+
+        let mouseChanged = FlightCamera.apply_mouse_look rawInput state
+        let mutable movementChanged = false
+        let mutable directionChanged = mouseChanged
+
+        if state.running then
+            match FlightControls.poll rawInput state with
+            | None -> ()
+            | Some input ->
+                let requestedPivotDirection = FlightInput.pivot_direction input
+
+                let movement =
+                    match state.pivot_input_state, requestedPivotDirection with
+                    | PivotInputArmed, _ -> input
+                    | WaitingForNeutralPivotInput, NoPivot ->
+                        state.pivot_input_state <- PivotInputArmed
+                        input
+                    | WaitingForNeutralPivotInput, (PivotLeft | PivotRight) -> FlightInput.without_pivot input
+
+                let now = clock.Elapsed.TotalSeconds
+                let currentlyMoving = FlightInput.movement_active movement
+                let pivotDirection = FlightInput.pivot_direction movement
+
+                if pivotDirection <> NoPivot && pivotDirection <> state.pivot_direction then
+                    state.pivot_target <- state.gumball_pivot_target |> Option.defaultValue state.viewport.CameraTarget
+
+                state.pivot_direction <- pivotDirection
+
+                if movementActive && currentlyMoving then
+                    let dt = min (now - previousFrame) maximumFrameDeltaSeconds
+
+                    state.camera <- Movement.step state.config movement state.pivot_target dt state.camera
+                    movementChanged <- true
+
+                    if pivotDirection <> NoPivot then
+                        directionChanged <- true
+
+                previousFrame <- now
+                movementActive <- currentlyMoving
+
+        match movementChanged, directionChanged with
+        | true, true -> FlightCamera.apply state PositionAndDirectionChanged
+        | true, false -> FlightCamera.apply state PositionChanged
+        | false, true -> FlightCamera.apply state DirectionChanged
+        | false, false -> ()
+
 let run (view: RhinoView) (config: FlyConfig) =
-    if sessionRunning then
-        Error "Fly mode is already running."
-    else
-        sessionRunning <- true
+    match sessionState with
+    | Flying -> Error "Fly mode is already running."
+    | RestartRequired -> Error "Raw input did not shut down cleanly. Restart Rhino before using fly mode again."
+    | Ready ->
+        sessionState <- Flying
 
         let cleanupErrors = ResizeArray<string>()
         let mutable rawInputClean = true
@@ -89,16 +174,22 @@ let run (view: RhinoView) (config: FlyConfig) =
                 let state = make_state view config
                 let rawInput = InputAccumulator.create ()
                 let originalTooltipsEnabled = CursorTooltipSettings.TooltipsEnabled
+                let originalGumballEnabled = ModelAidSettings.AutoGumballEnabled
                 let mutable raw: PlatformInput.RawInputSession option = None
                 let mutable captured = false
                 let mutable cursorHidden = false
                 let mutable tooltipsChanged = false
+                let mutable gumballChanged = false
                 let inputWake = PlatformInput.create_raw_input_wake ()
 
                 let activeResult =
                     try
                         CursorTooltipSettings.TooltipsEnabled <- false
                         tooltipsChanged <- true
+
+                        if state.config.hide_gumball_while_flying && originalGumballEnabled then
+                            ModelAidSettings.AutoGumballEnabled <- false
+                            gumballChanged <- true
 
                         let rectangle = view.ScreenRectangle
 
@@ -121,41 +212,8 @@ let run (view: RhinoView) (config: FlyConfig) =
                         cursorHidden <- true
                         PlatformInput.clear_mouse_hover view.Handle
                         FlightCamera.apply_entry_lens state
-                        FlightCamera.redraw view
-                        let clock = Stopwatch.StartNew()
-                        let mutable previousFrame = clock.Elapsed.TotalSeconds
-                        let mutable movementActive = false
-
-                        while state.running do
-                            if not movementActive then
-                                match PlatformInput.wait_for_input () with
-                                | Ok() -> ()
-                                | Error error -> failwith error
-
-                            RhinoApp.Wait()
-                            PlatformInput.reset_raw_input_wake inputWake
-
-                            let mouseChanged = FlightCamera.apply_mouse_look rawInput state
-                            let mutable movementChanged = false
-
-                            if state.running then
-                                match FlightControls.poll rawInput state with
-                                | None -> ()
-                                | Some movement ->
-                                    let now = clock.Elapsed.TotalSeconds
-                                    let currentlyMoving = FlightControls.movement_active movement
-
-                                    if movementActive && currentlyMoving then
-                                        let dt = min (now - previousFrame) 0.05
-
-                                        state.camera <- Movement.step state.config movement dt state.camera
-                                        movementChanged <- true
-
-                                    previousFrame <- now
-                                    movementActive <- currentlyMoving
-
-                            if mouseChanged || movementChanged then
-                                FlightCamera.apply state mouseChanged movementChanged
+                        FlightCamera.redraw state.config.viewport_redraw_mode view
+                        run_loop rawInput state
 
                         Ok()
                     with error ->
@@ -173,7 +231,7 @@ let run (view: RhinoView) (config: FlyConfig) =
                     let mouseChanged = FlightCamera.apply_mouse_look rawInput state
 
                     if mouseChanged then
-                        FlightCamera.apply state true false)
+                        FlightCamera.apply state DirectionChanged)
 
                 if captured then
                     attempt_cleanup cleanupErrors "cursor clip" (fun () ->
@@ -196,6 +254,10 @@ let run (view: RhinoView) (config: FlyConfig) =
                     attempt_cleanup cleanupErrors "tooltips" (fun () ->
                         CursorTooltipSettings.TooltipsEnabled <- originalTooltipsEnabled)
 
+                if gumballChanged then
+                    attempt_cleanup cleanupErrors "gumball" (fun () ->
+                        ModelAidSettings.AutoGumballEnabled <- originalGumballEnabled)
+
                 attempt_cleanup cleanupErrors "speed" (fun () ->
                     match
                         FlightSpeed.set
@@ -208,7 +270,9 @@ let run (view: RhinoView) (config: FlyConfig) =
                     | Ok _ -> ()
                     | Error error -> failwith error)
 
-                attempt_cleanup cleanupErrors "redraw" (fun () -> FlightCamera.redraw view)
+                attempt_cleanup cleanupErrors "redraw" (fun () ->
+                    FlightCamera.redraw state.config.viewport_redraw_mode view)
+
                 activeResult
             with error ->
                 Error(error_message error)
@@ -220,7 +284,7 @@ let run (view: RhinoView) (config: FlyConfig) =
         if not rawInputClean then
             cleanupErrors.Add "raw input did not shut down cleanly; restart Rhino before using fly mode again"
 
-        sessionRunning <- not rawInputClean
+        sessionState <- if rawInputClean then Ready else RestartRequired
 
         let cleanupMessage = cleanupErrors |> Seq.toList |> String.concat "; "
 

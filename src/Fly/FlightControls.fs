@@ -63,15 +63,9 @@ let read_movement (state: FlyState) =
       right = is_down state.config.right
       up = is_down state.config.up
       down = is_down state.config.down
+      pivot_left = is_down state.config.pivot_left
+      pivot_right = is_down state.config.pivot_right
       move_speed = state.speed * slow * boost }
-
-let movement_active (input: InputSnapshot) =
-    input.forward
-    || input.backward
-    || input.left
-    || input.right
-    || input.up
-    || input.down
 
 let poll (input: InputAccumulator.State) (state: FlyState) =
     if

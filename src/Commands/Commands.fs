@@ -6,15 +6,11 @@ open Rhino.Commands
 open Rhino.Input
 
 let with_config (run: ConfigLoadResult -> Result) =
-    match Config.load () with
+    match RuntimeSettings.current () with
     | Error error ->
         RhinoApp.WriteLine $"RhinosCanFly config error:{Environment.NewLine}{error}"
         Result.Failure
-    | Ok loaded ->
-        for message in loaded.messages do
-            RhinoApp.WriteLine $"RhinosCanFly: {message}."
-
-        run loaded
+    | Ok loaded -> run loaded
 
 let run (document: RhinoDoc) =
     let view = document.Views.ActiveView
@@ -27,11 +23,15 @@ let run (document: RhinoDoc) =
         Result.Cancel
     else
         with_config (fun (loaded: ConfigLoadResult) ->
-            match Runtime.run view loaded.config with
-            | Ok() -> Result.Success
-            | Error error ->
-                RhinoApp.WriteLine $"RhinosCanFly failed: {error}"
-                Result.Failure)
+            if not loaded.config_file.enabled then
+                RhinoApp.WriteLine "RhinosCanFly is disabled in Options."
+                Result.Cancel
+            else
+                match Runtime.run view loaded.config with
+                | Ok() -> Result.Success
+                | Error error ->
+                    RhinoApp.WriteLine $"RhinosCanFly failed: {error}"
+                    Result.Failure)
 
 let set_speed (document: RhinoDoc) =
     with_config (fun (loaded: ConfigLoadResult) ->

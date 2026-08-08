@@ -6,12 +6,15 @@ open Rhino.Geometry
 [<CLIMutable>]
 type FlyConfigFile =
     { config_version: int
+      enabled: bool
       forward: string
       backward: string
       left: string
       right: string
       up: string
       down: string
+      pivot_left: string
+      pivot_right: string
       boost_toggle: string
       slow: string
       speed_increase: string
@@ -23,10 +26,13 @@ type FlyConfigFile =
       speed_step_multiplier: float
       boost_multiplier: float
       slow_multiplier: float
+      pivot_speed_multiplier: float
       mouse_sensitivity: float
       invert_mouse_x: bool
       invert_mouse_y: bool
       normalize_diagonal_movement: bool
+      hide_gumball_while_flying: bool
+      pivot_bindings_ignore_gumball: bool
       save_speed_to_document: bool
       load_speed_from_document: bool
       wheel_changes_speed: bool
@@ -34,14 +40,20 @@ type FlyConfigFile =
       exit_on_mouse_right: bool
       exit_on_mouse_middle: bool
       hijack_right_click_to_enter: bool
+      hijack_right_click_during_commands: bool
       commands_do_not_repeat: bool
       mouse_button_overrides_enabled: bool
       mouse4_acts_as_middle: bool
       mouse5_acts_as_middle: bool
+      shift_right_click_toggles_view: bool
+      alt_right_click_toggles_view: bool
+      shift_right_click_pans: bool
+      alt_right_click_pans: bool
       boost_hold_instead_of_toggle: bool
       slow_hold_instead_of_toggle: bool
       vertical_speed_multiplier: float
-      lens_length_mm_in_mode: float }
+      lens_length_mm_in_mode: float
+      viewport_redraw_mode: string }
 
 type KeyBinding = { virtual_keys: int list }
 
@@ -51,6 +63,11 @@ type ConfigMouseSensitivity = ConfigMouseSensitivity of float
 [<Struct>]
 type RuntimeMouseSensitivity = RuntimeMouseSensitivity of float
 
+type ViewportRedrawMode =
+    | Rhino
+    | RhinoImmediate
+    | NativeWindow
+
 type FlyConfig =
     { forward: KeyBinding
       backward: KeyBinding
@@ -58,6 +75,8 @@ type FlyConfig =
       right: KeyBinding
       up: KeyBinding
       down: KeyBinding
+      pivot_left: KeyBinding
+      pivot_right: KeyBinding
       boost_toggle: KeyBinding
       slow: KeyBinding
       speed_increase: KeyBinding option
@@ -69,10 +88,13 @@ type FlyConfig =
       speed_step_multiplier: float
       boost_multiplier: float
       slow_multiplier: float
+      pivot_speed_multiplier: float
       mouse_sensitivity: RuntimeMouseSensitivity
       invert_mouse_x: bool
       invert_mouse_y: bool
       normalize_diagonal_movement: bool
+      hide_gumball_while_flying: bool
+      pivot_bindings_ignore_gumball: bool
       save_speed_to_document: bool
       load_speed_from_document: bool
       wheel_changes_speed: bool
@@ -82,7 +104,8 @@ type FlyConfig =
       boost_hold_instead_of_toggle: bool
       slow_hold_instead_of_toggle: bool
       vertical_speed_multiplier: float
-      lens_length_mm_in_mode: float }
+      lens_length_mm_in_mode: float
+      viewport_redraw_mode: ViewportRedrawMode }
 
 type ConfigLoadResult =
     { config_file: FlyConfigFile
@@ -94,6 +117,20 @@ type CameraState =
       yaw: float
       pitch: float }
 
+type CameraChange =
+    | PositionChanged
+    | DirectionChanged
+    | PositionAndDirectionChanged
+
+type PivotDirection =
+    | NoPivot
+    | PivotLeft
+    | PivotRight
+
+type PivotInputState =
+    | WaitingForNeutralPivotInput
+    | PivotInputArmed
+
 type InputSnapshot =
     { forward: bool
       backward: bool
@@ -101,6 +138,8 @@ type InputSnapshot =
       right: bool
       up: bool
       down: bool
+      pivot_left: bool
+      pivot_right: bool
       move_speed: float }
 
 type FlyState =
@@ -110,6 +149,10 @@ type FlyState =
       root_window: nativeint
       original_cursor: System.Drawing.Point
       original_lens_length: float
+      gumball_pivot_target: Point3d option
+      mutable pivot_target: Point3d
+      mutable pivot_direction: PivotDirection
+      mutable pivot_input_state: PivotInputState
       mutable running: bool
       mutable camera: CameraState
       mutable speed: float

@@ -7,7 +7,10 @@ open System.Runtime.InteropServices
 let message = 0x00FF
 
 [<Literal>]
-let stop_message = 0x8001
+let wm_app = 0x8000
+
+[<Literal>]
+let stop_message = wm_app + 1
 
 [<Literal>]
 let quit_message = 0x0012
@@ -44,6 +47,21 @@ let middle_button_down = 0x0010us
 
 [<Literal>]
 let mouse_wheel = 0x0400us
+
+[<Literal>]
+let generic_desktop_usage_page = 0x01us
+
+[<Literal>]
+let mouse_usage = 0x02us
+
+[<Literal>]
+let button_word_mask = 0xFFFFu
+
+[<Literal>]
+let signed_word_threshold = 0x8000
+
+[<Literal>]
+let unsigned_word_range = 0x10000
 
 [<Struct; StructLayout(LayoutKind.Sequential)>]
 type Device =
@@ -118,15 +136,16 @@ let get_registered_mouse () =
                     seq { 0u .. count - 1u }
                     |> Seq.map (fun (index: uint32) ->
                         Marshal.PtrToStructure<Device>(IntPtr.Add(buffer, int (index * deviceSize))))
-                    |> Seq.tryFind (fun (device: Device) -> device.usage_page = 0x01us && device.usage = 0x02us)
+                    |> Seq.tryFind (fun (device: Device) ->
+                        device.usage_page = generic_desktop_usage_page && device.usage = mouse_usage)
                     |> Ok
         finally
             Marshal.FreeHGlobal buffer
 
 let register_mouse (target: nativeint) =
     let mutable device = Unchecked.defaultof<Device>
-    device.usage_page <- 0x01us
-    device.usage <- 0x02us
+    device.usage_page <- generic_desktop_usage_page
+    device.usage <- mouse_usage
     device.flags <- ridev_no_legacy
     device.target <- target
 
@@ -137,8 +156,8 @@ let register_mouse (target: nativeint) =
 
 let unregister_mouse () =
     let mutable device = Unchecked.defaultof<Device>
-    device.usage_page <- 0x01us
-    device.usage <- 0x02us
+    device.usage_page <- generic_desktop_usage_page
+    device.usage <- mouse_usage
     device.flags <- ridev_remove
     device.target <- nativeint 0
 
@@ -156,14 +175,19 @@ let restore_mouse (previous: Device option) =
             Error(Win32.last_error "RegisterRawInputDevices(restore)")
     | None -> unregister_mouse ()
 
-let button_flags (mouse: Mouse) = uint16 (mouse.buttons &&& 0xFFFFu)
+let button_flags (mouse: Mouse) =
+    uint16 (mouse.buttons &&& button_word_mask)
 
 let button_data (mouse: Mouse) =
-    uint16 (mouse.buttons >>> 16 &&& 0xFFFFu)
+    uint16 (mouse.buttons >>> 16 &&& button_word_mask)
 
 let signed_button_data (mouse: Mouse) =
     let value = int (button_data mouse)
-    if value >= 0x8000 then value - 0x10000 else value
+
+    if value >= signed_word_threshold then
+        value - unsigned_word_range
+    else
+        value
 
 let try_read_mouse (rawInput: nativeint) (buffer: nativeint) (bufferCapacity: int) (mouse: byref<Mouse>) =
     let headerSize = uint32 (Marshal.SizeOf<Header>())

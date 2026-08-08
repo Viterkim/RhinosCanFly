@@ -9,8 +9,6 @@ let contains_name (names: string array) (candidate: string) =
     names
     |> Array.exists (fun (name: string) -> String.Equals(name, candidate, StringComparison.OrdinalIgnoreCase))
 
-let is_plugin_command (name: string) = contains_name commandNames name
-
 let apply (doNotRepeat: bool) =
     let current =
         NeverRepeatList.CommandNames() |> Option.ofObj |> Option.defaultValue [||]
@@ -26,7 +24,8 @@ let apply (doNotRepeat: bool) =
             NeverRepeatList.SetList updated |> ignore
     else
         let updated =
-            current |> Array.filter (fun (name: string) -> not (is_plugin_command name))
+            current
+            |> Array.filter (fun (name: string) -> not (contains_name commandNames name))
 
         if updated <> current then
             NeverRepeatList.SetList updated |> ignore

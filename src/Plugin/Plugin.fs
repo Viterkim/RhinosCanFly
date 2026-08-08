@@ -10,7 +10,7 @@ type RhinosCanFlyPlugin() as self =
 
     do
         try
-            Config.initialize self.SettingsDirectory
+            ConfigStorage.initialize self.SettingsDirectory
 
             match RuntimeSettings.load_and_apply () with
             | Ok() -> ()
@@ -24,5 +24,12 @@ type RhinosCanFlyPlugin() as self =
         pages.Add(new RhinosCanFlyOptionsPage())
 
     override _.OnShutdown() =
-        RightClickEntry.shutdown ()
-        PlatformInput.shutdown_mouse_button_overrides ()
+        try
+            RightClickEntry.shutdown ()
+        with error ->
+            RhinoApp.WriteLine $"RhinosCanFly right-click shutdown failed: {error.Message}"
+
+        try
+            PlatformInput.shutdown_mouse_button_overrides ()
+        with error ->
+            RhinoApp.WriteLine $"RhinosCanFly mouse override shutdown failed: {error.Message}"

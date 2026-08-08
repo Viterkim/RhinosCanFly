@@ -28,13 +28,17 @@ let checks =
     [ "function",
       Regex(
           letPrefix
-          + @"[A-Za-z_][\w']*(?:<[^>]+>)?\s*(?<parameters>(?:\([^)]*\)\s*)+)\s*=",
+          + @"[A-Za-z_][\w']*(?:<[^>]+>)?\s*(?<parameters>(?:\([^)]*\)\s*)+)(?:\s*:\s*[^=]+)?\s*=",
           RegexOptions.Compiled
       )
       "function",
       Regex(letPrefix + @"[A-Za-z_][\w']*(?:<[^>]+>)?\s+(?<parameters>[A-Za-z_][\w']*)\s*=", RegexOptions.Compiled)
-      "member", Regex(@"^\s*(?:member|override)\s+[^.(]+\.[^(]+(?<parameters>\([^)]*\))", RegexOptions.Compiled)
-      "constructor", Regex(@"^\s*type\s+[A-Za-z_][\w']*(?:<[^>]+>)?(?<parameters>\([^)]*\))", RegexOptions.Compiled)
+      "member",
+      Regex(
+          @"^\s*(?:member|override)\s+[^.(]+\.[^(]+(?<parameters>(?:\([^)]*\)\s*)+)(?:\s*:\s*[^=]+)?\s*=",
+          RegexOptions.Compiled
+      )
+      "constructor", Regex(@"^\s*type\s+[A-Za-z_][\w']*(?:<[^>]+>)?\s*(?<parameters>\([^)]*\))", RegexOptions.Compiled)
       "lambda", Regex(@"\bfun\s+(?<parameters>.*?)\s*->", RegexOptions.Compiled) ]
 
 let violationsInLine (line: string) =
@@ -48,6 +52,65 @@ let violationsInLine (line: string) =
             None)
     |> Seq.toList
 
+type FragmentEnd =
+    | Equals
+    | Arrow
+
+type SourceFragment = { line_number: int; text: string }
+
+let declarationStart =
+    Regex(@"^\s*(?:let\b|member\b|override\b|type\s+[A-Za-z_][\w']*)", RegexOptions.Compiled)
+
+let fragmentEnd (line: string) =
+    if declarationStart.IsMatch line && not (line.Contains '=') then
+        Some Equals
+    elif Regex.IsMatch(line, @"\bfun\b") && not (line.Contains "->") then
+        Some Arrow
+    else
+        None
+
+let isComplete (ending: FragmentEnd) (text: string) =
+    match ending with
+    | Equals -> text.Contains '='
+    | Arrow -> text.Contains "->"
+
+let sourceFragments (source: string) =
+    let lines = source.Replace("\r\n", "\n").Split '\n'
+    let fragments = ResizeArray<SourceFragment>()
+    let mutable index = 0
+
+    while index < lines.Length do
+        let firstLineNumber = index + 1
+        let firstLine = lines[index]
+
+        match fragmentEnd firstLine with
+        | None ->
+            fragments.Add
+                { line_number = firstLineNumber
+                  text = firstLine }
+
+            index <- index + 1
+        | Some ending ->
+            let text = Text.StringBuilder(firstLine.TrimEnd())
+            index <- index + 1
+
+            while index < lines.Length && not (isComplete ending (text.ToString())) do
+                text.Append(' ').Append(lines[index].Trim()) |> ignore
+                index <- index + 1
+
+            fragments.Add
+                { line_number = firstLineNumber
+                  text = text.ToString() }
+
+    fragments |> Seq.toList
+
+let violationsInSource (source: string) =
+    sourceFragments source
+    |> Seq.collect (fun (fragment: SourceFragment) ->
+        violationsInLine fragment.text
+        |> Seq.map (fun (kind: string) -> fragment.line_number, fragment.text, kind))
+    |> Seq.toList
+
 // Tests
 let checkerSelfTests =
     [ "let private sample_rate = 120L", false
@@ -58,23 +121,27 @@ let checkerSelfTests =
       "let private run () = ()", false
       "let private run value = value", true
       "let rec private loop (value) = loop value", true
-      "let inline public convert value = value", true ]
+      "let inline public convert value = value", true
+      "let run\n    (value: int)\n    = value", false
+      "let run\n    value\n    = value", true
+      "override _.Run\n    (value: int)\n    = value", false
+      "override _.Run\n    (value)\n    = value", true
+      "let run =\n    fun\n        (value: int)\n        -> value", false
+      "let run =\n    fun\n        value\n        -> value", true ]
 
-for line, expectsViolation in checkerSelfTests do
-    let hasViolation = not (List.isEmpty (violationsInLine line))
+for source, expectsViolation in checkerSelfTests do
+    let hasViolation = not (List.isEmpty (violationsInSource source))
 
     if hasViolation <> expectsViolation then
-        failwith $"Explicit-input lint self-test failed for: {line}"
+        failwith $"Explicit-input lint self-test failed for: {source}"
 
 let violations =
     Directory.EnumerateFiles(sourceRoot, "*.fs", SearchOption.AllDirectories)
     |> Seq.collect (fun (path: string) ->
-        File.ReadLines path
-        |> Seq.mapi (fun (index: int) (line: string) -> index + 1, line)
-        |> Seq.collect (fun (lineNumber: int, line: string) ->
-            violationsInLine line
-            |> Seq.map (fun (kind: string) ->
-                $"{path}({lineNumber}): {kind} input is missing an explicit type: {line.Trim()}")))
+        File.ReadAllText path
+        |> violationsInSource
+        |> Seq.map (fun (lineNumber: int, line: string, kind: string) ->
+            $"{path}({lineNumber}): {kind} input is missing an explicit type: {line.Trim()}"))
     |> Seq.toList
 
 for violation in violations do

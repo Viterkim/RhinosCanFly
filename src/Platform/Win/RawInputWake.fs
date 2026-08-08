@@ -11,12 +11,9 @@ let create () = { pending = 0 }
 let signal (state: State) =
     if Interlocked.CompareExchange(&state.pending, 1, 0) = 0 then
         try
-            Eto.Forms.Application.Instance.AsyncInvoke(Action(fun () -> ()))
+            Eto.Forms.Application.Instance.AsyncInvoke(
+                Action(fun () -> Interlocked.Exchange(&state.pending, 0) |> ignore)
+            )
         with error ->
             Interlocked.Exchange(&state.pending, 0) |> ignore
             Debug.WriteLine $"RhinosCanFly UI wake-up failed: {error.Message}"
-
-let reset (state: State) =
-    Interlocked.Exchange(&state.pending, 0) |> ignore
-
-let action (state: State) = Action(fun () -> signal state)

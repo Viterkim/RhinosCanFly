@@ -12,6 +12,9 @@ type State =
       mutable active: Active option
       mutable suppress_next_set_click: Button option }
 
+[<Literal>]
+let side_button_poll_interval_seconds = 0.015
+
 let same_button (left: Button) (right: Button) = Object.ReferenceEquals(left, right)
 
 let stop (state: State) =
@@ -38,21 +41,13 @@ let start (state: State) (field: TextBox) (button: Button) =
     button.Focus()
     state.side_button_timer.Start()
 
-let make_row (cells: TableCell list) =
-    let row = new TableRow()
-
-    for cell in cells do
-        row.Cells.Add cell
-
-    row
-
 let editor (state: State) (field: TextBox) (defaultValue: string) =
     let setButton = new Button(Text = "Set...", Width = 62, Height = 24)
     let defaultButton = new Button(Text = "Default", Width = 66, Height = 24)
     let panel = new TableLayout(Spacing = Size(6, 0))
 
     panel.Rows.Add(
-        make_row
+        SettingsLayout.row
             [ new TableCell(field, true)
               new TableCell(setButton, false)
               new TableCell(defaultButton, false) ]
@@ -89,7 +84,8 @@ let is_editor_control (control: Control) =
     | :? TextBox
     | :? TextArea
     | :? Button
-    | :? CheckBox -> true
+    | :? CheckBox
+    | :? DropDown -> true
     | _ -> false
 
 let try_capture_mouse (state: State) (source: Control) (event: MouseEventArgs) =
@@ -120,7 +116,7 @@ let rec attach_mouse_behavior (state: State) (control: Control) =
 let create () =
     let state =
         { focus_sink = new Drawable(CanFocus = true, Size = Size(1, 1))
-          side_button_timer = new UITimer(Interval = 0.015)
+          side_button_timer = new UITimer(Interval = side_button_poll_interval_seconds)
           active = None
           suppress_next_set_click = None }
 

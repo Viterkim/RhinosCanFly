@@ -7,41 +7,13 @@ open System.Reflection
 open Eto.Drawing
 open Eto.Forms
 open Rhino
-open Rhino.UI
-
-module SettingsUi =
-    let load_icon () =
-        let assembly = Assembly.GetExecutingAssembly()
-
-        let stream =
-            assembly.GetManifestResourceStream "RhinosCanFly.Resources.PluginIcon.ico"
-
-        if isNull stream then
-            None
-        else
-            use source = stream
-            Some(new Icon(source))
-
-    let use_rhino_style (control: Control) =
-        let method =
-            typeof<EtoExtensions>
-                .GetMethod(
-                    "UseRhinoStyle",
-                    BindingFlags.Public ||| BindingFlags.Static,
-                    null,
-                    [| typeof<Control> |],
-                    null
-                )
-
-        if not (isNull method) then
-            method.Invoke(null, [| control :> obj |]) |> ignore
 
 type SettingsControl() as self =
     inherit Panel()
 
     let text_box () = new TextBox(Height = 24)
 
-    let defaults = Config.default_config ()
+    let defaults = ConfigSchema.defaults
 
     let forward = text_box ()
     let backward = text_box ()
@@ -49,6 +21,8 @@ type SettingsControl() as self =
     let right = text_box ()
     let up = text_box ()
     let down = text_box ()
+    let pivotLeft = text_box ()
+    let pivotRight = text_box ()
     let boost = text_box ()
     let slow = text_box ()
     let speedIncrease = text_box ()
@@ -61,11 +35,32 @@ type SettingsControl() as self =
     let boostMultiplier = text_box ()
     let slowMultiplier = text_box ()
     let verticalSpeedMultiplier = text_box ()
+    let pivotSpeedMultiplier = text_box ()
     let mouseSensitivity = text_box ()
     let lensLength = text_box ()
+
+    let redrawModes =
+        [| ViewportRedrawMode.Rhino, "Rhino redraw (default)"
+           ViewportRedrawMode.RhinoImmediate, "Rhino redraw with immediate paint"
+           ViewportRedrawMode.NativeWindow, "Native window redraw (experimental)" |]
+
+    let viewportRedrawMode =
+        let control = new DropDown(Height = 24)
+
+        for _, label in redrawModes do
+            control.Items.Add label
+
+        control
+
+    let pluginEnabled = new CheckBox(Text = "Enable Rhinos Can Fly")
     let invertMouseX = new CheckBox(Text = "Invert mouse X")
     let invertMouseY = new CheckBox(Text = "Invert mouse Y")
     let normalizeDiagonal = new CheckBox(Text = "Normalize diagonal movement")
+    let hideGumball = new CheckBox(Text = "Hide gumball while flying")
+
+    let pivotBindingsIgnoreGumball =
+        new CheckBox(Text = "Pivot binds don't rotate around gumball")
+
     let saveSpeedToDocument = new CheckBox(Text = "Save current speed to file")
     let loadSpeedFromDocument = new CheckBox(Text = "Load speed from file")
     let wheelChangesSpeed = new CheckBox(Text = "Mouse wheel up/down controls speed")
@@ -74,6 +69,9 @@ type SettingsControl() as self =
     let exitOnMouseMiddle = new CheckBox(Text = "Middle mouse button exits fly mode")
     let hijackRightClick = new CheckBox(Text = "Hijack right click")
 
+    let hijackRightClickDuringCommands =
+        new CheckBox(Text = "Hijack right click during commands")
+
     let commandsDoNotRepeat =
         new CheckBox(Text = "Don't count fly command as repeatable")
 
@@ -81,10 +79,17 @@ type SettingsControl() as self =
     let slowHold = new CheckBox(Text = "Slow Mode: hold instead of toggle")
 
     let mouseButtonOverridesEnabled =
-        new CheckBox(Text = "Enable mouse button overrides (experimental)")
+        new CheckBox(Text = "Enable mouse button overrides")
 
-    let mouse4AsMiddle = new CheckBox(Text = "Mouse 4 drag manipulates view")
-    let mouse5AsMiddle = new CheckBox(Text = "Mouse 5 drag manipulates view")
+    let mouse4AsMiddle = new CheckBox(Text = "Mouse 4 pivots")
+    let mouse5AsMiddle = new CheckBox(Text = "Mouse 5 pivots")
+
+    let shiftRightClickTogglesView = new CheckBox(Text = "Shift + right click pivots")
+
+    let altRightClickTogglesView = new CheckBox(Text = "Alt + right click pivots")
+    let shiftRightClickPans = new CheckBox(Text = "Shift + right click pans")
+    let altRightClickPans = new CheckBox(Text = "Alt + right click pans")
+
     let statusLine = new Label(Wrap = WrapMode.Word)
     let runtimeLine = new Label(Wrap = WrapMode.Word)
     let configPath = new TextBox(ReadOnly = true)
@@ -102,24 +107,28 @@ type SettingsControl() as self =
     let optionsIcon = SettingsUi.load_icon ()
     let bindingCapture = BindingCapture.create ()
 
-    let format (value: float) =
-        let rounded = Math.Round(value, 9, MidpointRounding.AwayFromZero)
-        rounded.ToString("G15", CultureInfo.InvariantCulture)
-
     let is_checked (control: CheckBox) = control.Checked.GetValueOrDefault()
 
     let set_checked (control: CheckBox) (value: bool) = control.Checked <- Nullable value
 
-    let make_row (cells: TableCell list) =
-        let row = new TableRow()
+    let redraw_mode_index (value: string) =
+        match ConfigSchema.parse_viewport_redraw_mode value with
+        | Ok mode ->
+            redrawModes
+            |> Array.tryFindIndex (fun (candidate: ViewportRedrawMode, _: string) -> candidate = mode)
+            |> Option.defaultValue 0
+        | Error _ -> 0
 
-        for cell in cells do
-            row.Cells.Add cell
+    let selected_redraw_mode () =
+        let index = viewportRedrawMode.SelectedIndex
 
-        row
+        let mode =
+            if index >= 0 && index < redrawModes.Length then
+                fst redrawModes[index]
+            else
+                ViewportRedrawMode.Rhino
 
-    let full_width_row (control: Control) =
-        make_row [ new TableCell(control, true) ]
+        ConfigSchema.viewport_redraw_mode_value mode
 
     let refresh_status () =
         statusLine.Text <-
@@ -133,6 +142,13 @@ type SettingsControl() as self =
         let enabled = is_checked mouseButtonOverridesEnabled
         mouse4AsMiddle.Enabled <- enabled
         mouse5AsMiddle.Enabled <- enabled
+        shiftRightClickTogglesView.Enabled <- enabled
+        altRightClickTogglesView.Enabled <- enabled
+        shiftRightClickPans.Enabled <- enabled
+        altRightClickPans.Enabled <- enabled
+
+    let refresh_right_click_controls () =
+        hijackRightClickDuringCommands.Enabled <- is_checked hijackRightClick
 
     let parse_number (name: string) (field: TextBox) =
         let mutable value = 0.
@@ -145,40 +161,8 @@ type SettingsControl() as self =
         else
             Error $"{name} must be a number."
 
-    let grid_item (label: string) (control: Control) =
-        let caption = new Label(Text = label, Width = 140)
-        let item = new TableLayout(Spacing = Size(8, 0))
-
-        item.Rows.Add(make_row [ new TableCell(caption, false); new TableCell(control, true) ])
-
-        item
-
-    let two_column_grid (controls: Control list) =
-        let grid = new TableLayout(Spacing = Size(16, 4))
-
-        let rec add_rows (remaining: Control list) =
-            match remaining with
-            | first :: second :: rest ->
-                grid.Rows.Add(make_row [ new TableCell(first, true); new TableCell(second, true) ])
-
-                add_rows rest
-            | [ first ] -> grid.Rows.Add(make_row [ new TableCell(first, true); new TableCell(new Panel(), true) ])
-            | [] -> ()
-
-        add_rows controls
-        grid
-
     let binding_editor (field: TextBox) (defaultValue: string) =
         BindingCapture.editor bindingCapture field defaultValue
-
-    let heading (text: string) =
-        let label =
-            new Label(Text = text, Font = SystemFonts.Bold(Nullable(), FontDecoration.None))
-
-        new Panel(Content = label, Padding = Padding(0, 10, 0, 2)) :> Control
-
-    let note (text: string) =
-        new Label(Text = text, Wrap = WrapMode.Word) :> Control
 
     let title_row () =
         let image = new ImageView(Size = Size(32, 32))
@@ -190,7 +174,7 @@ type SettingsControl() as self =
 
         let row = new TableLayout(Spacing = Size(10, 0))
 
-        row.Rows.Add(make_row [ new TableCell(image, false); new TableCell(title, true) ])
+        row.Rows.Add(SettingsLayout.row [ new TableCell(image, false); new TableCell(title, true) ])
 
         row :> Control
 
@@ -199,9 +183,9 @@ type SettingsControl() as self =
         let pathLabel = new Label(Text = "File", Width = 64)
         let contentsLabel = new Label(Text = "Contents", Width = 64)
 
-        layout.Rows.Add(make_row [ new TableCell(pathLabel, false); new TableCell(configPath, true) ])
+        layout.Rows.Add(SettingsLayout.row [ new TableCell(pathLabel, false); new TableCell(configPath, true) ])
 
-        layout.Rows.Add(make_row [ new TableCell(contentsLabel, false); new TableCell(rawJson, true) ])
+        layout.Rows.Add(SettingsLayout.row [ new TableCell(contentsLabel, false); new TableCell(rawJson, true) ])
 
         layout
 
@@ -210,93 +194,136 @@ type SettingsControl() as self =
     let mainTable = new TableLayout(Padding = Padding 12, Spacing = Size(0, 4))
 
     do
-        mainTable.Rows.Add(full_width_row (title_row ()))
-        mainTable.Rows.Add(full_width_row (heading "Behavior"))
+        mainTable.Rows.Add(SettingsLayout.full_width (title_row ()))
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "General behavior"))
 
-        two_column_grid
-            [ exitOnMouseLeft
-              exitOnMouseRight
-              exitOnMouseMiddle
-              hijackRightClick
-              commandsDoNotRepeat
+        SettingsLayout.grid
+            3
+            [ pluginEnabled
               normalizeDiagonal
               boostHold
               slowHold
-              invertMouseX
-              invertMouseY
+              commandsDoNotRepeat
               saveSpeedToDocument
               loadSpeedFromDocument
-              wheelChangesSpeed ]
-        |> full_width_row
+              hideGumball
+              pivotBindingsIgnoreGumball ]
+        |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
-        mainTable.Rows.Add(full_width_row (heading "Controls"))
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Right click behavior"))
 
-        two_column_grid
-            [ grid_item "Forward" (binding_editor forward defaults.forward)
-              grid_item "Backward" (binding_editor backward defaults.backward)
-              grid_item "Move left" (binding_editor left defaults.left)
-              grid_item "Move right" (binding_editor right defaults.right)
-              grid_item "Move up" (binding_editor up defaults.up)
-              grid_item "Move down" (binding_editor down defaults.down)
-              grid_item "Boost Mode" (binding_editor boost defaults.boost_toggle)
-              grid_item "Slow Mode" (binding_editor slow defaults.slow)
-              grid_item "Increase speed" (binding_editor speedIncrease defaults.speed_increase)
-              grid_item "Decrease speed" (binding_editor speedDecrease defaults.speed_decrease)
-              grid_item "Exit fly mode" (binding_editor exitKey defaults.exit_key) ]
-        |> full_width_row
+        SettingsLayout.grid 3 [ hijackRightClick; hijackRightClickDuringCommands; exitOnMouseRight ]
+        |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
-        mainTable.Rows.Add(full_width_row (heading "Speed and mouse"))
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Mouse behavior"))
 
-        two_column_grid
-            [ grid_item "Base speed" baseSpeed
-              grid_item "Minimum speed" minimumSpeed
-              grid_item "Maximum speed" maximumSpeed
-              grid_item "Speed step multiplier" speedStep
-              grid_item "Boost multiplier" boostMultiplier
-              grid_item "Slow multiplier" slowMultiplier
-              grid_item "Move up/down multiplier" verticalSpeedMultiplier
-              grid_item "Mouse sensitivity" mouseSensitivity
-              grid_item "Force lens length" lensLength ]
-        |> full_width_row
+        SettingsLayout.grid
+            3
+            [ invertMouseX
+              invertMouseY
+              wheelChangesSpeed
+              exitOnMouseLeft
+              exitOnMouseMiddle ]
+        |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
-        mainTable.Rows.Add(full_width_row (heading "Override mouse button behavior"))
-        mainTable.Rows.Add(full_width_row mouseButtonOverridesEnabled)
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Controls"))
 
-        two_column_grid [ mouse4AsMiddle; mouse5AsMiddle ]
-        |> full_width_row
+        SettingsLayout.grid
+            2
+            [ SettingsLayout.item "Forward" (binding_editor forward defaults.forward)
+              SettingsLayout.item "Backward" (binding_editor backward defaults.backward)
+              SettingsLayout.item "Move left" (binding_editor left defaults.left)
+              SettingsLayout.item "Move right" (binding_editor right defaults.right)
+              SettingsLayout.item "Move up" (binding_editor up defaults.up)
+              SettingsLayout.item "Move down" (binding_editor down defaults.down)
+              SettingsLayout.item "Pivot left" (binding_editor pivotLeft defaults.pivot_left)
+              SettingsLayout.item "Pivot right" (binding_editor pivotRight defaults.pivot_right)
+              SettingsLayout.item "Boost Mode" (binding_editor boost defaults.boost_toggle)
+              SettingsLayout.item "Slow Mode" (binding_editor slow defaults.slow)
+              SettingsLayout.item "Increase speed" (binding_editor speedIncrease defaults.speed_increase)
+              SettingsLayout.item "Decrease speed" (binding_editor speedDecrease defaults.speed_decrease)
+              SettingsLayout.item "Exit fly mode" (binding_editor exitKey defaults.exit_key) ]
+        |> SettingsLayout.full_width
+        |> mainTable.Rows.Add
+
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Speed and mouse"))
+
+        SettingsLayout.grid
+            2
+            [ SettingsLayout.item "Base speed" baseSpeed
+              SettingsLayout.item "Minimum speed" minimumSpeed
+              SettingsLayout.item "Maximum speed" maximumSpeed
+              SettingsLayout.item "Speed step multiplier" speedStep
+              SettingsLayout.item "Boost multiplier" boostMultiplier
+              SettingsLayout.item "Slow multiplier" slowMultiplier
+              SettingsLayout.item "Move up/down multiplier" verticalSpeedMultiplier
+              SettingsLayout.item "Pivot speed multiplier" pivotSpeedMultiplier
+              SettingsLayout.item "Mouse sensitivity" mouseSensitivity
+              SettingsLayout.item "Force lens length" lensLength ]
+        |> SettingsLayout.full_width
+        |> mainTable.Rows.Add
+
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Viewport redraw"))
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.item "Mode" viewportRedrawMode))
+
+        mainTable.Rows.Add(
+            SettingsLayout.full_width (SettingsLayout.note "Try an alternative mode only if fly mode is not smooth.")
+        )
+
+        mainTable.Rows.Add(
+            SettingsLayout.full_width (
+                SettingsLayout.heading
+                    "Override mouse behavior (Uses middle mouse button pan/rotate settings from Rhino itself)"
+            )
+        )
+
+        SettingsLayout.grid
+            3
+            [ mouseButtonOverridesEnabled
+              mouse4AsMiddle
+              mouse5AsMiddle
+              shiftRightClickTogglesView
+              shiftRightClickPans
+              altRightClickTogglesView
+              altRightClickPans ]
+        |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
         mainTable.Rows.Add(
-            full_width_row (note "Uses Rhino's middle-button Pan/Rotate/Swap settings. Side-button clicks are ignored.")
+            SettingsLayout.full_width (
+                SettingsLayout.note "Pivots: release the buttons, move the mouse, then right click to stop."
+            )
         )
 
-        mainTable.Rows.Add(full_width_row (heading "Status"))
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Status"))
         refresh_status ()
-        mainTable.Rows.Add(full_width_row statusLine)
-        mainTable.Rows.Add(full_width_row runtimeLine)
-        mainTable.Rows.Add(full_width_row github)
-        mainTable.Rows.Add(full_width_row resetAll)
-        mainTable.Rows.Add(full_width_row rawJsonToggle)
-        mainTable.Rows.Add(full_width_row rawJsonPanel)
+        mainTable.Rows.Add(SettingsLayout.full_width statusLine)
+        mainTable.Rows.Add(SettingsLayout.full_width runtimeLine)
+        mainTable.Rows.Add(SettingsLayout.full_width github)
+        mainTable.Rows.Add(SettingsLayout.full_width resetAll)
+        mainTable.Rows.Add(SettingsLayout.full_width rawJsonToggle)
+        mainTable.Rows.Add(SettingsLayout.full_width rawJsonPanel)
 
         let scrollable =
             new Scrollable(Border = BorderType.None, ExpandContentWidth = true, Content = mainTable)
 
         let host = new TableLayout(Spacing = Size.Empty)
-        host.Rows.Add(make_row [ new TableCell(bindingCapture.focus_sink, false) ])
+        host.Rows.Add(SettingsLayout.row [ new TableCell(bindingCapture.focus_sink, false) ])
 
-        let contentRow = make_row [ new TableCell(scrollable, true) ]
+        let contentRow = SettingsLayout.row [ new TableCell(scrollable, true) ]
         contentRow.ScaleHeight <- true
         host.Rows.Add contentRow
 
         self.Content <- host
 
         mouseButtonOverridesEnabled.CheckedChanged.Add(fun (_: EventArgs) -> refresh_mouse_override_controls ())
+        hijackRightClick.CheckedChanged.Add(fun (_: EventArgs) -> refresh_right_click_controls ())
 
         refresh_mouse_override_controls ()
+        refresh_right_click_controls ()
 
         rawJsonToggle.Click.Add(fun (_: EventArgs) ->
             rawJsonPanel.Visible <- not rawJsonPanel.Visible
@@ -314,12 +341,12 @@ type SettingsControl() as self =
         resetAll.Click.Add(fun (_: EventArgs) ->
             self.LoadConfig defaults
 
-            match RuntimeSettings.save_and_apply RhinoDoc.ActiveDoc defaults defaults.base_speed with
+            match RuntimeSettings.save_apply_and_set_speed RhinoDoc.ActiveDoc defaults defaults.base_speed with
             | Ok _ ->
-                speedText <- format defaults.base_speed
+                speedText <- ConfigSchema.format_number defaults.base_speed
                 refresh_status ()
 
-                match Config.read_raw () with
+                match ConfigStorage.read_raw () with
                 | Ok(path, content) -> self.ShowRaw(path, content)
                 | Error _ -> ()
 
@@ -348,11 +375,11 @@ type SettingsControl() as self =
         refresh_status ()
 
     member _.ShowRuntimeState(speed: float, lens: float option) =
-        speedText <- format speed
+        speedText <- ConfigSchema.format_number speed
 
         lensText <-
             match lens with
-            | Some value -> $"{format value} mm"
+            | Some value -> $"{ConfigSchema.format_number value} mm"
             | None -> "Unavailable"
 
         refresh_status ()
@@ -362,29 +389,36 @@ type SettingsControl() as self =
         rawJson.Text <- content
 
     member _.LoadConfig(config: FlyConfigFile) =
+        set_checked pluginEnabled config.enabled
         forward.Text <- config.forward
         backward.Text <- config.backward
         left.Text <- config.left
         right.Text <- config.right
         up.Text <- config.up
         down.Text <- config.down
+        pivotLeft.Text <- config.pivot_left
+        pivotRight.Text <- config.pivot_right
         boost.Text <- config.boost_toggle
         slow.Text <- config.slow
         speedIncrease.Text <- config.speed_increase
         speedDecrease.Text <- config.speed_decrease
         exitKey.Text <- config.exit_key
-        baseSpeed.Text <- format config.base_speed
-        minimumSpeed.Text <- format config.minimum_speed
-        maximumSpeed.Text <- format config.maximum_speed
-        speedStep.Text <- format config.speed_step_multiplier
-        boostMultiplier.Text <- format config.boost_multiplier
-        slowMultiplier.Text <- format config.slow_multiplier
-        verticalSpeedMultiplier.Text <- format config.vertical_speed_multiplier
-        mouseSensitivity.Text <- format config.mouse_sensitivity
-        lensLength.Text <- format config.lens_length_mm_in_mode
+        baseSpeed.Text <- ConfigSchema.format_number config.base_speed
+        minimumSpeed.Text <- ConfigSchema.format_number config.minimum_speed
+        maximumSpeed.Text <- ConfigSchema.format_number config.maximum_speed
+        speedStep.Text <- ConfigSchema.format_number config.speed_step_multiplier
+        boostMultiplier.Text <- ConfigSchema.format_number config.boost_multiplier
+        slowMultiplier.Text <- ConfigSchema.format_number config.slow_multiplier
+        verticalSpeedMultiplier.Text <- ConfigSchema.format_number config.vertical_speed_multiplier
+        pivotSpeedMultiplier.Text <- ConfigSchema.format_number config.pivot_speed_multiplier
+        mouseSensitivity.Text <- ConfigSchema.format_number config.mouse_sensitivity
+        lensLength.Text <- ConfigSchema.format_number config.lens_length_mm_in_mode
+        viewportRedrawMode.SelectedIndex <- redraw_mode_index config.viewport_redraw_mode
         set_checked invertMouseX config.invert_mouse_x
         set_checked invertMouseY config.invert_mouse_y
         set_checked normalizeDiagonal config.normalize_diagonal_movement
+        set_checked hideGumball config.hide_gumball_while_flying
+        set_checked pivotBindingsIgnoreGumball config.pivot_bindings_ignore_gumball
         set_checked saveSpeedToDocument config.save_speed_to_document
         set_checked loadSpeedFromDocument config.load_speed_from_document
         set_checked wheelChangesSpeed config.wheel_changes_speed
@@ -392,10 +426,16 @@ type SettingsControl() as self =
         set_checked exitOnMouseRight config.exit_on_mouse_right
         set_checked exitOnMouseMiddle config.exit_on_mouse_middle
         set_checked hijackRightClick config.hijack_right_click_to_enter
+        set_checked hijackRightClickDuringCommands config.hijack_right_click_during_commands
+        refresh_right_click_controls ()
         set_checked commandsDoNotRepeat config.commands_do_not_repeat
         set_checked mouseButtonOverridesEnabled config.mouse_button_overrides_enabled
         set_checked mouse4AsMiddle config.mouse4_acts_as_middle
         set_checked mouse5AsMiddle config.mouse5_acts_as_middle
+        set_checked shiftRightClickTogglesView config.shift_right_click_toggles_view
+        set_checked altRightClickTogglesView config.alt_right_click_toggles_view
+        set_checked shiftRightClickPans config.shift_right_click_pans
+        set_checked altRightClickPans config.alt_right_click_pans
         refresh_mouse_override_controls ()
         set_checked boostHold config.boost_hold_instead_of_toggle
         set_checked slowHold config.slow_hold_instead_of_toggle
@@ -409,6 +449,7 @@ type SettingsControl() as self =
             parse_number "Boost multiplier" boostMultiplier,
             parse_number "Slow multiplier" slowMultiplier,
             parse_number "Move up/down multiplier" verticalSpeedMultiplier,
+            parse_number "Pivot speed multiplier" pivotSpeedMultiplier,
             parse_number "Mouse sensitivity" mouseSensitivity,
             parse_number "Lens length" lensLength
         with
@@ -419,16 +460,20 @@ type SettingsControl() as self =
           Ok boostValue,
           Ok slowValue,
           Ok verticalValue,
+          Ok pivotValue,
           Ok sensitivityValue,
           Ok lensValue ->
             Ok
-                { config_version = Config.CurrentVersion
+                { config_version = ConfigSchema.current_version
+                  enabled = is_checked pluginEnabled
                   forward = forward.Text
                   backward = backward.Text
                   left = left.Text
                   right = right.Text
                   up = up.Text
                   down = down.Text
+                  pivot_left = pivotLeft.Text
+                  pivot_right = pivotRight.Text
                   boost_toggle = boost.Text
                   slow = slow.Text
                   speed_increase = speedIncrease.Text
@@ -440,10 +485,13 @@ type SettingsControl() as self =
                   speed_step_multiplier = stepValue
                   boost_multiplier = boostValue
                   slow_multiplier = slowValue
+                  pivot_speed_multiplier = pivotValue
                   mouse_sensitivity = sensitivityValue
                   invert_mouse_x = is_checked invertMouseX
                   invert_mouse_y = is_checked invertMouseY
                   normalize_diagonal_movement = is_checked normalizeDiagonal
+                  hide_gumball_while_flying = is_checked hideGumball
+                  pivot_bindings_ignore_gumball = is_checked pivotBindingsIgnoreGumball
                   save_speed_to_document = is_checked saveSpeedToDocument
                   load_speed_from_document = is_checked loadSpeedFromDocument
                   wheel_changes_speed = is_checked wheelChangesSpeed
@@ -451,16 +499,22 @@ type SettingsControl() as self =
                   exit_on_mouse_right = is_checked exitOnMouseRight
                   exit_on_mouse_middle = is_checked exitOnMouseMiddle
                   hijack_right_click_to_enter = is_checked hijackRightClick
+                  hijack_right_click_during_commands = is_checked hijackRightClickDuringCommands
                   commands_do_not_repeat = is_checked commandsDoNotRepeat
                   mouse_button_overrides_enabled = is_checked mouseButtonOverridesEnabled
                   mouse4_acts_as_middle = is_checked mouse4AsMiddle
                   mouse5_acts_as_middle = is_checked mouse5AsMiddle
+                  shift_right_click_toggles_view = is_checked shiftRightClickTogglesView
+                  alt_right_click_toggles_view = is_checked altRightClickTogglesView
+                  shift_right_click_pans = is_checked shiftRightClickPans
+                  alt_right_click_pans = is_checked altRightClickPans
                   boost_hold_instead_of_toggle = is_checked boostHold
                   slow_hold_instead_of_toggle = is_checked slowHold
                   vertical_speed_multiplier = verticalValue
-                  lens_length_mm_in_mode = lensValue }
-        | a, b, c, d, e, f, g, h, i ->
-            [ a; b; c; d; e; f; g; h; i ]
+                  lens_length_mm_in_mode = lensValue
+                  viewport_redraw_mode = selected_redraw_mode () }
+        | a, b, c, d, e, f, g, h, i, j ->
+            [ a; b; c; d; e; f; g; h; i; j ]
             |> List.choose (function
                 | Error error -> Some error
                 | Ok _ -> None)

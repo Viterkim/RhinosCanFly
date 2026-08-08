@@ -38,6 +38,8 @@
   <ItemGroup>
     <Compile Include="src/AssemblyInfo.fs" />
     <Compile Include="src/Core/Data.fs" />
+    <Compile Include="src/Core/FlightInput.fs" />
+    <Compile Include="src/Core/RhinoSettings.fs" />
     <Compile Include="src/Core/Speed.fs" />
     <Compile Include="src/Core/MouseSensitivity.fs" />
     <Compile Include="src/Core/InputAccumulator.fs" />
@@ -45,7 +47,8 @@
     <Compile Include="src/Platform/Win/RawInputNative.fs" />
     <Compile Include="src/Platform/Win/KeyBindings.fs" />
     <Compile Include="src/Platform/Win/PlatformBindings.fs" />
-    <Compile Include="src/Configuration/Config.fs" />
+    <Compile Include="src/Configuration/ConfigSchema.fs" />
+    <Compile Include="src/Configuration/ConfigStorage.fs" />
     <Compile Include="src/Commands/RepeatBehavior.fs" />
     <Compile Include="src/Fly/Movement.fs" />
     <Compile Include="src/Fly/FlightSpeed.fs" />
@@ -54,11 +57,14 @@
     <Compile Include="src/Platform/Win/RawInputWake.fs" />
     <Compile Include="src/Platform/Win/MouseButtonOverrides.fs" />
     <Compile Include="src/Platform/Win/PlatformInput.fs" />
+    <Compile Include="src/Fly/FlightRedraw.fs" />
     <Compile Include="src/Fly/FlightCamera.fs" />
     <Compile Include="src/Fly/FlightControls.fs" />
     <Compile Include="src/Fly/Runtime.fs" />
     <Compile Include="src/Input/RightClickEntry.fs" />
     <Compile Include="src/Configuration/RuntimeSettings.fs" />
+    <Compile Include="src/UI/SettingsUi.fs" />
+    <Compile Include="src/UI/SettingsLayout.fs" />
     <Compile Include="src/UI/BindingCapture.fs" />
     <Compile Include="src/UI/SettingsControl.fs" />
     <Compile Include="src/Settings/Settings.fs" />

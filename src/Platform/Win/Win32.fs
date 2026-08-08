@@ -1,5 +1,7 @@
 module RhinosCanFly.Platform.Win.Win32
 
+#nowarn "9"
+
 open System
 open System.ComponentModel
 open System.Drawing
@@ -12,10 +14,16 @@ let WM_MOUSELEAVE = 0x02A3
 let INPUT_MOUSE = 0u
 
 [<Literal>]
+let INPUT_KEYBOARD = 1u
+
+[<Literal>]
 let MOUSEEVENTF_MIDDLEDOWN = 0x00000020u
 
 [<Literal>]
 let MOUSEEVENTF_MIDDLEUP = 0x00000040u
+
+[<Literal>]
+let KEYEVENTF_KEYUP = 0x0002u
 
 [<Literal>]
 let WHEEL_DELTA = 120
@@ -99,9 +107,25 @@ type MouseInput =
     val mutable extra_info: unativeint
 
 [<Struct; StructLayout(LayoutKind.Sequential)>]
+type KeyboardInput =
+    val mutable virtual_key: uint16
+    val mutable scan_code: uint16
+    val mutable flags: uint32
+    val mutable time: uint32
+    val mutable extra_info: unativeint
+
+[<Struct; StructLayout(LayoutKind.Explicit)>]
+type InputData =
+    [<FieldOffset(0)>]
+    val mutable mouse: MouseInput
+
+    [<FieldOffset(0)>]
+    val mutable keyboard: KeyboardInput
+
+[<Struct; StructLayout(LayoutKind.Sequential)>]
 type NativeInput =
     val mutable input_type: uint32
-    val mutable mouse: MouseInput
+    val mutable data: InputData
 
 [<DllImport("user32.dll")>]
 extern int16 GetAsyncKeyState(int virtual_key)
@@ -135,6 +159,12 @@ extern nativeint SendMessage(nativeint window, int message, nativeint wparam, na
 
 [<DllImport("user32.dll", SetLastError = true)>]
 extern uint32 SendInput(uint32 input_count, NativeInput[] inputs, int input_size)
+
+[<DllImport("user32.dll", SetLastError = true)>]
+extern bool InvalidateRect(nativeint window, nativeint rectangle, bool erase)
+
+[<DllImport("user32.dll", SetLastError = true)>]
+extern bool UpdateWindow(nativeint window)
 
 [<DllImport("user32.dll", SetLastError = true)>]
 extern uint32 MsgWaitForMultipleObjectsEx(
@@ -187,6 +217,18 @@ let clear_cursor_clip () =
 let clear_mouse_hover (window: nativeint) =
     SendMessage(window, WM_MOUSELEAVE, nativeint 0, nativeint 0) |> ignore
 
+let update_window (window: nativeint) =
+    if UpdateWindow window then
+        Ok()
+    else
+        Error(last_error "UpdateWindow")
+
+let redraw_window (window: nativeint) =
+    if not (InvalidateRect(window, nativeint 0, false)) then
+        Error(last_error "InvalidateRect")
+    else
+        update_window window
+
 let wait_for_input (timeoutMilliseconds: uint32) =
     let result =
         MsgWaitForMultipleObjectsEx(0u, nativeint 0, timeoutMilliseconds, QS_ALLINPUT, MWMO_INPUTAVAILABLE)
@@ -207,9 +249,29 @@ let send_middle_mouse (down: bool) =
 
     let mutable input = Unchecked.defaultof<NativeInput>
     input.input_type <- INPUT_MOUSE
-    input.mouse <- mouse
+
+    let mutable data = Unchecked.defaultof<InputData>
+    data.mouse <- mouse
+    input.data <- data
 
     if SendInput(1u, [| input |], Marshal.SizeOf<NativeInput>()) = 1u then
         Ok()
     else
         Error(last_error "SendInput(middle mouse)")
+
+let send_shift_key (down: bool) =
+    let mutable keyboard = Unchecked.defaultof<KeyboardInput>
+    keyboard.virtual_key <- uint16 VK_SHIFT
+    keyboard.flags <- if down then 0u else KEYEVENTF_KEYUP
+
+    let mutable input = Unchecked.defaultof<NativeInput>
+    input.input_type <- INPUT_KEYBOARD
+
+    let mutable data = Unchecked.defaultof<InputData>
+    data.keyboard <- keyboard
+    input.data <- data
+
+    if SendInput(1u, [| input |], Marshal.SizeOf<NativeInput>()) = 1u then
+        Ok()
+    else
+        Error(last_error "SendInput(shift)")

@@ -9,7 +9,9 @@ open RhinosCanFly
 type RawInputReceiver(config: FlyConfig, input: InputAccumulator.State, inputAvailable: Action) as self =
     inherit NativeWindow()
 
-    let bufferCapacity = 128
+    let bufferCapacity =
+        Marshal.SizeOf<RawInputNative.Header>() + Marshal.SizeOf<RawInputNative.Mouse>()
+
     let buffer = Marshal.AllocHGlobal bufferCapacity
     let mutable handleCreated = false
     let mutable bufferFreed = false

@@ -11,6 +11,9 @@ let wait_for_input () = Win32.wait_for_input Win32.INFINITE
 
 let foreground_window () = Win32.GetForegroundWindow()
 
+let right_mouse_button_down () =
+    Win32.GetAsyncKeyState Win32.VK_RBUTTON < 0s
+
 let root_window (window: nativeint) =
     let ancestor = Win32.GetAncestor(window, Win32.GA_ROOT)
 
@@ -24,6 +27,10 @@ let get_cursor_position () = Win32.get_cursor_position ()
 let set_cursor_position (point: Point) = Win32.set_cursor_position point
 
 let clear_mouse_hover (window: nativeint) = Win32.clear_mouse_hover window
+
+let update_window (window: nativeint) = Win32.update_window window
+
+let redraw_window (window: nativeint) = Win32.redraw_window window
 
 let clip_cursor (rectangle: Rectangle) = Win32.clip_cursor rectangle
 
@@ -40,9 +47,8 @@ type InputWake = RawInputWake.State
 
 let create_raw_input_wake () = RawInputWake.create ()
 
-let reset_raw_input_wake (wake: InputWake) = RawInputWake.reset wake
-
-let raw_input_wake_action (wake: InputWake) = RawInputWake.action wake
+let raw_input_wake_action (wake: InputWake) =
+    Action(fun () -> RawInputWake.signal wake)
 
 let open_raw_input (config: FlyConfig) (input: InputAccumulator.State) (inputAvailable: Action) =
     RawInputThread.start config input inputAvailable
@@ -57,6 +63,15 @@ let apply_mouse_button_overrides (config: FlyConfigFile) =
         MouseButtonOverrides.apply config
     else
         Ok()
+
+let mouse_button_right_click_enabled () =
+    mouseButtonOverridesInitialized && MouseButtonOverrides.right_click_enabled ()
+
+let handle_view_manipulation_right_click (window: nativeint) =
+    if mouseButtonOverridesInitialized then
+        MouseButtonOverrides.handle_right_click window
+    else
+        Ok false
 
 let suspend_mouse_button_overrides () =
     if mouseButtonOverridesInitialized then

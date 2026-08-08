@@ -11,22 +11,21 @@ let apply_mouse_look (input: InputAccumulator.State) (state: FlyState) =
         state.camera <- Movement.look state.config dx dy state.camera
         true
 
-let camera_direction (camera: CameraState) =
-    Movement.direction_from_angles camera.yaw camera.pitch
+let redraw (mode: ViewportRedrawMode) (view: RhinoView) = FlightRedraw.redraw mode view
 
-let set_direction (viewport: RhinoViewport) (camera: CameraState) =
-    viewport.SetCameraDirection(camera_direction camera, true)
-
-let redraw (view: RhinoView) = view.Redraw()
-
-let apply (state: FlyState) (mouseChanged: bool) (movementChanged: bool) =
-    if movementChanged then
+let apply (state: FlyState) (change: CameraChange) =
+    match change with
+    | PositionChanged -> state.viewport.SetCameraLocation(state.camera.position, true)
+    | DirectionChanged ->
+        let direction = Movement.direction_from_angles state.camera.yaw state.camera.pitch
+        state.viewport.SetCameraDirection(direction, true)
+    | PositionAndDirectionChanged ->
         state.viewport.SetCameraLocation(state.camera.position, true)
 
-    if mouseChanged then
-        set_direction state.viewport state.camera
+        let direction = Movement.direction_from_angles state.camera.yaw state.camera.pitch
+        state.viewport.SetCameraDirection(direction, true)
 
-    redraw state.view
+    redraw state.config.viewport_redraw_mode state.view
 
 let apply_entry_lens (state: FlyState) =
     let lens = state.config.lens_length_mm_in_mode

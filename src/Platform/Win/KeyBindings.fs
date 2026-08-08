@@ -173,5 +173,8 @@ let parse (source: string) =
         | None -> Ok { virtual_keys = List.ofSeq keys }
 
 let is_down (binding: KeyBinding) =
-    binding.virtual_keys
-    |> List.forall (fun (virtualKey: int) -> Win32.GetAsyncKeyState virtualKey < 0s)
+    match binding.virtual_keys with
+    | [] -> false
+    | virtualKeys ->
+        virtualKeys
+        |> List.forall (fun (virtualKey: int) -> Win32.GetAsyncKeyState virtualKey < 0s)

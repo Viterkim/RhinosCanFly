@@ -45,6 +45,10 @@ function Get-RhinoBuildProperties {
 function Convert-VersionList {
     param([string] $Value)
 
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return @()
+    }
+
     return @(
         $Value.Split(';', [StringSplitOptions]::RemoveEmptyEntries) |
             ForEach-Object { [int] $_.Trim() }
@@ -122,6 +126,12 @@ function Get-RunningRhinoProcess {
 
 $requestedVersion = $RhinoVersion
 
+$matrixProperties = Get-RhinoBuildProperties -Major 0
+$SupportedRhinoVersions = Convert-VersionList $matrixProperties.RhinoSupportedVersions
+$ExperimentalRhinoVersions = Convert-VersionList $matrixProperties.RhinoExperimentalVersions
+$BuildRhinoVersions = Convert-VersionList $matrixProperties.RhinoBuildVersions
+$ReleaseRhinoVersions = Convert-VersionList $matrixProperties.RhinoReleaseVersions
+
 if ($requestedVersion -eq 0 -and -not [string]::IsNullOrWhiteSpace($env:RCF_RHINO_VERSION)) {
     $environmentVersion = 0
 
@@ -132,11 +142,20 @@ if ($requestedVersion -eq 0 -and -not [string]::IsNullOrWhiteSpace($env:RCF_RHIN
     $requestedVersion = $environmentVersion
 }
 
+if ($requestedVersion -eq 0) {
+    foreach ($major in @($BuildRhinoVersions | Sort-Object -Descending)) {
+        if ($null -ne (Find-RhinoInstallation -Major $major)) {
+            $requestedVersion = $major
+            break
+        }
+    }
+}
+
+if ($requestedVersion -eq 0) {
+    $requestedVersion = [int] $matrixProperties.RhinoMajorVersion
+}
+
 $properties = Get-RhinoBuildProperties -Major $requestedVersion
-$SupportedRhinoVersions = Convert-VersionList $properties.RhinoSupportedVersions
-$ExperimentalRhinoVersions = Convert-VersionList $properties.RhinoExperimentalVersions
-$BuildRhinoVersions = Convert-VersionList $properties.RhinoBuildVersions
-$ReleaseRhinoVersions = Convert-VersionList $properties.RhinoReleaseVersions
 $resolvedVersion = [int] $properties.RhinoMajorVersion
 
 if ($resolvedVersion -notin $BuildRhinoVersions) {

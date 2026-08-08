@@ -7,11 +7,21 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$pluginId = "8E6E7D56-5434-4EF6-884F-6C5130291935"
 $pluginName = "RhinosCanFly"
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $buildSetup = Join-Path $PSScriptRoot "build-setup.ps1"
 $buildScript = Join-Path $repoRoot "build.ps1"
+$assemblyInfo = Join-Path $repoRoot "src\AssemblyInfo.fs"
+$pluginIdMatches = @(
+    Select-String -Path $assemblyInfo -Pattern 'assembly:\s*Guid\("([0-9A-Fa-f-]+)"\)' -AllMatches |
+        ForEach-Object { $_.Matches }
+)
+
+if ($pluginIdMatches.Count -ne 1) {
+    throw "Expected one plug-in GUID in '$assemblyInfo', found $($pluginIdMatches.Count)."
+}
+
+$pluginId = $pluginIdMatches[0].Groups[1].Value
 
 $setupParameters = @{ Quiet = $true }
 

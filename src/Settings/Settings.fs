@@ -4,9 +4,9 @@ open System
 open Rhino
 
 let show_raw (control: SettingsControl) =
-    match Config.read_raw () with
+    match ConfigStorage.read_raw () with
     | Ok(path, content) -> control.ShowRaw(path, content)
-    | Error error -> control.ShowRaw(Config.path (), $"Could not read config: {error}")
+    | Error error -> control.ShowRaw(ConfigStorage.path (), $"Could not read config: {error}")
 
 let current_lens () =
     let document = RhinoDoc.ActiveDoc
@@ -27,7 +27,7 @@ let current_speed (config: FlyConfigFile) =
         config.base_speed
 
 let load (control: SettingsControl) =
-    match Config.load () with
+    match RuntimeSettings.current () with
     | Error error -> control.ShowError $"Could not load configuration: {error}"
     | Ok result ->
         control.LoadConfig result.config_file
@@ -51,9 +51,7 @@ let save (control: SettingsControl) =
         RhinoApp.WriteLine $"RhinosCanFly settings were not saved: {error}"
         false
     | Ok config ->
-        let speed = current_speed config
-
-        match RuntimeSettings.save_and_apply RhinoDoc.ActiveDoc config speed with
+        match RuntimeSettings.save_and_apply config with
         | Ok _ ->
             control.ShowRuntimeState(current_speed config, current_lens ())
 
