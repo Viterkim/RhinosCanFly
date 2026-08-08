@@ -30,7 +30,33 @@ let look (config: FlyConfig) (mouseDx: int64) (mouseDy: int64) (camera: CameraSt
 
     { camera with yaw = yaw; pitch = pitch }
 
-let step (config: FlyConfig) (input: InputSnapshot) (dt: float) (camera: CameraState) =
+let orbit (pivotTarget: Point3d) (distance: float) (camera: CameraState) =
+    let offset = camera.position - pivotTarget
+    let radius = Math.Sqrt(offset.X * offset.X + offset.Y * offset.Y)
+
+    if radius <= RhinoMath.ZeroTolerance || distance = 0. then
+        camera
+    else
+        let angle = distance / radius
+        let cosine = Math.Cos angle
+        let sine = Math.Sin angle
+
+        let rotatedOffset =
+            Vector3d(offset.X * cosine - offset.Y * sine, offset.X * sine + offset.Y * cosine, offset.Z)
+
+        let position = pivotTarget + rotatedOffset
+        let direction = direction_from_angles camera.yaw camera.pitch
+
+        let rotatedDirection =
+            Vector3d(direction.X * cosine - direction.Y * sine, direction.X * sine + direction.Y * cosine, direction.Z)
+
+        let yaw, pitch = angles_from_direction rotatedDirection
+
+        { position = position
+          yaw = yaw
+          pitch = pitch }
+
+let step (config: FlyConfig) (input: InputSnapshot) (pivotTarget: Point3d) (dt: float) (camera: CameraState) =
     let yaw = camera.yaw
     let pitch = camera.pitch
 
@@ -62,6 +88,10 @@ let step (config: FlyConfig) (input: InputSnapshot) (dt: float) (camera: CameraS
         + right * right_amount
         + Vector3d.ZAxis * vertical_amount * config.vertical_speed_multiplier
 
-    { position = camera.position + movement * input.move_speed * dt
-      yaw = yaw
-      pitch = pitch }
+    let translated =
+        { position = camera.position + movement * input.move_speed * dt
+          yaw = yaw
+          pitch = pitch }
+
+    let pivotAmount = amount input.pivot_right input.pivot_left
+    orbit pivotTarget (pivotAmount * input.move_speed * config.pivot_speed_multiplier * dt) translated

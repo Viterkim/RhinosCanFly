@@ -12,10 +12,16 @@ let WM_MOUSELEAVE = 0x02A3
 let INPUT_MOUSE = 0u
 
 [<Literal>]
+let INPUT_KEYBOARD = 1u
+
+[<Literal>]
 let MOUSEEVENTF_MIDDLEDOWN = 0x00000020u
 
 [<Literal>]
 let MOUSEEVENTF_MIDDLEUP = 0x00000040u
+
+[<Literal>]
+let KEYEVENTF_KEYUP = 0x0002u
 
 [<Literal>]
 let WHEEL_DELTA = 120
@@ -103,6 +109,19 @@ type NativeInput =
     val mutable input_type: uint32
     val mutable mouse: MouseInput
 
+[<Struct; StructLayout(LayoutKind.Sequential)>]
+type KeyboardInput =
+    val mutable virtual_key: uint16
+    val mutable scan_code: uint16
+    val mutable flags: uint32
+    val mutable time: uint32
+    val mutable extra_info: unativeint
+
+[<Struct; StructLayout(LayoutKind.Sequential)>]
+type NativeKeyboardInput =
+    val mutable input_type: uint32
+    val mutable keyboard: KeyboardInput
+
 [<DllImport("user32.dll")>]
 extern int16 GetAsyncKeyState(int virtual_key)
 
@@ -135,6 +154,9 @@ extern nativeint SendMessage(nativeint window, int message, nativeint wparam, na
 
 [<DllImport("user32.dll", SetLastError = true)>]
 extern uint32 SendInput(uint32 input_count, NativeInput[] inputs, int input_size)
+
+[<DllImport("user32.dll", EntryPoint = "SendInput", SetLastError = true)>]
+extern uint32 SendKeyboardInput(uint32 input_count, NativeKeyboardInput[] inputs, int input_size)
 
 [<DllImport("user32.dll", SetLastError = true)>]
 extern bool InvalidateRect(nativeint window, nativeint rectangle, bool erase)
@@ -231,3 +253,17 @@ let send_middle_mouse (down: bool) =
         Ok()
     else
         Error(last_error "SendInput(middle mouse)")
+
+let send_shift_key (down: bool) =
+    let mutable keyboard = Unchecked.defaultof<KeyboardInput>
+    keyboard.virtual_key <- uint16 VK_SHIFT
+    keyboard.flags <- if down then 0u else KEYEVENTF_KEYUP
+
+    let mutable input = Unchecked.defaultof<NativeKeyboardInput>
+    input.input_type <- INPUT_KEYBOARD
+    input.keyboard <- keyboard
+
+    if SendKeyboardInput(1u, [| input |], Marshal.SizeOf<NativeKeyboardInput>()) = 1u then
+        Ok()
+    else
+        Error(last_error "SendInput(shift)")

@@ -49,6 +49,8 @@ type SettingsControl() as self =
     let right = text_box ()
     let up = text_box ()
     let down = text_box ()
+    let pivotLeft = text_box ()
+    let pivotRight = text_box ()
     let boost = text_box ()
     let slow = text_box ()
     let speedIncrease = text_box ()
@@ -61,6 +63,7 @@ type SettingsControl() as self =
     let boostMultiplier = text_box ()
     let slowMultiplier = text_box ()
     let verticalSpeedMultiplier = text_box ()
+    let pivotSpeedMultiplier = text_box ()
     let mouseSensitivity = text_box ()
     let lensLength = text_box ()
 
@@ -75,6 +78,10 @@ type SettingsControl() as self =
     let invertMouseY = new CheckBox(Text = "Invert mouse Y")
     let normalizeDiagonal = new CheckBox(Text = "Normalize diagonal movement")
     let hideGumball = new CheckBox(Text = "Hide gumball while flying")
+
+    let pivotBindingsIgnoreGumball =
+        new CheckBox(Text = "Pivot binds don't rotate around gumball")
+
     let saveSpeedToDocument = new CheckBox(Text = "Save current speed to file")
     let loadSpeedFromDocument = new CheckBox(Text = "Load speed from file")
     let wheelChangesSpeed = new CheckBox(Text = "Mouse wheel up/down controls speed")
@@ -93,7 +100,7 @@ type SettingsControl() as self =
     let slowHold = new CheckBox(Text = "Slow Mode: hold instead of toggle")
 
     let mouseButtonOverridesEnabled =
-        new CheckBox(Text = "Enable mouse button overrides (experimental)")
+        new CheckBox(Text = "Enable mouse button overrides")
 
     let mouse4AsMiddle = new CheckBox(Text = "Mouse 4 drag enters pivot")
     let mouse5AsMiddle = new CheckBox(Text = "Mouse 5 drag enters pivot")
@@ -102,6 +109,8 @@ type SettingsControl() as self =
         new CheckBox(Text = "Shift + right click enters pivot")
 
     let altRightClickTogglesView = new CheckBox(Text = "Alt + right click enters pivot")
+    let shiftRightClickPans = new CheckBox(Text = "Shift + right click pans")
+    let altRightClickPans = new CheckBox(Text = "Alt + right click pans")
 
     let statusLine = new Label(Wrap = WrapMode.Word)
     let runtimeLine = new Label(Wrap = WrapMode.Word)
@@ -166,6 +175,8 @@ type SettingsControl() as self =
         mouse5AsMiddle.Enabled <- enabled
         shiftRightClickTogglesView.Enabled <- enabled
         altRightClickTogglesView.Enabled <- enabled
+        shiftRightClickPans.Enabled <- enabled
+        altRightClickPans.Enabled <- enabled
 
     let refresh_right_click_controls () =
         hijackRightClickDuringCommands.Enabled <- is_checked hijackRightClick
@@ -289,7 +300,8 @@ type SettingsControl() as self =
               commandsDoNotRepeat
               saveSpeedToDocument
               loadSpeedFromDocument
-              hideGumball ]
+              hideGumball
+              pivotBindingsIgnoreGumball ]
         |> full_width_row
         |> mainTable.Rows.Add
 
@@ -319,6 +331,8 @@ type SettingsControl() as self =
               grid_item "Move right" (binding_editor right defaults.right)
               grid_item "Move up" (binding_editor up defaults.up)
               grid_item "Move down" (binding_editor down defaults.down)
+              grid_item "Pivot left" (binding_editor pivotLeft defaults.pivot_left)
+              grid_item "Pivot right" (binding_editor pivotRight defaults.pivot_right)
               grid_item "Boost Mode" (binding_editor boost defaults.boost_toggle)
               grid_item "Slow Mode" (binding_editor slow defaults.slow)
               grid_item "Increase speed" (binding_editor speedIncrease defaults.speed_increase)
@@ -337,6 +351,7 @@ type SettingsControl() as self =
               grid_item "Boost multiplier" boostMultiplier
               grid_item "Slow multiplier" slowMultiplier
               grid_item "Move up/down multiplier" verticalSpeedMultiplier
+              grid_item "Pivot speed multiplier" pivotSpeedMultiplier
               grid_item "Mouse sensitivity" mouseSensitivity
               grid_item "Force lens length" lensLength ]
         |> full_width_row
@@ -346,22 +361,25 @@ type SettingsControl() as self =
         mainTable.Rows.Add(full_width_row (grid_item "Mode" viewportRedrawMode))
         mainTable.Rows.Add(full_width_row (note "Try an alternative mode only if fly mode is not smooth."))
 
-        mainTable.Rows.Add(full_width_row (heading "Override mouse button behavior"))
+        mainTable.Rows.Add(
+            full_width_row (
+                heading "Override mouse behavior (Uses middle mouse button pan/rotate settings from Rhino itself)"
+            )
+        )
 
         three_column_grid
             [ mouseButtonOverridesEnabled
               mouse4AsMiddle
               mouse5AsMiddle
               shiftRightClickTogglesView
-              altRightClickTogglesView ]
+              shiftRightClickPans
+              altRightClickTogglesView
+              altRightClickPans ]
         |> full_width_row
         |> mainTable.Rows.Add
 
         mainTable.Rows.Add(
-            full_width_row (
-                note
-                    "Uses Rhino's middle-button Pan/Rotate/Swap settings. Latched view manipulation exits on the next right click or when Rhino loses focus."
-            )
+            full_width_row (note "Enters pivot: release the buttons, move the mouse, then right click to stop.")
         )
 
         mainTable.Rows.Add(full_width_row (heading "Status"))
@@ -407,7 +425,7 @@ type SettingsControl() as self =
         resetAll.Click.Add(fun (_: EventArgs) ->
             self.LoadConfig defaults
 
-            match RuntimeSettings.save_and_apply RhinoDoc.ActiveDoc defaults defaults.base_speed with
+            match RuntimeSettings.save_apply_and_set_speed RhinoDoc.ActiveDoc defaults defaults.base_speed with
             | Ok _ ->
                 speedText <- format defaults.base_speed
                 refresh_status ()
@@ -461,6 +479,8 @@ type SettingsControl() as self =
         right.Text <- config.right
         up.Text <- config.up
         down.Text <- config.down
+        pivotLeft.Text <- config.pivot_left
+        pivotRight.Text <- config.pivot_right
         boost.Text <- config.boost_toggle
         slow.Text <- config.slow
         speedIncrease.Text <- config.speed_increase
@@ -473,6 +493,7 @@ type SettingsControl() as self =
         boostMultiplier.Text <- format config.boost_multiplier
         slowMultiplier.Text <- format config.slow_multiplier
         verticalSpeedMultiplier.Text <- format config.vertical_speed_multiplier
+        pivotSpeedMultiplier.Text <- format config.pivot_speed_multiplier
         mouseSensitivity.Text <- format config.mouse_sensitivity
         lensLength.Text <- format config.lens_length_mm_in_mode
         viewportRedrawMode.SelectedIndex <- redraw_mode_index config.viewport_redraw_mode
@@ -480,6 +501,7 @@ type SettingsControl() as self =
         set_checked invertMouseY config.invert_mouse_y
         set_checked normalizeDiagonal config.normalize_diagonal_movement
         set_checked hideGumball config.hide_gumball_while_flying
+        set_checked pivotBindingsIgnoreGumball config.pivot_bindings_ignore_gumball
         set_checked saveSpeedToDocument config.save_speed_to_document
         set_checked loadSpeedFromDocument config.load_speed_from_document
         set_checked wheelChangesSpeed config.wheel_changes_speed
@@ -495,6 +517,8 @@ type SettingsControl() as self =
         set_checked mouse5AsMiddle config.mouse5_acts_as_middle
         set_checked shiftRightClickTogglesView config.shift_right_click_toggles_view
         set_checked altRightClickTogglesView config.alt_right_click_toggles_view
+        set_checked shiftRightClickPans config.shift_right_click_pans
+        set_checked altRightClickPans config.alt_right_click_pans
         refresh_mouse_override_controls ()
         set_checked boostHold config.boost_hold_instead_of_toggle
         set_checked slowHold config.slow_hold_instead_of_toggle
@@ -508,6 +532,7 @@ type SettingsControl() as self =
             parse_number "Boost multiplier" boostMultiplier,
             parse_number "Slow multiplier" slowMultiplier,
             parse_number "Move up/down multiplier" verticalSpeedMultiplier,
+            parse_number "Pivot speed multiplier" pivotSpeedMultiplier,
             parse_number "Mouse sensitivity" mouseSensitivity,
             parse_number "Lens length" lensLength
         with
@@ -518,6 +543,7 @@ type SettingsControl() as self =
           Ok boostValue,
           Ok slowValue,
           Ok verticalValue,
+          Ok pivotValue,
           Ok sensitivityValue,
           Ok lensValue ->
             Ok
@@ -528,6 +554,8 @@ type SettingsControl() as self =
                   right = right.Text
                   up = up.Text
                   down = down.Text
+                  pivot_left = pivotLeft.Text
+                  pivot_right = pivotRight.Text
                   boost_toggle = boost.Text
                   slow = slow.Text
                   speed_increase = speedIncrease.Text
@@ -539,11 +567,13 @@ type SettingsControl() as self =
                   speed_step_multiplier = stepValue
                   boost_multiplier = boostValue
                   slow_multiplier = slowValue
+                  pivot_speed_multiplier = pivotValue
                   mouse_sensitivity = sensitivityValue
                   invert_mouse_x = is_checked invertMouseX
                   invert_mouse_y = is_checked invertMouseY
                   normalize_diagonal_movement = is_checked normalizeDiagonal
                   hide_gumball_while_flying = is_checked hideGumball
+                  pivot_bindings_ignore_gumball = is_checked pivotBindingsIgnoreGumball
                   save_speed_to_document = is_checked saveSpeedToDocument
                   load_speed_from_document = is_checked loadSpeedFromDocument
                   wheel_changes_speed = is_checked wheelChangesSpeed
@@ -558,13 +588,15 @@ type SettingsControl() as self =
                   mouse5_acts_as_middle = is_checked mouse5AsMiddle
                   shift_right_click_toggles_view = is_checked shiftRightClickTogglesView
                   alt_right_click_toggles_view = is_checked altRightClickTogglesView
+                  shift_right_click_pans = is_checked shiftRightClickPans
+                  alt_right_click_pans = is_checked altRightClickPans
                   boost_hold_instead_of_toggle = is_checked boostHold
                   slow_hold_instead_of_toggle = is_checked slowHold
                   vertical_speed_multiplier = verticalValue
                   lens_length_mm_in_mode = lensValue
                   viewport_redraw_mode = selected_redraw_mode () }
-        | a, b, c, d, e, f, g, h, i ->
-            [ a; b; c; d; e; f; g; h; i ]
+        | a, b, c, d, e, f, g, h, i, j ->
+            [ a; b; c; d; e; f; g; h; i; j ]
             |> List.choose (function
                 | Error error -> Some error
                 | Ok _ -> None)

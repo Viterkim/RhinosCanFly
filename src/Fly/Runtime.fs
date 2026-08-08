@@ -36,6 +36,18 @@ let attempt_cleanup (errors: ResizeArray<string>) (name: string) (action: unit -
 let make_state (view: RhinoView) (config: FlyConfig) =
     let viewport = view.ActiveViewport
 
+    let gumballPivotTarget =
+        let mutable gumballPlane = Plane.Unset
+
+        if
+            not config.pivot_bindings_ignore_gumball
+            && RhinoSettings.rotate_view_around_gumball ()
+            && view.Document.GetGumballPlane(&gumballPlane)
+        then
+            Some gumballPlane.Origin
+        else
+            None
+
     let original_cursor =
         match PlatformInput.get_cursor_position () with
         | Ok point -> point
@@ -51,6 +63,10 @@ let make_state (view: RhinoView) (config: FlyConfig) =
       root_window = root_window
       original_cursor = original_cursor
       original_lens_length = viewport.Camera35mmLensLength
+      gumball_pivot_target = gumballPivotTarget
+      pivot_target = viewport.CameraTarget
+      pivot_direction = 0
+      pivot_input_armed = false
       running = true
       camera =
         { position = viewport.CameraLocation
@@ -143,25 +159,50 @@ let run (view: RhinoView) (config: FlyConfig) =
 
                             let mouseChanged = FlightCamera.apply_mouse_look rawInput state
                             let mutable movementChanged = false
+                            let mutable directionChanged = mouseChanged
 
                             if state.running then
                                 match FlightControls.poll rawInput state with
                                 | None -> ()
-                                | Some movement ->
+                                | Some input ->
+                                    let requestedPivotDirection = FlightControls.pivot_direction input
+
+                                    let movement =
+                                        if state.pivot_input_armed then
+                                            input
+                                        elif requestedPivotDirection = 0 then
+                                            state.pivot_input_armed <- true
+                                            input
+                                        else
+                                            FlightControls.without_pivot input
+
                                     let now = clock.Elapsed.TotalSeconds
                                     let currentlyMoving = FlightControls.movement_active movement
+                                    let pivotDirection = FlightControls.pivot_direction movement
+
+                                    if pivotDirection <> 0 && pivotDirection <> state.pivot_direction then
+                                        state.pivot_target <-
+                                            state.gumball_pivot_target
+                                            |> Option.defaultValue state.viewport.CameraTarget
+
+                                    state.pivot_direction <- pivotDirection
 
                                     if movementActive && currentlyMoving then
                                         let dt = min (now - previousFrame) 0.05
 
-                                        state.camera <- Movement.step state.config movement dt state.camera
+                                        state.camera <-
+                                            Movement.step state.config movement state.pivot_target dt state.camera
+
                                         movementChanged <- true
+
+                                        if pivotDirection <> 0 then
+                                            directionChanged <- true
 
                                     previousFrame <- now
                                     movementActive <- currentlyMoving
 
-                            if mouseChanged || movementChanged then
-                                FlightCamera.apply state mouseChanged movementChanged
+                            if directionChanged || movementChanged then
+                                FlightCamera.apply state directionChanged movementChanged
 
                         Ok()
                     with error ->

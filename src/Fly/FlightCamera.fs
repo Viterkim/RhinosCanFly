@@ -19,11 +19,11 @@ let set_direction (viewport: RhinoViewport) (camera: CameraState) =
 
 let redraw (mode: ViewportRedrawMode) (view: RhinoView) = FlightRedraw.redraw mode view
 
-let apply (state: FlyState) (mouseChanged: bool) (movementChanged: bool) =
+let apply (state: FlyState) (directionChanged: bool) (movementChanged: bool) =
     if movementChanged then
         state.viewport.SetCameraLocation(state.camera.position, true)
 
-    if mouseChanged then
+    if directionChanged then
         set_direction state.viewport state.camera
 
     redraw state.config.viewport_redraw_mode state.view

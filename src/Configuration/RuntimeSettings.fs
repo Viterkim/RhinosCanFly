@@ -32,12 +32,22 @@ let apply_speed_and_settings (document: RhinoDoc) (config: FlyConfigFile) (reque
     | Ok _, Error settingsError -> Error $"Mouse overrides unavailable: {settingsError}"
     | Error speedError, Error settingsError -> Error $"{speedError}; Mouse overrides unavailable: {settingsError}"
 
-let save_and_apply (document: RhinoDoc) (config: FlyConfigFile) (requestedSpeed: float) =
+let save (config: FlyConfigFile) =
     match Config.save config with
     | Error error -> Error $"Could not save settings: {error}"
     | Ok loaded ->
         loadedConfig <- Some loaded
-        apply_speed_and_settings document loaded.config_file requestedSpeed
+        Ok loaded
+
+let save_and_apply (config: FlyConfigFile) =
+    match save config with
+    | Error error -> Error error
+    | Ok loaded -> apply loaded.config_file
+
+let save_apply_and_set_speed (document: RhinoDoc) (config: FlyConfigFile) (requestedSpeed: float) =
+    match save config with
+    | Error error -> Error error
+    | Ok loaded -> apply_speed_and_settings document loaded.config_file requestedSpeed
 
 let load_and_apply () =
     match Config.load () with

@@ -51,9 +51,7 @@ let save (control: SettingsControl) =
         RhinoApp.WriteLine $"RhinosCanFly settings were not saved: {error}"
         false
     | Ok config ->
-        let speed = current_speed config
-
-        match RuntimeSettings.save_and_apply RhinoDoc.ActiveDoc config speed with
+        match RuntimeSettings.save_and_apply config with
         | Ok _ ->
             control.ShowRuntimeState(current_speed config, current_lens ())
 

@@ -38,6 +38,7 @@
   <ItemGroup>
     <Compile Include="src/AssemblyInfo.fs" />
     <Compile Include="src/Core/Data.fs" />
+    <Compile Include="src/Core/RhinoSettings.fs" />
     <Compile Include="src/Core/Speed.fs" />
     <Compile Include="src/Core/MouseSensitivity.fs" />
     <Compile Include="src/Core/InputAccumulator.fs" />

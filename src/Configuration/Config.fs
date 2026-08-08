@@ -16,6 +16,8 @@ let defaultValues: FlyConfigFile =
       right = "D"
       up = "Q"
       down = "E"
+      pivot_left = "Z"
+      pivot_right = "X"
       boost_toggle = "LeftShift"
       slow = "LeftAlt"
       speed_increase = "Equals"
@@ -27,11 +29,13 @@ let defaultValues: FlyConfigFile =
       speed_step_multiplier = 1.2
       boost_multiplier = 3.
       slow_multiplier = 0.4
+      pivot_speed_multiplier = 2.
       mouse_sensitivity = 15.
       invert_mouse_x = false
       invert_mouse_y = false
       normalize_diagonal_movement = true
-      hide_gumball_while_flying = true
+      hide_gumball_while_flying = false
+      pivot_bindings_ignore_gumball = false
       save_speed_to_document = true
       load_speed_from_document = true
       wheel_changes_speed = true
@@ -42,10 +46,12 @@ let defaultValues: FlyConfigFile =
       hijack_right_click_during_commands = true
       commands_do_not_repeat = true
       mouse_button_overrides_enabled = false
-      mouse4_acts_as_middle = true
+      mouse4_acts_as_middle = false
       mouse5_acts_as_middle = false
       shift_right_click_toggles_view = false
       alt_right_click_toggles_view = false
+      shift_right_click_pans = false
+      alt_right_click_pans = false
       boost_hold_instead_of_toggle = false
       slow_hold_instead_of_toggle = false
       vertical_speed_multiplier = 0.8
@@ -63,6 +69,7 @@ let normalize_numbers (source: FlyConfigFile) =
         speed_step_multiplier = normalize_number source.speed_step_multiplier
         boost_multiplier = normalize_number source.boost_multiplier
         slow_multiplier = normalize_number source.slow_multiplier
+        pivot_speed_multiplier = normalize_number source.pivot_speed_multiplier
         mouse_sensitivity = normalize_number source.mouse_sensitivity
         vertical_speed_multiplier = normalize_number source.vertical_speed_multiplier
         lens_length_mm_in_mode = normalize_number source.lens_length_mm_in_mode }
@@ -145,6 +152,7 @@ let compile (source: FlyConfigFile) =
       "speed_step_multiplier", source.speed_step_multiplier
       "boost_multiplier", source.boost_multiplier
       "slow_multiplier", source.slow_multiplier
+      "pivot_speed_multiplier", source.pivot_speed_multiplier
       "mouse_sensitivity", source.mouse_sensitivity
       "vertical_speed_multiplier", source.vertical_speed_multiplier ]
     |> List.iter (fun (name: string, value: float) -> positive name value)
@@ -175,6 +183,8 @@ let compile (source: FlyConfigFile) =
           right = required "right" source.right
           up = required "up" source.up
           down = required "down" source.down
+          pivot_left = required "pivot_left" source.pivot_left
+          pivot_right = required "pivot_right" source.pivot_right
           boost_toggle = required "boost_toggle" source.boost_toggle
           slow = required "slow" source.slow
           speed_increase = optional "speed_increase" source.speed_increase
@@ -186,6 +196,7 @@ let compile (source: FlyConfigFile) =
           speed_step_multiplier = source.speed_step_multiplier
           boost_multiplier = source.boost_multiplier
           slow_multiplier = source.slow_multiplier
+          pivot_speed_multiplier = source.pivot_speed_multiplier
           mouse_sensitivity =
             source.mouse_sensitivity
             |> ConfigMouseSensitivity
@@ -194,6 +205,7 @@ let compile (source: FlyConfigFile) =
           invert_mouse_y = source.invert_mouse_y
           normalize_diagonal_movement = source.normalize_diagonal_movement
           hide_gumball_while_flying = source.hide_gumball_while_flying
+          pivot_bindings_ignore_gumball = source.pivot_bindings_ignore_gumball
           save_speed_to_document = source.save_speed_to_document
           load_speed_from_document = source.load_speed_from_document
           wheel_changes_speed = source.wheel_changes_speed
