@@ -74,6 +74,9 @@ type SettingsControl() as self =
     let exitOnMouseMiddle = new CheckBox(Text = "Middle mouse button exits fly mode")
     let hijackRightClick = new CheckBox(Text = "Hijack right click")
 
+    let hijackRightClickDuringCommands =
+        new CheckBox(Text = "Hijack right click during commands")
+
     let commandsDoNotRepeat =
         new CheckBox(Text = "Don't count fly command as repeatable")
 
@@ -133,6 +136,9 @@ type SettingsControl() as self =
         let enabled = is_checked mouseButtonOverridesEnabled
         mouse4AsMiddle.Enabled <- enabled
         mouse5AsMiddle.Enabled <- enabled
+
+    let refresh_right_click_controls () =
+        hijackRightClickDuringCommands.Enabled <- is_checked hijackRightClick
 
     let parse_number (name: string) (field: TextBox) =
         let mutable value = 0.
@@ -217,16 +223,17 @@ type SettingsControl() as self =
             [ exitOnMouseLeft
               exitOnMouseRight
               exitOnMouseMiddle
-              hijackRightClick
               commandsDoNotRepeat
+              hijackRightClick
+              hijackRightClickDuringCommands
               normalizeDiagonal
+              wheelChangesSpeed
               boostHold
               slowHold
               invertMouseX
               invertMouseY
               saveSpeedToDocument
-              loadSpeedFromDocument
-              wheelChangesSpeed ]
+              loadSpeedFromDocument ]
         |> full_width_row
         |> mainTable.Rows.Add
 
@@ -295,8 +302,10 @@ type SettingsControl() as self =
         self.Content <- host
 
         mouseButtonOverridesEnabled.CheckedChanged.Add(fun (_: EventArgs) -> refresh_mouse_override_controls ())
+        hijackRightClick.CheckedChanged.Add(fun (_: EventArgs) -> refresh_right_click_controls ())
 
         refresh_mouse_override_controls ()
+        refresh_right_click_controls ()
 
         rawJsonToggle.Click.Add(fun (_: EventArgs) ->
             rawJsonPanel.Visible <- not rawJsonPanel.Visible
@@ -392,6 +401,8 @@ type SettingsControl() as self =
         set_checked exitOnMouseRight config.exit_on_mouse_right
         set_checked exitOnMouseMiddle config.exit_on_mouse_middle
         set_checked hijackRightClick config.hijack_right_click_to_enter
+        set_checked hijackRightClickDuringCommands config.hijack_right_click_during_commands
+        refresh_right_click_controls ()
         set_checked commandsDoNotRepeat config.commands_do_not_repeat
         set_checked mouseButtonOverridesEnabled config.mouse_button_overrides_enabled
         set_checked mouse4AsMiddle config.mouse4_acts_as_middle
@@ -451,6 +462,7 @@ type SettingsControl() as self =
                   exit_on_mouse_right = is_checked exitOnMouseRight
                   exit_on_mouse_middle = is_checked exitOnMouseMiddle
                   hijack_right_click_to_enter = is_checked hijackRightClick
+                  hijack_right_click_during_commands = is_checked hijackRightClickDuringCommands
                   commands_do_not_repeat = is_checked commandsDoNotRepeat
                   mouse_button_overrides_enabled = is_checked mouseButtonOverridesEnabled
                   mouse4_acts_as_middle = is_checked mouse4AsMiddle

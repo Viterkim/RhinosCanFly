@@ -38,6 +38,7 @@ let defaultValues: FlyConfigFile =
       exit_on_mouse_right = true
       exit_on_mouse_middle = false
       hijack_right_click_to_enter = true
+      hijack_right_click_during_commands = true
       commands_do_not_repeat = true
       mouse_button_overrides_enabled = false
       mouse4_acts_as_middle = true

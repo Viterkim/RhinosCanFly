@@ -34,6 +34,7 @@ type FlyConfigFile =
       exit_on_mouse_right: bool
       exit_on_mouse_middle: bool
       hijack_right_click_to_enter: bool
+      hijack_right_click_during_commands: bool
       commands_do_not_repeat: bool
       mouse_button_overrides_enabled: bool
       mouse4_acts_as_middle: bool

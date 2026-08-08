@@ -5,6 +5,7 @@ open Rhino
 open Rhino.Commands
 
 [<Guid("D25AFA9B-C34C-49AC-8592-FB6A4B4061FE")>]
+[<CommandStyle(Style.Transparent)>]
 type RhinosCanFlyCommand() =
     inherit Command()
     override _.EnglishName = "RhinosCanFly"

@@ -3,7 +3,7 @@ module RhinosCanFly.RuntimeSettings
 open Rhino
 
 let apply (config: FlyConfigFile) =
-    RightClickEntry.set_enabled config.hijack_right_click_to_enter
+    RightClickEntry.configure config.hijack_right_click_to_enter config.hijack_right_click_during_commands
     RepeatBehavior.apply config.commands_do_not_repeat
     PlatformInput.apply_mouse_button_overrides config
 
