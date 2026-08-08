@@ -63,6 +63,14 @@ type SettingsControl() as self =
     let verticalSpeedMultiplier = text_box ()
     let mouseSensitivity = text_box ()
     let lensLength = text_box ()
+
+    let viewportRedrawMode =
+        let control = new DropDown(Height = 24)
+        control.Items.Add "Rhino redraw (default)"
+        control.Items.Add "Rhino redraw with immediate paint"
+        control.Items.Add "Native window redraw (experimental)"
+        control
+
     let invertMouseX = new CheckBox(Text = "Invert mouse X")
     let invertMouseY = new CheckBox(Text = "Invert mouse Y")
     let normalizeDiagonal = new CheckBox(Text = "Normalize diagonal movement")
@@ -112,6 +120,19 @@ type SettingsControl() as self =
     let is_checked (control: CheckBox) = control.Checked.GetValueOrDefault()
 
     let set_checked (control: CheckBox) (value: bool) = control.Checked <- Nullable value
+
+    let redraw_mode_index (value: string) =
+        match Config.parse_viewport_redraw_mode value with
+        | Ok ViewportRedrawMode.Rhino -> 0
+        | Ok ViewportRedrawMode.RhinoImmediate -> 1
+        | Ok ViewportRedrawMode.NativeWindow -> 2
+        | Error _ -> 0
+
+    let selected_redraw_mode () =
+        match viewportRedrawMode.SelectedIndex with
+        | 1 -> Config.viewport_redraw_mode_value ViewportRedrawMode.RhinoImmediate
+        | 2 -> Config.viewport_redraw_mode_value ViewportRedrawMode.NativeWindow
+        | _ -> Config.viewport_redraw_mode_value ViewportRedrawMode.Rhino
 
     let make_row (cells: TableCell list) =
         let row = new TableRow()
@@ -174,6 +195,39 @@ type SettingsControl() as self =
         add_rows controls
         grid
 
+    let three_column_grid (controls: Control list) =
+        let grid = new TableLayout(Spacing = Size(16, 4))
+
+        let rec add_rows (remaining: Control list) =
+            match remaining with
+            | first :: second :: third :: rest ->
+                grid.Rows.Add(
+                    make_row
+                        [ new TableCell(first, true)
+                          new TableCell(second, true)
+                          new TableCell(third, true) ]
+                )
+
+                add_rows rest
+            | [ first; second ] ->
+                grid.Rows.Add(
+                    make_row
+                        [ new TableCell(first, true)
+                          new TableCell(second, true)
+                          new TableCell(new Panel(), true) ]
+                )
+            | [ first ] ->
+                grid.Rows.Add(
+                    make_row
+                        [ new TableCell(first, true)
+                          new TableCell(new Panel(), true)
+                          new TableCell(new Panel(), true) ]
+                )
+            | [] -> ()
+
+        add_rows controls
+        grid
+
     let binding_editor (field: TextBox) (defaultValue: string) =
         BindingCapture.editor bindingCapture field defaultValue
 
@@ -217,23 +271,32 @@ type SettingsControl() as self =
 
     do
         mainTable.Rows.Add(full_width_row (title_row ()))
-        mainTable.Rows.Add(full_width_row (heading "Behavior"))
+        mainTable.Rows.Add(full_width_row (heading "General behavior"))
 
-        two_column_grid
-            [ exitOnMouseLeft
-              exitOnMouseRight
-              exitOnMouseMiddle
-              commandsDoNotRepeat
-              hijackRightClick
-              hijackRightClickDuringCommands
-              normalizeDiagonal
-              wheelChangesSpeed
+        three_column_grid
+            [ normalizeDiagonal
               boostHold
               slowHold
-              invertMouseX
-              invertMouseY
+              commandsDoNotRepeat
               saveSpeedToDocument
               loadSpeedFromDocument ]
+        |> full_width_row
+        |> mainTable.Rows.Add
+
+        mainTable.Rows.Add(full_width_row (heading "Right click behavior"))
+
+        three_column_grid [ hijackRightClick; hijackRightClickDuringCommands; exitOnMouseRight ]
+        |> full_width_row
+        |> mainTable.Rows.Add
+
+        mainTable.Rows.Add(full_width_row (heading "Mouse behavior"))
+
+        three_column_grid
+            [ invertMouseX
+              invertMouseY
+              wheelChangesSpeed
+              exitOnMouseLeft
+              exitOnMouseMiddle ]
         |> full_width_row
         |> mainTable.Rows.Add
 
@@ -269,10 +332,13 @@ type SettingsControl() as self =
         |> full_width_row
         |> mainTable.Rows.Add
 
-        mainTable.Rows.Add(full_width_row (heading "Override mouse button behavior"))
-        mainTable.Rows.Add(full_width_row mouseButtonOverridesEnabled)
+        mainTable.Rows.Add(full_width_row (heading "Viewport redraw"))
+        mainTable.Rows.Add(full_width_row (grid_item "Mode" viewportRedrawMode))
+        mainTable.Rows.Add(full_width_row (note "Try an alternative mode only if fly mode is not smooth."))
 
-        two_column_grid [ mouse4AsMiddle; mouse5AsMiddle ]
+        mainTable.Rows.Add(full_width_row (heading "Override mouse button behavior"))
+
+        three_column_grid [ mouseButtonOverridesEnabled; mouse4AsMiddle; mouse5AsMiddle ]
         |> full_width_row
         |> mainTable.Rows.Add
 
@@ -391,6 +457,7 @@ type SettingsControl() as self =
         verticalSpeedMultiplier.Text <- format config.vertical_speed_multiplier
         mouseSensitivity.Text <- format config.mouse_sensitivity
         lensLength.Text <- format config.lens_length_mm_in_mode
+        viewportRedrawMode.SelectedIndex <- redraw_mode_index config.viewport_redraw_mode
         set_checked invertMouseX config.invert_mouse_x
         set_checked invertMouseY config.invert_mouse_y
         set_checked normalizeDiagonal config.normalize_diagonal_movement
@@ -470,7 +537,8 @@ type SettingsControl() as self =
                   boost_hold_instead_of_toggle = is_checked boostHold
                   slow_hold_instead_of_toggle = is_checked slowHold
                   vertical_speed_multiplier = verticalValue
-                  lens_length_mm_in_mode = lensValue }
+                  lens_length_mm_in_mode = lensValue
+                  viewport_redraw_mode = selected_redraw_mode () }
         | a, b, c, d, e, f, g, h, i ->
             [ a; b; c; d; e; f; g; h; i ]
             |> List.choose (function

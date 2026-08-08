@@ -42,7 +42,8 @@ type FlyConfigFile =
       boost_hold_instead_of_toggle: bool
       slow_hold_instead_of_toggle: bool
       vertical_speed_multiplier: float
-      lens_length_mm_in_mode: float }
+      lens_length_mm_in_mode: float
+      viewport_redraw_mode: string }
 
 type KeyBinding = { virtual_keys: int list }
 
@@ -51,6 +52,11 @@ type ConfigMouseSensitivity = ConfigMouseSensitivity of float
 
 [<Struct>]
 type RuntimeMouseSensitivity = RuntimeMouseSensitivity of float
+
+type ViewportRedrawMode =
+    | Rhino
+    | RhinoImmediate
+    | NativeWindow
 
 type FlyConfig =
     { forward: KeyBinding
@@ -83,7 +89,8 @@ type FlyConfig =
       boost_hold_instead_of_toggle: bool
       slow_hold_instead_of_toggle: bool
       vertical_speed_multiplier: float
-      lens_length_mm_in_mode: float }
+      lens_length_mm_in_mode: float
+      viewport_redraw_mode: ViewportRedrawMode }
 
 type ConfigLoadResult =
     { config_file: FlyConfigFile

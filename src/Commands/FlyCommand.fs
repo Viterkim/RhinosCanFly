@@ -26,12 +26,3 @@ type RhinosCanFlySetSpeedCommand() =
     inherit Command()
     override _.EnglishName = "RhinosCanFlySetSpeed"
     override _.RunCommand(document: RhinoDoc, _mode: RunMode) = Commands.set_speed document
-
-[<Guid("0F6AC701-CC4B-48B1-AF33-2D739C0D0543")>]
-type RhinosCanFlyRedrawModeCommand() =
-    inherit Command()
-    override _.EnglishName = "RhinosCanFlyRedrawMode"
-
-    override _.RunCommand(_document: RhinoDoc, _mode: RunMode) =
-        RhinoApp.WriteLine $"RhinosCanFly redraw mode: {FlightRedraw.toggle ()}."
-        Result.Success

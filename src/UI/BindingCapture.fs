@@ -89,7 +89,8 @@ let is_editor_control (control: Control) =
     | :? TextBox
     | :? TextArea
     | :? Button
-    | :? CheckBox -> true
+    | :? CheckBox
+    | :? DropDown -> true
     | _ -> false
 
 let try_capture_mouse (state: State) (source: Control) (event: MouseEventArgs) =

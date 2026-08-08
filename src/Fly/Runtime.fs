@@ -121,7 +121,7 @@ let run (view: RhinoView) (config: FlyConfig) =
                         cursorHidden <- true
                         PlatformInput.clear_mouse_hover view.Handle
                         FlightCamera.apply_entry_lens state
-                        FlightCamera.redraw view
+                        FlightCamera.redraw state.config.viewport_redraw_mode view
                         let clock = Stopwatch.StartNew()
                         let mutable previousFrame = clock.Elapsed.TotalSeconds
                         let mutable movementActive = false
@@ -208,7 +208,9 @@ let run (view: RhinoView) (config: FlyConfig) =
                     | Ok _ -> ()
                     | Error error -> failwith error)
 
-                attempt_cleanup cleanupErrors "redraw" (fun () -> FlightCamera.redraw view)
+                attempt_cleanup cleanupErrors "redraw" (fun () ->
+                    FlightCamera.redraw state.config.viewport_redraw_mode view)
+
                 activeResult
             with error ->
                 Error(error_message error)

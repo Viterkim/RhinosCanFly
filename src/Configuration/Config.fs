@@ -25,8 +25,8 @@ let defaultValues: FlyConfigFile =
       minimum_speed = 1.
       maximum_speed = 100000.
       speed_step_multiplier = 1.2
-      boost_multiplier = 2.5
-      slow_multiplier = 0.3
+      boost_multiplier = 3.
+      slow_multiplier = 0.4
       mouse_sensitivity = 15.
       invert_mouse_x = false
       invert_mouse_y = false
@@ -45,8 +45,9 @@ let defaultValues: FlyConfigFile =
       mouse5_acts_as_middle = false
       boost_hold_instead_of_toggle = false
       slow_hold_instead_of_toggle = false
-      vertical_speed_multiplier = 0.6
-      lens_length_mm_in_mode = 0. }
+      vertical_speed_multiplier = 0.8
+      lens_length_mm_in_mode = 0.
+      viewport_redraw_mode = "rhino" }
 
 let normalize_number (value: float) =
     Math.Round(value, 12, MidpointRounding.AwayFromZero)
@@ -94,6 +95,19 @@ let merge_known_values (target: JsonObject) (source: FlyConfigFile) =
     for property in to_object source do
         target[property.Key] <- property.Value.DeepClone()
 
+let parse_viewport_redraw_mode (value: string) =
+    match value.Trim().ToLowerInvariant() with
+    | "rhino" -> Ok ViewportRedrawMode.Rhino
+    | "rhino_immediate" -> Ok ViewportRedrawMode.RhinoImmediate
+    | "native_window" -> Ok ViewportRedrawMode.NativeWindow
+    | _ -> Error "viewport_redraw_mode must be rhino, rhino_immediate, or native_window"
+
+let viewport_redraw_mode_value (mode: ViewportRedrawMode) =
+    match mode with
+    | ViewportRedrawMode.Rhino -> "rhino"
+    | ViewportRedrawMode.RhinoImmediate -> "rhino_immediate"
+    | ViewportRedrawMode.NativeWindow -> "native_window"
+
 let compile (source: FlyConfigFile) =
     let errors = ResizeArray<string>()
 
@@ -110,6 +124,13 @@ let compile (source: FlyConfigFile) =
             None
         else
             Some(required name value)
+
+    let viewportRedrawMode =
+        match parse_viewport_redraw_mode source.viewport_redraw_mode with
+        | Ok mode -> mode
+        | Error error ->
+            errors.Add error
+            ViewportRedrawMode.Rhino
 
     let positive (name: string) (value: float) =
         if Double.IsNaN value || Double.IsInfinity value || value <= 0. then
@@ -178,7 +199,8 @@ let compile (source: FlyConfigFile) =
           boost_hold_instead_of_toggle = source.boost_hold_instead_of_toggle
           slow_hold_instead_of_toggle = source.slow_hold_instead_of_toggle
           vertical_speed_multiplier = source.vertical_speed_multiplier
-          lens_length_mm_in_mode = source.lens_length_mm_in_mode }
+          lens_length_mm_in_mode = source.lens_length_mm_in_mode
+          viewport_redraw_mode = viewportRedrawMode }
 
     if errors.Count = 0 then
         Ok result
