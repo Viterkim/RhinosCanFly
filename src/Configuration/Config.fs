@@ -320,14 +320,15 @@ let save (source: FlyConfigFile) =
 
     match compile normalizedSource with
     | Error error -> Error error
-    | Ok _ ->
+    | Ok config ->
         try
             let config_path = path ()
 
-            let json =
-                to_object
-                    { normalizedSource with
-                        config_version = CurrentVersion }
+            let configFile =
+                { normalizedSource with
+                    config_version = CurrentVersion }
+
+            let json = to_object configFile
 
             let content = json.ToJsonString options + Environment.NewLine
 
@@ -340,7 +341,10 @@ let save (source: FlyConfigFile) =
             if existing <> content then
                 File.WriteAllText(config_path, content)
 
-            Ok()
+            Ok
+                { config_file = configFile
+                  config = config
+                  messages = [] }
         with error ->
             Error error.Message
 

@@ -6,15 +6,11 @@ open Rhino.Commands
 open Rhino.Input
 
 let with_config (run: ConfigLoadResult -> Result) =
-    match Config.load () with
+    match RuntimeSettings.current () with
     | Error error ->
         RhinoApp.WriteLine $"RhinosCanFly config error:{Environment.NewLine}{error}"
         Result.Failure
-    | Ok loaded ->
-        for message in loaded.messages do
-            RhinoApp.WriteLine $"RhinosCanFly: {message}."
-
-        run loaded
+    | Ok loaded -> run loaded
 
 let run (document: RhinoDoc) =
     let view = document.Views.ActiveView
