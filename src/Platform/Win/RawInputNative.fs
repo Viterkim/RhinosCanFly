@@ -7,7 +7,10 @@ open System.Runtime.InteropServices
 let message = 0x00FF
 
 [<Literal>]
-let stop_message = 0x8001
+let wm_app = 0x8000
+
+[<Literal>]
+let stop_message = wm_app + 1
 
 [<Literal>]
 let quit_message = 0x0012

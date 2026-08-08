@@ -1,5 +1,7 @@
 module RhinosCanFly.Platform.Win.Win32
 
+#nowarn "9"
+
 open System
 open System.ComponentModel
 open System.Drawing
@@ -105,11 +107,6 @@ type MouseInput =
     val mutable extra_info: unativeint
 
 [<Struct; StructLayout(LayoutKind.Sequential)>]
-type NativeInput =
-    val mutable input_type: uint32
-    val mutable mouse: MouseInput
-
-[<Struct; StructLayout(LayoutKind.Sequential)>]
 type KeyboardInput =
     val mutable virtual_key: uint16
     val mutable scan_code: uint16
@@ -117,10 +114,18 @@ type KeyboardInput =
     val mutable time: uint32
     val mutable extra_info: unativeint
 
-[<Struct; StructLayout(LayoutKind.Sequential)>]
-type NativeKeyboardInput =
-    val mutable input_type: uint32
+[<Struct; StructLayout(LayoutKind.Explicit)>]
+type InputData =
+    [<FieldOffset(0)>]
+    val mutable mouse: MouseInput
+
+    [<FieldOffset(0)>]
     val mutable keyboard: KeyboardInput
+
+[<Struct; StructLayout(LayoutKind.Sequential)>]
+type NativeInput =
+    val mutable input_type: uint32
+    val mutable data: InputData
 
 [<DllImport("user32.dll")>]
 extern int16 GetAsyncKeyState(int virtual_key)
@@ -154,9 +159,6 @@ extern nativeint SendMessage(nativeint window, int message, nativeint wparam, na
 
 [<DllImport("user32.dll", SetLastError = true)>]
 extern uint32 SendInput(uint32 input_count, NativeInput[] inputs, int input_size)
-
-[<DllImport("user32.dll", EntryPoint = "SendInput", SetLastError = true)>]
-extern uint32 SendKeyboardInput(uint32 input_count, NativeKeyboardInput[] inputs, int input_size)
 
 [<DllImport("user32.dll", SetLastError = true)>]
 extern bool InvalidateRect(nativeint window, nativeint rectangle, bool erase)
@@ -247,7 +249,10 @@ let send_middle_mouse (down: bool) =
 
     let mutable input = Unchecked.defaultof<NativeInput>
     input.input_type <- INPUT_MOUSE
-    input.mouse <- mouse
+
+    let mutable data = Unchecked.defaultof<InputData>
+    data.mouse <- mouse
+    input.data <- data
 
     if SendInput(1u, [| input |], Marshal.SizeOf<NativeInput>()) = 1u then
         Ok()
@@ -259,11 +264,14 @@ let send_shift_key (down: bool) =
     keyboard.virtual_key <- uint16 VK_SHIFT
     keyboard.flags <- if down then 0u else KEYEVENTF_KEYUP
 
-    let mutable input = Unchecked.defaultof<NativeKeyboardInput>
+    let mutable input = Unchecked.defaultof<NativeInput>
     input.input_type <- INPUT_KEYBOARD
-    input.keyboard <- keyboard
 
-    if SendKeyboardInput(1u, [| input |], Marshal.SizeOf<NativeKeyboardInput>()) = 1u then
+    let mutable data = Unchecked.defaultof<InputData>
+    data.keyboard <- keyboard
+    input.data <- data
+
+    if SendInput(1u, [| input |], Marshal.SizeOf<NativeInput>()) = 1u then
         Ok()
     else
         Error(last_error "SendInput(shift)")

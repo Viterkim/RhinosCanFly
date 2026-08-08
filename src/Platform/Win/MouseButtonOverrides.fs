@@ -7,67 +7,81 @@ open System.Windows.Forms
 open RhinosCanFly
 open Rhino.UI
 
+type ViewLatchMode =
+    | Pivot
+    | Pan
+
 type RoutingConfig =
     { enabled: bool
       mouse4: bool
       mouse5: bool
-      shift_right_click: bool
-      alt_right_click: bool
-      shift_right_click_pan: bool
-      alt_right_click_pan: bool }
+      shift_right_click: ViewLatchMode option
+      alt_right_click: ViewLatchMode option }
 
 type SideButton =
     | Mouse4
     | Mouse5
 
-type ButtonState =
-    { mutable pending: Point option
-      mutable routed: bool }
-
-type ViewLatchMode =
-    | Pivot
-    | Pan
+type SideButtonState =
+    | Released
+    | WaitingForDrag of Point
+    | Routed
 
 type ViewLatch =
-    | Idle
+    | NoViewLatch
     | WaitingForRelease of nativeint * ViewLatchMode
-    | Restarting of nativeint * bool * ViewLatchMode
-    | Active of nativeint * bool * ViewLatchMode
+    | RetryingPivot of nativeint * bool
+    | PivotActive of nativeint * bool
+    | PanActive of nativeint
+
+type SyntheticShiftState =
+    | ShiftReleased
+    | ShiftPressed
+
+type OverrideLifecycle =
+    | Available
+    | Suspended
+    | ShutDown
 
 type State =
     { mutable routing: RoutingConfig
-      mutable suspended: bool
-      mutable shut_down: bool
-      mouse4: ButtonState
-      mouse5: ButtonState
+      mutable lifecycle: OverrideLifecycle
+      mutable mouse4: SideButtonState
+      mutable mouse5: SideButtonState
       mutable view_latch: ViewLatch
-      mutable synthetic_shift_down: bool
+      mutable synthetic_shift: SyntheticShiftState
       mutable routed_modifiers_down: bool }
 
 let dragSize = SystemInformation.DragSize
-let releaseTimer = new Timer(Interval = 15)
+
+[<Literal>]
+let releaseTimerIntervalMilliseconds = 15
+
+let releaseTimer = new Timer(Interval = releaseTimerIntervalMilliseconds)
 
 let state =
     { routing =
         { enabled = false
           mouse4 = false
           mouse5 = false
-          shift_right_click = false
-          alt_right_click = false
-          shift_right_click_pan = false
-          alt_right_click_pan = false }
-      suspended = false
-      shut_down = false
-      mouse4 = { pending = None; routed = false }
-      mouse5 = { pending = None; routed = false }
-      view_latch = Idle
-      synthetic_shift_down = false
+          shift_right_click = None
+          alt_right_click = None }
+      lifecycle = Available
+      mouse4 = Released
+      mouse5 = Released
+      view_latch = NoViewLatch
+      synthetic_shift = ShiftReleased
       routed_modifiers_down = false }
 
-let button_state (button: SideButton) =
+let get_button_state (button: SideButton) =
     match button with
     | Mouse4 -> state.mouse4
     | Mouse5 -> state.mouse5
+
+let set_button_state (button: SideButton) (buttonState: SideButtonState) =
+    match button with
+    | Mouse4 -> state.mouse4 <- buttonState
+    | Mouse5 -> state.mouse5 <- buttonState
 
 let key (button: SideButton) =
     match button with
@@ -84,34 +98,39 @@ let is_down (button: SideButton) =
     Win32.GetAsyncKeyState(int (key button)) < 0s
 
 let any_routed () =
-    state.mouse4.routed || state.mouse5.routed
+    state.mouse4 = Routed || state.mouse5 = Routed
 
 let any_pending () =
-    Option.isSome state.mouse4.pending || Option.isSome state.mouse5.pending
+    match state.mouse4, state.mouse5 with
+    | WaitingForDrag _, _
+    | _, WaitingForDrag _ -> true
+    | _ -> false
 
 let view_latch_active () =
     match state.view_latch with
-    | Active _ -> true
-    | Idle
+    | PivotActive _
+    | PanActive _ -> true
+    | NoViewLatch
     | WaitingForRelease _
-    | Restarting _ -> false
+    | RetryingPivot _ -> false
 
 let view_latch_engaged () =
     match state.view_latch with
-    | Idle -> false
+    | NoViewLatch -> false
     | WaitingForRelease _
-    | Restarting _
-    | Active _ -> true
+    | RetryingPivot _
+    | PivotActive _
+    | PanActive _ -> true
 
 let middle_mouse_down () = any_routed () || view_latch_active ()
 
 let release_synthetic_shift () =
-    if not state.synthetic_shift_down then
-        Ok()
-    else
+    match state.synthetic_shift with
+    | ShiftReleased -> Ok()
+    | ShiftPressed ->
         match Win32.send_shift_key false with
         | Ok() ->
-            state.synthetic_shift_down <- false
+            state.synthetic_shift <- ShiftReleased
             Ok()
         | Error error -> Error error
 
@@ -140,25 +159,21 @@ let stop_timer_if_idle () =
         releaseTimer.Stop()
 
 let begin_route (button: SideButton) =
-    let buttonState = button_state button
-
     if middle_mouse_down () then
-        buttonState.pending <- None
-        buttonState.routed <- true
+        set_button_state button Routed
     else
         match Win32.send_middle_mouse true with
         | Ok() ->
-            buttonState.pending <- None
-            buttonState.routed <- true
+            set_button_state button Routed
             state.routed_modifiers_down <- view_modifier_down ()
         | Error error -> Debug.WriteLine $"RhinosCanFly mouse override: {error}"
 
 let finish_button (button: SideButton) =
-    let buttonState = button_state button
-    buttonState.pending <- None
-
-    if buttonState.routed then
-        buttonState.routed <- false
+    match get_button_state button with
+    | Released -> ()
+    | WaitingForDrag _ -> set_button_state button Released
+    | Routed ->
+        set_button_state button Released
 
         if not (middle_mouse_down ()) then
             match Win32.send_middle_mouse false with
@@ -169,26 +184,29 @@ let finish_button (button: SideButton) =
                 | Ok() -> ()
                 | Error error -> Debug.WriteLine $"RhinosCanFly mouse override: {error}"
             | Error error ->
-                buttonState.routed <- true
+                set_button_state button Routed
                 Debug.WriteLine $"RhinosCanFly mouse override: {error}"
 
     stop_timer_if_idle ()
 
 let release_all () =
-    state.mouse4.pending <- None
-    state.mouse5.pending <- None
+    if state.mouse4 <> Routed then
+        state.mouse4 <- Released
+
+    if state.mouse5 <> Routed then
+        state.mouse5 <- Released
 
     if not (middle_mouse_down ()) then
-        state.view_latch <- Idle
+        state.view_latch <- NoViewLatch
         releaseTimer.Stop()
         release_synthetic_shift ()
     else
         match Win32.send_middle_mouse false with
         | Error error -> Error error
         | Ok() ->
-            state.mouse4.routed <- false
-            state.mouse5.routed <- false
-            state.view_latch <- Idle
+            state.mouse4 <- Released
+            state.mouse5 <- Released
+            state.view_latch <- NoViewLatch
             state.routed_modifiers_down <- false
             releaseTimer.Stop()
             release_synthetic_shift ()
@@ -200,17 +218,17 @@ let root_window (window: nativeint) =
 
 let release_view_latch () =
     match state.view_latch with
-    | Idle -> Ok()
+    | NoViewLatch -> Ok()
     | WaitingForRelease _ ->
-        state.view_latch <- Idle
+        state.view_latch <- NoViewLatch
         stop_timer_if_idle ()
         Ok()
-    | Restarting _ ->
-        state.view_latch <- Idle
+    | RetryingPivot _ ->
+        state.view_latch <- NoViewLatch
         stop_timer_if_idle ()
         Ok()
-    | Active(window, modifiersDown, mode) ->
-        state.view_latch <- Idle
+    | (PivotActive _ | PanActive _) as active ->
+        state.view_latch <- NoViewLatch
 
         if any_routed () then
             stop_timer_if_idle ()
@@ -221,33 +239,37 @@ let release_view_latch () =
                 stop_timer_if_idle ()
                 release_synthetic_shift ()
             | Error error ->
-                state.view_latch <- Active(window, modifiersDown, mode)
+                state.view_latch <- active
                 Error error
+
+let requested_view_latch_mode () =
+    let shiftRoute =
+        if shift_down () then
+            state.routing.shift_right_click
+        else
+            None
+
+    let altRoute = if alt_down () then state.routing.alt_right_click else None
+
+    match shiftRoute, altRoute with
+    | Some Pan, _
+    | _, Some Pan -> Some Pan
+    | Some Pivot, _
+    | _, Some Pivot -> Some Pivot
+    | None, None -> None
 
 let handle_right_click (window: nativeint) =
     match state.view_latch with
-    | Active _
+    | PivotActive _
+    | PanActive _
     | WaitingForRelease _
-    | Restarting _ ->
+    | RetryingPivot _ ->
         match release_view_latch () with
         | Ok() -> Ok true
         | Error error -> Error error
-    | Idle ->
-        let panEnabled =
-            (state.routing.shift_right_click_pan && shift_down ())
-            || (state.routing.alt_right_click_pan && alt_down ())
-
-        let pivotEnabled =
-            (state.routing.shift_right_click && shift_down ())
-            || (state.routing.alt_right_click && alt_down ())
-
-        let requestedMode =
-            if panEnabled then Some Pan
-            elif pivotEnabled then Some Pivot
-            else None
-
-        match requestedMode with
-        | Some mode when state.routing.enabled && not state.suspended ->
+    | NoViewLatch ->
+        match requested_view_latch_mode () with
+        | Some mode when state.routing.enabled && state.lifecycle = Available ->
             state.view_latch <- WaitingForRelease(root_window window, mode)
             keep_timer_running ()
             Ok true
@@ -257,14 +279,15 @@ let handle_right_click (window: nativeint) =
 let right_click_enabled () =
     view_latch_engaged ()
     || (state.routing.enabled
-        && (state.routing.shift_right_click
-            || state.routing.alt_right_click
-            || state.routing.shift_right_click_pan
-            || state.routing.alt_right_click_pan))
+        && (Option.isSome state.routing.shift_right_click
+            || Option.isSome state.routing.alt_right_click))
 
 let begin_view_latch (window: nativeint) (mode: ViewLatchMode) =
     if any_routed () then
-        state.view_latch <- Active(window, false, mode)
+        state.view_latch <-
+            match mode with
+            | Pivot -> PivotActive(window, false)
+            | Pan -> PanActive window
     else
         let result =
             match mode with
@@ -273,7 +296,7 @@ let begin_view_latch (window: nativeint) (mode: ViewLatchMode) =
                 match Win32.send_shift_key true with
                 | Error error -> Error error
                 | Ok() ->
-                    state.synthetic_shift_down <- true
+                    state.synthetic_shift <- ShiftPressed
 
                     match Win32.send_middle_mouse true with
                     | Ok() -> Ok()
@@ -282,18 +305,22 @@ let begin_view_latch (window: nativeint) (mode: ViewLatchMode) =
                         Error error
 
         match result with
-        | Ok() -> state.view_latch <- Active(window, false, mode)
+        | Ok() ->
+            state.view_latch <-
+                match mode with
+                | Pivot -> PivotActive(window, false)
+                | Pan -> PanActive window
         | Error error ->
-            state.view_latch <- Idle
+            state.view_latch <- NoViewLatch
             stop_timer_if_idle ()
             Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
 
 let update_view_latch () =
     match state.view_latch with
-    | Idle -> ()
+    | NoViewLatch -> ()
     | WaitingForRelease(window, mode) ->
         if Win32.GetForegroundWindow() <> window then
-            state.view_latch <- Idle
+            state.view_latch <- NoViewLatch
             stop_timer_if_idle ()
         elif
             Win32.GetAsyncKeyState Win32.VK_RBUTTON >= 0s
@@ -301,20 +328,20 @@ let update_view_latch () =
             && not (alt_down ())
         then
             begin_view_latch window mode
-    | Restarting(window, _, mode) ->
+    | RetryingPivot(window, _) ->
         if Win32.GetForegroundWindow() <> window then
-            state.view_latch <- Idle
+            state.view_latch <- NoViewLatch
             stop_timer_if_idle ()
         elif any_routed () then
-            state.view_latch <- Active(window, view_modifier_down (), mode)
+            state.view_latch <- PivotActive(window, view_modifier_down ())
         else
             let modifiersDown = view_modifier_down ()
-            state.view_latch <- Restarting(window, modifiersDown, mode)
+            state.view_latch <- RetryingPivot(window, modifiersDown)
 
             match Win32.send_middle_mouse true with
-            | Ok() -> state.view_latch <- Active(window, modifiersDown, mode)
+            | Ok() -> state.view_latch <- PivotActive(window, modifiersDown)
             | Error error -> Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
-    | Active(window, previousModifiersDown, mode) ->
+    | PivotActive(window, previousModifiersDown) ->
         if Win32.GetForegroundWindow() <> window then
             match release_view_latch () with
             | Ok() -> ()
@@ -322,15 +349,20 @@ let update_view_latch () =
         else
             let modifiersDown = view_modifier_down ()
 
-            if mode = Pivot && modifiersDown <> previousModifiersDown && not (any_routed ()) then
+            if modifiersDown <> previousModifiersDown && not (any_routed ()) then
                 match Win32.send_middle_mouse false with
                 | Error error -> Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
                 | Ok() ->
-                    state.view_latch <- Restarting(window, modifiersDown, mode)
+                    state.view_latch <- RetryingPivot(window, modifiersDown)
 
                     match Win32.send_middle_mouse true with
-                    | Ok() -> state.view_latch <- Active(window, modifiersDown, mode)
+                    | Ok() -> state.view_latch <- PivotActive(window, modifiersDown)
                     | Error error -> Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
+    | PanActive window ->
+        if Win32.GetForegroundWindow() <> window then
+            match release_view_latch () with
+            | Ok() -> ()
+            | Error error -> Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
 
 let update_routed_modifiers () =
     if any_routed () && not (view_latch_engaged ()) then
@@ -345,20 +377,16 @@ let update_routed_modifiers () =
                 | Error error -> Debug.WriteLine $"RhinosCanFly mouse override: {error}"
 
 let update_button (button: SideButton) (current: Point) =
-    let buttonState = button_state button
-
     if not (enabled_for button) || not (is_down button) then
-        if Option.isSome buttonState.pending || buttonState.routed then
-            finish_button button
-    elif buttonState.routed then
-        ()
+        finish_button button
     else
-        match buttonState.pending with
-        | None ->
-            buttonState.pending <- Some current
+        match get_button_state button with
+        | Released ->
+            set_button_state button (WaitingForDrag current)
             keep_timer_running ()
-        | Some start when moved_enough start current -> begin_route button
-        | Some _ -> ()
+        | WaitingForDrag start when moved_enough start current -> begin_route button
+        | WaitingForDrag _
+        | Routed -> ()
 
 let update_from_viewport_move () =
     let current = Control.MousePosition
@@ -389,8 +417,13 @@ releaseTimer.Tick.Add(fun (_: EventArgs) ->
     with error ->
         Debug.WriteLine $"RhinosCanFly mouse override timer: {error.Message}")
 
+let configured_view_latch_mode (pivotEnabled: bool) (panEnabled: bool) =
+    if panEnabled then Some Pan
+    elif pivotEnabled then Some Pivot
+    else None
+
 let apply (source: FlyConfigFile) =
-    if state.shut_down then
+    if state.lifecycle = ShutDown then
         Error "Mouse button overrides have already shut down."
     else
         match release_all () with
@@ -400,21 +433,21 @@ let apply (source: FlyConfigFile) =
                 { enabled = source.mouse_button_overrides_enabled
                   mouse4 = source.mouse4_acts_as_middle
                   mouse5 = source.mouse5_acts_as_middle
-                  shift_right_click = source.shift_right_click_toggles_view
-                  alt_right_click = source.alt_right_click_toggles_view
-                  shift_right_click_pan = source.shift_right_click_pans
-                  alt_right_click_pan = source.alt_right_click_pans }
+                  shift_right_click =
+                    configured_view_latch_mode source.shift_right_click_toggles_view source.shift_right_click_pans
+                  alt_right_click =
+                    configured_view_latch_mode source.alt_right_click_toggles_view source.alt_right_click_pans }
 
             callback.Enabled <-
-                not state.suspended
+                state.lifecycle = Available
                 && state.routing.enabled
                 && (state.routing.mouse4 || state.routing.mouse5)
 
             Ok()
 
 let suspend () =
-    if not state.shut_down then
-        state.suspended <- true
+    if state.lifecycle <> ShutDown then
+        state.lifecycle <- Suspended
         callback.Enabled <- false
 
         match release_all () with
@@ -422,15 +455,14 @@ let suspend () =
         | Error error -> Debug.WriteLine $"RhinosCanFly mouse override suspend: {error}"
 
 let resume () =
-    if not state.shut_down then
-        state.suspended <- false
+    if state.lifecycle <> ShutDown then
+        state.lifecycle <- Available
 
         callback.Enabled <- state.routing.enabled && (state.routing.mouse4 || state.routing.mouse5)
 
 let shutdown () =
-    if not state.shut_down then
-        state.shut_down <- true
-        state.suspended <- true
+    if state.lifecycle <> ShutDown then
+        state.lifecycle <- ShutDown
         callback.Enabled <- false
 
         match release_all () with

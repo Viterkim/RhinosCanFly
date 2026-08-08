@@ -116,6 +116,10 @@ type CameraState =
       yaw: float
       pitch: float }
 
+type CameraChange =
+    { position_changed: bool
+      direction_changed: bool }
+
 type InputSnapshot =
     { forward: bool
       backward: bool

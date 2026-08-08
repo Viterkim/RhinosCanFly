@@ -46,7 +46,8 @@ let create_raw_input_wake () = RawInputWake.create ()
 
 let reset_raw_input_wake (wake: InputWake) = RawInputWake.reset wake
 
-let raw_input_wake_action (wake: InputWake) = RawInputWake.action wake
+let raw_input_wake_action (wake: InputWake) =
+    Action(fun () -> RawInputWake.signal wake)
 
 let open_raw_input (config: FlyConfig) (input: InputAccumulator.State) (inputAvailable: Action) =
     RawInputThread.start config input inputAvailable

@@ -1,15 +1,12 @@
-module RhinosCanFly.Config
+module RhinosCanFly.ConfigSchema
 
 open System
-open System.IO
-open System.Text.Json
-open System.Text.Json.Nodes
 
 [<Literal>]
-let CurrentVersion = 0
+let current_version = 0
 
-let defaultValues: FlyConfigFile =
-    { config_version = CurrentVersion
+let defaults: FlyConfigFile =
+    { config_version = current_version
       forward = "W"
       backward = "S"
       left = "A"
@@ -73,37 +70,6 @@ let normalize_numbers (source: FlyConfigFile) =
         mouse_sensitivity = normalize_number source.mouse_sensitivity
         vertical_speed_multiplier = normalize_number source.vertical_speed_multiplier
         lens_length_mm_in_mode = normalize_number source.lens_length_mm_in_mode }
-
-let options =
-    JsonSerializerOptions(
-        PropertyNameCaseInsensitive = true,
-        AllowTrailingCommas = true,
-        ReadCommentHandling = JsonCommentHandling.Skip,
-        WriteIndented = true
-    )
-
-let mutable settingsRoot: string option = None
-
-let initialize (directory: string) =
-    Directory.CreateDirectory directory |> ignore
-    settingsRoot <- Some directory
-
-let path () =
-    match settingsRoot with
-    | Some directory -> Path.Combine(directory, "rhinos-can-fly-config.json")
-    | None -> failwith "The RhinosCanFly settings directory has not been initialized."
-
-let default_config () = defaultValues
-
-let to_object (value: FlyConfigFile) =
-    JsonSerializer.SerializeToNode(normalize_numbers value, options).AsObject()
-
-let write_json (config_path: string) (json: JsonObject) =
-    File.WriteAllText(config_path, json.ToJsonString options + Environment.NewLine)
-
-let merge_known_values (target: JsonObject) (source: FlyConfigFile) =
-    for property in to_object source do
-        target[property.Key] <- property.Value.DeepClone()
 
 let parse_viewport_redraw_mode (value: string) =
     match value.Trim().ToLowerInvariant() with
@@ -176,7 +142,7 @@ let compile (source: FlyConfigFile) =
     then
         errors.Add "lens_length_mm_in_mode must be 0 (disabled) or a positive finite number"
 
-    let result =
+    let config =
         { forward = required "forward" source.forward
           backward = required "backward" source.backward
           left = required "left" source.left
@@ -219,161 +185,6 @@ let compile (source: FlyConfigFile) =
           viewport_redraw_mode = viewportRedrawMode }
 
     if errors.Count = 0 then
-        Ok result
+        Ok config
     else
         Error(String.Join(Environment.NewLine, errors))
-
-let load () =
-    try
-        let config_path = path ()
-        let created = not (File.Exists config_path)
-
-        let json =
-            if created then
-                to_object defaultValues
-            else
-                match JsonNode.Parse(File.ReadAllText config_path) with
-                | :? JsonObject as value -> value
-                | _ -> failwith $"The config root must be a JSON object: {config_path}"
-
-        let messages = ResizeArray<string>()
-        let mutable changed = created
-        let beforeNormalization = json.ToJsonString()
-
-        if created then
-            messages.Add $"created config at {config_path}"
-
-        let defaults = to_object defaultValues
-
-        let knownNames =
-            defaults
-            |> Seq.map (fun (property: Collections.Generic.KeyValuePair<string, JsonNode>) -> property.Key)
-            |> Set.ofSeq
-
-        let unknownNames =
-            json
-            |> Seq.map (fun (property: Collections.Generic.KeyValuePair<string, JsonNode>) -> property.Key)
-            |> Seq.filter (fun (name: string) -> not (knownNames.Contains name))
-            |> List.ofSeq
-
-        for name in unknownNames do
-            json.Remove name |> ignore
-            changed <- true
-
-        if not (List.isEmpty unknownNames) then
-            messages.Add $"removed {unknownNames.Length} unknown setting(s)"
-
-        json["config_version"] <- JsonValue.Create CurrentVersion
-        let mutable added = 0
-
-        for property in defaults do
-            if not (json.ContainsKey property.Key) then
-                json[property.Key] <- property.Value.DeepClone()
-                added <- added + 1
-                changed <- true
-
-        if json.ToJsonString() <> beforeNormalization then
-            changed <- true
-
-        if added > 0 then
-            messages.Add $"added {added} missing setting(s)"
-
-        let parsed =
-            try
-                let value = JsonSerializer.Deserialize<FlyConfigFile>(json.ToJsonString(), options)
-
-                if isNull (box value) then
-                    Error "the config is empty"
-                else
-                    Ok value
-            with error ->
-                Error error.Message
-
-        let source, config =
-            match parsed with
-            | Ok source ->
-                let source = normalize_numbers source
-
-                match compile source with
-                | Ok config -> source, config
-                | Error _ ->
-                    json.Clear()
-                    merge_known_values json defaultValues
-                    changed <- true
-                    messages.Add "reset invalid settings to defaults"
-
-                    match compile defaultValues with
-                    | Ok config -> defaultValues, config
-                    | Error error -> failwith error
-            | Error _ ->
-                json.Clear()
-                merge_known_values json defaultValues
-                changed <- true
-                messages.Add "reset malformed settings to defaults"
-
-                match compile defaultValues with
-                | Ok config -> defaultValues, config
-                | Error error -> failwith error
-
-        let beforeNumberNormalization = json.ToJsonString()
-        merge_known_values json source
-
-        if json.ToJsonString() <> beforeNumberNormalization then
-            changed <- true
-
-        if changed then
-            write_json config_path json
-
-        Ok
-            { config_file = source
-              config = config
-              messages = List.ofSeq messages }
-    with error ->
-        Error error.Message
-
-let save (source: FlyConfigFile) =
-    let normalizedSource = normalize_numbers source
-
-    match compile normalizedSource with
-    | Error error -> Error error
-    | Ok config ->
-        try
-            let config_path = path ()
-
-            let configFile =
-                { normalizedSource with
-                    config_version = CurrentVersion }
-
-            let json = to_object configFile
-
-            let content = json.ToJsonString options + Environment.NewLine
-
-            let existing =
-                if File.Exists config_path then
-                    File.ReadAllText config_path
-                else
-                    ""
-
-            if existing <> content then
-                File.WriteAllText(config_path, content)
-
-            Ok
-                { config_file = configFile
-                  config = config
-                  messages = [] }
-        with error ->
-            Error error.Message
-
-let read_raw () =
-    try
-        let config_path = path ()
-
-        let content =
-            if File.Exists config_path then
-                File.ReadAllText config_path
-            else
-                ""
-
-        Ok(config_path, content)
-    with error ->
-        Error error.Message

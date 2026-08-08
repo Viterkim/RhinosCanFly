@@ -7,41 +7,13 @@ open System.Reflection
 open Eto.Drawing
 open Eto.Forms
 open Rhino
-open Rhino.UI
-
-module SettingsUi =
-    let load_icon () =
-        let assembly = Assembly.GetExecutingAssembly()
-
-        let stream =
-            assembly.GetManifestResourceStream "RhinosCanFly.Resources.PluginIcon.ico"
-
-        if isNull stream then
-            None
-        else
-            use source = stream
-            Some(new Icon(source))
-
-    let use_rhino_style (control: Control) =
-        let method =
-            typeof<EtoExtensions>
-                .GetMethod(
-                    "UseRhinoStyle",
-                    BindingFlags.Public ||| BindingFlags.Static,
-                    null,
-                    [| typeof<Control> |],
-                    null
-                )
-
-        if not (isNull method) then
-            method.Invoke(null, [| control :> obj |]) |> ignore
 
 type SettingsControl() as self =
     inherit Panel()
 
     let text_box () = new TextBox(Height = 24)
 
-    let defaults = Config.default_config ()
+    let defaults = ConfigSchema.defaults
 
     let forward = text_box ()
     let backward = text_box ()
@@ -138,7 +110,7 @@ type SettingsControl() as self =
     let set_checked (control: CheckBox) (value: bool) = control.Checked <- Nullable value
 
     let redraw_mode_index (value: string) =
-        match Config.parse_viewport_redraw_mode value with
+        match ConfigSchema.parse_viewport_redraw_mode value with
         | Ok ViewportRedrawMode.Rhino -> 0
         | Ok ViewportRedrawMode.RhinoImmediate -> 1
         | Ok ViewportRedrawMode.NativeWindow -> 2
@@ -146,20 +118,9 @@ type SettingsControl() as self =
 
     let selected_redraw_mode () =
         match viewportRedrawMode.SelectedIndex with
-        | 1 -> Config.viewport_redraw_mode_value ViewportRedrawMode.RhinoImmediate
-        | 2 -> Config.viewport_redraw_mode_value ViewportRedrawMode.NativeWindow
-        | _ -> Config.viewport_redraw_mode_value ViewportRedrawMode.Rhino
-
-    let make_row (cells: TableCell list) =
-        let row = new TableRow()
-
-        for cell in cells do
-            row.Cells.Add cell
-
-        row
-
-    let full_width_row (control: Control) =
-        make_row [ new TableCell(control, true) ]
+        | 1 -> ConfigSchema.viewport_redraw_mode_value ViewportRedrawMode.RhinoImmediate
+        | 2 -> ConfigSchema.viewport_redraw_mode_value ViewportRedrawMode.NativeWindow
+        | _ -> ConfigSchema.viewport_redraw_mode_value ViewportRedrawMode.Rhino
 
     let refresh_status () =
         statusLine.Text <-
@@ -192,73 +153,8 @@ type SettingsControl() as self =
         else
             Error $"{name} must be a number."
 
-    let grid_item (label: string) (control: Control) =
-        let caption = new Label(Text = label, Width = 140)
-        let item = new TableLayout(Spacing = Size(8, 0))
-
-        item.Rows.Add(make_row [ new TableCell(caption, false); new TableCell(control, true) ])
-
-        item
-
-    let two_column_grid (controls: Control list) =
-        let grid = new TableLayout(Spacing = Size(16, 4))
-
-        let rec add_rows (remaining: Control list) =
-            match remaining with
-            | first :: second :: rest ->
-                grid.Rows.Add(make_row [ new TableCell(first, true); new TableCell(second, true) ])
-
-                add_rows rest
-            | [ first ] -> grid.Rows.Add(make_row [ new TableCell(first, true); new TableCell(new Panel(), true) ])
-            | [] -> ()
-
-        add_rows controls
-        grid
-
-    let three_column_grid (controls: Control list) =
-        let grid = new TableLayout(Spacing = Size(16, 4))
-
-        let rec add_rows (remaining: Control list) =
-            match remaining with
-            | first :: second :: third :: rest ->
-                grid.Rows.Add(
-                    make_row
-                        [ new TableCell(first, true)
-                          new TableCell(second, true)
-                          new TableCell(third, true) ]
-                )
-
-                add_rows rest
-            | [ first; second ] ->
-                grid.Rows.Add(
-                    make_row
-                        [ new TableCell(first, true)
-                          new TableCell(second, true)
-                          new TableCell(new Panel(), true) ]
-                )
-            | [ first ] ->
-                grid.Rows.Add(
-                    make_row
-                        [ new TableCell(first, true)
-                          new TableCell(new Panel(), true)
-                          new TableCell(new Panel(), true) ]
-                )
-            | [] -> ()
-
-        add_rows controls
-        grid
-
     let binding_editor (field: TextBox) (defaultValue: string) =
         BindingCapture.editor bindingCapture field defaultValue
-
-    let heading (text: string) =
-        let label =
-            new Label(Text = text, Font = SystemFonts.Bold(Nullable(), FontDecoration.None))
-
-        new Panel(Content = label, Padding = Padding(0, 10, 0, 2)) :> Control
-
-    let note (text: string) =
-        new Label(Text = text, Wrap = WrapMode.Word) :> Control
 
     let title_row () =
         let image = new ImageView(Size = Size(32, 32))
@@ -270,7 +166,7 @@ type SettingsControl() as self =
 
         let row = new TableLayout(Spacing = Size(10, 0))
 
-        row.Rows.Add(make_row [ new TableCell(image, false); new TableCell(title, true) ])
+        row.Rows.Add(SettingsLayout.row [ new TableCell(image, false); new TableCell(title, true) ])
 
         row :> Control
 
@@ -279,9 +175,9 @@ type SettingsControl() as self =
         let pathLabel = new Label(Text = "File", Width = 64)
         let contentsLabel = new Label(Text = "Contents", Width = 64)
 
-        layout.Rows.Add(make_row [ new TableCell(pathLabel, false); new TableCell(configPath, true) ])
+        layout.Rows.Add(SettingsLayout.row [ new TableCell(pathLabel, false); new TableCell(configPath, true) ])
 
-        layout.Rows.Add(make_row [ new TableCell(contentsLabel, false); new TableCell(rawJson, true) ])
+        layout.Rows.Add(SettingsLayout.row [ new TableCell(contentsLabel, false); new TableCell(rawJson, true) ])
 
         layout
 
@@ -290,10 +186,11 @@ type SettingsControl() as self =
     let mainTable = new TableLayout(Padding = Padding 12, Spacing = Size(0, 4))
 
     do
-        mainTable.Rows.Add(full_width_row (title_row ()))
-        mainTable.Rows.Add(full_width_row (heading "General behavior"))
+        mainTable.Rows.Add(SettingsLayout.full_width (title_row ()))
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "General behavior"))
 
-        three_column_grid
+        SettingsLayout.grid
+            3
             [ normalizeDiagonal
               boostHold
               slowHold
@@ -302,72 +199,80 @@ type SettingsControl() as self =
               loadSpeedFromDocument
               hideGumball
               pivotBindingsIgnoreGumball ]
-        |> full_width_row
+        |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
-        mainTable.Rows.Add(full_width_row (heading "Right click behavior"))
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Right click behavior"))
 
-        three_column_grid [ hijackRightClick; hijackRightClickDuringCommands; exitOnMouseRight ]
-        |> full_width_row
+        SettingsLayout.grid 3 [ hijackRightClick; hijackRightClickDuringCommands; exitOnMouseRight ]
+        |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
-        mainTable.Rows.Add(full_width_row (heading "Mouse behavior"))
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Mouse behavior"))
 
-        three_column_grid
+        SettingsLayout.grid
+            3
             [ invertMouseX
               invertMouseY
               wheelChangesSpeed
               exitOnMouseLeft
               exitOnMouseMiddle ]
-        |> full_width_row
+        |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
-        mainTable.Rows.Add(full_width_row (heading "Controls"))
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Controls"))
 
-        two_column_grid
-            [ grid_item "Forward" (binding_editor forward defaults.forward)
-              grid_item "Backward" (binding_editor backward defaults.backward)
-              grid_item "Move left" (binding_editor left defaults.left)
-              grid_item "Move right" (binding_editor right defaults.right)
-              grid_item "Move up" (binding_editor up defaults.up)
-              grid_item "Move down" (binding_editor down defaults.down)
-              grid_item "Pivot left" (binding_editor pivotLeft defaults.pivot_left)
-              grid_item "Pivot right" (binding_editor pivotRight defaults.pivot_right)
-              grid_item "Boost Mode" (binding_editor boost defaults.boost_toggle)
-              grid_item "Slow Mode" (binding_editor slow defaults.slow)
-              grid_item "Increase speed" (binding_editor speedIncrease defaults.speed_increase)
-              grid_item "Decrease speed" (binding_editor speedDecrease defaults.speed_decrease)
-              grid_item "Exit fly mode" (binding_editor exitKey defaults.exit_key) ]
-        |> full_width_row
+        SettingsLayout.grid
+            2
+            [ SettingsLayout.item "Forward" (binding_editor forward defaults.forward)
+              SettingsLayout.item "Backward" (binding_editor backward defaults.backward)
+              SettingsLayout.item "Move left" (binding_editor left defaults.left)
+              SettingsLayout.item "Move right" (binding_editor right defaults.right)
+              SettingsLayout.item "Move up" (binding_editor up defaults.up)
+              SettingsLayout.item "Move down" (binding_editor down defaults.down)
+              SettingsLayout.item "Pivot left" (binding_editor pivotLeft defaults.pivot_left)
+              SettingsLayout.item "Pivot right" (binding_editor pivotRight defaults.pivot_right)
+              SettingsLayout.item "Boost Mode" (binding_editor boost defaults.boost_toggle)
+              SettingsLayout.item "Slow Mode" (binding_editor slow defaults.slow)
+              SettingsLayout.item "Increase speed" (binding_editor speedIncrease defaults.speed_increase)
+              SettingsLayout.item "Decrease speed" (binding_editor speedDecrease defaults.speed_decrease)
+              SettingsLayout.item "Exit fly mode" (binding_editor exitKey defaults.exit_key) ]
+        |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
-        mainTable.Rows.Add(full_width_row (heading "Speed and mouse"))
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Speed and mouse"))
 
-        two_column_grid
-            [ grid_item "Base speed" baseSpeed
-              grid_item "Minimum speed" minimumSpeed
-              grid_item "Maximum speed" maximumSpeed
-              grid_item "Speed step multiplier" speedStep
-              grid_item "Boost multiplier" boostMultiplier
-              grid_item "Slow multiplier" slowMultiplier
-              grid_item "Move up/down multiplier" verticalSpeedMultiplier
-              grid_item "Pivot speed multiplier" pivotSpeedMultiplier
-              grid_item "Mouse sensitivity" mouseSensitivity
-              grid_item "Force lens length" lensLength ]
-        |> full_width_row
+        SettingsLayout.grid
+            2
+            [ SettingsLayout.item "Base speed" baseSpeed
+              SettingsLayout.item "Minimum speed" minimumSpeed
+              SettingsLayout.item "Maximum speed" maximumSpeed
+              SettingsLayout.item "Speed step multiplier" speedStep
+              SettingsLayout.item "Boost multiplier" boostMultiplier
+              SettingsLayout.item "Slow multiplier" slowMultiplier
+              SettingsLayout.item "Move up/down multiplier" verticalSpeedMultiplier
+              SettingsLayout.item "Pivot speed multiplier" pivotSpeedMultiplier
+              SettingsLayout.item "Mouse sensitivity" mouseSensitivity
+              SettingsLayout.item "Force lens length" lensLength ]
+        |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
-        mainTable.Rows.Add(full_width_row (heading "Viewport redraw"))
-        mainTable.Rows.Add(full_width_row (grid_item "Mode" viewportRedrawMode))
-        mainTable.Rows.Add(full_width_row (note "Try an alternative mode only if fly mode is not smooth."))
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Viewport redraw"))
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.item "Mode" viewportRedrawMode))
 
         mainTable.Rows.Add(
-            full_width_row (
-                heading "Override mouse behavior (Uses middle mouse button pan/rotate settings from Rhino itself)"
+            SettingsLayout.full_width (SettingsLayout.note "Try an alternative mode only if fly mode is not smooth.")
+        )
+
+        mainTable.Rows.Add(
+            SettingsLayout.full_width (
+                SettingsLayout.heading
+                    "Override mouse behavior (Uses middle mouse button pan/rotate settings from Rhino itself)"
             )
         )
 
-        three_column_grid
+        SettingsLayout.grid
+            3
             [ mouseButtonOverridesEnabled
               mouse4AsMiddle
               mouse5AsMiddle
@@ -375,29 +280,31 @@ type SettingsControl() as self =
               shiftRightClickPans
               altRightClickTogglesView
               altRightClickPans ]
-        |> full_width_row
+        |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
         mainTable.Rows.Add(
-            full_width_row (note "Enters pivot: release the buttons, move the mouse, then right click to stop.")
+            SettingsLayout.full_width (
+                SettingsLayout.note "Enters pivot: release the buttons, move the mouse, then right click to stop."
+            )
         )
 
-        mainTable.Rows.Add(full_width_row (heading "Status"))
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Status"))
         refresh_status ()
-        mainTable.Rows.Add(full_width_row statusLine)
-        mainTable.Rows.Add(full_width_row runtimeLine)
-        mainTable.Rows.Add(full_width_row github)
-        mainTable.Rows.Add(full_width_row resetAll)
-        mainTable.Rows.Add(full_width_row rawJsonToggle)
-        mainTable.Rows.Add(full_width_row rawJsonPanel)
+        mainTable.Rows.Add(SettingsLayout.full_width statusLine)
+        mainTable.Rows.Add(SettingsLayout.full_width runtimeLine)
+        mainTable.Rows.Add(SettingsLayout.full_width github)
+        mainTable.Rows.Add(SettingsLayout.full_width resetAll)
+        mainTable.Rows.Add(SettingsLayout.full_width rawJsonToggle)
+        mainTable.Rows.Add(SettingsLayout.full_width rawJsonPanel)
 
         let scrollable =
             new Scrollable(Border = BorderType.None, ExpandContentWidth = true, Content = mainTable)
 
         let host = new TableLayout(Spacing = Size.Empty)
-        host.Rows.Add(make_row [ new TableCell(bindingCapture.focus_sink, false) ])
+        host.Rows.Add(SettingsLayout.row [ new TableCell(bindingCapture.focus_sink, false) ])
 
-        let contentRow = make_row [ new TableCell(scrollable, true) ]
+        let contentRow = SettingsLayout.row [ new TableCell(scrollable, true) ]
         contentRow.ScaleHeight <- true
         host.Rows.Add contentRow
 
@@ -430,7 +337,7 @@ type SettingsControl() as self =
                 speedText <- format defaults.base_speed
                 refresh_status ()
 
-                match Config.read_raw () with
+                match ConfigStorage.read_raw () with
                 | Ok(path, content) -> self.ShowRaw(path, content)
                 | Error _ -> ()
 
@@ -547,7 +454,7 @@ type SettingsControl() as self =
           Ok sensitivityValue,
           Ok lensValue ->
             Ok
-                { config_version = Config.CurrentVersion
+                { config_version = ConfigSchema.current_version
                   forward = forward.Text
                   backward = backward.Text
                   left = left.Text

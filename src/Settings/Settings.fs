@@ -4,9 +4,9 @@ open System
 open Rhino
 
 let show_raw (control: SettingsControl) =
-    match Config.read_raw () with
+    match ConfigStorage.read_raw () with
     | Ok(path, content) -> control.ShowRaw(path, content)
-    | Error error -> control.ShowRaw(Config.path (), $"Could not read config: {error}")
+    | Error error -> control.ShowRaw(ConfigStorage.path (), $"Could not read config: {error}")
 
 let current_lens () =
     let document = RhinoDoc.ActiveDoc

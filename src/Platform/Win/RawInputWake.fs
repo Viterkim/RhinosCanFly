@@ -18,5 +18,3 @@ let signal (state: State) =
 
 let reset (state: State) =
     Interlocked.Exchange(&state.pending, 0) |> ignore
-
-let action (state: State) = Action(fun () -> signal state)

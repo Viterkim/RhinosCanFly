@@ -10,7 +10,7 @@ type RhinosCanFlyPlugin() as self =
 
     do
         try
-            Config.initialize self.SettingsDirectory
+            ConfigStorage.initialize self.SettingsDirectory
 
             match RuntimeSettings.load_and_apply () with
             | Ok() -> ()
