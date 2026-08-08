@@ -95,8 +95,14 @@ type SettingsControl() as self =
     let mouseButtonOverridesEnabled =
         new CheckBox(Text = "Enable mouse button overrides (experimental)")
 
-    let mouse4AsMiddle = new CheckBox(Text = "Mouse 4 drag manipulates view")
-    let mouse5AsMiddle = new CheckBox(Text = "Mouse 5 drag manipulates view")
+    let mouse4AsMiddle = new CheckBox(Text = "Mouse 4 drag enters pivot")
+    let mouse5AsMiddle = new CheckBox(Text = "Mouse 5 drag enters pivot")
+
+    let shiftRightClickTogglesView =
+        new CheckBox(Text = "Shift + right click enters pivot")
+
+    let altRightClickTogglesView = new CheckBox(Text = "Alt + right click enters pivot")
+
     let statusLine = new Label(Wrap = WrapMode.Word)
     let runtimeLine = new Label(Wrap = WrapMode.Word)
     let configPath = new TextBox(ReadOnly = true)
@@ -158,6 +164,8 @@ type SettingsControl() as self =
         let enabled = is_checked mouseButtonOverridesEnabled
         mouse4AsMiddle.Enabled <- enabled
         mouse5AsMiddle.Enabled <- enabled
+        shiftRightClickTogglesView.Enabled <- enabled
+        altRightClickTogglesView.Enabled <- enabled
 
     let refresh_right_click_controls () =
         hijackRightClickDuringCommands.Enabled <- is_checked hijackRightClick
@@ -340,12 +348,20 @@ type SettingsControl() as self =
 
         mainTable.Rows.Add(full_width_row (heading "Override mouse button behavior"))
 
-        three_column_grid [ mouseButtonOverridesEnabled; mouse4AsMiddle; mouse5AsMiddle ]
+        three_column_grid
+            [ mouseButtonOverridesEnabled
+              mouse4AsMiddle
+              mouse5AsMiddle
+              shiftRightClickTogglesView
+              altRightClickTogglesView ]
         |> full_width_row
         |> mainTable.Rows.Add
 
         mainTable.Rows.Add(
-            full_width_row (note "Uses Rhino's middle-button Pan/Rotate/Swap settings. Side-button clicks are ignored.")
+            full_width_row (
+                note
+                    "Uses Rhino's middle-button Pan/Rotate/Swap settings. Latched view manipulation exits on the next right click or when Rhino loses focus."
+            )
         )
 
         mainTable.Rows.Add(full_width_row (heading "Status"))
@@ -477,6 +493,8 @@ type SettingsControl() as self =
         set_checked mouseButtonOverridesEnabled config.mouse_button_overrides_enabled
         set_checked mouse4AsMiddle config.mouse4_acts_as_middle
         set_checked mouse5AsMiddle config.mouse5_acts_as_middle
+        set_checked shiftRightClickTogglesView config.shift_right_click_toggles_view
+        set_checked altRightClickTogglesView config.alt_right_click_toggles_view
         refresh_mouse_override_controls ()
         set_checked boostHold config.boost_hold_instead_of_toggle
         set_checked slowHold config.slow_hold_instead_of_toggle
@@ -538,6 +556,8 @@ type SettingsControl() as self =
                   mouse_button_overrides_enabled = is_checked mouseButtonOverridesEnabled
                   mouse4_acts_as_middle = is_checked mouse4AsMiddle
                   mouse5_acts_as_middle = is_checked mouse5AsMiddle
+                  shift_right_click_toggles_view = is_checked shiftRightClickTogglesView
+                  alt_right_click_toggles_view = is_checked altRightClickTogglesView
                   boost_hold_instead_of_toggle = is_checked boostHold
                   slow_hold_instead_of_toggle = is_checked slowHold
                   vertical_speed_multiplier = verticalValue

@@ -13,7 +13,9 @@ type RightClickCallback() =
     let mutable queued = false
     let mutable rightButtonReleased = false
     let mutable mainLoopHandler: EventHandler option = None
+    let mutable flyEnabled = false
     let mutable hijackDuringCommands = false
+    let mutable viewManipulationClick = false
 
     let log_error (context: string) (error: exn) =
         Debug.WriteLine $"RhinosCanFly {context}: {error.Message}"
@@ -33,11 +35,30 @@ type RightClickCallback() =
 
     override _.OnMouseDown(event: MouseCallbackEventArgs) =
         try
+            let isRightButton = event.MouseButton = MouseButton.Right
+
             let isPerspective =
                 not (isNull event.View) && event.View.ActiveViewport.IsPerspectiveProjection
 
+            let mutable viewManipulationHandled = false
+
+            if isRightButton && not (isNull event.View) && not (Runtime.is_running ()) then
+                match PlatformInput.handle_view_manipulation_right_click event.View.Handle with
+                | Ok true ->
+                    event.Cancel <- true
+                    viewManipulationClick <- true
+                    viewManipulationHandled <- true
+                | Ok false -> ()
+                | Error error ->
+                    event.Cancel <- true
+                    viewManipulationClick <- true
+                    viewManipulationHandled <- true
+                    RhinoApp.WriteLine $"RhinosCanFly view manipulation error: {error}"
+
             if
-                event.MouseButton = MouseButton.Right
+                not viewManipulationHandled
+                && flyEnabled
+                && isRightButton
                 && isPerspective
                 && can_enter ()
                 && not (Runtime.is_running ())
@@ -80,22 +101,26 @@ type RightClickCallback() =
             log_error "right-click callback" error
 
     override _.OnMouseUp(event: MouseCallbackEventArgs) =
-        if queued && event.MouseButton = MouseButton.Right then
+        if viewManipulationClick && event.MouseButton = MouseButton.Right then
+            viewManipulationClick <- false
+            event.Cancel <- true
+        elif queued && event.MouseButton = MouseButton.Right then
             rightButtonReleased <- true
             event.Cancel <- true
 
-    member this.Configure(enabled: bool, duringCommands: bool) =
-        if not enabled then
+    member this.Configure(flyEntryEnabled: bool, duringCommands: bool, viewManipulationEnabled: bool) =
+        if not flyEntryEnabled then
             clear_queue ()
 
+        flyEnabled <- flyEntryEnabled
         hijackDuringCommands <- duringCommands
-        this.Enabled <- enabled
+        this.Enabled <- flyEntryEnabled || viewManipulationEnabled
 
-    member this.Shutdown() = this.Configure(false, false)
+    member this.Shutdown() = this.Configure(false, false, false)
 
 let callback = RightClickCallback()
 
-let configure (enabled: bool) (duringCommands: bool) =
-    callback.Configure(enabled, duringCommands)
+let configure (flyEntryEnabled: bool) (duringCommands: bool) (viewManipulationEnabled: bool) =
+    callback.Configure(flyEntryEnabled, duringCommands, viewManipulationEnabled)
 
 let shutdown () = callback.Shutdown()

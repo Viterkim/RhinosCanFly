@@ -10,9 +10,15 @@ let current () =
     | None -> Error "The configuration has not been loaded. Restart Rhino and try again."
 
 let apply (config: FlyConfigFile) =
-    RightClickEntry.configure config.hijack_right_click_to_enter config.hijack_right_click_during_commands
+    let mouseButtonResult = PlatformInput.apply_mouse_button_overrides config
+
+    RightClickEntry.configure
+        config.hijack_right_click_to_enter
+        config.hijack_right_click_during_commands
+        (PlatformInput.mouse_button_right_click_enabled ())
+
     RepeatBehavior.apply config.commands_do_not_repeat
-    PlatformInput.apply_mouse_button_overrides config
+    mouseButtonResult
 
 let apply_speed_and_settings (document: RhinoDoc) (config: FlyConfigFile) (requestedSpeed: float) =
     let speedResult =

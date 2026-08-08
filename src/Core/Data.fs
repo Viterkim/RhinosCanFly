@@ -40,6 +40,8 @@ type FlyConfigFile =
       mouse_button_overrides_enabled: bool
       mouse4_acts_as_middle: bool
       mouse5_acts_as_middle: bool
+      shift_right_click_toggles_view: bool
+      alt_right_click_toggles_view: bool
       boost_hold_instead_of_toggle: bool
       slow_hold_instead_of_toggle: bool
       vertical_speed_multiplier: float

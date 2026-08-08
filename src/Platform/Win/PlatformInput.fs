@@ -62,6 +62,15 @@ let apply_mouse_button_overrides (config: FlyConfigFile) =
     else
         Ok()
 
+let mouse_button_right_click_enabled () =
+    mouseButtonOverridesInitialized && MouseButtonOverrides.right_click_enabled ()
+
+let handle_view_manipulation_right_click (window: nativeint) =
+    if mouseButtonOverridesInitialized then
+        MouseButtonOverrides.handle_right_click window
+    else
+        Ok false
+
 let suspend_mouse_button_overrides () =
     if mouseButtonOverridesInitialized then
         MouseButtonOverrides.suspend ()
