@@ -1,12 +1,14 @@
 module RhinosCanFly.ConfigSchema
 
 open System
+open System.Globalization
 
 [<Literal>]
 let current_version = 0
 
 let defaults: FlyConfigFile =
     { config_version = current_version
+      enabled = true
       forward = "W"
       backward = "S"
       left = "A"
@@ -58,6 +60,10 @@ let defaults: FlyConfigFile =
 let normalize_number (value: float) =
     Math.Round(value, 12, MidpointRounding.AwayFromZero)
 
+let format_number (value: float) =
+    let normalized = normalize_number value
+    normalized.ToString("G15", CultureInfo.InvariantCulture)
+
 let normalize_numbers (source: FlyConfigFile) =
     { source with
         base_speed = normalize_number source.base_speed
@@ -72,11 +78,14 @@ let normalize_numbers (source: FlyConfigFile) =
         lens_length_mm_in_mode = normalize_number source.lens_length_mm_in_mode }
 
 let parse_viewport_redraw_mode (value: string) =
-    match value.Trim().ToLowerInvariant() with
-    | "rhino" -> Ok ViewportRedrawMode.Rhino
-    | "rhino_immediate" -> Ok ViewportRedrawMode.RhinoImmediate
-    | "native_window" -> Ok ViewportRedrawMode.NativeWindow
-    | _ -> Error "viewport_redraw_mode must be rhino, rhino_immediate, or native_window"
+    if String.IsNullOrWhiteSpace value then
+        Error "viewport_redraw_mode must be rhino, rhino_immediate, or native_window"
+    else
+        match value.Trim().ToLowerInvariant() with
+        | "rhino" -> Ok ViewportRedrawMode.Rhino
+        | "rhino_immediate" -> Ok ViewportRedrawMode.RhinoImmediate
+        | "native_window" -> Ok ViewportRedrawMode.NativeWindow
+        | _ -> Error "viewport_redraw_mode must be rhino, rhino_immediate, or native_window"
 
 let viewport_redraw_mode_value (mode: ViewportRedrawMode) =
     match mode with

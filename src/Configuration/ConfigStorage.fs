@@ -27,8 +27,11 @@ let path () =
 let to_object (value: FlyConfigFile) =
     JsonSerializer.SerializeToNode(ConfigSchema.normalize_numbers value, options).AsObject()
 
+let json_content (json: JsonObject) =
+    json.ToJsonString options + Environment.NewLine
+
 let write_json (configPath: string) (json: JsonObject) =
-    File.WriteAllText(configPath, json.ToJsonString options + Environment.NewLine)
+    File.WriteAllText(configPath, json_content json)
 
 let merge_known_values (target: JsonObject) (source: FlyConfigFile) =
     for property in to_object source do
@@ -156,7 +159,7 @@ let save (source: FlyConfigFile) =
                     config_version = ConfigSchema.current_version }
 
             let json = to_object configFile
-            let content = json.ToJsonString options + Environment.NewLine
+            let content = json_content json
 
             let existing =
                 if File.Exists configPath then

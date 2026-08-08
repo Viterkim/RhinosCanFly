@@ -11,7 +11,11 @@ let movement_active (input: InputSnapshot) =
     || input.pivot_right
 
 let pivot_direction (input: InputSnapshot) =
-    (if input.pivot_right then 1 else 0) - if input.pivot_left then 1 else 0
+    match input.pivot_left, input.pivot_right with
+    | true, false -> PivotLeft
+    | false, true -> PivotRight
+    | false, false
+    | true, true -> NoPivot
 
 let without_pivot (input: InputSnapshot) =
     { input with

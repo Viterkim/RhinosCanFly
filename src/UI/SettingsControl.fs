@@ -39,13 +39,20 @@ type SettingsControl() as self =
     let mouseSensitivity = text_box ()
     let lensLength = text_box ()
 
+    let redrawModes =
+        [| ViewportRedrawMode.Rhino, "Rhino redraw (default)"
+           ViewportRedrawMode.RhinoImmediate, "Rhino redraw with immediate paint"
+           ViewportRedrawMode.NativeWindow, "Native window redraw (experimental)" |]
+
     let viewportRedrawMode =
         let control = new DropDown(Height = 24)
-        control.Items.Add "Rhino redraw (default)"
-        control.Items.Add "Rhino redraw with immediate paint"
-        control.Items.Add "Native window redraw (experimental)"
+
+        for _, label in redrawModes do
+            control.Items.Add label
+
         control
 
+    let pluginEnabled = new CheckBox(Text = "Enable Rhinos Can Fly")
     let invertMouseX = new CheckBox(Text = "Invert mouse X")
     let invertMouseY = new CheckBox(Text = "Invert mouse Y")
     let normalizeDiagonal = new CheckBox(Text = "Normalize diagonal movement")
@@ -74,13 +81,12 @@ type SettingsControl() as self =
     let mouseButtonOverridesEnabled =
         new CheckBox(Text = "Enable mouse button overrides")
 
-    let mouse4AsMiddle = new CheckBox(Text = "Mouse 4 drag enters pivot")
-    let mouse5AsMiddle = new CheckBox(Text = "Mouse 5 drag enters pivot")
+    let mouse4AsMiddle = new CheckBox(Text = "Mouse 4 pivots")
+    let mouse5AsMiddle = new CheckBox(Text = "Mouse 5 pivots")
 
-    let shiftRightClickTogglesView =
-        new CheckBox(Text = "Shift + right click enters pivot")
+    let shiftRightClickTogglesView = new CheckBox(Text = "Shift + right click pivots")
 
-    let altRightClickTogglesView = new CheckBox(Text = "Alt + right click enters pivot")
+    let altRightClickTogglesView = new CheckBox(Text = "Alt + right click pivots")
     let shiftRightClickPans = new CheckBox(Text = "Shift + right click pans")
     let altRightClickPans = new CheckBox(Text = "Alt + right click pans")
 
@@ -101,26 +107,28 @@ type SettingsControl() as self =
     let optionsIcon = SettingsUi.load_icon ()
     let bindingCapture = BindingCapture.create ()
 
-    let format (value: float) =
-        let rounded = Math.Round(value, 9, MidpointRounding.AwayFromZero)
-        rounded.ToString("G15", CultureInfo.InvariantCulture)
-
     let is_checked (control: CheckBox) = control.Checked.GetValueOrDefault()
 
     let set_checked (control: CheckBox) (value: bool) = control.Checked <- Nullable value
 
     let redraw_mode_index (value: string) =
         match ConfigSchema.parse_viewport_redraw_mode value with
-        | Ok ViewportRedrawMode.Rhino -> 0
-        | Ok ViewportRedrawMode.RhinoImmediate -> 1
-        | Ok ViewportRedrawMode.NativeWindow -> 2
+        | Ok mode ->
+            redrawModes
+            |> Array.tryFindIndex (fun (candidate: ViewportRedrawMode, _: string) -> candidate = mode)
+            |> Option.defaultValue 0
         | Error _ -> 0
 
     let selected_redraw_mode () =
-        match viewportRedrawMode.SelectedIndex with
-        | 1 -> ConfigSchema.viewport_redraw_mode_value ViewportRedrawMode.RhinoImmediate
-        | 2 -> ConfigSchema.viewport_redraw_mode_value ViewportRedrawMode.NativeWindow
-        | _ -> ConfigSchema.viewport_redraw_mode_value ViewportRedrawMode.Rhino
+        let index = viewportRedrawMode.SelectedIndex
+
+        let mode =
+            if index >= 0 && index < redrawModes.Length then
+                fst redrawModes[index]
+            else
+                ViewportRedrawMode.Rhino
+
+        ConfigSchema.viewport_redraw_mode_value mode
 
     let refresh_status () =
         statusLine.Text <-
@@ -191,7 +199,8 @@ type SettingsControl() as self =
 
         SettingsLayout.grid
             3
-            [ normalizeDiagonal
+            [ pluginEnabled
+              normalizeDiagonal
               boostHold
               slowHold
               commandsDoNotRepeat
@@ -285,7 +294,7 @@ type SettingsControl() as self =
 
         mainTable.Rows.Add(
             SettingsLayout.full_width (
-                SettingsLayout.note "Enters pivot: release the buttons, move the mouse, then right click to stop."
+                SettingsLayout.note "Pivots: release the buttons, move the mouse, then right click to stop."
             )
         )
 
@@ -334,7 +343,7 @@ type SettingsControl() as self =
 
             match RuntimeSettings.save_apply_and_set_speed RhinoDoc.ActiveDoc defaults defaults.base_speed with
             | Ok _ ->
-                speedText <- format defaults.base_speed
+                speedText <- ConfigSchema.format_number defaults.base_speed
                 refresh_status ()
 
                 match ConfigStorage.read_raw () with
@@ -366,11 +375,11 @@ type SettingsControl() as self =
         refresh_status ()
 
     member _.ShowRuntimeState(speed: float, lens: float option) =
-        speedText <- format speed
+        speedText <- ConfigSchema.format_number speed
 
         lensText <-
             match lens with
-            | Some value -> $"{format value} mm"
+            | Some value -> $"{ConfigSchema.format_number value} mm"
             | None -> "Unavailable"
 
         refresh_status ()
@@ -380,6 +389,7 @@ type SettingsControl() as self =
         rawJson.Text <- content
 
     member _.LoadConfig(config: FlyConfigFile) =
+        set_checked pluginEnabled config.enabled
         forward.Text <- config.forward
         backward.Text <- config.backward
         left.Text <- config.left
@@ -393,16 +403,16 @@ type SettingsControl() as self =
         speedIncrease.Text <- config.speed_increase
         speedDecrease.Text <- config.speed_decrease
         exitKey.Text <- config.exit_key
-        baseSpeed.Text <- format config.base_speed
-        minimumSpeed.Text <- format config.minimum_speed
-        maximumSpeed.Text <- format config.maximum_speed
-        speedStep.Text <- format config.speed_step_multiplier
-        boostMultiplier.Text <- format config.boost_multiplier
-        slowMultiplier.Text <- format config.slow_multiplier
-        verticalSpeedMultiplier.Text <- format config.vertical_speed_multiplier
-        pivotSpeedMultiplier.Text <- format config.pivot_speed_multiplier
-        mouseSensitivity.Text <- format config.mouse_sensitivity
-        lensLength.Text <- format config.lens_length_mm_in_mode
+        baseSpeed.Text <- ConfigSchema.format_number config.base_speed
+        minimumSpeed.Text <- ConfigSchema.format_number config.minimum_speed
+        maximumSpeed.Text <- ConfigSchema.format_number config.maximum_speed
+        speedStep.Text <- ConfigSchema.format_number config.speed_step_multiplier
+        boostMultiplier.Text <- ConfigSchema.format_number config.boost_multiplier
+        slowMultiplier.Text <- ConfigSchema.format_number config.slow_multiplier
+        verticalSpeedMultiplier.Text <- ConfigSchema.format_number config.vertical_speed_multiplier
+        pivotSpeedMultiplier.Text <- ConfigSchema.format_number config.pivot_speed_multiplier
+        mouseSensitivity.Text <- ConfigSchema.format_number config.mouse_sensitivity
+        lensLength.Text <- ConfigSchema.format_number config.lens_length_mm_in_mode
         viewportRedrawMode.SelectedIndex <- redraw_mode_index config.viewport_redraw_mode
         set_checked invertMouseX config.invert_mouse_x
         set_checked invertMouseY config.invert_mouse_y
@@ -455,6 +465,7 @@ type SettingsControl() as self =
           Ok lensValue ->
             Ok
                 { config_version = ConfigSchema.current_version
+                  enabled = is_checked pluginEnabled
                   forward = forward.Text
                   backward = backward.Text
                   left = left.Text

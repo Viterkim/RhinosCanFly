@@ -6,6 +6,7 @@ open Rhino.Geometry
 [<CLIMutable>]
 type FlyConfigFile =
     { config_version: int
+      enabled: bool
       forward: string
       backward: string
       left: string
@@ -117,8 +118,18 @@ type CameraState =
       pitch: float }
 
 type CameraChange =
-    { position_changed: bool
-      direction_changed: bool }
+    | PositionChanged
+    | DirectionChanged
+    | PositionAndDirectionChanged
+
+type PivotDirection =
+    | NoPivot
+    | PivotLeft
+    | PivotRight
+
+type PivotInputState =
+    | WaitingForNeutralPivotInput
+    | PivotInputArmed
 
 type InputSnapshot =
     { forward: bool
@@ -140,8 +151,8 @@ type FlyState =
       original_lens_length: float
       gumball_pivot_target: Point3d option
       mutable pivot_target: Point3d
-      mutable pivot_direction: int
-      mutable pivot_input_armed: bool
+      mutable pivot_direction: PivotDirection
+      mutable pivot_input_state: PivotInputState
       mutable running: bool
       mutable camera: CameraState
       mutable speed: float

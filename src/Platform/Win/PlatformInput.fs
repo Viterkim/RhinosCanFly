@@ -11,6 +11,9 @@ let wait_for_input () = Win32.wait_for_input Win32.INFINITE
 
 let foreground_window () = Win32.GetForegroundWindow()
 
+let right_mouse_button_down () =
+    Win32.GetAsyncKeyState Win32.VK_RBUTTON < 0s
+
 let root_window (window: nativeint) =
     let ancestor = Win32.GetAncestor(window, Win32.GA_ROOT)
 
@@ -43,8 +46,6 @@ type RawInputSession = RawInputThread.Session
 type InputWake = RawInputWake.State
 
 let create_raw_input_wake () = RawInputWake.create ()
-
-let reset_raw_input_wake (wake: InputWake) = RawInputWake.reset wake
 
 let raw_input_wake_action (wake: InputWake) =
     Action(fun () -> RawInputWake.signal wake)

@@ -7,9 +7,16 @@ open Rhino.ApplicationSettings
 open Rhino.Display
 open Rhino.Geometry
 
-let mutable sessionRunning = false
+type SessionState =
+    | Ready
+    | Flying
+    | RestartRequired
 
-let is_running () = sessionRunning
+let mutable sessionState = Ready
+
+let is_running () = sessionState = Flying
+
+let can_start () = sessionState = Ready
 
 let viewport_gesture_active (view: RhinoView) = view.MouseCaptured(false)
 
@@ -65,8 +72,8 @@ let make_state (view: RhinoView) (config: FlyConfig) =
       original_lens_length = viewport.Camera35mmLensLength
       gumball_pivot_target = gumballPivotTarget
       pivot_target = viewport.CameraTarget
-      pivot_direction = 0
-      pivot_input_armed = false
+      pivot_direction = NoPivot
+      pivot_input_state = WaitingForNeutralPivotInput
       running = true
       camera =
         { position = viewport.CameraLocation
@@ -89,7 +96,7 @@ let make_state (view: RhinoView) (config: FlyConfig) =
 [<Literal>]
 let maximumFrameDeltaSeconds = 0.05
 
-let run_loop (rawInput: InputAccumulator.State) (inputWake: PlatformInput.InputWake) (state: FlyState) =
+let run_loop (rawInput: InputAccumulator.State) (state: FlyState) =
     let clock = Stopwatch.StartNew()
     let mutable previousFrame = clock.Elapsed.TotalSeconds
     let mutable movementActive = false
@@ -101,7 +108,6 @@ let run_loop (rawInput: InputAccumulator.State) (inputWake: PlatformInput.InputW
             | Error error -> failwith error
 
         RhinoApp.Wait()
-        PlatformInput.reset_raw_input_wake inputWake
 
         let mouseChanged = FlightCamera.apply_mouse_look rawInput state
         let mutable movementChanged = false
@@ -114,19 +120,18 @@ let run_loop (rawInput: InputAccumulator.State) (inputWake: PlatformInput.InputW
                 let requestedPivotDirection = FlightInput.pivot_direction input
 
                 let movement =
-                    if state.pivot_input_armed then
+                    match state.pivot_input_state, requestedPivotDirection with
+                    | PivotInputArmed, _ -> input
+                    | WaitingForNeutralPivotInput, NoPivot ->
+                        state.pivot_input_state <- PivotInputArmed
                         input
-                    elif requestedPivotDirection = 0 then
-                        state.pivot_input_armed <- true
-                        input
-                    else
-                        FlightInput.without_pivot input
+                    | WaitingForNeutralPivotInput, (PivotLeft | PivotRight) -> FlightInput.without_pivot input
 
                 let now = clock.Elapsed.TotalSeconds
                 let currentlyMoving = FlightInput.movement_active movement
                 let pivotDirection = FlightInput.pivot_direction movement
 
-                if pivotDirection <> 0 && pivotDirection <> state.pivot_direction then
+                if pivotDirection <> NoPivot && pivotDirection <> state.pivot_direction then
                     state.pivot_target <- state.gumball_pivot_target |> Option.defaultValue state.viewport.CameraTarget
 
                 state.pivot_direction <- pivotDirection
@@ -137,23 +142,24 @@ let run_loop (rawInput: InputAccumulator.State) (inputWake: PlatformInput.InputW
                     state.camera <- Movement.step state.config movement state.pivot_target dt state.camera
                     movementChanged <- true
 
-                    if pivotDirection <> 0 then
+                    if pivotDirection <> NoPivot then
                         directionChanged <- true
 
                 previousFrame <- now
                 movementActive <- currentlyMoving
 
-        if directionChanged || movementChanged then
-            FlightCamera.apply
-                state
-                { position_changed = movementChanged
-                  direction_changed = directionChanged }
+        match movementChanged, directionChanged with
+        | true, true -> FlightCamera.apply state PositionAndDirectionChanged
+        | true, false -> FlightCamera.apply state PositionChanged
+        | false, true -> FlightCamera.apply state DirectionChanged
+        | false, false -> ()
 
 let run (view: RhinoView) (config: FlyConfig) =
-    if sessionRunning then
-        Error "Fly mode is already running."
-    else
-        sessionRunning <- true
+    match sessionState with
+    | Flying -> Error "Fly mode is already running."
+    | RestartRequired -> Error "Raw input did not shut down cleanly. Restart Rhino before using fly mode again."
+    | Ready ->
+        sessionState <- Flying
 
         let cleanupErrors = ResizeArray<string>()
         let mutable rawInputClean = true
@@ -207,7 +213,7 @@ let run (view: RhinoView) (config: FlyConfig) =
                         PlatformInput.clear_mouse_hover view.Handle
                         FlightCamera.apply_entry_lens state
                         FlightCamera.redraw state.config.viewport_redraw_mode view
-                        run_loop rawInput inputWake state
+                        run_loop rawInput state
 
                         Ok()
                     with error ->
@@ -225,10 +231,7 @@ let run (view: RhinoView) (config: FlyConfig) =
                     let mouseChanged = FlightCamera.apply_mouse_look rawInput state
 
                     if mouseChanged then
-                        FlightCamera.apply
-                            state
-                            { position_changed = false
-                              direction_changed = true })
+                        FlightCamera.apply state DirectionChanged)
 
                 if captured then
                     attempt_cleanup cleanupErrors "cursor clip" (fun () ->
@@ -281,7 +284,7 @@ let run (view: RhinoView) (config: FlyConfig) =
         if not rawInputClean then
             cleanupErrors.Add "raw input did not shut down cleanly; restart Rhino before using fly mode again"
 
-        sessionRunning <- not rawInputClean
+        sessionState <- if rawInputClean then Ready else RestartRequired
 
         let cleanupMessage = cleanupErrors |> Seq.toList |> String.concat "; "
 

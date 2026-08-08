@@ -14,10 +14,14 @@ let apply_mouse_look (input: InputAccumulator.State) (state: FlyState) =
 let redraw (mode: ViewportRedrawMode) (view: RhinoView) = FlightRedraw.redraw mode view
 
 let apply (state: FlyState) (change: CameraChange) =
-    if change.position_changed then
+    match change with
+    | PositionChanged -> state.viewport.SetCameraLocation(state.camera.position, true)
+    | DirectionChanged ->
+        let direction = Movement.direction_from_angles state.camera.yaw state.camera.pitch
+        state.viewport.SetCameraDirection(direction, true)
+    | PositionAndDirectionChanged ->
         state.viewport.SetCameraLocation(state.camera.position, true)
 
-    if change.direction_changed then
         let direction = Movement.direction_from_angles state.camera.yaw state.camera.pitch
         state.viewport.SetCameraDirection(direction, true)
 

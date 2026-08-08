@@ -10,12 +10,19 @@ let current () =
     | None -> Error "The configuration has not been loaded. Restart Rhino and try again."
 
 let apply (config: FlyConfigFile) =
-    let mouseButtonResult = PlatformInput.apply_mouse_button_overrides config
+    let activeConfig =
+        if config.enabled then
+            config
+        else
+            { config with
+                mouse_button_overrides_enabled = false }
+
+    let mouseButtonResult = PlatformInput.apply_mouse_button_overrides activeConfig
 
     RightClickEntry.configure
-        config.hijack_right_click_to_enter
+        (config.enabled && config.hijack_right_click_to_enter)
         config.hijack_right_click_during_commands
-        (PlatformInput.mouse_button_right_click_enabled ())
+        (config.enabled && PlatformInput.mouse_button_right_click_enabled ())
 
     RepeatBehavior.apply config.commands_do_not_repeat
     mouseButtonResult

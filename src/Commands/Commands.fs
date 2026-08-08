@@ -23,11 +23,15 @@ let run (document: RhinoDoc) =
         Result.Cancel
     else
         with_config (fun (loaded: ConfigLoadResult) ->
-            match Runtime.run view loaded.config with
-            | Ok() -> Result.Success
-            | Error error ->
-                RhinoApp.WriteLine $"RhinosCanFly failed: {error}"
-                Result.Failure)
+            if not loaded.config_file.enabled then
+                RhinoApp.WriteLine "RhinosCanFly is disabled in Options."
+                Result.Cancel
+            else
+                match Runtime.run view loaded.config with
+                | Ok() -> Result.Success
+                | Error error ->
+                    RhinoApp.WriteLine $"RhinosCanFly failed: {error}"
+                    Result.Failure)
 
 let set_speed (document: RhinoDoc) =
     with_config (fun (loaded: ConfigLoadResult) ->

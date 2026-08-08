@@ -93,5 +93,10 @@ let step (config: FlyConfig) (input: InputSnapshot) (pivotTarget: Point3d) (dt: 
           yaw = yaw
           pitch = pitch }
 
-    let pivotAmount = float (FlightInput.pivot_direction input)
+    let pivotAmount =
+        match FlightInput.pivot_direction input with
+        | NoPivot -> 0.
+        | PivotLeft -> -1.
+        | PivotRight -> 1.
+
     orbit pivotTarget (pivotAmount * input.move_speed * config.pivot_speed_multiplier * dt) translated
