@@ -54,6 +54,7 @@
     <Compile Include="src/Platform/Win/RawInputWake.fs" />
     <Compile Include="src/Platform/Win/MouseButtonOverrides.fs" />
     <Compile Include="src/Platform/Win/PlatformInput.fs" />
+    <Compile Include="src/Fly/FlightRedraw.fs" />
     <Compile Include="src/Fly/FlightCamera.fs" />
     <Compile Include="src/Fly/FlightControls.fs" />
     <Compile Include="src/Fly/Runtime.fs" />

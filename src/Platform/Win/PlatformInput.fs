@@ -25,6 +25,10 @@ let set_cursor_position (point: Point) = Win32.set_cursor_position point
 
 let clear_mouse_hover (window: nativeint) = Win32.clear_mouse_hover window
 
+let update_window (window: nativeint) = Win32.update_window window
+
+let redraw_window (window: nativeint) = Win32.redraw_window window
+
 let clip_cursor (rectangle: Rectangle) = Win32.clip_cursor rectangle
 
 let clear_cursor_clip () = Win32.clear_cursor_clip ()

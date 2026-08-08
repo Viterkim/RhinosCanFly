@@ -137,6 +137,12 @@ extern nativeint SendMessage(nativeint window, int message, nativeint wparam, na
 extern uint32 SendInput(uint32 input_count, NativeInput[] inputs, int input_size)
 
 [<DllImport("user32.dll", SetLastError = true)>]
+extern bool InvalidateRect(nativeint window, nativeint rectangle, bool erase)
+
+[<DllImport("user32.dll", SetLastError = true)>]
+extern bool UpdateWindow(nativeint window)
+
+[<DllImport("user32.dll", SetLastError = true)>]
 extern uint32 MsgWaitForMultipleObjectsEx(
     uint32 object_count,
     nativeint handles,
@@ -186,6 +192,18 @@ let clear_cursor_clip () =
 
 let clear_mouse_hover (window: nativeint) =
     SendMessage(window, WM_MOUSELEAVE, nativeint 0, nativeint 0) |> ignore
+
+let update_window (window: nativeint) =
+    if UpdateWindow window then
+        Ok()
+    else
+        Error(last_error "UpdateWindow")
+
+let redraw_window (window: nativeint) =
+    if not (InvalidateRect(window, nativeint 0, false)) then
+        Error(last_error "InvalidateRect")
+    else
+        update_window window
 
 let wait_for_input (timeoutMilliseconds: uint32) =
     let result =
