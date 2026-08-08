@@ -74,6 +74,7 @@ type SettingsControl() as self =
     let invertMouseX = new CheckBox(Text = "Invert mouse X")
     let invertMouseY = new CheckBox(Text = "Invert mouse Y")
     let normalizeDiagonal = new CheckBox(Text = "Normalize diagonal movement")
+    let hideGumball = new CheckBox(Text = "Hide gumball while flying")
     let saveSpeedToDocument = new CheckBox(Text = "Save current speed to file")
     let loadSpeedFromDocument = new CheckBox(Text = "Load speed from file")
     let wheelChangesSpeed = new CheckBox(Text = "Mouse wheel up/down controls speed")
@@ -279,7 +280,8 @@ type SettingsControl() as self =
               slowHold
               commandsDoNotRepeat
               saveSpeedToDocument
-              loadSpeedFromDocument ]
+              loadSpeedFromDocument
+              hideGumball ]
         |> full_width_row
         |> mainTable.Rows.Add
 
@@ -461,6 +463,7 @@ type SettingsControl() as self =
         set_checked invertMouseX config.invert_mouse_x
         set_checked invertMouseY config.invert_mouse_y
         set_checked normalizeDiagonal config.normalize_diagonal_movement
+        set_checked hideGumball config.hide_gumball_while_flying
         set_checked saveSpeedToDocument config.save_speed_to_document
         set_checked loadSpeedFromDocument config.load_speed_from_document
         set_checked wheelChangesSpeed config.wheel_changes_speed
@@ -522,6 +525,7 @@ type SettingsControl() as self =
                   invert_mouse_x = is_checked invertMouseX
                   invert_mouse_y = is_checked invertMouseY
                   normalize_diagonal_movement = is_checked normalizeDiagonal
+                  hide_gumball_while_flying = is_checked hideGumball
                   save_speed_to_document = is_checked saveSpeedToDocument
                   load_speed_from_document = is_checked loadSpeedFromDocument
                   wheel_changes_speed = is_checked wheelChangesSpeed

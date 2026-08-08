@@ -89,16 +89,22 @@ let run (view: RhinoView) (config: FlyConfig) =
                 let state = make_state view config
                 let rawInput = InputAccumulator.create ()
                 let originalTooltipsEnabled = CursorTooltipSettings.TooltipsEnabled
+                let originalGumballEnabled = ModelAidSettings.AutoGumballEnabled
                 let mutable raw: PlatformInput.RawInputSession option = None
                 let mutable captured = false
                 let mutable cursorHidden = false
                 let mutable tooltipsChanged = false
+                let mutable gumballChanged = false
                 let inputWake = PlatformInput.create_raw_input_wake ()
 
                 let activeResult =
                     try
                         CursorTooltipSettings.TooltipsEnabled <- false
                         tooltipsChanged <- true
+
+                        if state.config.hide_gumball_while_flying && originalGumballEnabled then
+                            ModelAidSettings.AutoGumballEnabled <- false
+                            gumballChanged <- true
 
                         let rectangle = view.ScreenRectangle
 
@@ -195,6 +201,10 @@ let run (view: RhinoView) (config: FlyConfig) =
                 if tooltipsChanged then
                     attempt_cleanup cleanupErrors "tooltips" (fun () ->
                         CursorTooltipSettings.TooltipsEnabled <- originalTooltipsEnabled)
+
+                if gumballChanged then
+                    attempt_cleanup cleanupErrors "gumball" (fun () ->
+                        ModelAidSettings.AutoGumballEnabled <- originalGumballEnabled)
 
                 attempt_cleanup cleanupErrors "speed" (fun () ->
                     match
