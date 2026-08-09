@@ -18,33 +18,77 @@ let direction_from_angles (yaw: float) (pitch: float) =
     let cosine = Math.Cos pitch
     Vector3d(cosine * Math.Cos yaw, cosine * Math.Sin yaw, Math.Sin pitch)
 
-let look (config: FlyConfig) (mouseDx: int64) (mouseDy: int64) (camera: CameraState) =
+let maximum_orbit_angle_per_frame = Math.PI / 2.
+let keyboard_pivot_radians_per_second = Math.PI / 6.
+
+type MouseRotation =
+    { yaw_delta: float; pitch_delta: float }
+
+let mouse_rotation (config: FlyConfig) (multiplier: float) (mouseDx: int64) (mouseDy: int64) (camera: CameraState) =
     let horizontal_sign = if config.invert_mouse_x then 1. else -1.
     let vertical_sign = if config.invert_mouse_y then 1. else -1.
     let sensitivity = MouseSensitivity.radians_per_count config.mouse_sensitivity
-    let yaw = camera.yaw + float mouseDx * sensitivity * horizontal_sign
+    let yawDelta = float mouseDx * sensitivity * horizontal_sign * multiplier
+
+    let requestedPitch =
+        camera.pitch + float mouseDy * sensitivity * vertical_sign * multiplier
+
     let limit = RhinoMath.ToRadians 89.
+    let pitch = clamp -limit limit requestedPitch
 
-    let pitch =
-        clamp -limit limit (camera.pitch + float mouseDy * sensitivity * vertical_sign)
+    { yaw_delta = yawDelta
+      pitch_delta = pitch - camera.pitch }
 
-    { camera with yaw = yaw; pitch = pitch }
+let look (config: FlyConfig) (mouseDx: int64) (mouseDy: int64) (camera: CameraState) =
+    let rotation = mouse_rotation config 1. mouseDx mouseDy camera
 
-let orbit (pivotTarget: Point3d) (distance: float) (camera: CameraState) =
-    let offset = camera.position - pivotTarget
-    let radius = Math.Sqrt(offset.X * offset.X + offset.Y * offset.Y)
+    { camera with
+        yaw = camera.yaw + rotation.yaw_delta
+        pitch = camera.pitch + rotation.pitch_delta }
 
-    if radius <= RhinoMath.ZeroTolerance || distance = 0. then
+let rotate_vector (axis: Vector3d) (angle: float) (vector: Vector3d) =
+    let mutable rotated = vector
+
+    if rotated.Rotate(angle, axis) then rotated else vector
+
+let mouse_pivot (config: FlyConfig) (target: Point3d) (mouseDx: int64) (mouseDy: int64) (camera: CameraState) =
+    let offset = camera.position - target
+
+    let rotation =
+        mouse_rotation config config.mouse_pivot_multiplier mouseDx mouseDy camera
+
+    let direction = direction_from_angles camera.yaw camera.pitch
+    let yawOffset = rotate_vector Vector3d.ZAxis rotation.yaw_delta offset
+    let yawDirection = rotate_vector Vector3d.ZAxis rotation.yaw_delta direction
+    let mutable right = Vector3d.CrossProduct(yawDirection, Vector3d.ZAxis)
+
+    let rotatedOffset, rotatedDirection =
+        if right.Unitize() then
+            rotate_vector right rotation.pitch_delta yawOffset, rotate_vector right rotation.pitch_delta yawDirection
+        else
+            yawOffset, yawDirection
+
+    let yaw, pitch = angles_from_direction rotatedDirection
+
+    { position = target + rotatedOffset
+      yaw = yaw
+      pitch = pitch }
+
+let orbit (target: Point3d) (requestedAngle: float) (camera: CameraState) =
+    if requestedAngle = 0. then
         camera
     else
-        let angle = distance / radius
+        let angle =
+            clamp -maximum_orbit_angle_per_frame maximum_orbit_angle_per_frame requestedAngle
+
+        let offset = camera.position - target
         let cosine = Math.Cos angle
         let sine = Math.Sin angle
 
         let rotatedOffset =
             Vector3d(offset.X * cosine - offset.Y * sine, offset.X * sine + offset.Y * cosine, offset.Z)
 
-        let position = pivotTarget + rotatedOffset
+        let position = target + rotatedOffset
         let direction = direction_from_angles camera.yaw camera.pitch
 
         let rotatedDirection =
@@ -99,4 +143,10 @@ let step (config: FlyConfig) (input: InputSnapshot) (pivotTarget: Point3d) (dt: 
         | PivotLeft -> -1.
         | PivotRight -> 1.
 
-    orbit pivotTarget (pivotAmount * input.move_speed * config.pivot_speed_multiplier * dt) translated
+    let pivotAngle =
+        pivotAmount
+        * keyboard_pivot_radians_per_second
+        * config.pivot_speed_multiplier
+        * dt
+
+    orbit pivotTarget pivotAngle translated

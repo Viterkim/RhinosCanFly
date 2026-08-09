@@ -28,7 +28,8 @@ let defaults: FlyConfigFile =
       speed_step_multiplier = 1.2
       boost_multiplier = 3.
       slow_multiplier = 0.4
-      pivot_speed_multiplier = 2.
+      pivot_speed_multiplier = 10.
+      mouse_pivot_multiplier = 5.
       mouse_sensitivity = 15.
       invert_mouse_x = false
       invert_mouse_y = false
@@ -41,12 +42,17 @@ let defaults: FlyConfigFile =
       exit_on_mouse_left = false
       exit_on_mouse_right = true
       exit_on_mouse_middle = false
+      middle_mouse_toggles_pivot_while_flying = false
+      mouse4_toggles_pivot_while_flying = false
+      mouse5_toggles_pivot_while_flying = false
       hijack_right_click_to_enter = true
       hijack_right_click_during_commands = true
       commands_do_not_repeat = true
       mouse_button_overrides_enabled = false
       mouse4_acts_as_middle = false
       mouse5_acts_as_middle = false
+      mouse4_toggles_middle = false
+      mouse5_toggles_middle = false
       shift_right_click_toggles_view = false
       alt_right_click_toggles_view = false
       shift_right_click_pans = false
@@ -62,7 +68,7 @@ let normalize_number (value: float) =
 
 let format_number (value: float) =
     let normalized = normalize_number value
-    normalized.ToString("G15", CultureInfo.InvariantCulture)
+    normalized.ToString("0.############", CultureInfo.InvariantCulture)
 
 let normalize_numbers (source: FlyConfigFile) =
     { source with
@@ -73,6 +79,7 @@ let normalize_numbers (source: FlyConfigFile) =
         boost_multiplier = normalize_number source.boost_multiplier
         slow_multiplier = normalize_number source.slow_multiplier
         pivot_speed_multiplier = normalize_number source.pivot_speed_multiplier
+        mouse_pivot_multiplier = normalize_number source.mouse_pivot_multiplier
         mouse_sensitivity = normalize_number source.mouse_sensitivity
         vertical_speed_multiplier = normalize_number source.vertical_speed_multiplier
         lens_length_mm_in_mode = normalize_number source.lens_length_mm_in_mode }
@@ -128,6 +135,7 @@ let compile (source: FlyConfigFile) =
       "boost_multiplier", source.boost_multiplier
       "slow_multiplier", source.slow_multiplier
       "pivot_speed_multiplier", source.pivot_speed_multiplier
+      "mouse_pivot_multiplier", source.mouse_pivot_multiplier
       "mouse_sensitivity", source.mouse_sensitivity
       "vertical_speed_multiplier", source.vertical_speed_multiplier ]
     |> List.iter (fun (name: string, value: float) -> positive name value)
@@ -172,6 +180,7 @@ let compile (source: FlyConfigFile) =
           boost_multiplier = source.boost_multiplier
           slow_multiplier = source.slow_multiplier
           pivot_speed_multiplier = source.pivot_speed_multiplier
+          mouse_pivot_multiplier = source.mouse_pivot_multiplier
           mouse_sensitivity =
             source.mouse_sensitivity
             |> ConfigMouseSensitivity
@@ -187,6 +196,9 @@ let compile (source: FlyConfigFile) =
           exit_on_mouse_left = source.exit_on_mouse_left
           exit_on_mouse_right = source.exit_on_mouse_right
           exit_on_mouse_middle = source.exit_on_mouse_middle
+          middle_mouse_toggles_pivot_while_flying = source.middle_mouse_toggles_pivot_while_flying
+          mouse4_toggles_pivot_while_flying = source.mouse4_toggles_pivot_while_flying
+          mouse5_toggles_pivot_while_flying = source.mouse5_toggles_pivot_while_flying
           boost_hold_instead_of_toggle = source.boost_hold_instead_of_toggle
           slow_hold_instead_of_toggle = source.slow_hold_instead_of_toggle
           vertical_speed_multiplier = source.vertical_speed_multiplier

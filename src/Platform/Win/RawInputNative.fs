@@ -46,6 +46,12 @@ let right_button_down = 0x0004us
 let middle_button_down = 0x0010us
 
 [<Literal>]
+let button_4_down = 0x0040us
+
+[<Literal>]
+let button_5_down = 0x0100us
+
+[<Literal>]
 let mouse_wheel = 0x0400us
 
 [<Literal>]

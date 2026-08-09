@@ -36,6 +36,7 @@ type SettingsControl() as self =
     let slowMultiplier = text_box ()
     let verticalSpeedMultiplier = text_box ()
     let pivotSpeedMultiplier = text_box ()
+    let mousePivotMultiplier = text_box ()
     let mouseSensitivity = text_box ()
     let lensLength = text_box ()
 
@@ -67,6 +68,16 @@ type SettingsControl() as self =
     let exitOnMouseLeft = new CheckBox(Text = "Left mouse button exits fly mode")
     let exitOnMouseRight = new CheckBox(Text = "Right mouse button exits fly mode")
     let exitOnMouseMiddle = new CheckBox(Text = "Middle mouse button exits fly mode")
+
+    let middleMouseTogglesPivot =
+        new CheckBox(Text = "Middle mouse toggles pivot while flying")
+
+    let mouse4TogglesPivotWhileFlying =
+        new CheckBox(Text = "Mouse 4 toggles pivot while flying")
+
+    let mouse5TogglesPivotWhileFlying =
+        new CheckBox(Text = "Mouse 5 toggles pivot while flying")
+
     let hijackRightClick = new CheckBox(Text = "Hijack right click")
 
     let hijackRightClickDuringCommands =
@@ -81,8 +92,10 @@ type SettingsControl() as self =
     let mouseButtonOverridesEnabled =
         new CheckBox(Text = "Enable mouse button overrides")
 
-    let mouse4AsMiddle = new CheckBox(Text = "Mouse 4 pivots")
-    let mouse5AsMiddle = new CheckBox(Text = "Mouse 5 pivots")
+    let mouse4AsMiddle = new CheckBox(Text = "Mouse 4 held pivots")
+    let mouse5AsMiddle = new CheckBox(Text = "Mouse 5 held pivots")
+    let mouse4TogglesMiddle = new CheckBox(Text = "Mouse 4 toggle pivots")
+    let mouse5TogglesMiddle = new CheckBox(Text = "Mouse 5 toggle pivots")
 
     let shiftRightClickTogglesView = new CheckBox(Text = "Shift + right click pivots")
 
@@ -106,6 +119,9 @@ type SettingsControl() as self =
     let mutable lensText = "Unavailable"
     let optionsIcon = SettingsUi.load_icon ()
     let bindingCapture = BindingCapture.create ()
+
+    let format_runtime_number (value: float) =
+        value.ToString("0.######", CultureInfo.InvariantCulture)
 
     let is_checked (control: CheckBox) = control.Checked.GetValueOrDefault()
 
@@ -142,6 +158,8 @@ type SettingsControl() as self =
         let enabled = is_checked mouseButtonOverridesEnabled
         mouse4AsMiddle.Enabled <- enabled
         mouse5AsMiddle.Enabled <- enabled
+        mouse4TogglesMiddle.Enabled <- enabled
+        mouse5TogglesMiddle.Enabled <- enabled
         shiftRightClickTogglesView.Enabled <- enabled
         altRightClickTogglesView.Enabled <- enabled
         shiftRightClickPans.Enabled <- enabled
@@ -201,9 +219,9 @@ type SettingsControl() as self =
             3
             [ pluginEnabled
               normalizeDiagonal
+              commandsDoNotRepeat
               boostHold
               slowHold
-              commandsDoNotRepeat
               saveSpeedToDocument
               loadSpeedFromDocument
               hideGumball
@@ -221,11 +239,12 @@ type SettingsControl() as self =
 
         SettingsLayout.grid
             3
-            [ invertMouseX
+            [ wheelChangesSpeed
+              invertMouseX
               invertMouseY
-              wheelChangesSpeed
               exitOnMouseLeft
-              exitOnMouseMiddle ]
+              exitOnMouseMiddle
+              middleMouseTogglesPivot ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
@@ -260,7 +279,8 @@ type SettingsControl() as self =
               SettingsLayout.item "Boost multiplier" boostMultiplier
               SettingsLayout.item "Slow multiplier" slowMultiplier
               SettingsLayout.item "Move up/down multiplier" verticalSpeedMultiplier
-              SettingsLayout.item "Pivot speed multiplier" pivotSpeedMultiplier
+              SettingsLayout.item "Key pivot speed multi" pivotSpeedMultiplier
+              SettingsLayout.item "Fly + pivot sens multi" mousePivotMultiplier
               SettingsLayout.item "Mouse sensitivity" mouseSensitivity
               SettingsLayout.item "Force lens length" lensLength ]
         |> SettingsLayout.full_width
@@ -276,15 +296,13 @@ type SettingsControl() as self =
         mainTable.Rows.Add(
             SettingsLayout.full_width (
                 SettingsLayout.heading
-                    "Override mouse behavior (Uses middle mouse button pan/rotate settings from Rhino itself)"
+                    "Mouse override behavior (Uses middle mouse button pan/rotate settings from Rhino itself)"
             )
         )
 
         SettingsLayout.grid
             3
             [ mouseButtonOverridesEnabled
-              mouse4AsMiddle
-              mouse5AsMiddle
               shiftRightClickTogglesView
               shiftRightClickPans
               altRightClickTogglesView
@@ -294,8 +312,25 @@ type SettingsControl() as self =
 
         mainTable.Rows.Add(
             SettingsLayout.full_width (
-                SettingsLayout.note "Pivots: release the buttons, move the mouse, then right click to stop."
+                SettingsLayout.note "Right click pivots stop with right click. Alt pan starts after Alt is released."
             )
+        )
+
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Mouse 4/5 override behavior"))
+
+        SettingsLayout.grid
+            3
+            [ mouse4TogglesMiddle
+              mouse4TogglesPivotWhileFlying
+              mouse4AsMiddle
+              mouse5TogglesMiddle
+              mouse5TogglesPivotWhileFlying
+              mouse5AsMiddle ]
+        |> SettingsLayout.full_width
+        |> mainTable.Rows.Add
+
+        mainTable.Rows.Add(
+            SettingsLayout.full_width (SettingsLayout.note "Toggle pivots stop with the same side button.")
         )
 
         mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Status"))
@@ -321,6 +356,19 @@ type SettingsControl() as self =
 
         mouseButtonOverridesEnabled.CheckedChanged.Add(fun (_: EventArgs) -> refresh_mouse_override_controls ())
         hijackRightClick.CheckedChanged.Add(fun (_: EventArgs) -> refresh_right_click_controls ())
+
+        let make_exclusive (left: CheckBox) (right: CheckBox) =
+            left.CheckedChanged.Add(fun (_: EventArgs) ->
+                if is_checked left then
+                    set_checked right false)
+
+            right.CheckedChanged.Add(fun (_: EventArgs) ->
+                if is_checked right then
+                    set_checked left false)
+
+        make_exclusive mouse4AsMiddle mouse4TogglesMiddle
+        make_exclusive mouse5AsMiddle mouse5TogglesMiddle
+        make_exclusive exitOnMouseMiddle middleMouseTogglesPivot
 
         refresh_mouse_override_controls ()
         refresh_right_click_controls ()
@@ -375,11 +423,11 @@ type SettingsControl() as self =
         refresh_status ()
 
     member _.ShowRuntimeState(speed: float, lens: float option) =
-        speedText <- ConfigSchema.format_number speed
+        speedText <- format_runtime_number speed
 
         lensText <-
             match lens with
-            | Some value -> $"{ConfigSchema.format_number value} mm"
+            | Some value -> $"{format_runtime_number value} mm"
             | None -> "Unavailable"
 
         refresh_status ()
@@ -411,6 +459,7 @@ type SettingsControl() as self =
         slowMultiplier.Text <- ConfigSchema.format_number config.slow_multiplier
         verticalSpeedMultiplier.Text <- ConfigSchema.format_number config.vertical_speed_multiplier
         pivotSpeedMultiplier.Text <- ConfigSchema.format_number config.pivot_speed_multiplier
+        mousePivotMultiplier.Text <- ConfigSchema.format_number config.mouse_pivot_multiplier
         mouseSensitivity.Text <- ConfigSchema.format_number config.mouse_sensitivity
         lensLength.Text <- ConfigSchema.format_number config.lens_length_mm_in_mode
         viewportRedrawMode.SelectedIndex <- redraw_mode_index config.viewport_redraw_mode
@@ -425,6 +474,9 @@ type SettingsControl() as self =
         set_checked exitOnMouseLeft config.exit_on_mouse_left
         set_checked exitOnMouseRight config.exit_on_mouse_right
         set_checked exitOnMouseMiddle config.exit_on_mouse_middle
+        set_checked middleMouseTogglesPivot config.middle_mouse_toggles_pivot_while_flying
+        set_checked mouse4TogglesPivotWhileFlying config.mouse4_toggles_pivot_while_flying
+        set_checked mouse5TogglesPivotWhileFlying config.mouse5_toggles_pivot_while_flying
         set_checked hijackRightClick config.hijack_right_click_to_enter
         set_checked hijackRightClickDuringCommands config.hijack_right_click_during_commands
         refresh_right_click_controls ()
@@ -432,6 +484,8 @@ type SettingsControl() as self =
         set_checked mouseButtonOverridesEnabled config.mouse_button_overrides_enabled
         set_checked mouse4AsMiddle config.mouse4_acts_as_middle
         set_checked mouse5AsMiddle config.mouse5_acts_as_middle
+        set_checked mouse4TogglesMiddle config.mouse4_toggles_middle
+        set_checked mouse5TogglesMiddle config.mouse5_toggles_middle
         set_checked shiftRightClickTogglesView config.shift_right_click_toggles_view
         set_checked altRightClickTogglesView config.alt_right_click_toggles_view
         set_checked shiftRightClickPans config.shift_right_click_pans
@@ -449,7 +503,8 @@ type SettingsControl() as self =
             parse_number "Boost multiplier" boostMultiplier,
             parse_number "Slow multiplier" slowMultiplier,
             parse_number "Move up/down multiplier" verticalSpeedMultiplier,
-            parse_number "Pivot speed multiplier" pivotSpeedMultiplier,
+            parse_number "Key pivot speed multi" pivotSpeedMultiplier,
+            parse_number "Fly + pivot sens multi" mousePivotMultiplier,
             parse_number "Mouse sensitivity" mouseSensitivity,
             parse_number "Lens length" lensLength
         with
@@ -461,6 +516,7 @@ type SettingsControl() as self =
           Ok slowValue,
           Ok verticalValue,
           Ok pivotValue,
+          Ok mousePivotValue,
           Ok sensitivityValue,
           Ok lensValue ->
             Ok
@@ -486,6 +542,7 @@ type SettingsControl() as self =
                   boost_multiplier = boostValue
                   slow_multiplier = slowValue
                   pivot_speed_multiplier = pivotValue
+                  mouse_pivot_multiplier = mousePivotValue
                   mouse_sensitivity = sensitivityValue
                   invert_mouse_x = is_checked invertMouseX
                   invert_mouse_y = is_checked invertMouseY
@@ -498,12 +555,17 @@ type SettingsControl() as self =
                   exit_on_mouse_left = is_checked exitOnMouseLeft
                   exit_on_mouse_right = is_checked exitOnMouseRight
                   exit_on_mouse_middle = is_checked exitOnMouseMiddle
+                  middle_mouse_toggles_pivot_while_flying = is_checked middleMouseTogglesPivot
+                  mouse4_toggles_pivot_while_flying = is_checked mouse4TogglesPivotWhileFlying
+                  mouse5_toggles_pivot_while_flying = is_checked mouse5TogglesPivotWhileFlying
                   hijack_right_click_to_enter = is_checked hijackRightClick
                   hijack_right_click_during_commands = is_checked hijackRightClickDuringCommands
                   commands_do_not_repeat = is_checked commandsDoNotRepeat
                   mouse_button_overrides_enabled = is_checked mouseButtonOverridesEnabled
                   mouse4_acts_as_middle = is_checked mouse4AsMiddle
                   mouse5_acts_as_middle = is_checked mouse5AsMiddle
+                  mouse4_toggles_middle = is_checked mouse4TogglesMiddle
+                  mouse5_toggles_middle = is_checked mouse5TogglesMiddle
                   shift_right_click_toggles_view = is_checked shiftRightClickTogglesView
                   alt_right_click_toggles_view = is_checked altRightClickTogglesView
                   shift_right_click_pans = is_checked shiftRightClickPans
@@ -513,8 +575,8 @@ type SettingsControl() as self =
                   vertical_speed_multiplier = verticalValue
                   lens_length_mm_in_mode = lensValue
                   viewport_redraw_mode = selected_redraw_mode () }
-        | a, b, c, d, e, f, g, h, i, j ->
-            [ a; b; c; d; e; f; g; h; i; j ]
+        | a, b, c, d, e, f, g, h, i, j, k ->
+            [ a; b; c; d; e; f; g; h; i; j; k ]
             |> List.choose (function
                 | Error error -> Some error
                 | Ok _ -> None)

@@ -1,15 +1,62 @@
 module RhinosCanFly.FlightCamera
 
+open Rhino
 open Rhino.Display
+open Rhino.Geometry
 
-let apply_mouse_look (input: InputAccumulator.State) (state: FlyState) =
+let pivot_target (view: RhinoView) (gumballTarget: Point3d option) =
+    match gumballTarget with
+    | Some target -> target
+    | None ->
+        let viewport = view.ActiveViewport
+        let cameraLocation = viewport.CameraLocation
+        let cameraTarget = viewport.CameraTarget
+        let mutable cameraDirection = viewport.CameraDirection
+        let visibleBounds = view.Document.Objects.BoundingBoxVisible
+        let mutable nearDistance = 0.
+        let mutable farDistance = 0.
+
+        if
+            cameraDirection.Unitize()
+            && visibleBounds.IsValid
+            && viewport.GetDepth(visibleBounds, &nearDistance, &farDistance)
+            && RhinoMath.IsValidDouble nearDistance
+            && RhinoMath.IsValidDouble farDistance
+            && farDistance > RhinoMath.ZeroTolerance
+        then
+            let targetDepth = Vector3d.Multiply(cameraTarget - cameraLocation, cameraDirection)
+
+            if
+                not (RhinoMath.IsValidDouble targetDepth)
+                || targetDepth < nearDistance
+                || targetDepth > farDistance
+            then
+                cameraLocation + cameraDirection * ((nearDistance + farDistance) / 2.)
+            else
+                cameraTarget
+        else
+            cameraTarget
+
+let update_mouse_navigation (input: InputAccumulator.State) (state: FlyState) =
+    if InputAccumulator.drain_pivot_toggles input % 2 <> 0 then
+        state.mouse_navigation <-
+            match state.mouse_navigation with
+            | MouseLook -> MousePivot(pivot_target state.view state.gumball_pivot_target)
+            | MousePivot _ -> MouseLook
+
+let apply_mouse_input (input: InputAccumulator.State) (state: FlyState) =
     let dx, dy = InputAccumulator.drain_mouse input
 
     if dx = 0L && dy = 0L then
-        false
+        None
     else
-        state.camera <- Movement.look state.config dx dy state.camera
-        true
+        match state.mouse_navigation with
+        | MouseLook ->
+            state.camera <- Movement.look state.config dx dy state.camera
+            Some DirectionChanged
+        | MousePivot target ->
+            state.camera <- Movement.mouse_pivot state.config target dx dy state.camera
+            Some PositionAndDirectionChanged
 
 let redraw (mode: ViewportRedrawMode) (view: RhinoView) = FlightRedraw.redraw mode view
 

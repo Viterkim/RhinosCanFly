@@ -72,10 +72,26 @@ type RawInputReceiver(config: FlyConfig, input: InputAccumulator.State, inputAva
         if flags &&& RawInputNative.mouse_wheel <> 0us then
             InputAccumulator.add_wheel (RawInputNative.signed_button_data mouse) input
 
+        let middlePivotRequested =
+            config.middle_mouse_toggles_pivot_while_flying
+            && flags &&& RawInputNative.middle_button_down <> 0us
+
+        let mouse4PivotRequested =
+            config.mouse4_toggles_pivot_while_flying
+            && flags &&& RawInputNative.button_4_down <> 0us
+
+        let mouse5PivotRequested =
+            config.mouse5_toggles_pivot_while_flying
+            && flags &&& RawInputNative.button_5_down <> 0us
+
+        if middlePivotRequested || mouse4PivotRequested || mouse5PivotRequested then
+            InputAccumulator.request_pivot_toggle input
+
         if
             config.exit_on_mouse_left && flags &&& RawInputNative.left_button_down <> 0us
             || config.exit_on_mouse_right && flags &&& RawInputNative.right_button_down <> 0us
             || config.exit_on_mouse_middle
+               && not config.middle_mouse_toggles_pivot_while_flying
                && flags &&& RawInputNative.middle_button_down <> 0us
         then
             InputAccumulator.request_exit input
