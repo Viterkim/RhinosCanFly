@@ -71,9 +71,10 @@ let make_state (view: RhinoView) (config: FlyConfig) =
       original_cursor = original_cursor
       original_lens_length = viewport.Camera35mmLensLength
       gumball_pivot_target = gumballPivotTarget
-      pivot_target = viewport.CameraTarget
+      pivot_target = FlightCamera.pivot_target view gumballPivotTarget
       pivot_direction = NoPivot
       pivot_input_state = WaitingForNeutralPivotInput
+      mouse_navigation = MouseLook
       running = true
       camera =
         { position = viewport.CameraLocation
@@ -109,9 +110,22 @@ let run_loop (rawInput: InputAccumulator.State) (state: FlyState) =
 
         RhinoApp.Wait()
 
-        let mouseChanged = FlightCamera.apply_mouse_look rawInput state
-        let mutable movementChanged = false
-        let mutable directionChanged = mouseChanged
+        FlightCamera.update_mouse_navigation rawInput state
+        let mouseChange = FlightCamera.apply_mouse_input rawInput state
+
+        let mutable movementChanged =
+            match mouseChange with
+            | Some PositionChanged
+            | Some PositionAndDirectionChanged -> true
+            | Some DirectionChanged
+            | None -> false
+
+        let mutable directionChanged =
+            match mouseChange with
+            | Some DirectionChanged
+            | Some PositionAndDirectionChanged -> true
+            | Some PositionChanged
+            | None -> false
 
         if state.running then
             match FlightControls.poll rawInput state with
@@ -132,7 +146,7 @@ let run_loop (rawInput: InputAccumulator.State) (state: FlyState) =
                 let pivotDirection = FlightInput.pivot_direction movement
 
                 if pivotDirection <> NoPivot && pivotDirection <> state.pivot_direction then
-                    state.pivot_target <- state.gumball_pivot_target |> Option.defaultValue state.viewport.CameraTarget
+                    state.pivot_target <- FlightCamera.pivot_target state.view state.gumball_pivot_target
 
                 state.pivot_direction <- pivotDirection
 
@@ -228,10 +242,11 @@ let run (view: RhinoView) (config: FlyConfig) =
                     | None -> ())
 
                 attempt_cleanup cleanupErrors "final mouse input" (fun () ->
-                    let mouseChanged = FlightCamera.apply_mouse_look rawInput state
+                    FlightCamera.update_mouse_navigation rawInput state
 
-                    if mouseChanged then
-                        FlightCamera.apply state DirectionChanged)
+                    match FlightCamera.apply_mouse_input rawInput state with
+                    | Some change -> FlightCamera.apply state change
+                    | None -> ())
 
                 if captured then
                     attempt_cleanup cleanupErrors "cursor clip" (fun () ->

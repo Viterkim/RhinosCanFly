@@ -38,17 +38,11 @@ let current
     =
     let documentSerialNumber = document_serial_number document
 
-    let sessionValue =
-        sessionSpeed |> Option.map (fun (session: SessionSpeed) -> session.value)
-
     let requestedSpeed =
         match sessionSpeed with
         | Some session when session.document_serial_number = documentSerialNumber -> session.value
-        | _ when loadFromDocument ->
-            try_document_speed document
-            |> Option.orElse sessionValue
-            |> Option.defaultValue fallback
-        | _ -> sessionValue |> Option.defaultValue fallback
+        | _ when loadFromDocument -> try_document_speed document |> Option.defaultValue fallback
+        | _ -> fallback
 
     Speed.allowed minimumSpeed maximumSpeed requestedSpeed
 

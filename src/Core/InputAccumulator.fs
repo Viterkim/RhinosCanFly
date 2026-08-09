@@ -6,12 +6,14 @@ type State =
     { mutable mouse_dx: int64
       mutable mouse_dy: int64
       mutable wheel_delta: int
+      mutable pivot_toggle_requests: int
       mutable exit_requested: int }
 
 let create () =
     { mouse_dx = 0L
       mouse_dy = 0L
       wheel_delta = 0
+      pivot_toggle_requests = 0
       exit_requested = 0 }
 
 let add_mouse (dx: int) (dy: int) (state: State) =
@@ -24,11 +26,17 @@ let add_wheel (delta: int) (state: State) =
 let request_exit (state: State) =
     Interlocked.Exchange(&state.exit_requested, 1) |> ignore
 
+let request_pivot_toggle (state: State) =
+    Interlocked.Increment(&state.pivot_toggle_requests) |> ignore
+
 let drain_mouse (state: State) =
     Interlocked.Exchange(&state.mouse_dx, 0L), Interlocked.Exchange(&state.mouse_dy, 0L)
 
 let drain_wheel (state: State) =
     Interlocked.Exchange(&state.wheel_delta, 0)
+
+let drain_pivot_toggles (state: State) =
+    Interlocked.Exchange(&state.pivot_toggle_requests, 0)
 
 let exit_requested (state: State) =
     Volatile.Read(&state.exit_requested) <> 0

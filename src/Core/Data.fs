@@ -27,6 +27,7 @@ type FlyConfigFile =
       boost_multiplier: float
       slow_multiplier: float
       pivot_speed_multiplier: float
+      mouse_pivot_multiplier: float
       mouse_sensitivity: float
       invert_mouse_x: bool
       invert_mouse_y: bool
@@ -39,12 +40,17 @@ type FlyConfigFile =
       exit_on_mouse_left: bool
       exit_on_mouse_right: bool
       exit_on_mouse_middle: bool
+      middle_mouse_toggles_pivot_while_flying: bool
+      mouse4_toggles_pivot_while_flying: bool
+      mouse5_toggles_pivot_while_flying: bool
       hijack_right_click_to_enter: bool
       hijack_right_click_during_commands: bool
       commands_do_not_repeat: bool
       mouse_button_overrides_enabled: bool
       mouse4_acts_as_middle: bool
       mouse5_acts_as_middle: bool
+      mouse4_toggles_middle: bool
+      mouse5_toggles_middle: bool
       shift_right_click_toggles_view: bool
       alt_right_click_toggles_view: bool
       shift_right_click_pans: bool
@@ -89,6 +95,7 @@ type FlyConfig =
       boost_multiplier: float
       slow_multiplier: float
       pivot_speed_multiplier: float
+      mouse_pivot_multiplier: float
       mouse_sensitivity: RuntimeMouseSensitivity
       invert_mouse_x: bool
       invert_mouse_y: bool
@@ -101,6 +108,9 @@ type FlyConfig =
       exit_on_mouse_left: bool
       exit_on_mouse_right: bool
       exit_on_mouse_middle: bool
+      middle_mouse_toggles_pivot_while_flying: bool
+      mouse4_toggles_pivot_while_flying: bool
+      mouse5_toggles_pivot_while_flying: bool
       boost_hold_instead_of_toggle: bool
       slow_hold_instead_of_toggle: bool
       vertical_speed_multiplier: float
@@ -131,6 +141,10 @@ type PivotInputState =
     | WaitingForNeutralPivotInput
     | PivotInputArmed
 
+type MouseNavigationMode =
+    | MouseLook
+    | MousePivot of target: Point3d
+
 type InputSnapshot =
     { forward: bool
       backward: bool
@@ -153,6 +167,7 @@ type FlyState =
       mutable pivot_target: Point3d
       mutable pivot_direction: PivotDirection
       mutable pivot_input_state: PivotInputState
+      mutable mouse_navigation: MouseNavigationMode
       mutable running: bool
       mutable camera: CameraState
       mutable speed: float
