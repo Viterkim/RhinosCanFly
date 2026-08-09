@@ -95,7 +95,7 @@ let make_state (view: RhinoView) (config: FlyConfig) =
       speed_decrease_was_down = FlightControls.is_optional_down config.speed_decrease }
 
 [<Literal>]
-let maximumFrameDeltaSeconds = 0.05
+let maximum_frame_delta_seconds = 0.05
 
 let run_loop (rawInput: InputAccumulator.State) (state: FlyState) =
     let clock = Stopwatch.StartNew()
@@ -151,7 +151,7 @@ let run_loop (rawInput: InputAccumulator.State) (state: FlyState) =
                 state.pivot_direction <- pivotDirection
 
                 if movementActive && currentlyMoving then
-                    let dt = min (now - previousFrame) maximumFrameDeltaSeconds
+                    let dt = min (now - previousFrame) maximum_frame_delta_seconds
 
                     state.camera <- Movement.step state.config movement state.pivot_target dt state.camera
                     movementChanged <- true

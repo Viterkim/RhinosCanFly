@@ -20,6 +20,7 @@ let direction_from_angles (yaw: float) (pitch: float) =
 
 let maximum_orbit_angle_per_frame = Math.PI / 2.
 let keyboard_pivot_radians_per_second = Math.PI / 6.
+let maximum_pitch_radians = RhinoMath.ToRadians 89.
 
 type MouseRotation =
     { yaw_delta: float; pitch_delta: float }
@@ -33,8 +34,7 @@ let mouse_rotation (config: FlyConfig) (multiplier: float) (mouseDx: int64) (mou
     let requestedPitch =
         camera.pitch + float mouseDy * sensitivity * vertical_sign * multiplier
 
-    let limit = RhinoMath.ToRadians 89.
-    let pitch = clamp -limit limit requestedPitch
+    let pitch = clamp -maximum_pitch_radians maximum_pitch_radians requestedPitch
 
     { yaw_delta = yawDelta
       pitch_delta = pitch - camera.pitch }

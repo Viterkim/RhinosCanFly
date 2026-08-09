@@ -511,19 +511,25 @@ let handle_button_down (button: SideButton) (position: Point) (window: nativeint
     | Drag -> begin_drag button position
     | Toggle -> toggle_button button window
 
-let update_button_from_move (button: SideButton) (position: Point) (window: nativeint) =
+let event_root_window (event: MouseCallbackEventArgs) =
+    if isNull event.View then
+        Win32.GetForegroundWindow()
+    else
+        root_window event.View.Handle
+
+let update_button_from_move (button: SideButton) (event: MouseCallbackEventArgs) =
     match mode_for button with
     | Disabled -> ()
     | Drag ->
         if is_down button then
-            begin_drag button position
-            update_button_drag button position
+            begin_drag button event.ViewportPoint
+            update_button_drag button event.ViewportPoint
         else
             finish_button button
     | Toggle ->
         match get_button_state button, is_down button with
         | Released, true
-        | ToggleLatched _, true -> toggle_button button window
+        | ToggleLatched _, true -> toggle_button button (event_root_window event)
         | TogglePressed _, false
         | ToggleReleasePressed, false -> finish_button button
         | Released, false
@@ -532,12 +538,6 @@ let update_button_from_move (button: SideButton) (position: Point) (window: nati
         | TogglePressed _, true
         | ToggleLatched _, false
         | ToggleReleasePressed, true -> ()
-
-let event_root_window (event: MouseCallbackEventArgs) =
-    if isNull event.View then
-        Win32.GetForegroundWindow()
-    else
-        root_window event.View.Handle
 
 type SideButtonCallback() =
     inherit MouseCallback()
@@ -554,9 +554,8 @@ type SideButtonCallback() =
 
     override _.OnMouseMove(event: MouseCallbackEventArgs) =
         try
-            let window = event_root_window event
-            update_button_from_move Mouse4 event.ViewportPoint window
-            update_button_from_move Mouse5 event.ViewportPoint window
+            update_button_from_move Mouse4 event
+            update_button_from_move Mouse5 event
         with error ->
             Debug.WriteLine $"RhinosCanFly mouse override callback: {error.Message}"
 
