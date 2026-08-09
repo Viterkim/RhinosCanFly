@@ -28,6 +28,8 @@ let set_cursor_position (point: Point) = Win32.set_cursor_position point
 
 let clear_mouse_hover (window: nativeint) = Win32.clear_mouse_hover window
 
+let dismiss_native_tooltips (window: nativeint) = Win32.dismiss_native_tooltips window
+
 let update_window (window: nativeint) = Win32.update_window window
 
 let redraw_window (window: nativeint) = Win32.redraw_window window

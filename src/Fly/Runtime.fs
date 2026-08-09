@@ -200,6 +200,8 @@ let run (view: RhinoView) (config: FlyConfig) =
                     try
                         CursorTooltipSettings.TooltipsEnabled <- false
                         tooltipsChanged <- true
+                        PlatformInput.clear_mouse_hover view.Handle
+                        PlatformInput.dismiss_native_tooltips state.root_window
 
                         if state.config.hide_gumball_while_flying && originalGumballEnabled then
                             ModelAidSettings.AutoGumballEnabled <- false
@@ -224,7 +226,6 @@ let run (view: RhinoView) (config: FlyConfig) =
                         rawInputClean <- false
                         PlatformInput.hide_cursor ()
                         cursorHidden <- true
-                        PlatformInput.clear_mouse_hover view.Handle
                         FlightCamera.apply_entry_lens state
                         FlightCamera.redraw state.config.viewport_redraw_mode view
                         run_loop rawInput state

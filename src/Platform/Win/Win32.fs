@@ -6,9 +6,16 @@ open System
 open System.ComponentModel
 open System.Drawing
 open System.Runtime.InteropServices
+open System.Text
 
 [<Literal>]
 let WM_MOUSELEAVE = 0x02A3
+
+[<Literal>]
+let TTM_POP = 0x041C
+
+[<Literal>]
+let TOOLTIP_WINDOW_CLASS = "tooltips_class32"
 
 [<Literal>]
 let INPUT_MOUSE = 0u
@@ -127,6 +134,8 @@ type NativeInput =
     val mutable input_type: uint32
     val mutable data: InputData
 
+type EnumThreadWindowCallback = delegate of nativeint * nativeint -> bool
+
 [<DllImport("user32.dll")>]
 extern int16 GetAsyncKeyState(int virtual_key)
 
@@ -156,6 +165,18 @@ extern nativeint GetAncestor(nativeint window, uint32 flags)
 
 [<DllImport("user32.dll")>]
 extern nativeint SendMessage(nativeint window, int message, nativeint wparam, nativeint lparam)
+
+[<DllImport("user32.dll")>]
+extern uint32 GetWindowThreadProcessId(nativeint window, uint32& process_id)
+
+[<DllImport("user32.dll", CharSet = CharSet.Unicode)>]
+extern int GetClassName(nativeint window, StringBuilder class_name, int maximum_count)
+
+[<DllImport("user32.dll")>]
+extern bool IsWindowVisible(nativeint window)
+
+[<DllImport("user32.dll")>]
+extern bool EnumThreadWindows(uint32 thread_id, EnumThreadWindowCallback callback, nativeint state)
 
 [<DllImport("user32.dll", SetLastError = true)>]
 extern uint32 SendInput(uint32 input_count, NativeInput[] inputs, int input_size)
@@ -216,6 +237,30 @@ let clear_cursor_clip () =
 
 let clear_mouse_hover (window: nativeint) =
     SendMessage(window, WM_MOUSELEAVE, nativeint 0, nativeint 0) |> ignore
+
+let dismiss_native_tooltips (window: nativeint) =
+    let mutable processId = 0u
+    let threadId = GetWindowThreadProcessId(window, &processId)
+
+    if threadId <> 0u then
+        let callback =
+            EnumThreadWindowCallback(fun (candidate: nativeint) (_state: nativeint) ->
+                if IsWindowVisible candidate then
+                    let className = StringBuilder(64)
+
+                    if
+                        GetClassName(candidate, className, className.Capacity) > 0
+                        && String.Equals(
+                            className.ToString(),
+                            TOOLTIP_WINDOW_CLASS,
+                            StringComparison.OrdinalIgnoreCase
+                        )
+                    then
+                        SendMessage(candidate, TTM_POP, nativeint 0, nativeint 0) |> ignore
+
+                true)
+
+        EnumThreadWindows(threadId, callback, nativeint 0) |> ignore
 
 let update_window (window: nativeint) =
     if UpdateWindow window then
