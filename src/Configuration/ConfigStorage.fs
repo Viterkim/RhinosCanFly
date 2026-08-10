@@ -4,14 +4,19 @@ open System
 open System.IO
 open System.Text.Json
 open System.Text.Json.Nodes
+open System.Text.Json.Serialization
 
 let options =
-    JsonSerializerOptions(
-        PropertyNameCaseInsensitive = true,
-        AllowTrailingCommas = true,
-        ReadCommentHandling = JsonCommentHandling.Skip,
-        WriteIndented = true
-    )
+    let value =
+        JsonSerializerOptions(
+            PropertyNameCaseInsensitive = true,
+            AllowTrailingCommas = true,
+            ReadCommentHandling = JsonCommentHandling.Skip,
+            WriteIndented = true
+        )
+
+    value.Converters.Add(new JsonStringEnumConverter(null, false))
+    value
 
 let mutable settingsRoot: string option = None
 
@@ -52,7 +57,7 @@ let load () =
 
         let messages = ResizeArray<string>()
         let mutable changed = created
-        let beforeNormalization = json.ToJsonString()
+        let beforeRepair = json.ToJsonString()
 
         if created then
             messages.Add $"created config at {configPath}"
@@ -86,7 +91,7 @@ let load () =
                 added <- added + 1
                 changed <- true
 
-        if json.ToJsonString() <> beforeNormalization then
+        if json.ToJsonString() <> beforeRepair then
             changed <- true
 
         if added > 0 then

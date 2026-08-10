@@ -15,13 +15,23 @@ let apply (config: FlyConfigFile) =
             config
         else
             { config with
-                mouse_button_overrides_enabled = false }
+                mouse4_pivot_mode = MouseButtonPivotMode.Off
+                mouse5_pivot_mode = MouseButtonPivotMode.Off
+                shift_right_click_mode = ModifiedRightClickMode.Off
+                alt_right_click_mode = ModifiedRightClickMode.Off }
 
     let mouseButtonResult = PlatformInput.apply_mouse_button_overrides activeConfig
 
+    let entryEnabled, enterDuringCommands =
+        match config.right_click_entry_mode with
+        | RightClickEntryMode.Off -> false, false
+        | RightClickEntryMode.EnterFlying -> true, false
+        | RightClickEntryMode.EnterFlyingDuringCommands -> true, true
+        | _ -> false, false
+
     RightClickEntry.configure
-        (config.enabled && config.hijack_right_click_to_enter)
-        config.hijack_right_click_during_commands
+        (config.enabled && entryEnabled)
+        enterDuringCommands
         (config.enabled && PlatformInput.mouse_button_right_click_enabled ())
 
     RepeatBehavior.apply config.commands_do_not_repeat

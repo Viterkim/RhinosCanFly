@@ -37,45 +37,66 @@ let pivot_target (view: RhinoView) (gumballTarget: Point3d option) =
         else
             cameraTarget
 
-let update_mouse_navigation (input: InputAccumulator.State) (state: FlyState) =
+let update_navigation_mode (input: InputAccumulator.State) (state: FlyState) =
     if InputAccumulator.drain_pivot_toggles input % 2 <> 0 then
-        state.mouse_navigation <-
-            match state.mouse_navigation with
-            | MouseLook -> MousePivot(pivot_target state.view state.gumball_pivot_target)
-            | MousePivot _ -> MouseLook
+        state.pivot_latched <- not state.pivot_latched
+
+    let pivotActive =
+        state.pivot_latched
+        || state.keyboard_pivot_held
+        || InputAccumulator.pivot_held input
+
+    state.mouse_navigation <-
+        match state.mouse_navigation, pivotActive with
+        | MouseLook, true -> MousePivot(pivot_target state.view state.gumball_pivot_target)
+        | MousePivot _, false -> MouseLook
+        | navigation, _ -> navigation
 
 let apply_mouse_input (input: InputAccumulator.State) (state: FlyState) =
-    let dx, dy = InputAccumulator.drain_mouse input
+    let struct (dx, dy) = InputAccumulator.drain_mouse input
 
     if dx = 0L && dy = 0L then
-        None
+        NoCameraChange
     else
         match state.mouse_navigation with
         | MouseLook ->
             state.camera <- Movement.look state.config dx dy state.camera
-            Some DirectionChanged
+            DirectionChanged
         | MousePivot target ->
             state.camera <- Movement.mouse_pivot state.config target dx dy state.camera
-            Some PositionAndDirectionChanged
-
-let redraw (mode: ViewportRedrawMode) (view: RhinoView) = FlightRedraw.redraw mode view
+            PositionAndDirectionChanged
 
 let apply (state: FlyState) (change: CameraChange) =
-    match change with
-    | PositionChanged -> state.viewport.SetCameraLocation(state.camera.position, true)
-    | DirectionChanged ->
-        let direction = Movement.direction_from_angles state.camera.yaw state.camera.pitch
-        state.viewport.SetCameraDirection(direction, true)
-    | PositionAndDirectionChanged ->
-        state.viewport.SetCameraLocation(state.camera.position, true)
+    let changed =
+        match change with
+        | NoCameraChange -> false
+        | PositionChanged ->
+            state.viewport.SetCameraLocation(state.camera.position, true)
+            true
+        | DirectionChanged ->
+            let direction = Movement.direction_from_angles state.camera.yaw state.camera.pitch
+            state.viewport.SetCameraDirection(direction, true)
+            true
+        | PositionAndDirectionChanged ->
+            state.viewport.SetCameraLocation(state.camera.position, true)
 
-        let direction = Movement.direction_from_angles state.camera.yaw state.camera.pitch
-        state.viewport.SetCameraDirection(direction, true)
+            let direction = Movement.direction_from_angles state.camera.yaw state.camera.pitch
+            state.viewport.SetCameraDirection(direction, true)
+            true
 
-    redraw state.config.viewport_redraw_mode state.view
+    if changed then
+        FlightRedraw.redraw state.config.viewport_redraw_mode state.view
 
 let apply_entry_lens (state: FlyState) =
-    let lens = state.config.lens_length_mm_in_mode
+    let adjustment = state.config.lens_adjustment
 
-    if lens > 0. then
+    let forcedOrOriginal =
+        adjustment.forced_length_mm |> Option.defaultValue state.original_lens_length
+
+    let lens = forcedOrOriginal + adjustment.delta_mm
+
+    if Option.isSome adjustment.forced_length_mm || adjustment.delta_mm <> 0. then
+        if not (RhinoMath.IsValidDouble lens) || lens <= 0. then
+            failwith $"The configured lens adjustment produces an invalid lens length: {lens} mm"
+
         state.viewport.Camera35mmLensLength <- lens

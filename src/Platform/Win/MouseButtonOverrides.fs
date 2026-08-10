@@ -13,12 +13,11 @@ type ViewLatchMode =
 
 type SideButtonMode =
     | Disabled
-    | Drag
+    | Hold
     | Toggle
 
 type RoutingConfig =
-    { enabled: bool
-      mouse4: SideButtonMode
+    { mouse4: SideButtonMode
       mouse5: SideButtonMode
       shift_right_click: ViewLatchMode option
       alt_right_click: ViewLatchMode option }
@@ -30,7 +29,7 @@ type SideButton =
 type SideButtonState =
     | Released
     | WaitingForDrag of Point
-    | Routed
+    | HoldActive
     | TogglePressed of window: nativeint
     | ToggleLatched of window: nativeint
     | ToggleReleasePressed
@@ -66,19 +65,18 @@ type State =
       mutable mouse5: SideButtonState
       mutable view_latch: ViewLatch
       mutable synthetic_shift: SyntheticShiftState
-      mutable routed_modifiers_down: bool }
+      mutable middle_mouse_modifiers_down: bool }
 
 let dragSize = SystemInformation.DragSize
 
 [<Literal>]
-let releaseTimerIntervalMilliseconds = 15
+let pollTimerIntervalMilliseconds = 15
 
-let releaseTimer = new Timer(Interval = releaseTimerIntervalMilliseconds)
+let pollTimer = new Timer(Interval = pollTimerIntervalMilliseconds)
 
 let state =
     { routing =
-        { enabled = false
-          mouse4 = Disabled
+        { mouse4 = Disabled
           mouse5 = Disabled
           shift_right_click = None
           alt_right_click = None }
@@ -87,7 +85,7 @@ let state =
       mouse5 = Released
       view_latch = NoViewLatch
       synthetic_shift = ShiftReleased
-      routed_modifiers_down = false }
+      middle_mouse_modifiers_down = false }
 
 let get_button_state (button: SideButton) =
     match button with
@@ -105,19 +103,16 @@ let key (button: SideButton) =
     | Mouse5 -> Keys.XButton2
 
 let mode_for (button: SideButton) =
-    if state.routing.enabled then
-        match button with
-        | Mouse4 -> state.routing.mouse4
-        | Mouse5 -> state.routing.mouse5
-    else
-        Disabled
+    match button with
+    | Mouse4 -> state.routing.mouse4
+    | Mouse5 -> state.routing.mouse5
 
 let is_down (button: SideButton) =
     Win32.GetAsyncKeyState(int (key button)) < 0s
 
 let button_holds_middle (buttonState: SideButtonState) =
     match buttonState with
-    | Routed
+    | HoldActive
     | TogglePressed _
     | ToggleLatched _ -> true
     | Released
@@ -194,21 +189,21 @@ let event_has_button (button: SideButton) (buttons: MouseButtons) =
     buttons &&& expected = expected
 
 let keep_timer_running () =
-    if not releaseTimer.Enabled then
-        releaseTimer.Start()
+    if not pollTimer.Enabled then
+        pollTimer.Start()
 
 let stop_timer_if_idle () =
     if not (any_button_engaged ()) && not (view_latch_engaged ()) then
-        releaseTimer.Stop()
+        pollTimer.Stop()
 
-let begin_route (button: SideButton) =
+let begin_hold (button: SideButton) =
     if middle_mouse_down () then
-        set_button_state button Routed
+        set_button_state button HoldActive
     else
         match Win32.send_middle_mouse true with
         | Ok() ->
-            set_button_state button Routed
-            state.routed_modifiers_down <- view_modifier_down ()
+            set_button_state button HoldActive
+            state.middle_mouse_modifiers_down <- view_modifier_down ()
         | Error error -> Debug.WriteLine $"RhinosCanFly mouse override: {error}"
 
 let finish_button (button: SideButton) =
@@ -218,19 +213,19 @@ let finish_button (button: SideButton) =
     | TogglePressed window -> set_button_state button (ToggleLatched window)
     | ToggleLatched _ -> ()
     | ToggleReleasePressed -> set_button_state button Released
-    | Routed ->
+    | HoldActive ->
         set_button_state button Released
 
         if not (middle_mouse_down ()) then
             match Win32.send_middle_mouse false with
             | Ok() ->
-                state.routed_modifiers_down <- false
+                state.middle_mouse_modifiers_down <- false
 
                 match release_synthetic_shift () with
                 | Ok() -> ()
                 | Error error -> Debug.WriteLine $"RhinosCanFly mouse override: {error}"
             | Error error ->
-                set_button_state button Routed
+                set_button_state button HoldActive
                 Debug.WriteLine $"RhinosCanFly mouse override: {error}"
 
     stop_timer_if_idle ()
@@ -246,7 +241,7 @@ let release_all () =
     state.view_latch <- NoViewLatch
 
     if not hadMiddleMouseDown then
-        releaseTimer.Stop()
+        pollTimer.Stop()
         release_synthetic_shift ()
     else
         match Win32.send_middle_mouse false with
@@ -256,8 +251,8 @@ let release_all () =
             state.view_latch <- previousViewLatch
             Error error
         | Ok() ->
-            state.routed_modifiers_down <- false
-            releaseTimer.Stop()
+            state.middle_mouse_modifiers_down <- false
+            pollTimer.Stop()
             release_synthetic_shift ()
 
 let root_window (window: nativeint) =
@@ -318,7 +313,7 @@ let handle_right_click (window: nativeint) =
         | Error error -> Error error
     | NoViewLatch ->
         match requested_view_latch_mode () with
-        | Some mode when state.routing.enabled && state.lifecycle = Available ->
+        | Some mode when state.lifecycle = Available ->
             state.view_latch <-
                 WaitingForRelease
                     { window = root_window window
@@ -331,9 +326,8 @@ let handle_right_click (window: nativeint) =
 
 let right_click_enabled () =
     view_latch_engaged ()
-    || (state.routing.enabled
-        && (Option.isSome state.routing.shift_right_click
-            || Option.isSome state.routing.alt_right_click))
+    || Option.isSome state.routing.shift_right_click
+    || Option.isSome state.routing.alt_right_click
 
 let begin_view_latch (window: nativeint) (mode: ViewLatchMode) =
     if any_button_holds_middle () then
@@ -438,16 +432,16 @@ let update_view_latch () =
             | Ok() -> ()
             | Error error -> Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
 
-let update_routed_modifiers () =
+let update_middle_mouse_modifiers () =
     if any_button_holds_middle () && not (view_latch_engaged ()) then
         let modifiersDown = view_modifier_down ()
 
-        if modifiersDown <> state.routed_modifiers_down then
+        if modifiersDown <> state.middle_mouse_modifiers_down then
             match Win32.send_middle_mouse false with
             | Error error -> Debug.WriteLine $"RhinosCanFly mouse override: {error}"
             | Ok() ->
                 match Win32.send_middle_mouse true with
-                | Ok() -> state.routed_modifiers_down <- modifiersDown
+                | Ok() -> state.middle_mouse_modifiers_down <- modifiersDown
                 | Error error -> Debug.WriteLine $"RhinosCanFly mouse override: {error}"
 
 let begin_drag (button: SideButton) (position: Point) =
@@ -455,12 +449,12 @@ let begin_drag (button: SideButton) (position: Point) =
         set_button_state button (WaitingForDrag position)
         keep_timer_running ()
 
-let update_button_drag (button: SideButton) (position: Point) =
+let update_hold_drag (button: SideButton) (position: Point) =
     match get_button_state button with
-    | WaitingForDrag start when moved_enough start position -> begin_route button
+    | WaitingForDrag start when moved_enough start position -> begin_hold button
     | Released
     | WaitingForDrag _
-    | Routed
+    | HoldActive
     | TogglePressed _
     | ToggleLatched _
     | ToggleReleasePressed -> ()
@@ -474,7 +468,7 @@ let stop_toggle (button: SideButton) (nextState: SideButtonState) =
     else
         match Win32.send_middle_mouse false with
         | Ok() ->
-            state.routed_modifiers_down <- false
+            state.middle_mouse_modifiers_down <- false
             stop_timer_if_idle ()
 
             match release_synthetic_shift () with
@@ -496,19 +490,19 @@ let toggle_button (button: SideButton) (window: nativeint) =
         else
             match Win32.send_middle_mouse true with
             | Ok() ->
-                state.routed_modifiers_down <- view_modifier_down ()
+                state.middle_mouse_modifiers_down <- view_modifier_down ()
                 start ()
             | Error error -> Debug.WriteLine $"RhinosCanFly mouse override: {error}"
     | ToggleLatched _ -> stop_toggle button ToggleReleasePressed
     | WaitingForDrag _
-    | Routed
+    | HoldActive
     | TogglePressed _
     | ToggleReleasePressed -> ()
 
 let handle_button_down (button: SideButton) (position: Point) (window: nativeint) =
     match mode_for button with
     | Disabled -> ()
-    | Drag -> begin_drag button position
+    | Hold -> begin_drag button position
     | Toggle -> toggle_button button window
 
 let event_root_window (event: MouseCallbackEventArgs) =
@@ -520,10 +514,10 @@ let event_root_window (event: MouseCallbackEventArgs) =
 let update_button_from_move (button: SideButton) (event: MouseCallbackEventArgs) =
     match mode_for button with
     | Disabled -> ()
-    | Drag ->
+    | Hold ->
         if is_down button then
             begin_drag button event.ViewportPoint
-            update_button_drag button event.ViewportPoint
+            update_hold_drag button event.ViewportPoint
         else
             finish_button button
     | Toggle ->
@@ -534,7 +528,7 @@ let update_button_from_move (button: SideButton) (event: MouseCallbackEventArgs)
         | ToggleReleasePressed, false -> finish_button button
         | Released, false
         | WaitingForDrag _, _
-        | Routed, _
+        | HoldActive, _
         | TogglePressed _, true
         | ToggleLatched _, false
         | ToggleReleasePressed, true -> ()
@@ -575,36 +569,40 @@ let poll_button (button: SideButton) =
     match get_button_state button with
     | Released -> ()
     | WaitingForDrag _
-    | Routed
+    | HoldActive
     | TogglePressed _
     | ToggleReleasePressed when not (is_down button) -> finish_button button
     | ToggleLatched window when Win32.GetForegroundWindow() <> window -> stop_toggle button Released
     | ToggleLatched _ when is_down button -> stop_toggle button ToggleReleasePressed
     | WaitingForDrag _
-    | Routed
+    | HoldActive
     | TogglePressed _
     | ToggleLatched _
     | ToggleReleasePressed -> ()
 
-releaseTimer.Tick.Add(fun (_: EventArgs) ->
+pollTimer.Tick.Add(fun (_: EventArgs) ->
     try
         poll_button Mouse4
         poll_button Mouse5
 
         update_view_latch ()
-        update_routed_modifiers ()
+        update_middle_mouse_modifiers ()
     with error ->
         Debug.WriteLine $"RhinosCanFly mouse override timer: {error.Message}")
 
-let configured_view_latch_mode (pivotEnabled: bool) (panEnabled: bool) =
-    if panEnabled then Some Pan
-    elif pivotEnabled then Some Pivot
-    else None
+let configured_view_latch_mode (mode: ModifiedRightClickMode) =
+    match mode with
+    | ModifiedRightClickMode.Off -> None
+    | ModifiedRightClickMode.Pivot -> Some Pivot
+    | ModifiedRightClickMode.Pan -> Some Pan
+    | _ -> None
 
-let configured_side_button_mode (dragEnabled: bool) (toggleEnabled: bool) =
-    if toggleEnabled then Toggle
-    elif dragEnabled then Drag
-    else Disabled
+let configured_side_button_mode (mode: MouseButtonPivotMode) =
+    match mode with
+    | MouseButtonPivotMode.Off -> Disabled
+    | MouseButtonPivotMode.Hold -> Hold
+    | MouseButtonPivotMode.Toggle -> Toggle
+    | _ -> Disabled
 
 let side_button_routing_enabled () =
     state.routing.mouse4 <> Disabled || state.routing.mouse5 <> Disabled
@@ -617,18 +615,12 @@ let apply (source: FlyConfigFile) =
         | Error error -> Error error
         | Ok() ->
             state.routing <-
-                { enabled = source.mouse_button_overrides_enabled
-                  mouse4 = configured_side_button_mode source.mouse4_acts_as_middle source.mouse4_toggles_middle
-                  mouse5 = configured_side_button_mode source.mouse5_acts_as_middle source.mouse5_toggles_middle
-                  shift_right_click =
-                    configured_view_latch_mode source.shift_right_click_toggles_view source.shift_right_click_pans
-                  alt_right_click =
-                    configured_view_latch_mode source.alt_right_click_toggles_view source.alt_right_click_pans }
+                { mouse4 = configured_side_button_mode source.mouse4_pivot_mode
+                  mouse5 = configured_side_button_mode source.mouse5_pivot_mode
+                  shift_right_click = configured_view_latch_mode source.shift_right_click_mode
+                  alt_right_click = configured_view_latch_mode source.alt_right_click_mode }
 
-            callback.Enabled <-
-                state.lifecycle = Available
-                && state.routing.enabled
-                && side_button_routing_enabled ()
+            callback.Enabled <- state.lifecycle = Available && side_button_routing_enabled ()
 
             Ok()
 
@@ -645,7 +637,7 @@ let resume () =
     if state.lifecycle <> ShutDown then
         state.lifecycle <- Available
 
-        callback.Enabled <- state.routing.enabled && side_button_routing_enabled ()
+        callback.Enabled <- side_button_routing_enabled ()
 
 let shutdown () =
     if state.lifecycle <> ShutDown then
@@ -656,4 +648,4 @@ let shutdown () =
         | Ok() -> ()
         | Error error -> Debug.WriteLine $"RhinosCanFly mouse override shutdown: {error}"
 
-        releaseTimer.Dispose()
+        pollTimer.Dispose()

@@ -45,45 +45,28 @@ let hide_cursor () = Win32.ShowCursor false |> ignore
 let show_cursor () = Win32.ShowCursor true |> ignore
 
 type RawInputSession = RawInputThread.Session
-type InputWake = RawInputWake.State
 
-let create_raw_input_wake () = RawInputWake.create ()
+let create_raw_input_wake () =
+    let state = RawInputWake.create ()
+    let clearPending = Action(fun () -> RawInputWake.clear state)
 
-let raw_input_wake_action (wake: InputWake) =
-    Action(fun () -> RawInputWake.signal wake)
+    Action(fun () -> RawInputWake.signal clearPending state)
 
 let open_raw_input (config: FlyConfig) (input: InputAccumulator.State) (inputAvailable: Action) =
     RawInputThread.start config input inputAvailable
 
 let close_raw_input (session: RawInputSession) = RawInputThread.stop session
 
-let mutable mouseButtonOverridesInitialized = false
-
-let apply_mouse_button_overrides (config: FlyConfigFile) =
-    if config.mouse_button_overrides_enabled || mouseButtonOverridesInitialized then
-        mouseButtonOverridesInitialized <- true
-        MouseButtonOverrides.apply config
-    else
-        Ok()
+let apply_mouse_button_overrides (config: FlyConfigFile) = MouseButtonOverrides.apply config
 
 let mouse_button_right_click_enabled () =
-    mouseButtonOverridesInitialized && MouseButtonOverrides.right_click_enabled ()
+    MouseButtonOverrides.right_click_enabled ()
 
 let handle_view_manipulation_right_click (window: nativeint) =
-    if mouseButtonOverridesInitialized then
-        MouseButtonOverrides.handle_right_click window
-    else
-        Ok false
+    MouseButtonOverrides.handle_right_click window
 
-let suspend_mouse_button_overrides () =
-    if mouseButtonOverridesInitialized then
-        MouseButtonOverrides.suspend ()
+let suspend_mouse_button_overrides () = MouseButtonOverrides.suspend ()
 
-let resume_mouse_button_overrides () =
-    if mouseButtonOverridesInitialized then
-        MouseButtonOverrides.resume ()
+let resume_mouse_button_overrides () = MouseButtonOverrides.resume ()
 
-let shutdown_mouse_button_overrides () =
-    if mouseButtonOverridesInitialized then
-        MouseButtonOverrides.shutdown ()
-        mouseButtonOverridesInitialized <- false
+let shutdown_mouse_button_overrides () = MouseButtonOverrides.shutdown ()

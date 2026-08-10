@@ -10,7 +10,8 @@ type State =
     { focus_sink: Drawable
       side_button_timer: UITimer
       mutable active: Active option
-      mutable suppress_next_set_click: Button option }
+      mutable suppress_next_set_click: Button option
+      mutable disposed: bool }
 
 [<Literal>]
 let side_button_poll_interval_seconds = 0.015
@@ -24,7 +25,7 @@ let stop (state: State) =
 
     state.active <- None
 
-    if state.side_button_timer.Started then
+    if not state.disposed && state.side_button_timer.Started then
         state.side_button_timer.Stop()
 
 let complete (state: State) (binding: string) =
@@ -35,11 +36,12 @@ let complete (state: State) (binding: string) =
     | None -> ()
 
 let start (state: State) (field: TextBox) (button: Button) =
-    stop state
-    state.active <- Some { field = field; button = button }
-    button.Text <- "Press..."
-    button.Focus()
-    state.side_button_timer.Start()
+    if not state.disposed then
+        stop state
+        state.active <- Some { field = field; button = button }
+        button.Text <- "Press..."
+        button.Focus()
+        state.side_button_timer.Start()
 
 let editor (state: State) (field: TextBox) (defaultValue: string) =
     let setButton = new Button(Text = "Set...", Width = 62, Height = 24)
@@ -118,7 +120,8 @@ let create () =
         { focus_sink = new Drawable(CanFocus = true, Size = Size(1, 1))
           side_button_timer = new UITimer(Interval = side_button_poll_interval_seconds)
           active = None
-          suppress_next_set_click = None }
+          suppress_next_set_click = None
+          disposed = false }
 
     state.side_button_timer.Elapsed.Add(fun (_: EventArgs) ->
         PlatformBindings.try_side_mouse_binding () |> Option.iter (complete state))
@@ -126,5 +129,7 @@ let create () =
     state
 
 let dispose (state: State) =
-    stop state
-    state.side_button_timer.Dispose()
+    if not state.disposed then
+        stop state
+        state.disposed <- true
+        state.side_button_timer.Dispose()

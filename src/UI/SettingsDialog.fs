@@ -6,6 +6,9 @@ open Eto.Forms
 open Rhino
 open Rhino.UI
 
+module SettingsDialogPosition =
+    let mutable last_location: Point option = None
+
 type RhinosCanFlySettingsDialog() as self =
     inherit
         Dialog(Title = "Rhinos Can Fly Options", Size = Size(990, 990), MinimumSize = Size(650, 500), Resizable = true)
@@ -43,11 +46,16 @@ type RhinosCanFlySettingsDialog() as self =
 
         cancelButton.Click.Add(fun (_: EventArgs) -> self.Close())
 
-        self.Closed.Add(fun (_: EventArgs) -> windowIcon |> Option.iter (fun (icon: Icon) -> icon.Dispose()))
+        self.Closed.Add(fun (_: EventArgs) ->
+            SettingsDialogPosition.last_location <- Some self.Location
+            windowIcon |> Option.iter (fun (icon: Icon) -> icon.Dispose()))
 
         Settings.load control
 
     member _.ShowForRhino(document: RhinoDoc) =
+        SettingsDialogPosition.last_location
+        |> Option.iter (fun (location: Point) -> self.Location <- location)
+
         let parent =
             if isNull document then
                 RhinoEtoApp.MainWindow

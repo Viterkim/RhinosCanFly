@@ -22,7 +22,7 @@ let hasUntypedParameters (parameters: string) =
                 not (String.IsNullOrWhiteSpace parameter) && not (parameter.Contains ':'))
 
 let letPrefix =
-    @"^\s*let\s+(?!mutable\b)(?>(?:(?:rec|inline|private|internal|public)\s+)*)"
+    @"^\s*let\s+(?!mutable\b)(?>(?:(?:rec|inline|private|internal|public)\s+)*)(?!struct\b)"
 
 let checks =
     [ "function",
@@ -118,6 +118,8 @@ let checkerSelfTests =
       "let rec private loop (value: int) = loop value", false
       "let inline private convert (value: int) = value", false
       "let mutable state = 0", false
+      "let struct (left, right) = pair", false
+      "let struct (left, right) =\n    pair", false
       "let private run () = ()", false
       "let private run value = value", true
       "let rec private loop (value) = loop value", true

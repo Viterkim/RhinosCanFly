@@ -10,9 +10,9 @@ let angles_from_direction (direction: Vector3d) =
     let mutable normalized = direction
 
     if normalized.Unitize() then
-        Math.Atan2(normalized.Y, normalized.X), Math.Asin(clamp -1. 1. normalized.Z)
+        struct (Math.Atan2(normalized.Y, normalized.X), Math.Asin(clamp -1. 1. normalized.Z))
     else
-        0., 0.
+        struct (0., 0.)
 
 let direction_from_angles (yaw: float) (pitch: float) =
     let cosine = Math.Cos pitch
@@ -22,12 +22,23 @@ let maximum_orbit_angle_per_frame = Math.PI / 2.
 let keyboard_pivot_radians_per_second = Math.PI / 6.
 let maximum_pitch_radians = RhinoMath.ToRadians 89.
 
+[<Struct>]
 type MouseRotation =
     { yaw_delta: float; pitch_delta: float }
 
 let mouse_rotation (config: FlyConfig) (multiplier: float) (mouseDx: int64) (mouseDy: int64) (camera: CameraState) =
-    let horizontal_sign = if config.invert_mouse_x then 1. else -1.
-    let vertical_sign = if config.invert_mouse_y then 1. else -1.
+    let horizontal_sign =
+        if config.mouse_x_mode = MouseAxisMode.Inverted then
+            1.
+        else
+            -1.
+
+    let vertical_sign =
+        if config.mouse_y_mode = MouseAxisMode.Inverted then
+            1.
+        else
+            -1.
+
     let sensitivity = MouseSensitivity.radians_per_count config.mouse_sensitivity
     let yawDelta = float mouseDx * sensitivity * horizontal_sign * multiplier
 
@@ -62,13 +73,14 @@ let mouse_pivot (config: FlyConfig) (target: Point3d) (mouseDx: int64) (mouseDy:
     let yawDirection = rotate_vector Vector3d.ZAxis rotation.yaw_delta direction
     let mutable right = Vector3d.CrossProduct(yawDirection, Vector3d.ZAxis)
 
-    let rotatedOffset, rotatedDirection =
+    let struct (rotatedOffset, rotatedDirection) =
         if right.Unitize() then
-            rotate_vector right rotation.pitch_delta yawOffset, rotate_vector right rotation.pitch_delta yawDirection
+            struct (rotate_vector right rotation.pitch_delta yawOffset,
+                    rotate_vector right rotation.pitch_delta yawDirection)
         else
-            yawOffset, yawDirection
+            struct (yawOffset, yawDirection)
 
-    let yaw, pitch = angles_from_direction rotatedDirection
+    let struct (yaw, pitch) = angles_from_direction rotatedDirection
 
     { position = target + rotatedOffset
       yaw = yaw
@@ -94,7 +106,7 @@ let orbit (target: Point3d) (requestedAngle: float) (camera: CameraState) =
         let rotatedDirection =
             Vector3d(direction.X * cosine - direction.Y * sine, direction.X * sine + direction.Y * cosine, direction.Z)
 
-        let yaw, pitch = angles_from_direction rotatedDirection
+        let struct (yaw, pitch) = angles_from_direction rotatedDirection
 
         { position = position
           yaw = yaw

@@ -15,3 +15,4 @@ let redraw (mode: ViewportRedrawMode) (view: RhinoView) =
         match PlatformInput.redraw_window view.Handle with
         | Ok() -> ()
         | Error error -> failwith error
+    | _ -> view.Redraw()

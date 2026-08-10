@@ -23,7 +23,7 @@ type RightClickCallback() =
 
     let mutable gesture = NoRightClickGesture
     let mutable flyEnabled = false
-    let mutable hijackDuringCommands = false
+    let mutable enterDuringCommands = false
 
     let log_error (context: string) (error: exn) =
         Debug.WriteLine $"RhinosCanFly {context}: {error.Message}"
@@ -39,7 +39,7 @@ type RightClickCallback() =
         | ViewManipulationClick -> ()
 
     let can_enter () =
-        hijackDuringCommands || not (Command.InCommand())
+        enterDuringCommands || not (Command.InCommand())
 
     let queue_fly_entry (view: RhinoView) =
         let handler =
@@ -150,7 +150,7 @@ type RightClickCallback() =
             clear_gesture ()
 
         flyEnabled <- flyEntryEnabled
-        hijackDuringCommands <- duringCommands
+        enterDuringCommands <- duringCommands
         this.Enabled <- flyEntryEnabled || viewManipulationEnabled
 
     member this.Shutdown() = this.Configure(false, false, false)

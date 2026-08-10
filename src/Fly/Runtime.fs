@@ -60,7 +60,7 @@ let make_state (view: RhinoView) (config: FlyConfig) =
         | Ok point -> point
         | Error error -> failwith error
 
-    let yaw, pitch = Movement.angles_from_direction viewport.CameraDirection
+    let struct (yaw, pitch) = Movement.angles_from_direction viewport.CameraDirection
 
     let root_window = PlatformInput.root_window view.Handle
 
@@ -75,6 +75,9 @@ let make_state (view: RhinoView) (config: FlyConfig) =
       pivot_direction = NoPivot
       pivot_input_state = WaitingForNeutralPivotInput
       mouse_navigation = MouseLook
+      pivot_latched = false
+      keyboard_pivot_held = false
+      keyboard_pivot_toggle_was_down = FlightControls.is_optional_down config.pivot_toggle
       running = true
       camera =
         { position = viewport.CameraLocation
@@ -88,7 +91,7 @@ let make_state (view: RhinoView) (config: FlyConfig) =
             config.maximum_speed
             config.base_speed
       boost_enabled = false
-      boost_was_down = FlightControls.is_down config.boost_toggle
+      boost_was_down = FlightControls.is_down config.boost
       slow_enabled = false
       slow_was_down = FlightControls.is_down config.slow
       speed_increase_was_down = FlightControls.is_optional_down config.speed_increase
@@ -110,27 +113,29 @@ let run_loop (rawInput: InputAccumulator.State) (state: FlyState) =
 
         RhinoApp.Wait()
 
-        FlightCamera.update_mouse_navigation rawInput state
+        FlightControls.update_keyboard_pivot_input state
+        FlightCamera.update_navigation_mode rawInput state
         let mouseChange = FlightCamera.apply_mouse_input rawInput state
 
         let mutable movementChanged =
             match mouseChange with
-            | Some PositionChanged
-            | Some PositionAndDirectionChanged -> true
-            | Some DirectionChanged
-            | None -> false
+            | PositionChanged
+            | PositionAndDirectionChanged -> true
+            | DirectionChanged
+            | NoCameraChange -> false
 
         let mutable directionChanged =
             match mouseChange with
-            | Some DirectionChanged
-            | Some PositionAndDirectionChanged -> true
-            | Some PositionChanged
-            | None -> false
+            | DirectionChanged
+            | PositionAndDirectionChanged -> true
+            | PositionChanged
+            | NoCameraChange -> false
 
         if state.running then
-            match FlightControls.poll rawInput state with
-            | None -> ()
-            | Some input ->
+            FlightControls.update_state rawInput state
+
+            if state.running then
+                let input = FlightControls.read_movement state
                 let requestedPivotDirection = FlightInput.pivot_direction input
 
                 let movement =
@@ -216,18 +221,14 @@ let run (view: RhinoView) (config: FlyConfig) =
                         PlatformInput.focus view.Handle
                         state.viewport.CameraUp <- Vector3d.ZAxis
 
-                        let session =
-                            PlatformInput.open_raw_input
-                                state.config
-                                rawInput
-                                (PlatformInput.raw_input_wake_action inputWake)
+                        let session = PlatformInput.open_raw_input state.config rawInput inputWake
 
                         raw <- Some session
                         rawInputClean <- false
                         PlatformInput.hide_cursor ()
                         cursorHidden <- true
                         FlightCamera.apply_entry_lens state
-                        FlightCamera.redraw state.config.viewport_redraw_mode view
+                        FlightRedraw.redraw state.config.viewport_redraw_mode view
                         run_loop rawInput state
 
                         Ok()
@@ -243,11 +244,11 @@ let run (view: RhinoView) (config: FlyConfig) =
                     | None -> ())
 
                 attempt_cleanup cleanupErrors "final mouse input" (fun () ->
-                    FlightCamera.update_mouse_navigation rawInput state
+                    FlightCamera.update_navigation_mode rawInput state
 
                     match FlightCamera.apply_mouse_input rawInput state with
-                    | Some change -> FlightCamera.apply state change
-                    | None -> ())
+                    | NoCameraChange -> ()
+                    | change -> FlightCamera.apply state change)
 
                 if captured then
                     attempt_cleanup cleanupErrors "cursor clip" (fun () ->
@@ -287,7 +288,7 @@ let run (view: RhinoView) (config: FlyConfig) =
                     | Error error -> failwith error)
 
                 attempt_cleanup cleanupErrors "redraw" (fun () ->
-                    FlightCamera.redraw state.config.viewport_redraw_mode view)
+                    FlightRedraw.redraw state.config.viewport_redraw_mode view)
 
                 activeResult
             with error ->

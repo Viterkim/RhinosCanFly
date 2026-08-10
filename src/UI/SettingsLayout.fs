@@ -48,5 +48,13 @@ let heading (text: string) =
 
     new Panel(Content = label, Padding = Padding(0, 10, 0, 2)) :> Control
 
+let subheading (text: string) =
+    let label =
+        new Label(Text = text, Font = SystemFonts.Bold(System.Nullable(), FontDecoration.None))
+
+    new Panel(Content = label, Padding = Padding(0, 4, 0, 0)) :> Control
+
+let spacer (height: int) = new Panel(Height = height) :> Control
+
 let note (text: string) =
     new Label(Text = text, Wrap = WrapMode.Word) :> Control

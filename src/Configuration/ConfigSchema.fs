@@ -4,7 +4,7 @@ open System
 open System.Globalization
 
 [<Literal>]
-let current_version = 0
+let current_version = 3
 
 let defaults: FlyConfigFile =
     { config_version = current_version
@@ -17,7 +17,9 @@ let defaults: FlyConfigFile =
       down = "E"
       pivot_left = "Z"
       pivot_right = "X"
-      boost_toggle = "LeftShift"
+      pivot_toggle = "F"
+      pivot_hold = "G"
+      boost = "LeftShift"
       slow = "LeftAlt"
       speed_increase = "Equals"
       speed_decrease = "Minus"
@@ -31,8 +33,8 @@ let defaults: FlyConfigFile =
       pivot_speed_multiplier = 10.
       mouse_pivot_multiplier = 5.
       mouse_sensitivity = 15.
-      invert_mouse_x = false
-      invert_mouse_y = false
+      mouse_x_mode = MouseAxisMode.Normal
+      mouse_y_mode = MouseAxisMode.Normal
       normalize_diagonal_movement = true
       hide_gumball_while_flying = false
       pivot_bindings_ignore_gumball = false
@@ -41,27 +43,21 @@ let defaults: FlyConfigFile =
       wheel_changes_speed = true
       exit_on_mouse_left = false
       exit_on_mouse_right = true
-      exit_on_mouse_middle = false
-      middle_mouse_toggles_pivot_while_flying = false
-      mouse4_toggles_pivot_while_flying = false
-      mouse5_toggles_pivot_while_flying = false
-      hijack_right_click_to_enter = true
-      hijack_right_click_during_commands = true
+      middle_mouse_while_flying = FlyingMiddleMouseMode.Off
+      mouse4_also_while_flying = false
+      mouse5_also_while_flying = false
+      right_click_entry_mode = RightClickEntryMode.EnterFlyingDuringCommands
       commands_do_not_repeat = true
-      mouse_button_overrides_enabled = false
-      mouse4_acts_as_middle = false
-      mouse5_acts_as_middle = false
-      mouse4_toggles_middle = false
-      mouse5_toggles_middle = false
-      shift_right_click_toggles_view = false
-      alt_right_click_toggles_view = false
-      shift_right_click_pans = false
-      alt_right_click_pans = false
-      boost_hold_instead_of_toggle = false
-      slow_hold_instead_of_toggle = false
+      mouse4_pivot_mode = MouseButtonPivotMode.Off
+      mouse5_pivot_mode = MouseButtonPivotMode.Off
+      shift_right_click_mode = ModifiedRightClickMode.Off
+      alt_right_click_mode = ModifiedRightClickMode.Off
+      boost_mode = KeyActivationMode.Toggle
+      slow_mode = KeyActivationMode.Toggle
       vertical_speed_multiplier = 0.8
-      lens_length_mm_in_mode = 0.
-      viewport_redraw_mode = "rhino" }
+      forced_lens_length_mm = 0.
+      lens_length_delta_mm = 0.
+      viewport_redraw_mode = ViewportRedrawMode.Rhino }
 
 let normalize_number (value: float) =
     Math.Round(value, 12, MidpointRounding.AwayFromZero)
@@ -82,23 +78,8 @@ let normalize_numbers (source: FlyConfigFile) =
         mouse_pivot_multiplier = normalize_number source.mouse_pivot_multiplier
         mouse_sensitivity = normalize_number source.mouse_sensitivity
         vertical_speed_multiplier = normalize_number source.vertical_speed_multiplier
-        lens_length_mm_in_mode = normalize_number source.lens_length_mm_in_mode }
-
-let parse_viewport_redraw_mode (value: string) =
-    if String.IsNullOrWhiteSpace value then
-        Error "viewport_redraw_mode must be rhino, rhino_immediate, or native_window"
-    else
-        match value.Trim().ToLowerInvariant() with
-        | "rhino" -> Ok ViewportRedrawMode.Rhino
-        | "rhino_immediate" -> Ok ViewportRedrawMode.RhinoImmediate
-        | "native_window" -> Ok ViewportRedrawMode.NativeWindow
-        | _ -> Error "viewport_redraw_mode must be rhino, rhino_immediate, or native_window"
-
-let viewport_redraw_mode_value (mode: ViewportRedrawMode) =
-    match mode with
-    | ViewportRedrawMode.Rhino -> "rhino"
-    | ViewportRedrawMode.RhinoImmediate -> "rhino_immediate"
-    | ViewportRedrawMode.NativeWindow -> "native_window"
+        forced_lens_length_mm = normalize_number source.forced_lens_length_mm
+        lens_length_delta_mm = normalize_number source.lens_length_delta_mm }
 
 let compile (source: FlyConfigFile) =
     let errors = ResizeArray<string>()
@@ -116,13 +97,6 @@ let compile (source: FlyConfigFile) =
             None
         else
             Some(required name value)
-
-    let viewportRedrawMode =
-        match parse_viewport_redraw_mode source.viewport_redraw_mode with
-        | Ok mode -> mode
-        | Error error ->
-            errors.Add error
-            ViewportRedrawMode.Rhino
 
     let positive (name: string) (value: float) =
         if Double.IsNaN value || Double.IsInfinity value || value <= 0. then
@@ -153,11 +127,17 @@ let compile (source: FlyConfigFile) =
         errors.Add "speed_step_multiplier must be greater than 1"
 
     if
-        Double.IsNaN source.lens_length_mm_in_mode
-        || Double.IsInfinity source.lens_length_mm_in_mode
-        || source.lens_length_mm_in_mode < 0.
+        Double.IsNaN source.forced_lens_length_mm
+        || Double.IsInfinity source.forced_lens_length_mm
+        || source.forced_lens_length_mm < 0.
     then
-        errors.Add "lens_length_mm_in_mode must be 0 (disabled) or a positive finite number"
+        errors.Add "forced_lens_length_mm must be 0 (disabled) or a positive finite number"
+
+    if
+        Double.IsNaN source.lens_length_delta_mm
+        || Double.IsInfinity source.lens_length_delta_mm
+    then
+        errors.Add "lens_length_delta_mm must be a finite number"
 
     let config =
         { forward = required "forward" source.forward
@@ -168,7 +148,9 @@ let compile (source: FlyConfigFile) =
           down = required "down" source.down
           pivot_left = required "pivot_left" source.pivot_left
           pivot_right = required "pivot_right" source.pivot_right
-          boost_toggle = required "boost_toggle" source.boost_toggle
+          pivot_toggle = optional "pivot_toggle" source.pivot_toggle
+          pivot_hold = optional "pivot_hold" source.pivot_hold
+          boost = required "boost" source.boost
           slow = required "slow" source.slow
           speed_increase = optional "speed_increase" source.speed_increase
           speed_decrease = optional "speed_decrease" source.speed_decrease
@@ -185,8 +167,8 @@ let compile (source: FlyConfigFile) =
             source.mouse_sensitivity
             |> ConfigMouseSensitivity
             |> MouseSensitivity.to_runtime
-          invert_mouse_x = source.invert_mouse_x
-          invert_mouse_y = source.invert_mouse_y
+          mouse_x_mode = source.mouse_x_mode
+          mouse_y_mode = source.mouse_y_mode
           normalize_diagonal_movement = source.normalize_diagonal_movement
           hide_gumball_while_flying = source.hide_gumball_while_flying
           pivot_bindings_ignore_gumball = source.pivot_bindings_ignore_gumball
@@ -195,15 +177,22 @@ let compile (source: FlyConfigFile) =
           wheel_changes_speed = source.wheel_changes_speed
           exit_on_mouse_left = source.exit_on_mouse_left
           exit_on_mouse_right = source.exit_on_mouse_right
-          exit_on_mouse_middle = source.exit_on_mouse_middle
-          middle_mouse_toggles_pivot_while_flying = source.middle_mouse_toggles_pivot_while_flying
-          mouse4_toggles_pivot_while_flying = source.mouse4_toggles_pivot_while_flying
-          mouse5_toggles_pivot_while_flying = source.mouse5_toggles_pivot_while_flying
-          boost_hold_instead_of_toggle = source.boost_hold_instead_of_toggle
-          slow_hold_instead_of_toggle = source.slow_hold_instead_of_toggle
+          middle_mouse_while_flying = source.middle_mouse_while_flying
+          mouse4_also_while_flying = source.mouse4_also_while_flying
+          mouse5_also_while_flying = source.mouse5_also_while_flying
+          mouse4_pivot_mode = source.mouse4_pivot_mode
+          mouse5_pivot_mode = source.mouse5_pivot_mode
+          boost_mode = source.boost_mode
+          slow_mode = source.slow_mode
           vertical_speed_multiplier = source.vertical_speed_multiplier
-          lens_length_mm_in_mode = source.lens_length_mm_in_mode
-          viewport_redraw_mode = viewportRedrawMode }
+          lens_adjustment =
+            { forced_length_mm =
+                if source.forced_lens_length_mm = 0. then
+                    None
+                else
+                    Some source.forced_lens_length_mm
+              delta_mm = source.lens_length_delta_mm }
+          viewport_redraw_mode = source.viewport_redraw_mode }
 
     if errors.Count = 0 then
         Ok config
