@@ -6,7 +6,8 @@ open System.Runtime.InteropServices
 open System.Windows.Forms
 open RhinosCanFly
 
-type RawInputReceiver(config: FlyConfig, input: InputAccumulator.State, inputAvailable: Action) as self =
+type RawInputReceiver
+    (config: FlyConfig, sessionMode: FlightSessionMode, input: InputAccumulator.State, inputAvailable: Action) as self =
     inherit NativeWindow()
 
     let bufferCapacity =
@@ -130,8 +131,12 @@ type RawInputReceiver(config: FlyConfig, input: InputAccumulator.State, inputAva
             InputAccumulator.request_pivot_toggle input
 
         if
-            config.exit_on_mouse_left && flags &&& RawInputNative.left_button_down <> 0us
-            || config.exit_on_mouse_right && flags &&& RawInputNative.right_button_down <> 0us
+            sessionMode = FlightSessionMode.WhileRightMouseHeld
+            && flags &&& RawInputNative.right_button_up <> 0us
+            || config.exit_on_mouse_left && flags &&& RawInputNative.left_button_down <> 0us
+            || sessionMode = FlightSessionMode.Persistent
+               && config.exit_on_mouse_right
+               && flags &&& RawInputNative.right_button_down <> 0us
             || config.middle_mouse_while_flying = FlyingMiddleMouseMode.ExitFlying
                && flags &&& RawInputNative.middle_button_up <> 0us
         then

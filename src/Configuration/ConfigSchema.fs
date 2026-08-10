@@ -4,7 +4,7 @@ open System
 open System.Globalization
 
 [<Literal>]
-let current_version = 3
+let current_version = 4
 
 let defaults: FlyConfigFile =
     { config_version = current_version
@@ -40,7 +40,7 @@ let defaults: FlyConfigFile =
       pivot_bindings_ignore_gumball = false
       save_speed_to_document = true
       load_speed_from_document = true
-      wheel_changes_speed = true
+      wheel_speed_mode = MouseWheelSpeedMode.Normal
       exit_on_mouse_left = false
       exit_on_mouse_right = true
       middle_mouse_while_flying = FlyingMiddleMouseMode.Off
@@ -174,7 +174,7 @@ let compile (source: FlyConfigFile) =
           pivot_bindings_ignore_gumball = source.pivot_bindings_ignore_gumball
           save_speed_to_document = source.save_speed_to_document
           load_speed_from_document = source.load_speed_from_document
-          wheel_changes_speed = source.wheel_changes_speed
+          wheel_speed_mode = source.wheel_speed_mode
           exit_on_mouse_left = source.exit_on_mouse_left
           exit_on_mouse_right = source.exit_on_mouse_right
           middle_mouse_while_flying = source.middle_mouse_while_flying

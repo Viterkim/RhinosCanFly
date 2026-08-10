@@ -90,10 +90,17 @@ let update_state (input: InputAccumulator.State) (state: FlyState) =
     then
         state.running <- false
     else
-        if state.config.wheel_changes_speed then
-            let wheel = InputAccumulator.drain_wheel input
+        let wheel = InputAccumulator.drain_wheel input
 
-            if wheel <> 0 then
-                speed_step state (float wheel / float PlatformInput.wheel_delta)
+        if wheel <> 0 then
+            let direction =
+                match state.config.wheel_speed_mode with
+                | MouseWheelSpeedMode.Off -> 0.
+                | MouseWheelSpeedMode.Normal -> 1.
+                | MouseWheelSpeedMode.Reversed -> -1.
+                | _ -> 0.
+
+            if direction <> 0. then
+                speed_step state (direction * float wheel / float PlatformInput.wheel_delta)
 
         update_toggles state

@@ -173,7 +173,7 @@ let run_loop (rawInput: InputAccumulator.State) (state: FlyState) =
         | false, true -> FlightCamera.apply state DirectionChanged
         | false, false -> ()
 
-let run (view: RhinoView) (config: FlyConfig) =
+let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
     match sessionState with
     | Flying -> Error "Fly mode is already running."
     | RestartRequired -> Error "Raw input did not shut down cleanly. Restart Rhino before using fly mode again."
@@ -187,8 +187,10 @@ let run (view: RhinoView) (config: FlyConfig) =
         let flightResult =
             try
                 wait_for_viewport_gesture view
-                PlatformInput.suspend_mouse_button_overrides ()
-                overridesSuspended <- true
+
+                match PlatformInput.suspend_mouse_button_overrides () with
+                | Ok() -> overridesSuspended <- true
+                | Error error -> failwith $"Could not suspend mouse button overrides: {error}"
 
                 let state = make_state view config
                 let rawInput = InputAccumulator.create ()
@@ -221,10 +223,18 @@ let run (view: RhinoView) (config: FlyConfig) =
                         PlatformInput.focus view.Handle
                         state.viewport.CameraUp <- Vector3d.ZAxis
 
-                        let session = PlatformInput.open_raw_input state.config rawInput inputWake
+                        let session =
+                            PlatformInput.open_raw_input state.config sessionMode rawInput inputWake
 
                         raw <- Some session
                         rawInputClean <- false
+
+                        if
+                            sessionMode = FlightSessionMode.WhileRightMouseHeld
+                            && not (PlatformInput.right_mouse_button_down ())
+                        then
+                            state.running <- false
+
                         PlatformInput.hide_cursor ()
                         cursorHidden <- true
                         FlightCamera.apply_entry_lens state

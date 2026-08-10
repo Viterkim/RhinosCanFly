@@ -21,6 +21,11 @@ type SettingsControl() as self =
     let mouseAxisModes =
         [| MouseAxisMode.Normal, "Normal"; MouseAxisMode.Inverted, "Inverted" |]
 
+    let wheelSpeedModes =
+        [| MouseWheelSpeedMode.Off, "Off"
+           MouseWheelSpeedMode.Normal, "On"
+           MouseWheelSpeedMode.Reversed, "On but reversed" |]
+
     let mousePivotModes =
         [| MouseButtonPivotMode.Off, "Off"
            MouseButtonPivotMode.Hold, "Hold to pivot"
@@ -28,7 +33,7 @@ type SettingsControl() as self =
 
     let flyingMiddleMouseModes =
         [| FlyingMiddleMouseMode.Off, "Off"
-           FlyingMiddleMouseMode.ExitFlying, "Exit fly mode"
+           FlyingMiddleMouseMode.ExitFlying, "Exit"
            FlyingMiddleMouseMode.TogglePivot, "Toggle pivot" |]
 
     let modifiedRightClickModes =
@@ -39,7 +44,9 @@ type SettingsControl() as self =
     let rightClickEntryModes =
         [| RightClickEntryMode.Off, "Off"
            RightClickEntryMode.EnterFlying, "Enter flying"
-           RightClickEntryMode.EnterFlyingDuringCommands, "Enter flying + during cmds" |]
+           RightClickEntryMode.EnterFlyingDuringCommands, "Enter flying + during cmds"
+           RightClickEntryMode.EnterFlyingWhileHeld, "Held enters flying"
+           RightClickEntryMode.EnterFlyingWhileHeldDuringCommands, "Held enters flying + during cmds" |]
 
     let redrawModes =
         [| ViewportRedrawMode.Rhino, "Rhino redraw (default)"
@@ -97,6 +104,7 @@ type SettingsControl() as self =
 
     let boostMode = mode_dropdown activationModes
     let slowMode = mode_dropdown activationModes
+    let wheelSpeedMode = mode_dropdown wheelSpeedModes
     let mouseXMode = mode_dropdown mouseAxisModes
     let mouseYMode = mode_dropdown mouseAxisModes
     let rightClickEntryMode = mode_dropdown rightClickEntryModes
@@ -116,9 +124,8 @@ type SettingsControl() as self =
 
     let saveSpeedToDocument = new CheckBox(Text = "Save current speed to file")
     let loadSpeedFromDocument = new CheckBox(Text = "Load speed from file")
-    let wheelChangesSpeed = new CheckBox(Text = "Mouse wheel up/down controls speed")
-    let exitOnMouseLeft = new CheckBox(Text = "Left mouse button exits fly mode")
-    let exitOnMouseRight = new CheckBox(Text = "Right mouse button exits fly mode")
+    let exitOnMouseLeft = new CheckBox(Text = "Left click exits")
+    let exitOnMouseRight = new CheckBox(Text = "Right click exits")
 
     let mouse4AlsoWhileFlying = new CheckBox(Text = "Mouse 4 also while flying")
 
@@ -300,18 +307,18 @@ type SettingsControl() as self =
               SettingsLayout.item "Pivot right" (binding_editor pivotRight defaults.pivot_right)
               SettingsLayout.item "Toggle pivot" (binding_editor pivotToggle defaults.pivot_toggle)
               SettingsLayout.item "Hold pivot" (binding_editor pivotHold defaults.pivot_hold)
-              SettingsLayout.item "Exit fly mode" (binding_editor exitKey defaults.exit_key) ]
+              SettingsLayout.item "Exit" (binding_editor exitKey defaults.exit_key) ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
         mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Movement speed and controls"))
-        mainTable.Rows.Add(SettingsLayout.full_width wheelChangesSpeed)
         mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Options"))
 
         SettingsLayout.grid
             2
             [ SettingsLayout.item "Boost behaviour" boostMode
-              SettingsLayout.item "Slow behaviour" slowMode ]
+              SettingsLayout.item "Slow behaviour" slowMode
+              SettingsLayout.item "MWheel changes speed" wheelSpeedMode ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
@@ -478,6 +485,7 @@ type SettingsControl() as self =
         viewportRedrawMode.SelectedIndex <- mode_index config.viewport_redraw_mode redrawModes
         boostMode.SelectedIndex <- mode_index config.boost_mode activationModes
         slowMode.SelectedIndex <- mode_index config.slow_mode activationModes
+        wheelSpeedMode.SelectedIndex <- mode_index config.wheel_speed_mode wheelSpeedModes
         rightClickEntryMode.SelectedIndex <- mode_index config.right_click_entry_mode rightClickEntryModes
         shiftRightClickMode.SelectedIndex <- mode_index config.shift_right_click_mode modifiedRightClickModes
         altRightClickMode.SelectedIndex <- mode_index config.alt_right_click_mode modifiedRightClickModes
@@ -491,7 +499,6 @@ type SettingsControl() as self =
         set_checked pivotBindingsIgnoreGumball config.pivot_bindings_ignore_gumball
         set_checked saveSpeedToDocument config.save_speed_to_document
         set_checked loadSpeedFromDocument config.load_speed_from_document
-        set_checked wheelChangesSpeed config.wheel_changes_speed
         set_checked exitOnMouseLeft config.exit_on_mouse_left
         set_checked exitOnMouseRight config.exit_on_mouse_right
         set_checked mouse4AlsoWhileFlying config.mouse4_also_while_flying
@@ -560,7 +567,7 @@ type SettingsControl() as self =
                   pivot_bindings_ignore_gumball = is_checked pivotBindingsIgnoreGumball
                   save_speed_to_document = is_checked saveSpeedToDocument
                   load_speed_from_document = is_checked loadSpeedFromDocument
-                  wheel_changes_speed = is_checked wheelChangesSpeed
+                  wheel_speed_mode = selected_mode wheelSpeedMode wheelSpeedModes MouseWheelSpeedMode.Normal
                   exit_on_mouse_left = is_checked exitOnMouseLeft
                   exit_on_mouse_right = is_checked exitOnMouseRight
                   middle_mouse_while_flying =

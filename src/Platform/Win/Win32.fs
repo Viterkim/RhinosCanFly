@@ -283,14 +283,9 @@ let wait_for_input (timeoutMilliseconds: uint32) =
     else
         Ok()
 
-let send_middle_mouse (down: bool) =
+let mouse_input (flags: uint32) =
     let mutable mouse = Unchecked.defaultof<MouseInput>
-
-    mouse.flags <-
-        if down then
-            MOUSEEVENTF_MIDDLEDOWN
-        else
-            MOUSEEVENTF_MIDDLEUP
+    mouse.flags <- flags
 
     let mutable input = Unchecked.defaultof<NativeInput>
     input.input_type <- INPUT_MOUSE
@@ -298,16 +293,12 @@ let send_middle_mouse (down: bool) =
     let mutable data = Unchecked.defaultof<InputData>
     data.mouse <- mouse
     input.data <- data
+    input
 
-    if SendInput(1u, [| input |], Marshal.SizeOf<NativeInput>()) = 1u then
-        Ok()
-    else
-        Error(last_error "SendInput(middle mouse)")
-
-let send_shift_key (down: bool) =
+let keyboard_input (virtualKey: int) (flags: uint32) =
     let mutable keyboard = Unchecked.defaultof<KeyboardInput>
-    keyboard.virtual_key <- uint16 VK_SHIFT
-    keyboard.flags <- if down then 0u else KEYEVENTF_KEYUP
+    keyboard.virtual_key <- uint16 virtualKey
+    keyboard.flags <- flags
 
     let mutable input = Unchecked.defaultof<NativeInput>
     input.input_type <- INPUT_KEYBOARD
@@ -315,8 +306,33 @@ let send_shift_key (down: bool) =
     let mutable data = Unchecked.defaultof<InputData>
     data.keyboard <- keyboard
     input.data <- data
+    input
 
-    if SendInput(1u, [| input |], Marshal.SizeOf<NativeInput>()) = 1u then
+let send_inputs (operation: string) (inputs: NativeInput array) =
+    let sent = SendInput(uint32 inputs.Length, inputs, Marshal.SizeOf<NativeInput>())
+
+    if sent = uint32 inputs.Length then
         Ok()
     else
-        Error(last_error "SendInput(shift)")
+        Error(last_error operation)
+
+let send_middle_mouse (down: bool) =
+    let flags =
+        if down then
+            MOUSEEVENTF_MIDDLEDOWN
+        else
+            MOUSEEVENTF_MIDDLEUP
+
+    send_inputs "SendInput(middle mouse)" [| mouse_input flags |]
+
+let send_shift_key (down: bool) =
+    let flags = if down then 0u else KEYEVENTF_KEYUP
+    send_inputs "SendInput(shift)" [| keyboard_input VK_SHIFT flags |]
+
+let start_shift_middle_mouse () =
+    send_inputs "SendInput(shift + middle mouse)" [| keyboard_input VK_SHIFT 0u; mouse_input MOUSEEVENTF_MIDDLEDOWN |]
+
+let stop_shift_middle_mouse () =
+    send_inputs
+        "SendInput(middle mouse + shift)"
+        [| mouse_input MOUSEEVENTF_MIDDLEUP; keyboard_input VK_SHIFT KEYEVENTF_KEYUP |]

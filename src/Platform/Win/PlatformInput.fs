@@ -52,18 +52,36 @@ let create_raw_input_wake () =
 
     Action(fun () -> RawInputWake.signal clearPending state)
 
-let open_raw_input (config: FlyConfig) (input: InputAccumulator.State) (inputAvailable: Action) =
-    RawInputThread.start config input inputAvailable
+let open_raw_input
+    (config: FlyConfig)
+    (sessionMode: FlightSessionMode)
+    (input: InputAccumulator.State)
+    (inputAvailable: Action)
+    =
+    RawInputThread.start config sessionMode input inputAvailable
 
 let close_raw_input (session: RawInputSession) = RawInputThread.stop session
 
-let apply_mouse_button_overrides (config: FlyConfigFile) = MouseButtonOverrides.apply config
+let apply_mouse_button_overrides (config: FlyConfigFile) (exitBinding: KeyBinding) =
+    MouseButtonOverrides.apply config exitBinding
 
 let mouse_button_right_click_enabled () =
     MouseButtonOverrides.right_click_enabled ()
 
 let handle_view_manipulation_right_click (window: nativeint) =
     MouseButtonOverrides.handle_right_click window
+
+let toggle_pivot (window: nativeint) =
+    MouseButtonOverrides.toggle_view_latch window MouseButtonOverrides.ViewLatchMode.Pivot
+
+let toggle_pan (window: nativeint) =
+    MouseButtonOverrides.toggle_view_latch window MouseButtonOverrides.ViewLatchMode.Pan
+
+let pivot_active () =
+    MouseButtonOverrides.view_latch_is MouseButtonOverrides.ViewLatchMode.Pivot
+
+let pan_active () =
+    MouseButtonOverrides.view_latch_is MouseButtonOverrides.ViewLatchMode.Pan
 
 let suspend_mouse_button_overrides () = MouseButtonOverrides.suspend ()
 

@@ -43,6 +43,9 @@ let left_button_down = 0x0001us
 let right_button_down = 0x0004us
 
 [<Literal>]
+let right_button_up = 0x0008us
+
+[<Literal>]
 let middle_button_down = 0x0010us
 
 [<Literal>]

@@ -11,6 +11,11 @@ type MouseAxisMode =
     | Normal = 0
     | Inverted = 1
 
+type MouseWheelSpeedMode =
+    | Off = 0
+    | Normal = 1
+    | Reversed = 2
+
 type MouseButtonPivotMode =
     | Off = 0
     | Hold = 1
@@ -30,6 +35,12 @@ type RightClickEntryMode =
     | Off = 0
     | EnterFlying = 1
     | EnterFlyingDuringCommands = 2
+    | EnterFlyingWhileHeld = 3
+    | EnterFlyingWhileHeldDuringCommands = 4
+
+type FlightSessionMode =
+    | Persistent
+    | WhileRightMouseHeld
 
 type ViewportRedrawMode =
     | Rhino = 0
@@ -71,7 +82,7 @@ type FlyConfigFile =
       pivot_bindings_ignore_gumball: bool
       save_speed_to_document: bool
       load_speed_from_document: bool
-      wheel_changes_speed: bool
+      wheel_speed_mode: MouseWheelSpeedMode
       exit_on_mouse_left: bool
       exit_on_mouse_right: bool
       middle_mouse_while_flying: FlyingMiddleMouseMode
@@ -134,7 +145,7 @@ type FlyConfig =
       pivot_bindings_ignore_gumball: bool
       save_speed_to_document: bool
       load_speed_from_document: bool
-      wheel_changes_speed: bool
+      wheel_speed_mode: MouseWheelSpeedMode
       exit_on_mouse_left: bool
       exit_on_mouse_right: bool
       middle_mouse_while_flying: FlyingMiddleMouseMode
