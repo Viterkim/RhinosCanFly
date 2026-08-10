@@ -7,12 +7,6 @@ let redraw (mode: ViewportRedrawMode) (view: RhinoView) =
     | ViewportRedrawMode.Rhino -> view.Redraw()
     | ViewportRedrawMode.RhinoImmediate ->
         view.Redraw()
-
-        match PlatformInput.update_window view with
-        | Ok() -> ()
-        | Error error -> failwith error
-    | ViewportRedrawMode.NativeWindow ->
-        match PlatformInput.redraw_window view with
-        | Ok() -> ()
-        | Error error -> failwith error
+        PlatformInput.update_window view
+    | ViewportRedrawMode.NativeWindow -> PlatformInput.redraw_window view
     | _ -> view.Redraw()

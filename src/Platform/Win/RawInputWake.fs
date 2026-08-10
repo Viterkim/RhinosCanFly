@@ -12,7 +12,10 @@ let clear (state: State) =
     Interlocked.Exchange(&state.pending, 0) |> ignore
 
 let signal (clearPending: Action) (state: State) =
-    if Interlocked.CompareExchange(&state.pending, 1, 0) = 0 then
+    if
+        Volatile.Read(&state.pending) = 0
+        && Interlocked.CompareExchange(&state.pending, 1, 0) = 0
+    then
         try
             Eto.Forms.Application.Instance.AsyncInvoke clearPending
         with error ->

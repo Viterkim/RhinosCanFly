@@ -21,9 +21,8 @@ let viewport_gesture_active (view: RhinoView) = view.MouseCaptured(false)
 
 let wait_for_viewport_gesture (view: RhinoView) =
     while viewport_gesture_active view do
-        match PlatformInput.wait_for_input () with
-        | Ok() -> RhinoApp.Wait()
-        | Error error -> failwith error
+        PlatformInput.wait_for_input ()
+        RhinoApp.Wait()
 
 let error_message (error: exn) =
     match error with

@@ -75,16 +75,14 @@ let dismiss_native_tooltips (window: nativeint) =
         Win32Native.EnumThreadWindows(threadId, callback, nativeint 0) |> ignore
 
 let update_window (window: nativeint) =
-    if Win32Native.UpdateWindow window then
-        Ok()
-    else
-        Error(last_error "UpdateWindow")
+    if not (Win32Native.UpdateWindow window) then
+        failwith (last_error "UpdateWindow")
 
 let redraw_window (window: nativeint) =
     if not (Win32Native.InvalidateRect(window, nativeint 0, false)) then
-        Error(last_error "InvalidateRect")
-    else
-        update_window window
+        failwith (last_error "InvalidateRect")
+
+    update_window window
 
 let wait_for_input (timeoutMilliseconds: uint32) =
     let result =
@@ -97,9 +95,7 @@ let wait_for_input (timeoutMilliseconds: uint32) =
         )
 
     if result = Win32Native.WAIT_FAILED then
-        Error(last_error "MsgWaitForMultipleObjectsEx")
-    else
-        Ok()
+        failwith (last_error "MsgWaitForMultipleObjectsEx")
 
 let install_keyboard_hook (handleKeyDown: int -> bool) =
     let mutable hook = nativeint 0

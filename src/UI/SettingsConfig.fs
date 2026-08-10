@@ -41,52 +41,40 @@ let parse_optional_number (name: string) (field: TextBox) =
         parse_number name field
 
 let parse_numbers (fields: SettingsFields.NumberFields) =
-    match
-        parse_number "Base speed" fields.base_speed,
-        parse_number "Minimum speed" fields.minimum_speed,
-        parse_number "Maximum speed" fields.maximum_speed,
-        parse_number "Speed step multiplier" fields.speed_step_multiplier,
-        parse_number "Boost multiplier" fields.boost_multiplier,
-        parse_number "Slow multiplier" fields.slow_multiplier,
-        parse_number "Move up/down multiplier" fields.vertical_speed_multiplier,
-        parse_number "Key pivot speed multi" fields.pivot_speed_multiplier,
-        parse_number "Fly + pivot sens multi" fields.mouse_pivot_multiplier,
-        parse_number "Mouse sensitivity" fields.mouse_sensitivity,
-        parse_optional_number "Force lens length" fields.forced_lens_length_mm,
-        parse_optional_number "Force lens length delta" fields.lens_length_delta_mm
-    with
-    | Ok baseValue,
-      Ok minimumValue,
-      Ok maximumValue,
-      Ok stepValue,
-      Ok boostValue,
-      Ok slowValue,
-      Ok verticalValue,
-      Ok pivotValue,
-      Ok mousePivotValue,
-      Ok sensitivityValue,
-      Ok forcedLensValue,
-      Ok lensDeltaValue ->
-        Ok
-            { base_speed = baseValue
-              minimum_speed = minimumValue
-              maximum_speed = maximumValue
-              speed_step_multiplier = stepValue
-              boost_multiplier = boostValue
-              slow_multiplier = slowValue
-              vertical_speed_multiplier = verticalValue
-              pivot_speed_multiplier = pivotValue
-              mouse_pivot_multiplier = mousePivotValue
-              mouse_sensitivity = sensitivityValue
-              forced_lens_length_mm = forcedLensValue
-              lens_length_delta_mm = lensDeltaValue }
-    | a, b, c, d, e, f, g, h, i, j, k, l ->
-        [ a; b; c; d; e; f; g; h; i; j; k; l ]
-        |> List.choose (function
-            | Error error -> Some error
-            | Ok _ -> None)
-        |> String.concat Environment.NewLine
-        |> Error
+    let errors = ResizeArray<string>()
+
+    let required (name: string) (field: TextBox) =
+        match parse_number name field with
+        | Ok value -> value
+        | Error error ->
+            errors.Add error
+            0.
+
+    let optional (name: string) (field: TextBox) =
+        match parse_optional_number name field with
+        | Ok value -> value
+        | Error error ->
+            errors.Add error
+            0.
+
+    let values =
+        { base_speed = required "Base speed" fields.base_speed
+          minimum_speed = required "Minimum speed" fields.minimum_speed
+          maximum_speed = required "Maximum speed" fields.maximum_speed
+          speed_step_multiplier = required "Speed step multiplier" fields.speed_step_multiplier
+          boost_multiplier = required "Boost multiplier" fields.boost_multiplier
+          slow_multiplier = required "Slow multiplier" fields.slow_multiplier
+          vertical_speed_multiplier = required "Move up/down multiplier" fields.vertical_speed_multiplier
+          pivot_speed_multiplier = required "Key pivot speed multi" fields.pivot_speed_multiplier
+          mouse_pivot_multiplier = required "Fly + pivot sens multi" fields.mouse_pivot_multiplier
+          mouse_sensitivity = required "Mouse sensitivity" fields.mouse_sensitivity
+          forced_lens_length_mm = optional "Force lens length" fields.forced_lens_length_mm
+          lens_length_delta_mm = optional "Force lens length delta" fields.lens_length_delta_mm }
+
+    if errors.Count = 0 then
+        Ok values
+    else
+        Error(String.Join(Environment.NewLine, errors))
 
 let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     let bindings = fields.bindings

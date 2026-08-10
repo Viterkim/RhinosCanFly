@@ -19,8 +19,11 @@ let create () =
       exit_requested = 0 }
 
 let add_mouse (dx: int) (dy: int) (state: State) =
-    Interlocked.Add(&state.mouse_dx, int64 dx) |> ignore
-    Interlocked.Add(&state.mouse_dy, int64 dy) |> ignore
+    if dx <> 0 then
+        Interlocked.Add(&state.mouse_dx, int64 dx) |> ignore
+
+    if dy <> 0 then
+        Interlocked.Add(&state.mouse_dy, int64 dy) |> ignore
 
 let add_wheel (delta: int) (state: State) =
     Interlocked.Add(&state.wheel_delta, delta) |> ignore

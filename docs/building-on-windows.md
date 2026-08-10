@@ -7,11 +7,13 @@ Get the newest .NET SDK.
 [.Net Sdk 10](https://dotnet.microsoft.com/en-us/download/dotnet/10.0)
 
 Run (set your version)
+
 ```powershell
 .\build.ps1 -RhinoVersion 8
 ```
 
 Or for debugging / installing the build locally. `build-and-install.ps1` builds and registers the dev build as the current Windows user. Close rhino then the script builds, installs the addon and runs Rhino.
+
 ```
 .\build-and-install.ps1 -RhinoVersion 8
 ```

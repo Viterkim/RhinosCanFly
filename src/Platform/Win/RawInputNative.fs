@@ -1,7 +1,10 @@
 module RhinosCanFly.Platform.Win.RawInputNative
 
+#nowarn "9"
+
 open System
 open System.Runtime.InteropServices
+open Microsoft.FSharp.NativeInterop
 
 [<Literal>]
 let message = 0x00FF
@@ -123,6 +126,7 @@ extern bool PostThreadMessage(uint32 thread_id, int message, nativeint wparam, n
 extern uint32 GetCurrentThreadId()
 
 let deviceSize = uint32 (Marshal.SizeOf<Device>())
+let headerSize = uint32 (Marshal.SizeOf<Header>())
 
 let get_registered_mouse () =
     let mutable deviceCount = 0u
@@ -208,19 +212,19 @@ let signed_button_data (mouse: Mouse) =
         value
 
 let try_read_mouse (rawInput: nativeint) (buffer: nativeint) (bufferCapacity: int) (mouse: byref<Mouse>) =
-    let headerSize = uint32 (Marshal.SizeOf<Header>())
     let mutable bytes = uint32 bufferCapacity
     let bytesRead = GetRawInputData(rawInput, rid_input, buffer, &bytes, headerSize)
 
     if bytesRead = UInt32.MaxValue || bytesRead = 0u then
         false
     else
-        let header = Marshal.PtrToStructure<Header> buffer
+        let header = NativePtr.read (NativePtr.ofNativeInt<Header> buffer)
 
         if header.input_type <> rim_type_mouse then
             false
         else
-            mouse <- Marshal.PtrToStructure<Mouse>(IntPtr.Add(buffer, int headerSize))
+            let mouseBuffer = IntPtr.Add(buffer, int headerSize)
+            mouse <- NativePtr.read (NativePtr.ofNativeInt<Mouse> mouseBuffer)
             true
 
 let post_stop (window: nativeint) =

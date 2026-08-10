@@ -109,10 +109,18 @@ let selected_mode (field: ModeField<'Mode>) =
         field.fallback
 
 let set_mode (field: ModeField<'Mode>) (value: 'Mode) =
-    field.control.SelectedIndex <-
-        field.options
-        |> Array.tryFindIndex (fun (candidate: 'Mode, _: string) -> candidate = value)
-        |> Option.defaultValue 0
+    let selectedIndex =
+        match
+            field.options
+            |> Array.tryFindIndex (fun (candidate: 'Mode, _: string) -> candidate = value)
+        with
+        | Some index -> index
+        | None ->
+            field.options
+            |> Array.tryFindIndex (fun (candidate: 'Mode, _: string) -> candidate = field.fallback)
+            |> Option.defaultValue 0
+
+    field.control.SelectedIndex <- selectedIndex
 
 let create () =
     let activationModes =

@@ -13,9 +13,7 @@ let run (rawInput: InputAccumulator.State) (state: FlyState) =
 
     while state.running do
         if not movementActive then
-            match PlatformInput.wait_for_input () with
-            | Ok() -> ()
-            | Error error -> failwith error
+            PlatformInput.wait_for_input ()
 
         RhinoApp.Wait()
 

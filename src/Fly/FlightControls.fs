@@ -61,13 +61,13 @@ let read_movement (state: FlyState) =
 
     let slowActive =
         if movement.slow_mode = KeyActivationMode.Hold then
-            is_down bindings.slow
+            state.slow_was_down
         else
             state.slow_enabled
 
     let boostActive =
         if movement.boost_mode = KeyActivationMode.Hold then
-            is_down bindings.boost
+            state.boost_was_down
         else
             state.boost_enabled
 

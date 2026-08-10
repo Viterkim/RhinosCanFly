@@ -20,13 +20,41 @@ type RawInputReceiver
     let mutable rawRegistered = false
     let mutable registrationRestored = false
     let mutable previousMouse: RawInputNative.Device option = None
-    let mutable heldPivotButtons = 0
 
     [<Literal>]
     let mouse4PivotBit = 1
 
     [<Literal>]
     let mouse5PivotBit = 2
+
+    let initial_held_pivot_bit (enabled: bool) (mode: MouseButtonPivotMode) (virtualKey: int) (buttonBit: int) =
+        if
+            enabled
+            && mode = MouseButtonPivotMode.Hold
+            && Win32Native.GetAsyncKeyState virtualKey < 0s
+        then
+            buttonBit
+        else
+            0
+
+    let current_held_pivot_buttons () =
+        let mouse4 =
+            initial_held_pivot_bit
+                config.mouse4_also_while_flying
+                config.mouse4_pivot_mode
+                Win32Native.VK_XBUTTON1
+                mouse4PivotBit
+
+        let mouse5 =
+            initial_held_pivot_bit
+                config.mouse5_also_while_flying
+                config.mouse5_pivot_mode
+                Win32Native.VK_XBUTTON2
+                mouse5PivotBit
+
+        mouse4 ||| mouse5
+
+    let mutable heldPivotButtons = 0
 
     let update_held_pivot
         (enabled: bool)
@@ -42,6 +70,10 @@ type RawInputReceiver
 
             if flags &&& upFlag <> 0us then
                 heldPivotButtons <- heldPivotButtons &&& (~~~buttonBit)
+
+            flags &&& (downFlag ||| upFlag) <> 0us
+        else
+            false
 
     let restore_registration () =
         if rawRegistered && not registrationRestored then
@@ -110,23 +142,26 @@ type RawInputReceiver
             && config.mouse5_pivot_mode = MouseButtonPivotMode.Toggle
             && flags &&& RawInputNative.button_5_down <> 0us
 
-        update_held_pivot
-            config.mouse4_also_while_flying
-            config.mouse4_pivot_mode
-            mouse4PivotBit
-            RawInputNative.button_4_down
-            RawInputNative.button_4_up
-            flags
+        let mouse4HeldChanged =
+            update_held_pivot
+                config.mouse4_also_while_flying
+                config.mouse4_pivot_mode
+                mouse4PivotBit
+                RawInputNative.button_4_down
+                RawInputNative.button_4_up
+                flags
 
-        update_held_pivot
-            config.mouse5_also_while_flying
-            config.mouse5_pivot_mode
-            mouse5PivotBit
-            RawInputNative.button_5_down
-            RawInputNative.button_5_up
-            flags
+        let mouse5HeldChanged =
+            update_held_pivot
+                config.mouse5_also_while_flying
+                config.mouse5_pivot_mode
+                mouse5PivotBit
+                RawInputNative.button_5_down
+                RawInputNative.button_5_up
+                flags
 
-        InputAccumulator.set_pivot_held (heldPivotButtons <> 0) input
+        if mouse4HeldChanged || mouse5HeldChanged then
+            InputAccumulator.set_pivot_held (heldPivotButtons <> 0) input
 
         if middlePivotRequested || mouse4PivotRequested || mouse5PivotRequested then
             InputAccumulator.request_pivot_toggle input
@@ -159,7 +194,10 @@ type RawInputReceiver
                 previousMouse <- previous
 
                 match RawInputNative.register_mouse self.Handle with
-                | Ok() -> rawRegistered <- true
+                | Ok() ->
+                    rawRegistered <- true
+                    heldPivotButtons <- current_held_pivot_buttons ()
+                    InputAccumulator.set_pivot_held (heldPivotButtons <> 0) input
                 | Error error -> failwith error
         with error ->
             try
