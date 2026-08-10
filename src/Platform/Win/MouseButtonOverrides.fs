@@ -7,6 +7,7 @@ open RhinosCanFly
 open RhinosCanFly.Platform.Win.ViewNavigationTypes
 
 let state = create_state ()
+let flightKeyboard = FlightKeyboardSuppression.create ()
 
 type SideButtonCallback() =
     inherit MouseCallback()
@@ -93,10 +94,13 @@ state.poll_timer.Tick.Add(fun (_: EventArgs) ->
     with error ->
         Debug.WriteLine $"RhinosCanFly mouse override timer: {error.Message}")
 
-let handle_keyboard_key_down (virtualKey: int) =
+let handle_keyboard_event (virtualKey: int) (keyReleased: bool) =
     try
-        if
-            state.lifecycle = Available
+        if FlightKeyboardSuppression.contains virtualKey flightKeyboard then
+            true
+        elif
+            not keyReleased
+            && state.lifecycle = Available
             && (ViewNavigationState.any_button_engaged state
                 || ViewNavigationState.view_latch_engaged state)
             && ViewNavigationState.exit_binding_down_for_event state virtualKey
@@ -113,11 +117,21 @@ let handle_keyboard_key_down (virtualKey: int) =
         false
 
 let keyboard_hook =
-    match Win32.install_keyboard_hook handle_keyboard_key_down with
+    match Win32.install_keyboard_hook handle_keyboard_event with
     | Ok hook -> Some hook
     | Error error ->
         Debug.WriteLine $"RhinosCanFly mouse override keyboard hook: {error}"
         None
+
+let suppress_flight_keyboard (bindings: FlightBindings) =
+    match keyboard_hook with
+    | Some _ ->
+        FlightKeyboardSuppression.start bindings flightKeyboard
+        Ok()
+    | None -> Error "The keyboard hook is unavailable."
+
+let release_flight_keyboard () =
+    FlightKeyboardSuppression.stop flightKeyboard
 
 let right_click_enabled () =
     ViewLatchTransitions.right_click_enabled state
@@ -174,6 +188,7 @@ let shutdown () =
     if state.lifecycle <> ShutDown then
         state.lifecycle <- ShutDown
         callback.Enabled <- false
+        release_flight_keyboard ()
 
         match keyboard_hook with
         | Some hook ->

@@ -48,6 +48,7 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
         let cleanupErrors = ResizeArray<string>()
         let mutable rawInputClean = true
         let mutable overridesSuspended = false
+        let mutable keyboardSuppressed = false
 
         let flightResult =
             try
@@ -56,6 +57,10 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                 match PlatformInput.suspend_mouse_button_overrides () with
                 | Ok() -> overridesSuspended <- true
                 | Error error -> failwith $"Could not suspend mouse button overrides: {error}"
+
+                match PlatformInput.suppress_flight_keyboard config.bindings with
+                | Ok() -> keyboardSuppressed <- true
+                | Error error -> failwith $"Could not suppress flight keyboard input: {error}"
 
                 let state = FlightState.create view config
                 let rawInput = InputAccumulator.create ()
@@ -175,6 +180,9 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                 activeResult
             with error ->
                 Error(error_message error)
+
+        if keyboardSuppressed then
+            attempt_cleanup cleanupErrors "keyboard input" (fun () -> PlatformInput.release_flight_keyboard ())
 
         if overridesSuspended then
             attempt_cleanup cleanupErrors "mouse button overrides" (fun () ->

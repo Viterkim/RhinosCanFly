@@ -75,6 +75,12 @@ let open_raw_input
 
 let close_raw_input (session: RawInputSession) = RawInputThread.stop session
 
+let suppress_flight_keyboard (bindings: FlightBindings) =
+    MouseButtonOverrides.suppress_flight_keyboard bindings
+
+let release_flight_keyboard () =
+    MouseButtonOverrides.release_flight_keyboard ()
+
 let apply_mouse_button_overrides (config: MouseOverrideConfig) = MouseButtonOverrides.apply config
 
 let mouse_button_right_click_enabled () =

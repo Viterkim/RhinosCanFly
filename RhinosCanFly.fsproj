@@ -67,6 +67,7 @@
     <Compile Include="src/Platform/Win/RawInputReceiver.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/RawInputThread.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/RawInputWake.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
+    <Compile Include="src/Platform/Win/FlightKeyboardSuppression.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/ViewNavigationTypes.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/ViewNavigationState.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/ViewLatchTransitions.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />

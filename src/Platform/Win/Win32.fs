@@ -97,14 +97,14 @@ let wait_for_input (timeoutMilliseconds: uint32) =
     if result = Win32Native.WAIT_FAILED then
         failwith (last_error "MsgWaitForMultipleObjectsEx")
 
-let install_keyboard_hook (handleKeyDown: int -> bool) =
+let install_keyboard_hook (handleEvent: int -> bool -> bool) =
     let mutable hook = nativeint 0
 
     let procedure =
         Win32Native.HookProcedure(fun (code: int) (wparam: nativeint) (lparam: nativeint) ->
             let keyReleased = int64 lparam &&& (1L <<< 31) <> 0L
 
-            if code = Win32Native.HC_ACTION && not keyReleased && handleKeyDown (int wparam) then
+            if code = Win32Native.HC_ACTION && handleEvent (int wparam) keyReleased then
                 nativeint 1
             else
                 Win32Native.CallNextHookEx(hook, code, wparam, lparam))
