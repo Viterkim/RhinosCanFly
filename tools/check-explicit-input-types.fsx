@@ -11,8 +11,11 @@ let hasUntypedParameters (parameters: string) =
         false
     else
         let groups = Regex.Matches(text, @"\((?<parameter>[^()]*)\)")
+        let bareParameters = Regex.Replace(text, @"\([^()]*\)", "").Trim()
 
         if groups.Count = 0 then
+            true
+        elif not (String.IsNullOrWhiteSpace bareParameters) then
             true
         else
             groups
@@ -28,14 +31,12 @@ let checks =
     [ "function",
       Regex(
           letPrefix
-          + @"[A-Za-z_][\w']*(?:<[^>]+>)?\s*(?<parameters>(?:\([^)]*\)\s*)+)(?:\s*:\s*[^=]+)?\s*=",
+          + @"[A-Za-z_][\w']*(?:<[^>]+>)?\s+(?<parameters>(?:(?:\([^)]*\)|[A-Za-z_][\w']*)\s*)+)(?:\s*:\s*[^=]+)?\s*=",
           RegexOptions.Compiled
       )
-      "function",
-      Regex(letPrefix + @"[A-Za-z_][\w']*(?:<[^>]+>)?\s+(?<parameters>[A-Za-z_][\w']*)\s*=", RegexOptions.Compiled)
       "member",
       Regex(
-          @"^\s*(?:member|override)\s+[^.(]+\.[^(]+(?<parameters>(?:\([^)]*\)\s*)+)(?:\s*:\s*[^=]+)?\s*=",
+          @"^\s*(?:member|override)\s+[^.]+\.[A-Za-z_][\w']*\s+(?<parameters>(?:(?:\([^)]*\)|[A-Za-z_][\w']*)\s*)+)(?:\s*:\s*[^=]+)?\s*=",
           RegexOptions.Compiled
       )
       "constructor", Regex(@"^\s*type\s+[A-Za-z_][\w']*(?:<[^>]+>)?\s*(?<parameters>\([^)]*\))", RegexOptions.Compiled)
@@ -122,12 +123,19 @@ let checkerSelfTests =
       "let struct (left, right) =\n    pair", false
       "let private run () = ()", false
       "let private run value = value", true
+      "let run left right = left + right", true
+      "let run (left: int) right = left + right", true
+      "let run (left: int) (right: int) = left + right", false
+      "let value: int = 1", false
       "let rec private loop (value) = loop value", true
       "let inline public convert value = value", true
       "let run\n    (value: int)\n    = value", false
       "let run\n    value\n    = value", true
       "override _.Run\n    (value: int)\n    = value", false
       "override _.Run\n    (value)\n    = value", true
+      "member _.Run value = value", true
+      "member _.Run left right = left + right", true
+      "member _.Run (left: int) (right: int) = left + right", false
       "let run =\n    fun\n        (value: int)\n        -> value", false
       "let run =\n    fun\n        value\n        -> value", true ]
 

@@ -1,225 +1,10 @@
 module RhinosCanFly.Platform.Win.Win32
 
-#nowarn "9"
-
 open System
 open System.ComponentModel
 open System.Drawing
 open System.Runtime.InteropServices
 open System.Text
-
-[<Literal>]
-let WM_MOUSELEAVE = 0x02A3
-
-[<Literal>]
-let TTM_POP = 0x041C
-
-[<Literal>]
-let TOOLTIP_WINDOW_CLASS = "tooltips_class32"
-
-[<Literal>]
-let INPUT_MOUSE = 0u
-
-[<Literal>]
-let INPUT_KEYBOARD = 1u
-
-[<Literal>]
-let MOUSEEVENTF_MIDDLEDOWN = 0x00000020u
-
-[<Literal>]
-let MOUSEEVENTF_MIDDLEUP = 0x00000040u
-
-[<Literal>]
-let KEYEVENTF_KEYUP = 0x0002u
-
-[<Literal>]
-let WHEEL_DELTA = 120
-
-[<Literal>]
-let GA_ROOT = 2u
-
-[<Literal>]
-let QS_ALLINPUT = 0x04FFu
-
-[<Literal>]
-let MWMO_INPUTAVAILABLE = 0x0004u
-
-[<Literal>]
-let WAIT_FAILED = 0xFFFFFFFFu
-
-[<Literal>]
-let INFINITE = 0xFFFFFFFFu
-
-[<Literal>]
-let WH_KEYBOARD = 2
-
-[<Literal>]
-let HC_ACTION = 0
-
-[<Literal>]
-let VK_LBUTTON = 0x01
-
-[<Literal>]
-let VK_RBUTTON = 0x02
-
-[<Literal>]
-let VK_MBUTTON = 0x04
-
-[<Literal>]
-let VK_XBUTTON1 = 0x05
-
-[<Literal>]
-let VK_XBUTTON2 = 0x06
-
-[<Literal>]
-let VK_SHIFT = 0x10
-
-[<Literal>]
-let VK_CONTROL = 0x11
-
-[<Literal>]
-let VK_MENU = 0x12
-
-[<Literal>]
-let VK_LSHIFT = 0xA0
-
-[<Literal>]
-let VK_RSHIFT = 0xA1
-
-[<Literal>]
-let VK_LCONTROL = 0xA2
-
-[<Literal>]
-let VK_RCONTROL = 0xA3
-
-[<Literal>]
-let VK_LMENU = 0xA4
-
-[<Literal>]
-let VK_RMENU = 0xA5
-
-[<Struct; StructLayout(LayoutKind.Sequential)>]
-type NativePoint =
-    val mutable x: int
-    val mutable y: int
-
-[<Struct; StructLayout(LayoutKind.Sequential)>]
-type NativeRect =
-    val mutable left: int
-    val mutable top: int
-    val mutable right: int
-    val mutable bottom: int
-
-[<Struct; StructLayout(LayoutKind.Sequential)>]
-type MouseInput =
-    val mutable dx: int
-    val mutable dy: int
-    val mutable mouse_data: uint32
-    val mutable flags: uint32
-    val mutable time: uint32
-    val mutable extra_info: unativeint
-
-[<Struct; StructLayout(LayoutKind.Sequential)>]
-type KeyboardInput =
-    val mutable virtual_key: uint16
-    val mutable scan_code: uint16
-    val mutable flags: uint32
-    val mutable time: uint32
-    val mutable extra_info: unativeint
-
-[<Struct; StructLayout(LayoutKind.Explicit)>]
-type InputData =
-    [<FieldOffset(0)>]
-    val mutable mouse: MouseInput
-
-    [<FieldOffset(0)>]
-    val mutable keyboard: KeyboardInput
-
-[<Struct; StructLayout(LayoutKind.Sequential)>]
-type NativeInput =
-    val mutable input_type: uint32
-    val mutable data: InputData
-
-type EnumThreadWindowCallback = delegate of nativeint * nativeint -> bool
-
-[<UnmanagedFunctionPointer(CallingConvention.Winapi)>]
-type HookProcedure = delegate of int * nativeint * nativeint -> nativeint
-
-type KeyboardHook =
-    { handle: nativeint
-      procedure: HookProcedure }
-
-[<DllImport("user32.dll")>]
-extern int16 GetAsyncKeyState(int virtual_key)
-
-[<DllImport("user32.dll", SetLastError = true)>]
-extern bool GetCursorPos(NativePoint& point)
-
-[<DllImport("user32.dll", SetLastError = true)>]
-extern bool SetCursorPos(int x, int y)
-
-[<DllImport("user32.dll", EntryPoint = "ClipCursor", SetLastError = true)>]
-extern bool ClipCursorRect(NativeRect& rectangle)
-
-[<DllImport("user32.dll", EntryPoint = "ClipCursor", SetLastError = true)>]
-extern bool ClipCursorClear(nativeint rectangle)
-
-[<DllImport("user32.dll")>]
-extern int ShowCursor(bool show)
-
-[<DllImport("user32.dll")>]
-extern nativeint SetFocus(nativeint window)
-
-[<DllImport("user32.dll")>]
-extern nativeint GetForegroundWindow()
-
-[<DllImport("user32.dll")>]
-extern nativeint GetAncestor(nativeint window, uint32 flags)
-
-[<DllImport("user32.dll")>]
-extern nativeint SendMessage(nativeint window, int message, nativeint wparam, nativeint lparam)
-
-[<DllImport("user32.dll")>]
-extern uint32 GetWindowThreadProcessId(nativeint window, uint32& process_id)
-
-[<DllImport("user32.dll", CharSet = CharSet.Unicode)>]
-extern int GetClassName(nativeint window, StringBuilder class_name, int maximum_count)
-
-[<DllImport("user32.dll")>]
-extern bool IsWindowVisible(nativeint window)
-
-[<DllImport("user32.dll")>]
-extern bool EnumThreadWindows(uint32 thread_id, EnumThreadWindowCallback callback, nativeint state)
-
-[<DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)>]
-extern nativeint SetWindowsHookEx(int hook_type, HookProcedure procedure, nativeint module_handle, uint32 thread_id)
-
-[<DllImport("user32.dll", SetLastError = true)>]
-extern bool UnhookWindowsHookEx(nativeint hook)
-
-[<DllImport("user32.dll")>]
-extern nativeint CallNextHookEx(nativeint hook, int code, nativeint wparam, nativeint lparam)
-
-[<DllImport("kernel32.dll")>]
-extern uint32 GetCurrentThreadId()
-
-[<DllImport("user32.dll", SetLastError = true)>]
-extern uint32 SendInput(uint32 input_count, NativeInput[] inputs, int input_size)
-
-[<DllImport("user32.dll", SetLastError = true)>]
-extern bool InvalidateRect(nativeint window, nativeint rectangle, bool erase)
-
-[<DllImport("user32.dll", SetLastError = true)>]
-extern bool UpdateWindow(nativeint window)
-
-[<DllImport("user32.dll", SetLastError = true)>]
-extern uint32 MsgWaitForMultipleObjectsEx(
-    uint32 object_count,
-    nativeint handles,
-    uint32 milliseconds,
-    uint32 wake_mask,
-    uint32 flags
-)
 
 let win32_error (operation: string) (errorCode: int) =
     Win32Exception(errorCode)
@@ -229,81 +14,89 @@ let last_error (operation: string) =
     win32_error operation (Marshal.GetLastWin32Error())
 
 let get_cursor_position () =
-    let mutable point = Unchecked.defaultof<NativePoint>
+    let mutable point = Unchecked.defaultof<Win32Native.NativePoint>
 
-    if GetCursorPos(&point) then
+    if Win32Native.GetCursorPos(&point) then
         Ok(Point(point.x, point.y))
     else
         Error(last_error "GetCursorPos")
 
 let set_cursor_position (point: Point) =
-    if SetCursorPos(point.X, point.Y) then
+    if Win32Native.SetCursorPos(point.X, point.Y) then
         Ok()
     else
         Error(last_error "SetCursorPos")
 
 let clip_cursor (rectangle: Rectangle) =
-    let mutable native = Unchecked.defaultof<NativeRect>
+    let mutable native = Unchecked.defaultof<Win32Native.NativeRect>
     native.left <- rectangle.Left
     native.top <- rectangle.Top
     native.right <- rectangle.Right
     native.bottom <- rectangle.Bottom
 
-    if ClipCursorRect(&native) then
+    if Win32Native.ClipCursorRect(&native) then
         Ok()
     else
         Error(last_error "ClipCursor")
 
 let clear_cursor_clip () =
-    if ClipCursorClear(nativeint 0) then
+    if Win32Native.ClipCursorClear(nativeint 0) then
         Ok()
     else
         Error(last_error "ClipCursor(null)")
 
 let clear_mouse_hover (window: nativeint) =
-    SendMessage(window, WM_MOUSELEAVE, nativeint 0, nativeint 0) |> ignore
+    Win32Native.SendMessage(window, Win32Native.WM_MOUSELEAVE, nativeint 0, nativeint 0)
+    |> ignore
 
 let dismiss_native_tooltips (window: nativeint) =
     let mutable processId = 0u
-    let threadId = GetWindowThreadProcessId(window, &processId)
+    let threadId = Win32Native.GetWindowThreadProcessId(window, &processId)
 
     if threadId <> 0u then
         let callback =
-            EnumThreadWindowCallback(fun (candidate: nativeint) (_state: nativeint) ->
-                if IsWindowVisible candidate then
+            Win32Native.EnumThreadWindowCallback(fun (candidate: nativeint) (_state: nativeint) ->
+                if Win32Native.IsWindowVisible candidate then
                     let className = StringBuilder(64)
 
                     if
-                        GetClassName(candidate, className, className.Capacity) > 0
+                        Win32Native.GetClassName(candidate, className, className.Capacity) > 0
                         && String.Equals(
                             className.ToString(),
-                            TOOLTIP_WINDOW_CLASS,
+                            Win32Native.TOOLTIP_WINDOW_CLASS,
                             StringComparison.OrdinalIgnoreCase
                         )
                     then
-                        SendMessage(candidate, TTM_POP, nativeint 0, nativeint 0) |> ignore
+                        Win32Native.SendMessage(candidate, Win32Native.TTM_POP, nativeint 0, nativeint 0)
+                        |> ignore
 
                 true)
 
-        EnumThreadWindows(threadId, callback, nativeint 0) |> ignore
+        Win32Native.EnumThreadWindows(threadId, callback, nativeint 0) |> ignore
 
 let update_window (window: nativeint) =
-    if UpdateWindow window then
+    if Win32Native.UpdateWindow window then
         Ok()
     else
         Error(last_error "UpdateWindow")
 
 let redraw_window (window: nativeint) =
-    if not (InvalidateRect(window, nativeint 0, false)) then
+    if not (Win32Native.InvalidateRect(window, nativeint 0, false)) then
         Error(last_error "InvalidateRect")
     else
         update_window window
 
 let wait_for_input (timeoutMilliseconds: uint32) =
     let result =
-        MsgWaitForMultipleObjectsEx(0u, nativeint 0, timeoutMilliseconds, QS_ALLINPUT, MWMO_INPUTAVAILABLE)
+        Win32Native.MsgWaitForMultipleObjectsEx(
+            0u,
+            nativeint 0,
+            timeoutMilliseconds,
+            Win32Native.QS_ALLINPUT,
+            Win32Native.MWMO_INPUTAVAILABLE
+        )
 
-    if result = WAIT_FAILED then
+    if result = Win32Native.WAIT_FAILED then
         Error(last_error "MsgWaitForMultipleObjectsEx")
     else
         Ok()
@@ -312,23 +105,27 @@ let install_keyboard_hook (handleKeyDown: int -> bool) =
     let mutable hook = nativeint 0
 
     let procedure =
-        HookProcedure(fun (code: int) (wparam: nativeint) (lparam: nativeint) ->
+        Win32Native.HookProcedure(fun (code: int) (wparam: nativeint) (lparam: nativeint) ->
             let keyReleased = int64 lparam &&& (1L <<< 31) <> 0L
 
-            if code = HC_ACTION && not keyReleased && handleKeyDown (int wparam) then
+            if code = Win32Native.HC_ACTION && not keyReleased && handleKeyDown (int wparam) then
                 nativeint 1
             else
-                CallNextHookEx(hook, code, wparam, lparam))
+                Win32Native.CallNextHookEx(hook, code, wparam, lparam))
 
-    hook <- SetWindowsHookEx(WH_KEYBOARD, procedure, nativeint 0, GetCurrentThreadId())
+    hook <-
+        Win32Native.SetWindowsHookEx(Win32Native.WH_KEYBOARD, procedure, nativeint 0, Win32Native.GetCurrentThreadId())
 
     if hook = nativeint 0 then
         Error(last_error "SetWindowsHookEx(WH_KEYBOARD)")
     else
-        Ok { handle = hook; procedure = procedure }
+        let keyboardHook: Win32Native.KeyboardHook =
+            { handle = hook; procedure = procedure }
 
-let remove_keyboard_hook (hook: KeyboardHook) =
-    let removed = UnhookWindowsHookEx hook.handle
+        Ok keyboardHook
+
+let remove_keyboard_hook (hook: Win32Native.KeyboardHook) =
+    let removed = Win32Native.UnhookWindowsHookEx hook.handle
     GC.KeepAlive hook.procedure
 
     if removed then
@@ -337,32 +134,33 @@ let remove_keyboard_hook (hook: KeyboardHook) =
         Error(last_error "UnhookWindowsHookEx")
 
 let mouse_input (flags: uint32) =
-    let mutable mouse = Unchecked.defaultof<MouseInput>
+    let mutable mouse = Unchecked.defaultof<Win32Native.MouseInput>
     mouse.flags <- flags
 
-    let mutable input = Unchecked.defaultof<NativeInput>
-    input.input_type <- INPUT_MOUSE
+    let mutable input = Unchecked.defaultof<Win32Native.NativeInput>
+    input.input_type <- Win32Native.INPUT_MOUSE
 
-    let mutable data = Unchecked.defaultof<InputData>
+    let mutable data = Unchecked.defaultof<Win32Native.InputData>
     data.mouse <- mouse
     input.data <- data
     input
 
 let keyboard_input (virtualKey: int) (flags: uint32) =
-    let mutable keyboard = Unchecked.defaultof<KeyboardInput>
+    let mutable keyboard = Unchecked.defaultof<Win32Native.KeyboardInput>
     keyboard.virtual_key <- uint16 virtualKey
     keyboard.flags <- flags
 
-    let mutable input = Unchecked.defaultof<NativeInput>
-    input.input_type <- INPUT_KEYBOARD
+    let mutable input = Unchecked.defaultof<Win32Native.NativeInput>
+    input.input_type <- Win32Native.INPUT_KEYBOARD
 
-    let mutable data = Unchecked.defaultof<InputData>
+    let mutable data = Unchecked.defaultof<Win32Native.InputData>
     data.keyboard <- keyboard
     input.data <- data
     input
 
-let try_send_inputs (operation: string) (inputs: NativeInput array) =
-    let sent = SendInput(uint32 inputs.Length, inputs, Marshal.SizeOf<NativeInput>())
+let try_send_inputs (operation: string) (inputs: Win32Native.NativeInput array) =
+    let sent =
+        Win32Native.SendInput(uint32 inputs.Length, inputs, Marshal.SizeOf<Win32Native.NativeInput>())
 
     if sent = uint32 inputs.Length then
         Ok()
@@ -370,7 +168,7 @@ let try_send_inputs (operation: string) (inputs: NativeInput array) =
         let error = last_error operation
         Error(struct (sent, $"{error} ({sent} of {inputs.Length} events inserted)"))
 
-let send_inputs (operation: string) (inputs: NativeInput array) =
+let send_inputs (operation: string) (inputs: Win32Native.NativeInput array) =
     match try_send_inputs operation inputs with
     | Ok() -> Ok()
     | Error(struct (_, error)) -> Error error
@@ -378,21 +176,22 @@ let send_inputs (operation: string) (inputs: NativeInput array) =
 let send_middle_mouse (down: bool) =
     let flags =
         if down then
-            MOUSEEVENTF_MIDDLEDOWN
+            Win32Native.MOUSEEVENTF_MIDDLEDOWN
         else
-            MOUSEEVENTF_MIDDLEUP
+            Win32Native.MOUSEEVENTF_MIDDLEUP
 
     send_inputs "SendInput(middle mouse)" [| mouse_input flags |]
 
 let send_shift_key (down: bool) =
-    let flags = if down then 0u else KEYEVENTF_KEYUP
-    send_inputs "SendInput(shift)" [| keyboard_input VK_SHIFT flags |]
+    let flags = if down then 0u else Win32Native.KEYEVENTF_KEYUP
+    send_inputs "SendInput(shift)" [| keyboard_input Win32Native.VK_SHIFT flags |]
 
 let start_shift_middle_mouse () =
     match
         try_send_inputs
             "SendInput(shift + middle mouse)"
-            [| keyboard_input VK_SHIFT 0u; mouse_input MOUSEEVENTF_MIDDLEDOWN |]
+            [| keyboard_input Win32Native.VK_SHIFT 0u
+               mouse_input Win32Native.MOUSEEVENTF_MIDDLEDOWN |]
     with
     | Ok() -> Ok()
     | Error(struct (1u, error)) ->
@@ -405,7 +204,8 @@ let stop_shift_middle_mouse () =
     match
         try_send_inputs
             "SendInput(middle mouse + shift)"
-            [| mouse_input MOUSEEVENTF_MIDDLEUP; keyboard_input VK_SHIFT KEYEVENTF_KEYUP |]
+            [| mouse_input Win32Native.MOUSEEVENTF_MIDDLEUP
+               keyboard_input Win32Native.VK_SHIFT Win32Native.KEYEVENTF_KEYUP |]
     with
     | Ok() -> Ok()
     | Error(struct (1u, error)) ->

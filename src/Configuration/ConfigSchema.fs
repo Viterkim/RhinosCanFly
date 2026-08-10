@@ -92,7 +92,7 @@ let compile (source: FlyConfigFile) =
         | Error error ->
             errors.Add $"{name}: {error}"
 
-            { virtual_keys = [] }
+            { virtual_keys = List.empty<VirtualKey> }
 
     let optional (name: string) (value: string) =
         if String.IsNullOrWhiteSpace value then
@@ -151,60 +151,64 @@ let compile (source: FlyConfigFile) =
         then
             errors.Add "forced_lens_length_mm plus lens_length_delta_mm must be a positive finite number"
 
-    let config =
-        { forward = required "forward" source.forward
-          backward = required "backward" source.backward
-          left = required "left" source.left
-          right = required "right" source.right
-          up = required "up" source.up
-          down = required "down" source.down
-          pivot_left = required "pivot_left" source.pivot_left
-          pivot_right = required "pivot_right" source.pivot_right
-          pivot_toggle = optional "pivot_toggle" source.pivot_toggle
-          pivot_hold = optional "pivot_hold" source.pivot_hold
-          boost = required "boost" source.boost
-          slow = required "slow" source.slow
-          speed_increase = optional "speed_increase" source.speed_increase
-          speed_decrease = optional "speed_decrease" source.speed_decrease
-          exit_key = required "exit_key" source.exit_key
-          base_speed = source.base_speed
-          minimum_speed = source.minimum_speed
-          maximum_speed = source.maximum_speed
-          speed_step_multiplier = source.speed_step_multiplier
-          boost_multiplier = source.boost_multiplier
-          slow_multiplier = source.slow_multiplier
-          pivot_speed_multiplier = source.pivot_speed_multiplier
-          mouse_pivot_multiplier = source.mouse_pivot_multiplier
-          mouse_sensitivity =
-            source.mouse_sensitivity
-            |> ConfigMouseSensitivity
-            |> MouseSensitivity.to_runtime
-          mouse_x_mode = source.mouse_x_mode
-          mouse_y_mode = source.mouse_y_mode
-          normalize_diagonal_movement = source.normalize_diagonal_movement
-          hide_gumball_while_flying = source.hide_gumball_while_flying
-          pivot_bindings_ignore_gumball = source.pivot_bindings_ignore_gumball
-          save_speed_to_document = source.save_speed_to_document
-          load_speed_from_document = source.load_speed_from_document
-          wheel_speed_mode = source.wheel_speed_mode
-          exit_on_mouse_left = source.exit_on_mouse_left
-          exit_on_mouse_right = source.exit_on_mouse_right
-          middle_mouse_while_flying = source.middle_mouse_while_flying
-          mouse4_also_while_flying = source.mouse4_also_while_flying
-          mouse5_also_while_flying = source.mouse5_also_while_flying
-          mouse4_pivot_mode = source.mouse4_pivot_mode
-          mouse5_pivot_mode = source.mouse5_pivot_mode
-          boost_mode = source.boost_mode
-          slow_mode = source.slow_mode
-          vertical_speed_multiplier = source.vertical_speed_multiplier
-          lens_adjustment =
-            { forced_length_mm =
-                if source.forced_lens_length_mm = 0. then
-                    None
-                else
-                    Some source.forced_lens_length_mm
-              delta_mm = source.lens_length_delta_mm }
-          viewport_redraw_mode = source.viewport_redraw_mode }
+    let config: FlyConfig =
+        { bindings =
+            { forward = required "forward" source.forward
+              backward = required "backward" source.backward
+              left = required "left" source.left
+              right = required "right" source.right
+              up = required "up" source.up
+              down = required "down" source.down
+              pivot_left = required "pivot_left" source.pivot_left
+              pivot_right = required "pivot_right" source.pivot_right
+              pivot_toggle = optional "pivot_toggle" source.pivot_toggle
+              pivot_hold = optional "pivot_hold" source.pivot_hold
+              boost = required "boost" source.boost
+              slow = required "slow" source.slow
+              speed_increase = optional "speed_increase" source.speed_increase
+              speed_decrease = optional "speed_decrease" source.speed_decrease
+              exit_key = required "exit_key" source.exit_key }
+          movement =
+            { base_speed = source.base_speed
+              minimum_speed = source.minimum_speed
+              maximum_speed = source.maximum_speed
+              speed_step_multiplier = source.speed_step_multiplier
+              boost_multiplier = source.boost_multiplier
+              slow_multiplier = source.slow_multiplier
+              pivot_speed_multiplier = source.pivot_speed_multiplier
+              vertical_speed_multiplier = source.vertical_speed_multiplier
+              normalize_diagonal_movement = source.normalize_diagonal_movement
+              wheel_speed_mode = source.wheel_speed_mode
+              boost_mode = source.boost_mode
+              slow_mode = source.slow_mode }
+          mouse =
+            { pivot_multiplier = source.mouse_pivot_multiplier
+              sensitivity =
+                source.mouse_sensitivity
+                |> ConfigMouseSensitivity
+                |> MouseSensitivity.to_runtime
+              x_mode = source.mouse_x_mode
+              y_mode = source.mouse_y_mode
+              exit_on_left = source.exit_on_mouse_left
+              exit_on_right = source.exit_on_mouse_right
+              middle_button = source.middle_mouse_while_flying
+              mouse4_also_while_flying = source.mouse4_also_while_flying
+              mouse5_also_while_flying = source.mouse5_also_while_flying
+              mouse4_pivot_mode = source.mouse4_pivot_mode
+              mouse5_pivot_mode = source.mouse5_pivot_mode }
+          behavior =
+            { hide_gumball = source.hide_gumball_while_flying
+              pivot_bindings_ignore_gumball = source.pivot_bindings_ignore_gumball
+              save_speed_to_document = source.save_speed_to_document
+              load_speed_from_document = source.load_speed_from_document
+              lens_adjustment =
+                { forced_length_mm =
+                    if source.forced_lens_length_mm = 0. then
+                        None
+                    else
+                        Some source.forced_lens_length_mm
+                  delta_mm = source.lens_length_delta_mm }
+              viewport_redraw_mode = source.viewport_redraw_mode } }
 
     if errors.Count = 0 then
         Ok config

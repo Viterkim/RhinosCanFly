@@ -9,7 +9,7 @@ open Rhino.UI
 
 type QueuedFlyEntry =
     { view_serial_number: uint32
-      root_window: nativeint
+      root_window: RootWindow
       session_mode: FlightSessionMode
       handler: EventHandler }
 
@@ -18,6 +18,12 @@ type RightClickGesture =
     | ViewManipulationClick
     | FlyButtonDown of QueuedFlyEntry
     | FlyButtonReleased of QueuedFlyEntry
+
+type Config =
+    { fly_entry_enabled: bool
+      enter_during_commands: bool
+      session_mode: FlightSessionMode
+      view_manipulation_enabled: bool }
 
 type RightClickCallback() =
     inherit MouseCallback()
@@ -81,7 +87,7 @@ type RightClickCallback() =
 
                     match gesture with
                     | FlyButtonDown entry ->
-                        if PlatformInput.foreground_window () <> entry.root_window then
+                        if PlatformInput.foreground_root_window () <> entry.root_window then
                             clear_gesture ()
                         else
                             match entry.session_mode, PlatformInput.right_mouse_button_down () with
@@ -90,7 +96,7 @@ type RightClickCallback() =
                             | FlightSessionMode.WhileRightMouseHeld, true -> run_fly_entry entry
                             | FlightSessionMode.WhileRightMouseHeld, false -> clear_gesture ()
                     | FlyButtonReleased entry ->
-                        if PlatformInput.foreground_window () <> entry.root_window then
+                        if PlatformInput.foreground_root_window () <> entry.root_window then
                             clear_gesture ()
                         else
                             run_fly_entry entry
@@ -107,7 +113,7 @@ type RightClickCallback() =
         gesture <-
             FlyButtonDown
                 { view_serial_number = view.RuntimeSerialNumber
-                  root_window = PlatformInput.root_window view.Handle
+                  root_window = PlatformInput.root_window view
                   session_mode = entrySessionMode
                   handler = handler }
 
@@ -130,7 +136,7 @@ type RightClickCallback() =
             let mutable viewManipulationHandled = false
 
             if isRightButton && not (isNull event.View) && not (Runtime.is_running ()) then
-                match PlatformInput.handle_view_manipulation_right_click event.View.Handle with
+                match PlatformInput.handle_view_manipulation_right_click event.View with
                 | Ok true ->
                     event.Cancel <- true
                     gesture <- ViewManipulationClick
@@ -178,28 +184,24 @@ type RightClickCallback() =
         with error ->
             recover_from_callback_error "right-click mouse-up callback" event error
 
-    member this.Configure
-        (flyEntryEnabled: bool, duringCommands: bool, sessionMode: FlightSessionMode, viewManipulationEnabled: bool)
-        =
-        if not flyEntryEnabled then
+    member this.Configure(config: Config) =
+        if not config.fly_entry_enabled then
             clear_gesture ()
 
-        flyEnabled <- flyEntryEnabled
-        enterDuringCommands <- duringCommands
-        entrySessionMode <- sessionMode
-        this.Enabled <- flyEntryEnabled || viewManipulationEnabled
+        flyEnabled <- config.fly_entry_enabled
+        enterDuringCommands <- config.enter_during_commands
+        entrySessionMode <- config.session_mode
+        this.Enabled <- config.fly_entry_enabled || config.view_manipulation_enabled
 
     member this.Shutdown() =
-        this.Configure(false, false, FlightSessionMode.Persistent, false)
+        this.Configure
+            { fly_entry_enabled = false
+              enter_during_commands = false
+              session_mode = FlightSessionMode.Persistent
+              view_manipulation_enabled = false }
 
 let callback = RightClickCallback()
 
-let configure
-    (flyEntryEnabled: bool)
-    (duringCommands: bool)
-    (sessionMode: FlightSessionMode)
-    (viewManipulationEnabled: bool)
-    =
-    callback.Configure(flyEntryEnabled, duringCommands, sessionMode, viewManipulationEnabled)
+let configure (config: Config) = callback.Configure config
 
 let shutdown () = callback.Shutdown()

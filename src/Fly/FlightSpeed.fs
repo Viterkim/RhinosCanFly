@@ -74,6 +74,6 @@ let set
     with error ->
         Error $"Could not save flying speed to the document: {error.Message}"
 
-let step (config: FlyConfig) (speed: float) (direction: float) =
+let step (config: MovementConfig) (speed: float) (direction: float) =
     let requested = speed * Math.Pow(config.speed_step_multiplier, direction)
     Speed.allowed config.minimum_speed config.maximum_speed requested

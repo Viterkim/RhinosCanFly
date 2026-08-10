@@ -8,11 +8,11 @@ let redraw (mode: ViewportRedrawMode) (view: RhinoView) =
     | ViewportRedrawMode.RhinoImmediate ->
         view.Redraw()
 
-        match PlatformInput.update_window view.Handle with
+        match PlatformInput.update_window view with
         | Ok() -> ()
         | Error error -> failwith error
     | ViewportRedrawMode.NativeWindow ->
-        match PlatformInput.redraw_window view.Handle with
+        match PlatformInput.redraw_window view with
         | Ok() -> ()
         | Error error -> failwith error
     | _ -> view.Redraw()

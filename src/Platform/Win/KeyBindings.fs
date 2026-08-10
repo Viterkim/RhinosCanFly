@@ -6,27 +6,27 @@ open System.Globalization
 open RhinosCanFly
 
 let aliases =
-    let d = Dictionary<string, int> StringComparer.OrdinalIgnoreCase
+    let d = Dictionary<string, VirtualKey> StringComparer.OrdinalIgnoreCase
 
-    [ "LeftShift", Win32.VK_LSHIFT
-      "LShiftKey", Win32.VK_LSHIFT
-      "RightShift", Win32.VK_RSHIFT
-      "RShiftKey", Win32.VK_RSHIFT
-      "Shift", Win32.VK_SHIFT
-      "ShiftKey", Win32.VK_SHIFT
-      "LeftAlt", Win32.VK_LMENU
-      "LMenu", Win32.VK_LMENU
-      "RightAlt", Win32.VK_RMENU
-      "RMenu", Win32.VK_RMENU
-      "Alt", Win32.VK_MENU
-      "Menu", Win32.VK_MENU
-      "LeftControl", Win32.VK_LCONTROL
-      "LControlKey", Win32.VK_LCONTROL
-      "RightControl", Win32.VK_RCONTROL
-      "RControlKey", Win32.VK_RCONTROL
-      "Control", Win32.VK_CONTROL
-      "ControlKey", Win32.VK_CONTROL
-      "Ctrl", Win32.VK_CONTROL
+    [ "LeftShift", Win32Native.VK_LSHIFT
+      "LShiftKey", Win32Native.VK_LSHIFT
+      "RightShift", Win32Native.VK_RSHIFT
+      "RShiftKey", Win32Native.VK_RSHIFT
+      "Shift", Win32Native.VK_SHIFT
+      "ShiftKey", Win32Native.VK_SHIFT
+      "LeftAlt", Win32Native.VK_LMENU
+      "LMenu", Win32Native.VK_LMENU
+      "RightAlt", Win32Native.VK_RMENU
+      "RMenu", Win32Native.VK_RMENU
+      "Alt", Win32Native.VK_MENU
+      "Menu", Win32Native.VK_MENU
+      "LeftControl", Win32Native.VK_LCONTROL
+      "LControlKey", Win32Native.VK_LCONTROL
+      "RightControl", Win32Native.VK_RCONTROL
+      "RControlKey", Win32Native.VK_RCONTROL
+      "Control", Win32Native.VK_CONTROL
+      "ControlKey", Win32Native.VK_CONTROL
+      "Ctrl", Win32Native.VK_CONTROL
       "ArrowUp", 0x26
       "Up", 0x26
       "ArrowDown", 0x28
@@ -71,16 +71,16 @@ let aliases =
       "Applications", 0x5D
       "Apps", 0x5D
       "ContextMenu", 0x5D
-      "MouseLeft", Win32.VK_LBUTTON
-      "LButton", Win32.VK_LBUTTON
-      "MouseRight", Win32.VK_RBUTTON
-      "RButton", Win32.VK_RBUTTON
-      "MouseMiddle", Win32.VK_MBUTTON
-      "MButton", Win32.VK_MBUTTON
-      "MouseX1", Win32.VK_XBUTTON1
-      "XButton1", Win32.VK_XBUTTON1
-      "MouseX2", Win32.VK_XBUTTON2
-      "XButton2", Win32.VK_XBUTTON2
+      "MouseLeft", Win32Native.VK_LBUTTON
+      "LButton", Win32Native.VK_LBUTTON
+      "MouseRight", Win32Native.VK_RBUTTON
+      "RButton", Win32Native.VK_RBUTTON
+      "MouseMiddle", Win32Native.VK_MBUTTON
+      "MButton", Win32Native.VK_MBUTTON
+      "MouseX1", Win32Native.VK_XBUTTON1
+      "XButton1", Win32Native.VK_XBUTTON1
+      "MouseX2", Win32Native.VK_XBUTTON2
+      "XButton2", Win32Native.VK_XBUTTON2
       "Minus", 0xBD
       "OemMinus", 0xBD
       "Equals", 0xBB
@@ -113,28 +113,28 @@ let aliases =
       "Subtract", 0x6D
       "Decimal", 0x6E
       "Divide", 0x6F ]
-    |> List.iter (fun (name: string, virtualKey: int) -> d[name] <- virtualKey)
+    |> List.iter (fun (name: string, virtualKey: int) -> d[name] <- VirtualKey virtualKey)
 
     for code in int 'A' .. int 'Z' do
-        d[string (char code)] <- code
+        d[string (char code)] <- VirtualKey code
 
     for digit in 0..9 do
         let topRow = 0x30 + digit
         let numberPad = 0x60 + digit
-        d[string digit] <- topRow
-        d[$"D{digit}"] <- topRow
-        d[$"Number{digit}"] <- topRow
-        d[$"NumPad{digit}"] <- numberPad
-        d[$"NumberPad{digit}"] <- numberPad
-        d[$"Keypad{digit}"] <- numberPad
+        d[string digit] <- VirtualKey topRow
+        d[$"D{digit}"] <- VirtualKey topRow
+        d[$"Number{digit}"] <- VirtualKey topRow
+        d[$"NumPad{digit}"] <- VirtualKey numberPad
+        d[$"NumberPad{digit}"] <- VirtualKey numberPad
+        d[$"Keypad{digit}"] <- VirtualKey numberPad
 
     for number in 1..24 do
-        d[$"F{number}"] <- 0x6F + number
+        d[$"F{number}"] <- VirtualKey(0x6F + number)
 
     d
 
 let parse_key (text: string) =
-    let mutable alias = 0
+    let mutable alias = VirtualKey 0
 
     if aliases.TryGetValue(text, &alias) then
         Ok alias
@@ -142,7 +142,7 @@ let parse_key (text: string) =
         let mutable value = 0
 
         if Int32.TryParse(text.Substring 2, NumberStyles.HexNumber, CultureInfo.InvariantCulture, &value) then
-            Ok value
+            Ok(VirtualKey value)
         else
             Error $"'{text}' is not a valid hexadecimal virtual-key code"
     else
@@ -152,7 +152,7 @@ let parse (source: string) =
     if String.IsNullOrWhiteSpace source then
         Error "key name is empty"
     else
-        let keys = ResizeArray<int>()
+        let keys = ResizeArray<VirtualKey>()
         let mutable error = None
 
         for part in source.Split '+' do
@@ -177,4 +177,6 @@ let is_down (binding: KeyBinding) =
     | [] -> false
     | virtualKeys ->
         virtualKeys
-        |> List.forall (fun (virtualKey: int) -> Win32.GetAsyncKeyState virtualKey < 0s)
+        |> List.forall (fun (key: VirtualKey) ->
+            let (VirtualKey virtualKey) = key
+            Win32Native.GetAsyncKeyState virtualKey < 0s)

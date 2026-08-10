@@ -12,20 +12,25 @@ let current () =
 let apply (loaded: ConfigLoadResult) =
     let config = loaded.config_file
 
-    let activeConfig =
+    let mouseOverrides: MouseOverrideConfig =
         if config.enabled then
-            config
+            { mouse4 = config.mouse4_pivot_mode
+              mouse5 = config.mouse5_pivot_mode
+              shift_right_click = config.shift_right_click_mode
+              alt_right_click = config.alt_right_click_mode
+              exit_binding = Some loaded.config.bindings.exit_key
+              exit_on_left = config.exit_on_mouse_left
+              exit_on_right = config.exit_on_mouse_right }
         else
-            { config with
-                mouse4_pivot_mode = MouseButtonPivotMode.Off
-                mouse5_pivot_mode = MouseButtonPivotMode.Off
-                shift_right_click_mode = ModifiedRightClickMode.Off
-                alt_right_click_mode = ModifiedRightClickMode.Off
-                exit_on_mouse_left = false
-                exit_on_mouse_right = false }
+            { mouse4 = MouseButtonPivotMode.Off
+              mouse5 = MouseButtonPivotMode.Off
+              shift_right_click = ModifiedRightClickMode.Off
+              alt_right_click = ModifiedRightClickMode.Off
+              exit_binding = None
+              exit_on_left = false
+              exit_on_right = false }
 
-    let mouseButtonResult =
-        PlatformInput.apply_mouse_button_overrides activeConfig loaded.config.exit_key
+    let mouseButtonResult = PlatformInput.apply_mouse_button_overrides mouseOverrides
 
     let entryEnabled, enterDuringCommands, entrySessionMode =
         match config.right_click_entry_mode with
@@ -37,10 +42,10 @@ let apply (loaded: ConfigLoadResult) =
         | _ -> false, false, FlightSessionMode.Persistent
 
     RightClickEntry.configure
-        (config.enabled && entryEnabled)
-        enterDuringCommands
-        entrySessionMode
-        (PlatformInput.mouse_button_right_click_enabled ())
+        { fly_entry_enabled = config.enabled && entryEnabled
+          enter_during_commands = enterDuringCommands
+          session_mode = entrySessionMode
+          view_manipulation_enabled = PlatformInput.mouse_button_right_click_enabled () }
 
     RepeatBehavior.apply config.commands_do_not_repeat
     mouseButtonResult

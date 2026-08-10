@@ -60,10 +60,10 @@ let apply_mouse_input (input: InputAccumulator.State) (state: FlyState) =
     else
         match state.mouse_navigation with
         | MouseLook ->
-            state.camera <- Movement.look state.config dx dy state.camera
+            state.camera <- Movement.look state.config.mouse dx dy state.camera
             DirectionChanged
         | MousePivot target ->
-            state.camera <- Movement.mouse_pivot state.config target dx dy state.camera
+            state.camera <- Movement.mouse_pivot state.config.mouse target dx dy state.camera
             PositionAndDirectionChanged
 
 let apply (state: FlyState) (change: CameraChange) =
@@ -85,10 +85,10 @@ let apply (state: FlyState) (change: CameraChange) =
             true
 
     if changed then
-        FlightRedraw.redraw state.config.viewport_redraw_mode state.view
+        FlightRedraw.redraw state.config.behavior.viewport_redraw_mode state.view
 
 let apply_entry_lens (state: FlyState) =
-    let adjustment = state.config.lens_adjustment
+    let adjustment = state.config.behavior.lens_adjustment
 
     let forcedOrOriginal =
         adjustment.forced_length_mm |> Option.defaultValue state.original_lens_length

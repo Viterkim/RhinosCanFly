@@ -7,7 +7,8 @@ open System.Windows.Forms
 open RhinosCanFly
 
 type RawInputReceiver
-    (config: FlyConfig, sessionMode: FlightSessionMode, input: InputAccumulator.State, inputAvailable: Action) as self =
+    (config: RawInputConfig, sessionMode: FlightSessionMode, input: InputAccumulator.State, inputAvailable: Action) as self
+    =
     inherit NativeWindow()
 
     let bufferCapacity =

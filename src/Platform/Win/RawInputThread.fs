@@ -27,7 +27,7 @@ type StartupState =
       result: ThreadResult }
 
 let run_thread
-    (config: FlyConfig)
+    (config: RawInputConfig)
     (sessionMode: FlightSessionMode)
     (input: InputAccumulator.State)
     (inputAvailable: Action)
@@ -66,7 +66,7 @@ let run_thread
             startup.stopped.Set()
 
 let start
-    (config: FlyConfig)
+    (config: RawInputConfig)
     (sessionMode: FlightSessionMode)
     (input: InputAccumulator.State)
     (inputAvailable: Action)
