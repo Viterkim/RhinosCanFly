@@ -9,29 +9,54 @@ let current () =
     | Some loaded -> Ok loaded
     | None -> Error "The configuration has not been loaded. Restart Rhino and try again."
 
-let apply (config: FlyConfigFile) =
-    let activeConfig =
-        if config.enabled then
-            config
-        else
-            { config with
-                mouse_button_overrides_enabled = false }
+let apply (loaded: ConfigLoadResult) =
+    let config = loaded.config_file
 
-    let mouseButtonResult = PlatformInput.apply_mouse_button_overrides activeConfig
+    let mouseOverrides: MouseOverrideConfig =
+        if config.enabled then
+            { mouse4 = config.mouse4_pivot_mode
+              mouse5 = config.mouse5_pivot_mode
+              shift_right_click = config.shift_right_click_mode
+              alt_right_click = config.alt_right_click_mode
+              exit_binding = Some loaded.config.bindings.exit_key
+              exit_on_left = config.exit_on_mouse_left
+              exit_on_right = config.exit_on_mouse_right }
+        else
+            { mouse4 = MouseButtonPivotMode.Off
+              mouse5 = MouseButtonPivotMode.Off
+              shift_right_click = ModifiedRightClickMode.Off
+              alt_right_click = ModifiedRightClickMode.Off
+              exit_binding = None
+              exit_on_left = false
+              exit_on_right = false }
+
+    let mouseButtonResult = PlatformInput.apply_mouse_button_overrides mouseOverrides
+
+    let entryEnabled, enterDuringCommands, entrySessionMode =
+        match config.right_click_entry_mode with
+        | RightClickEntryMode.Off -> false, false, FlightSessionMode.Persistent
+        | RightClickEntryMode.EnterFlying -> true, false, FlightSessionMode.Persistent
+        | RightClickEntryMode.EnterFlyingDuringCommands -> true, true, FlightSessionMode.Persistent
+        | RightClickEntryMode.EnterFlyingWhileHeld -> true, false, FlightSessionMode.WhileRightMouseHeld
+        | RightClickEntryMode.EnterFlyingWhileHeldDuringCommands -> true, true, FlightSessionMode.WhileRightMouseHeld
+        | _ -> false, false, FlightSessionMode.Persistent
 
     RightClickEntry.configure
-        (config.enabled && config.hijack_right_click_to_enter)
-        config.hijack_right_click_during_commands
-        (config.enabled && PlatformInput.mouse_button_right_click_enabled ())
+        { fly_entry_enabled = config.enabled && entryEnabled
+          enter_during_commands = enterDuringCommands
+          session_mode = entrySessionMode
+          view_manipulation_enabled = PlatformInput.mouse_button_right_click_enabled () }
 
     RepeatBehavior.apply config.commands_do_not_repeat
     mouseButtonResult
 
-let apply_speed_and_settings (document: RhinoDoc) (config: FlyConfigFile) (requestedSpeed: float) =
+let apply_speed_and_settings (document: RhinoDoc) (loaded: ConfigLoadResult) (requestedSpeed: float) =
+    let config = loaded.config_file
+
     let speedResult =
         FlightSpeed.set document config.save_speed_to_document config.minimum_speed config.maximum_speed requestedSpeed
 
-    let settingsResult = apply config
+    let settingsResult = apply loaded
 
     match speedResult, settingsResult with
     | Ok speed, Ok() -> Ok speed
@@ -49,16 +74,16 @@ let save (config: FlyConfigFile) =
 let save_and_apply (config: FlyConfigFile) =
     match save config with
     | Error error -> Error error
-    | Ok loaded -> apply loaded.config_file
+    | Ok loaded -> apply loaded
 
 let save_apply_and_set_speed (document: RhinoDoc) (config: FlyConfigFile) (requestedSpeed: float) =
     match save config with
     | Error error -> Error error
-    | Ok loaded -> apply_speed_and_settings document loaded.config_file requestedSpeed
+    | Ok loaded -> apply_speed_and_settings document loaded requestedSpeed
 
 let load_and_apply () =
     match ConfigStorage.load () with
     | Ok loaded ->
         loadedConfig <- Some loaded
-        apply loaded.config_file
+        apply loaded
     | Error error -> Error error

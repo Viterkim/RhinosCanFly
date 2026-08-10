@@ -78,20 +78,24 @@ let binding_from_mouse (button: MouseButtons) (modifiers: Keys) =
 
     name |> Option.map (chord_name (modifier_names modifiers))
 
-let win_key_down (virtualKey: int) = Win32.GetAsyncKeyState virtualKey < 0s
+let win_key_down (virtualKey: int) =
+    Win32Native.GetAsyncKeyState virtualKey < 0s
 
 let win_modifier_names () =
-    [ if win_key_down Win32.VK_LCONTROL || win_key_down Win32.VK_RCONTROL then
+    [ if win_key_down Win32Native.VK_LCONTROL || win_key_down Win32Native.VK_RCONTROL then
           "Control"
-      if win_key_down Win32.VK_LMENU || win_key_down Win32.VK_RMENU then
+      if win_key_down Win32Native.VK_LMENU || win_key_down Win32Native.VK_RMENU then
           "Alt"
-      if win_key_down Win32.VK_LSHIFT || win_key_down Win32.VK_RSHIFT then
+      if win_key_down Win32Native.VK_LSHIFT || win_key_down Win32Native.VK_RSHIFT then
           "Shift" ]
 
 let try_side_mouse_binding () =
     let name =
-        if win_key_down Win32.VK_XBUTTON1 then Some "MouseX1"
-        elif win_key_down Win32.VK_XBUTTON2 then Some "MouseX2"
-        else None
+        if win_key_down Win32Native.VK_XBUTTON1 then
+            Some "MouseX1"
+        elif win_key_down Win32Native.VK_XBUTTON2 then
+            Some "MouseX2"
+        else
+            None
 
     name |> Option.map (chord_name (win_modifier_names ()))

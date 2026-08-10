@@ -1,5 +1,6 @@
 <Project>
   <PropertyGroup>
+    <RhinosCanFlyPlatform Condition="'$(RhinosCanFlyPlatform)' == ''">win</RhinosCanFlyPlatform>
     <RhinoDefaultVersion>8</RhinoDefaultVersion>
     <RhinoSupportedVersions>7;8;9</RhinoSupportedVersions>
     <RhinoExperimentalVersions></RhinoExperimentalVersions>
@@ -22,6 +23,6 @@
 
   <PropertyGroup Condition="'$(RhinoMajorVersion)' == '9'">
     <TargetFramework Condition="'$(TargetFramework)' == ''">net10.0-windows</TargetFramework>
-    <RhinoCommonPackageVersion Condition="'$(RhinoCommonPackageVersion)' == ''">9.0.26167.11545-wip</RhinoCommonPackageVersion>
+    <RhinoCommonPackageVersion Condition="'$(RhinoCommonPackageVersion)' == ''">9.0.26216.12303-beta</RhinoCommonPackageVersion>
   </PropertyGroup>
 </Project>

@@ -1,28 +1,18 @@
-# RhinosCanFly - Rhinos Can Fly - Oldschool level editor flying camera controls for Rhino 3D
-
-Pigs might fly? Well rhinos do now.
-
-WASD or weird binds flying camera for Rhino in perspective view. Windows only (sad trombone noises, Rhino doesn't like supporting Linux).
+# Rhinos Can Fly - Flying camera controls for Rhino 3D (level editor WASD / custom binds)
 
 ## Demo
 
-https://github.com/user-attachments/assets/6fbaad3c-c2d6-4bbf-ac0b-b4c217015698
+https://github.com/user-attachments/assets/52dc3237-e12b-4a54-8776-88f6b6475fac
 
-## Extras
-
-It only hijacks right click when in perspective view, and still allows commands with right click when doing edits (for confirming etc).
-
-Blender says no, Rhino also says no, but we're gonna do it anyway and intercept right click at an extension level, and pass it on depending on context (very nice).
-
-Do you want hammer source1/source2 ish old level editing camera controls, or modern game engine (unreal engine / unity / godot) camera controls? No? Just Me? Well ok...
-
-## Recommendations
+## How to Use / Recommendations
 
 - Go to Tools -> Options... -> Mouse, set middle mouse button to `Manipulate view` and `rotate`.
 
 - Set lens length in your file/project/default rhino setup to something like `18` or so, which gives that 100 FOV feel. (Not in the addon options, that's a temp toggle).
 
 - Right click on Gumball at the bottom and enable `Rotate view around gumball`.
+
+- Right click in your view and fly around, you can even use it while doing edits / commands (if enabled).
 
 ## Run / Commands
 
@@ -31,6 +21,10 @@ Do you want hammer source1/source2 ish old level editing camera controls, or mod
 `RhinosCanFlyOptions` pops up a panel where you can change keybindings / features (same menu is also in Tools -> Options... -> Rhinos Can Fly).
 
 `RhinosCanFlySetSpeed` sets the current flying speed, you can also use a bind or the mousewheel up / down in settings.
+
+`RhinosCanFlyPan` pans around via a toggle (extra, if you want the functionality rhino doesn't provide)
+
+`RhinosCanFlyPivot` pivots around via a toggle (extra, same)
 
 ## Options
 
@@ -42,7 +36,7 @@ Install in Rhino itself, run `PackageManager` and search for `RhinosCanFly`, cli
 
 ## Other
 
-[Forum Link](https://discourse.mcneel.com/t/rhinos-can-fly-wasd-game-engine-fly-camera-controls-for-rhino/220880)
+[Mcneel / Rhino Forum Link](https://discourse.mcneel.com/t/rhinos-can-fly-wasd-game-engine-fly-camera-controls-for-rhino/220880)
 
 [Food 4 Rhino Link](https://www.food4rhino.com/en/app/rhinos-can-fly-rhinoscanfly-flying-custom-perspective-view)
 
@@ -70,4 +64,4 @@ Gippity was a major contributor in this, even that is an understatement.
 
 Why F#? I chose microsoft ocaml over microsoft java.
 
-Why no Mac support? I don't have a mac and can't test it. If anybody wants to add Mac support please do (but i think the gui stuff and mouse input stuff is windows only, but shouldn't be impossible. But maybe raw mouse input on mac is annoying?).
+Why no Mac support? I don't have a mac and can't test / develop it, feel free to add mac support if you want it, all the raw input / windows native stuff will have to be redone, but it is split up in a way so it should be possible (with a lot of work).

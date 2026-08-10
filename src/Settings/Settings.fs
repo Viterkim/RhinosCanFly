@@ -3,11 +3,6 @@ module RhinosCanFly.Settings
 open System
 open Rhino
 
-let show_raw (control: SettingsControl) =
-    match ConfigStorage.read_raw () with
-    | Ok(path, content) -> control.ShowRaw(path, content)
-    | Error error -> control.ShowRaw(ConfigStorage.path (), $"Could not read config: {error}")
-
 let current_lens () =
     let document = RhinoDoc.ActiveDoc
 
@@ -34,7 +29,7 @@ let load (control: SettingsControl) =
 
         control.ShowRuntimeState(current_speed result.config_file, current_lens ())
 
-        show_raw control
+        control.RefreshRawIfVisible()
 
         let repairMessages =
             result.messages
@@ -51,11 +46,12 @@ let save (control: SettingsControl) =
         RhinoApp.WriteLine $"RhinosCanFly settings were not saved: {error}"
         false
     | Ok config ->
-        match RuntimeSettings.save_and_apply config with
+        let result = RuntimeSettings.save_and_apply config
+        control.RefreshRawIfVisible()
+
+        match result with
         | Ok _ ->
             control.ShowRuntimeState(current_speed config, current_lens ())
-
-            show_raw control
             control.ClearError()
             true
         | Error error ->

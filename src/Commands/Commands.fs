@@ -12,10 +12,15 @@ let with_config (run: ConfigLoadResult -> Result) =
         Result.Failure
     | Ok loaded -> run loaded
 
-let run (document: RhinoDoc) =
+let run (sessionMode: FlightSessionMode) (document: RhinoDoc) =
     let view = document.Views.ActiveView
 
-    if isNull view then
+    if
+        sessionMode = FlightSessionMode.WhileRightMouseHeld
+        && not (PlatformInput.right_mouse_button_down ())
+    then
+        Result.Cancel
+    elif isNull view then
         RhinoApp.WriteLine "RhinosCanFly: no active view."
         Result.Failure
     elif not view.ActiveViewport.IsPerspectiveProjection then
@@ -27,7 +32,7 @@ let run (document: RhinoDoc) =
                 RhinoApp.WriteLine "RhinosCanFly is disabled in Options."
                 Result.Cancel
             else
-                match Runtime.run view loaded.config with
+                match Runtime.run view loaded.config sessionMode with
                 | Ok() -> Result.Success
                 | Error error ->
                     RhinoApp.WriteLine $"RhinosCanFly failed: {error}"
@@ -36,14 +41,16 @@ let run (document: RhinoDoc) =
 let set_speed (document: RhinoDoc) =
     with_config (fun (loaded: ConfigLoadResult) ->
         let config = loaded.config
+        let movement = config.movement
+        let behavior = config.behavior
 
         let mutable speed =
             FlightSpeed.current
                 document
-                config.load_speed_from_document
-                config.minimum_speed
-                config.maximum_speed
-                config.base_speed
+                behavior.load_speed_from_document
+                movement.minimum_speed
+                movement.maximum_speed
+                movement.base_speed
 
         let result = RhinoGet.GetNumber("Flying speed", false, &speed)
 
@@ -51,7 +58,12 @@ let set_speed (document: RhinoDoc) =
             result
         else
             match
-                FlightSpeed.set document config.save_speed_to_document config.minimum_speed config.maximum_speed speed
+                FlightSpeed.set
+                    document
+                    behavior.save_speed_to_document
+                    movement.minimum_speed
+                    movement.maximum_speed
+                    speed
             with
             | Ok saved ->
                 RhinoApp.WriteLine $"RhinosCanFly speed set to {saved}."
@@ -59,3 +71,57 @@ let set_speed (document: RhinoDoc) =
             | Error error ->
                 RhinoApp.WriteLine $"RhinosCanFly: {error}"
                 Result.Failure)
+
+let toggle_view_manipulation
+    (name: string)
+    (isActive: unit -> bool)
+    (start: Rhino.Display.RhinoView -> Result<unit, string>)
+    (stop: unit -> Result<unit, string>)
+    (document: RhinoDoc)
+    =
+    if isActive () then
+        match stop () with
+        | Ok() -> Result.Success
+        | Error error ->
+            RhinoApp.WriteLine $"{name} failed: {error}"
+            Result.Failure
+    else
+        with_config (fun (loaded: ConfigLoadResult) ->
+            let view = document.Views.ActiveView
+
+            if not loaded.config_file.enabled then
+                RhinoApp.WriteLine "RhinosCanFly is disabled in Options."
+                Result.Cancel
+            elif isNull view then
+                RhinoApp.WriteLine $"{name}: no active view."
+                Result.Failure
+            else
+                match PlatformInput.cursor_is_over_view view with
+                | Error error ->
+                    RhinoApp.WriteLine $"{name} failed: {error}"
+                    Result.Failure
+                | Ok false ->
+                    RhinoApp.WriteLine $"{name}: move the cursor over the active viewport."
+                    Result.Cancel
+                | Ok true ->
+                    match start view with
+                    | Ok() -> Result.Success
+                    | Error error ->
+                        RhinoApp.WriteLine $"{name} failed: {error}"
+                        Result.Failure)
+
+let pivot (document: RhinoDoc) =
+    toggle_view_manipulation
+        "RhinosCanFlyPivot"
+        PlatformInput.pivot_active
+        PlatformInput.start_pivot
+        PlatformInput.stop_pivot
+        document
+
+let pan (document: RhinoDoc) =
+    toggle_view_manipulation
+        "RhinosCanFlyPan"
+        PlatformInput.pan_active
+        PlatformInput.start_pan
+        PlatformInput.stop_pan
+        document

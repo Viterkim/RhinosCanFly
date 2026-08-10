@@ -26,14 +26,20 @@ type StartupState =
       mutable native_thread_id: uint32
       result: ThreadResult }
 
-let run_thread (config: FlyConfig) (input: InputAccumulator.State) (inputAvailable: Action) (startup: StartupState) =
+let run_thread
+    (config: RawInputConfig)
+    (sessionMode: FlightSessionMode)
+    (input: InputAccumulator.State)
+    (inputAvailable: Action)
+    (startup: StartupState)
+    =
     let mutable receiver: RawInputReceiver option = None
     let mutable startupComplete = false
 
     try
         try
             startup.native_thread_id <- RawInputNative.GetCurrentThreadId()
-            let created = new RawInputReceiver(config, input, inputAvailable)
+            let created = new RawInputReceiver(config, sessionMode, input, inputAvailable)
             receiver <- Some created
             startup.window_handle <- created.WindowHandle
             startupComplete <- true
@@ -59,7 +65,12 @@ let run_thread (config: FlyConfig) (input: InputAccumulator.State) (inputAvailab
         finally
             startup.stopped.Set()
 
-let start (config: FlyConfig) (input: InputAccumulator.State) (inputAvailable: Action) =
+let start
+    (config: RawInputConfig)
+    (sessionMode: FlightSessionMode)
+    (input: InputAccumulator.State)
+    (inputAvailable: Action)
+    =
     let result =
         { startup_error = None
           runtime_error = None
@@ -73,7 +84,7 @@ let start (config: FlyConfig) (input: InputAccumulator.State) (inputAvailable: A
           result = result }
 
     let thread =
-        Thread(ThreadStart(fun () -> run_thread config input inputAvailable startup))
+        Thread(ThreadStart(fun () -> run_thread config sessionMode input inputAvailable startup))
 
     thread.IsBackground <- true
     thread.Name <- "RhinosCanFly raw input"
