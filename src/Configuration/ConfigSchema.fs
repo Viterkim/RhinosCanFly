@@ -60,7 +60,9 @@ let defaults: FlyConfigFile =
       viewport_redraw_mode = ViewportRedrawMode.Rhino }
 
 let normalize_number (value: float) =
-    Math.Round(value, 12, MidpointRounding.AwayFromZero)
+    let rounded = Math.Round(value, 12, MidpointRounding.AwayFromZero)
+
+    if rounded = 0. then 0. else rounded
 
 let format_number (value: float) =
     let normalized = normalize_number value
@@ -138,6 +140,16 @@ let compile (source: FlyConfigFile) =
         || Double.IsInfinity source.lens_length_delta_mm
     then
         errors.Add "lens_length_delta_mm must be a finite number"
+
+    if source.forced_lens_length_mm > 0. then
+        let adjustedLens = source.forced_lens_length_mm + source.lens_length_delta_mm
+
+        if
+            Double.IsNaN adjustedLens
+            || Double.IsInfinity adjustedLens
+            || adjustedLens <= 0.
+        then
+            errors.Add "forced_lens_length_mm plus lens_length_delta_mm must be a positive finite number"
 
     let config =
         { forward = required "forward" source.forward

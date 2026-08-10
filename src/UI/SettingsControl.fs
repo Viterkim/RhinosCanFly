@@ -150,6 +150,7 @@ type SettingsControl() as self =
     let mutable lensText = "Unavailable"
     let optionsIcon = SettingsUi.load_icon ()
     let bindingCapture = BindingCapture.create ()
+    let mutable resourcesDisposed = false
 
     let format_runtime_number (value: float) =
         value.ToString("0.######", CultureInfo.InvariantCulture)
@@ -222,6 +223,19 @@ type SettingsControl() as self =
         layout
 
     let rawJsonPanel = new Panel(Content = rawJsonLayout, Visible = false)
+
+    let refresh_raw () =
+        match ConfigStorage.read_raw () with
+        | Ok(path, content) ->
+            configPath.Text <- path
+            rawJson.Text <- content
+        | Error error ->
+            configPath.Text <- ConfigStorage.path ()
+            rawJson.Text <- $"Could not read config: {error}"
+
+    let refresh_raw_if_visible () =
+        if rawJsonPanel.Visible then
+            refresh_raw ()
 
     let mainTable = new TableLayout(Padding = Padding 12, Spacing = Size(0, 4))
 
@@ -393,6 +407,8 @@ type SettingsControl() as self =
         rawJsonToggle.Click.Add(fun (_: EventArgs) ->
             rawJsonPanel.Visible <- not rawJsonPanel.Visible
 
+            refresh_raw_if_visible ()
+
             rawJsonToggle.Text <-
                 if rawJsonPanel.Visible then
                     "Hide raw JSON configuration"
@@ -400,8 +416,14 @@ type SettingsControl() as self =
                     "Show raw JSON configuration")
 
         github.Click.Add(fun (_: EventArgs) ->
-            Process.Start(ProcessStartInfo("https://github.com/Viterkim/RhinosCanFly", UseShellExecute = true))
-            |> ignore)
+            try
+                let launchedProcess =
+                    Process.Start(ProcessStartInfo("https://github.com/Viterkim/RhinosCanFly", UseShellExecute = true))
+
+                if not (isNull launchedProcess) then
+                    launchedProcess.Dispose()
+            with error ->
+                self.ShowError $"Could not open GitHub: {error.Message}")
 
         resetAll.Click.Add(fun (_: EventArgs) ->
             self.LoadConfig defaults
@@ -410,26 +432,22 @@ type SettingsControl() as self =
             | Ok _ ->
                 speedText <- ConfigSchema.format_number defaults.base_speed
                 refresh_status ()
-
-                match ConfigStorage.read_raw () with
-                | Ok(path, content) -> self.ShowRaw(path, content)
-                | Error _ -> ()
-
                 self.ClearError()
-            | Error error -> self.ShowError error)
+            | Error error -> self.ShowError error
+
+            refresh_raw_if_visible ())
 
         BindingCapture.attach_mouse_behavior bindingCapture self
         SettingsUi.use_rhino_style self
-        self.UnLoad.Add(fun (_: EventArgs) -> BindingCapture.stop bindingCapture)
+        self.UnLoad.Add(fun (_: EventArgs) -> BindingCapture.cancel bindingCapture)
 
     override _.Dispose(disposing: bool) =
-        if disposing then
+        if disposing && not resourcesDisposed then
+            resourcesDisposed <- true
             BindingCapture.dispose bindingCapture
+            optionsIcon |> Option.iter (fun (icon: Icon) -> icon.Dispose())
 
         base.Dispose disposing
-
-        if disposing then
-            optionsIcon |> Option.iter (fun (icon: Icon) -> icon.Dispose())
 
     member _.ShowError(message: string) =
         configurationError <- Some message
@@ -449,9 +467,7 @@ type SettingsControl() as self =
 
         refresh_status ()
 
-    member _.ShowRaw(path: string, content: string) =
-        configPath.Text <- path
-        rawJson.Text <- content
+    member _.RefreshRawIfVisible() = refresh_raw_if_visible ()
 
     member _.LoadConfig(config: FlyConfigFile) =
         set_checked pluginEnabled config.enabled

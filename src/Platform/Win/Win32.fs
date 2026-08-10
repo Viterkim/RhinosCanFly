@@ -51,6 +51,12 @@ let WAIT_FAILED = 0xFFFFFFFFu
 let INFINITE = 0xFFFFFFFFu
 
 [<Literal>]
+let WH_KEYBOARD = 2
+
+[<Literal>]
+let HC_ACTION = 0
+
+[<Literal>]
 let VK_LBUTTON = 0x01
 
 [<Literal>]
@@ -136,6 +142,13 @@ type NativeInput =
 
 type EnumThreadWindowCallback = delegate of nativeint * nativeint -> bool
 
+[<UnmanagedFunctionPointer(CallingConvention.Winapi)>]
+type HookProcedure = delegate of int * nativeint * nativeint -> nativeint
+
+type KeyboardHook =
+    { handle: nativeint
+      procedure: HookProcedure }
+
 [<DllImport("user32.dll")>]
 extern int16 GetAsyncKeyState(int virtual_key)
 
@@ -177,6 +190,18 @@ extern bool IsWindowVisible(nativeint window)
 
 [<DllImport("user32.dll")>]
 extern bool EnumThreadWindows(uint32 thread_id, EnumThreadWindowCallback callback, nativeint state)
+
+[<DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)>]
+extern nativeint SetWindowsHookEx(int hook_type, HookProcedure procedure, nativeint module_handle, uint32 thread_id)
+
+[<DllImport("user32.dll", SetLastError = true)>]
+extern bool UnhookWindowsHookEx(nativeint hook)
+
+[<DllImport("user32.dll")>]
+extern nativeint CallNextHookEx(nativeint hook, int code, nativeint wparam, nativeint lparam)
+
+[<DllImport("kernel32.dll")>]
+extern uint32 GetCurrentThreadId()
 
 [<DllImport("user32.dll", SetLastError = true)>]
 extern uint32 SendInput(uint32 input_count, NativeInput[] inputs, int input_size)
@@ -283,6 +308,34 @@ let wait_for_input (timeoutMilliseconds: uint32) =
     else
         Ok()
 
+let install_keyboard_hook (handleKeyDown: int -> bool) =
+    let mutable hook = nativeint 0
+
+    let procedure =
+        HookProcedure(fun (code: int) (wparam: nativeint) (lparam: nativeint) ->
+            let keyReleased = int64 lparam &&& (1L <<< 31) <> 0L
+
+            if code = HC_ACTION && not keyReleased && handleKeyDown (int wparam) then
+                nativeint 1
+            else
+                CallNextHookEx(hook, code, wparam, lparam))
+
+    hook <- SetWindowsHookEx(WH_KEYBOARD, procedure, nativeint 0, GetCurrentThreadId())
+
+    if hook = nativeint 0 then
+        Error(last_error "SetWindowsHookEx(WH_KEYBOARD)")
+    else
+        Ok { handle = hook; procedure = procedure }
+
+let remove_keyboard_hook (hook: KeyboardHook) =
+    let removed = UnhookWindowsHookEx hook.handle
+    GC.KeepAlive hook.procedure
+
+    if removed then
+        Ok()
+    else
+        Error(last_error "UnhookWindowsHookEx")
+
 let mouse_input (flags: uint32) =
     let mutable mouse = Unchecked.defaultof<MouseInput>
     mouse.flags <- flags
@@ -308,13 +361,19 @@ let keyboard_input (virtualKey: int) (flags: uint32) =
     input.data <- data
     input
 
-let send_inputs (operation: string) (inputs: NativeInput array) =
+let try_send_inputs (operation: string) (inputs: NativeInput array) =
     let sent = SendInput(uint32 inputs.Length, inputs, Marshal.SizeOf<NativeInput>())
 
     if sent = uint32 inputs.Length then
         Ok()
     else
-        Error(last_error operation)
+        let error = last_error operation
+        Error(struct (sent, $"{error} ({sent} of {inputs.Length} events inserted)"))
+
+let send_inputs (operation: string) (inputs: NativeInput array) =
+    match try_send_inputs operation inputs with
+    | Ok() -> Ok()
+    | Error(struct (_, error)) -> Error error
 
 let send_middle_mouse (down: bool) =
     let flags =
@@ -330,9 +389,27 @@ let send_shift_key (down: bool) =
     send_inputs "SendInput(shift)" [| keyboard_input VK_SHIFT flags |]
 
 let start_shift_middle_mouse () =
-    send_inputs "SendInput(shift + middle mouse)" [| keyboard_input VK_SHIFT 0u; mouse_input MOUSEEVENTF_MIDDLEDOWN |]
+    match
+        try_send_inputs
+            "SendInput(shift + middle mouse)"
+            [| keyboard_input VK_SHIFT 0u; mouse_input MOUSEEVENTF_MIDDLEDOWN |]
+    with
+    | Ok() -> Ok()
+    | Error(struct (1u, error)) ->
+        match send_shift_key false with
+        | Ok() -> Error error
+        | Error cleanupError -> Error $"{error}; {cleanupError}"
+    | Error(struct (_, error)) -> Error error
 
 let stop_shift_middle_mouse () =
-    send_inputs
-        "SendInput(middle mouse + shift)"
-        [| mouse_input MOUSEEVENTF_MIDDLEUP; keyboard_input VK_SHIFT KEYEVENTF_KEYUP |]
+    match
+        try_send_inputs
+            "SendInput(middle mouse + shift)"
+            [| mouse_input MOUSEEVENTF_MIDDLEUP; keyboard_input VK_SHIFT KEYEVENTF_KEYUP |]
+    with
+    | Ok() -> Ok()
+    | Error(struct (1u, error)) ->
+        match send_shift_key false with
+        | Ok() -> Ok()
+        | Error cleanupError -> Error $"{error}; {cleanupError}"
+    | Error(struct (_, error)) -> Error error

@@ -1,10 +1,15 @@
 namespace RhinosCanFly
 
+open System.Diagnostics
 open System.Reflection
 open Eto.Forms
 open Rhino.UI
 
 module SettingsUi =
+    let useRhinoStyleMethod =
+        typeof<EtoExtensions>
+            .GetMethod("UseRhinoStyle", BindingFlags.Public ||| BindingFlags.Static, null, [| typeof<Control> |], null)
+
     let load_icon () =
         let assembly = Assembly.GetExecutingAssembly()
 
@@ -18,15 +23,8 @@ module SettingsUi =
             Some(new Eto.Drawing.Icon(source))
 
     let use_rhino_style (control: Control) =
-        let method =
-            typeof<EtoExtensions>
-                .GetMethod(
-                    "UseRhinoStyle",
-                    BindingFlags.Public ||| BindingFlags.Static,
-                    null,
-                    [| typeof<Control> |],
-                    null
-                )
-
-        if not (isNull method) then
-            method.Invoke(null, [| control :> obj |]) |> ignore
+        if not (isNull useRhinoStyleMethod) then
+            try
+                useRhinoStyleMethod.Invoke(null, [| control :> obj |]) |> ignore
+            with error ->
+                Debug.WriteLine $"RhinosCanFly could not apply the Rhino UI style: {error.Message}"

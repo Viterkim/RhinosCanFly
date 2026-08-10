@@ -71,35 +71,36 @@ let toggle_view_manipulation
     (toggle: nativeint -> Result<unit, string>)
     (document: RhinoDoc)
     =
-    with_config (fun (loaded: ConfigLoadResult) ->
-        let view = document.Views.ActiveView
-
-        if isActive () then
-            match toggle (nativeint 0) with
-            | Ok() -> Result.Success
-            | Error error ->
-                RhinoApp.WriteLine $"{name} failed: {error}"
-                Result.Failure
-        elif not loaded.config_file.enabled then
-            RhinoApp.WriteLine "RhinosCanFly is disabled in Options."
-            Result.Cancel
-        elif isNull view then
-            RhinoApp.WriteLine $"{name}: no active view."
+    if isActive () then
+        match toggle (nativeint 0) with
+        | Ok() -> Result.Success
+        | Error error ->
+            RhinoApp.WriteLine $"{name} failed: {error}"
             Result.Failure
-        else
-            match PlatformInput.get_cursor_position () with
-            | Error error ->
-                RhinoApp.WriteLine $"{name} failed: {error}"
-                Result.Failure
-            | Ok cursor when not (view.ScreenRectangle.Contains cursor) ->
-                RhinoApp.WriteLine $"{name}: move the cursor over the active viewport."
+    else
+        with_config (fun (loaded: ConfigLoadResult) ->
+            let view = document.Views.ActiveView
+
+            if not loaded.config_file.enabled then
+                RhinoApp.WriteLine "RhinosCanFly is disabled in Options."
                 Result.Cancel
-            | Ok _ ->
-                match toggle view.Handle with
-                | Ok() -> Result.Success
+            elif isNull view then
+                RhinoApp.WriteLine $"{name}: no active view."
+                Result.Failure
+            else
+                match PlatformInput.get_cursor_position () with
                 | Error error ->
                     RhinoApp.WriteLine $"{name} failed: {error}"
-                    Result.Failure)
+                    Result.Failure
+                | Ok cursor when not (view.ScreenRectangle.Contains cursor) ->
+                    RhinoApp.WriteLine $"{name}: move the cursor over the active viewport."
+                    Result.Cancel
+                | Ok _ ->
+                    match toggle view.Handle with
+                    | Ok() -> Result.Success
+                    | Error error ->
+                        RhinoApp.WriteLine $"{name} failed: {error}"
+                        Result.Failure)
 
 let pivot (document: RhinoDoc) =
     toggle_view_manipulation "RhinosCanFlyPivot" PlatformInput.pivot_active PlatformInput.toggle_pivot document

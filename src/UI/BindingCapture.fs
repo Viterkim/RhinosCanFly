@@ -28,6 +28,10 @@ let stop (state: State) =
     if not state.disposed && state.side_button_timer.Started then
         state.side_button_timer.Stop()
 
+let cancel (state: State) =
+    stop state
+    state.suppress_next_set_click <- None
+
 let complete (state: State) (binding: string) =
     match state.active with
     | Some active ->
@@ -58,7 +62,10 @@ let editor (state: State) (field: TextBox) (defaultValue: string) =
     setButton.Click.Add(fun (_: EventArgs) ->
         match state.suppress_next_set_click with
         | Some suppressed when same_button suppressed setButton -> state.suppress_next_set_click <- None
-        | _ -> start state field setButton)
+        | Some _ ->
+            state.suppress_next_set_click <- None
+            start state field setButton
+        | None -> start state field setButton)
 
     setButton.KeyDown.Add(fun (event: KeyEventArgs) ->
         match state.active with
@@ -130,6 +137,6 @@ let create () =
 
 let dispose (state: State) =
     if not state.disposed then
-        stop state
+        cancel state
         state.disposed <- true
         state.side_button_timer.Dispose()

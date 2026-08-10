@@ -35,9 +35,6 @@ let to_object (value: FlyConfigFile) =
 let json_content (json: JsonObject) =
     json.ToJsonString options + Environment.NewLine
 
-let write_json (configPath: string) (json: JsonObject) =
-    File.WriteAllText(configPath, json_content json)
-
 let merge_known_values (target: JsonObject) (source: FlyConfigFile) =
     for property in to_object source do
         target[property.Key] <- property.Value.DeepClone()
@@ -46,41 +43,73 @@ let load () =
     try
         let configPath = path ()
         let created = not (File.Exists configPath)
+        let messages = ResizeArray<string>()
+        let mutable malformed = false
 
         let json =
             if created then
                 to_object ConfigSchema.defaults
             else
-                match JsonNode.Parse(File.ReadAllText configPath) with
-                | :? JsonObject as value -> value
-                | _ -> failwith $"The config root must be a JSON object: {configPath}"
+                let content = File.ReadAllText configPath
 
-        let messages = ResizeArray<string>()
-        let mutable changed = created
+                try
+                    match JsonNode.Parse content with
+                    | :? JsonObject as value -> value
+                    | _ ->
+                        malformed <- true
+                        to_object ConfigSchema.defaults
+                with :? JsonException ->
+                    malformed <- true
+                    to_object ConfigSchema.defaults
+
+        let mutable changed = created || malformed
         let beforeRepair = json.ToJsonString()
 
         if created then
             messages.Add $"created config at {configPath}"
+        elif malformed then
+            messages.Add "reset malformed settings to defaults"
 
         let defaults = to_object ConfigSchema.defaults
 
         let knownNames =
-            defaults
-            |> Seq.map (fun (property: Collections.Generic.KeyValuePair<string, JsonNode>) -> property.Key)
-            |> Set.ofSeq
+            let names =
+                Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 
-        let unknownNames =
+            for property in defaults do
+                names[property.Key] <- property.Key
+
+            names
+
+        let sourceNames =
             json
             |> Seq.map (fun (property: Collections.Generic.KeyValuePair<string, JsonNode>) -> property.Key)
-            |> Seq.filter (fun (name: string) -> not (knownNames.Contains name))
             |> List.ofSeq
 
-        for name in unknownNames do
-            json.Remove name |> ignore
-            changed <- true
+        let mutable removed = 0
+        let mutable renamed = 0
 
-        if not (List.isEmpty unknownNames) then
-            messages.Add $"removed {unknownNames.Length} unknown setting(s)"
+        for name in sourceNames do
+            let mutable canonicalName = ""
+
+            if not (knownNames.TryGetValue(name, &canonicalName)) then
+                json.Remove name |> ignore
+                removed <- removed + 1
+                changed <- true
+            elif not (String.Equals(name, canonicalName, StringComparison.Ordinal)) then
+                if not (json.ContainsKey canonicalName) then
+                    let value = json[name]
+                    json[canonicalName] <- if isNull value then null else value.DeepClone()
+
+                json.Remove name |> ignore
+                renamed <- renamed + 1
+                changed <- true
+
+        if removed > 0 then
+            messages.Add $"removed {removed} unknown setting(s)"
+
+        if renamed > 0 then
+            messages.Add $"normalized {renamed} setting name(s)"
 
         json["config_version"] <- JsonValue.Create ConfigSchema.current_version
         let mutable added = 0
@@ -141,7 +170,7 @@ let load () =
             changed <- true
 
         if changed then
-            write_json configPath json
+            File.WriteAllText(configPath, json_content json)
 
         Ok
             { config_file = source

@@ -17,6 +17,7 @@ type RhinosCanFlySettingsDialog() as self =
     let saveButton = new Button(Text = "Save")
     let cancelButton = new Button(Text = "Cancel")
     let windowIcon = SettingsUi.load_icon ()
+    let mutable resourcesDisposed = false
 
     do
         windowIcon |> Option.iter (fun (icon: Icon) -> self.Icon <- icon)
@@ -46,11 +47,16 @@ type RhinosCanFlySettingsDialog() as self =
 
         cancelButton.Click.Add(fun (_: EventArgs) -> self.Close())
 
-        self.Closed.Add(fun (_: EventArgs) ->
-            SettingsDialogPosition.last_location <- Some self.Location
-            windowIcon |> Option.iter (fun (icon: Icon) -> icon.Dispose()))
+        self.Closed.Add(fun (_: EventArgs) -> SettingsDialogPosition.last_location <- Some self.Location)
 
         Settings.load control
+
+    override _.Dispose(disposing: bool) =
+        if disposing && not resourcesDisposed then
+            resourcesDisposed <- true
+            windowIcon |> Option.iter (fun (icon: Icon) -> icon.Dispose())
+
+        base.Dispose disposing
 
     member _.ShowForRhino(document: RhinoDoc) =
         SettingsDialogPosition.last_location

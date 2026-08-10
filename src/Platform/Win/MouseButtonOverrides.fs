@@ -105,11 +105,6 @@ let set_button_state (button: SideButton) (buttonState: SideButtonState) =
     | Mouse4 -> state.mouse4 <- buttonState
     | Mouse5 -> state.mouse5 <- buttonState
 
-let key (button: SideButton) =
-    match button with
-    | Mouse4 -> Keys.XButton1
-    | Mouse5 -> Keys.XButton2
-
 let mode_for (button: SideButton) =
     match button with
     | Mouse4 -> state.routing.mouse4
@@ -119,7 +114,12 @@ let side_button_routing_enabled () =
     state.routing.mouse4 <> Disabled || state.routing.mouse5 <> Disabled
 
 let is_down (button: SideButton) =
-    Win32.GetAsyncKeyState(int (key button)) < 0s
+    let key =
+        match button with
+        | Mouse4 -> Keys.XButton1
+        | Mouse5 -> Keys.XButton2
+
+    Win32.GetAsyncKeyState(int key) < 0s
 
 let button_holds_middle (buttonState: SideButtonState) =
     match buttonState with
@@ -163,6 +163,26 @@ let exit_key_down () =
 let exit_binding_contains (virtualKey: int) =
     match state.routing.exit with
     | Some binding -> List.contains virtualKey binding.virtual_keys
+    | None -> false
+
+let key_matches_event (requiredKey: int) (eventKey: int) =
+    requiredKey = eventKey
+    || (requiredKey = Win32.VK_SHIFT
+        && (eventKey = Win32.VK_LSHIFT || eventKey = Win32.VK_RSHIFT))
+    || (requiredKey = Win32.VK_CONTROL
+        && (eventKey = Win32.VK_LCONTROL || eventKey = Win32.VK_RCONTROL))
+    || (requiredKey = Win32.VK_MENU
+        && (eventKey = Win32.VK_LMENU || eventKey = Win32.VK_RMENU))
+
+let exit_binding_down_for_event (eventKey: int) =
+    match state.routing.exit with
+    | Some binding when
+        binding.virtual_keys
+        |> List.exists (fun (key: int) -> key_matches_event key eventKey)
+        ->
+        binding.virtual_keys
+        |> List.forall (fun (key: int) -> key_matches_event key eventKey || Win32.GetAsyncKeyState key < 0s)
+    | Some _
     | None -> false
 
 let left_mouse_exit_enabled () =
@@ -455,7 +475,10 @@ let update_view_latch () =
                     PivotActive
                         { window = window
                           modifiers_down = modifiersDown }
-            | Error error -> Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
+            | Error error ->
+                state.view_latch <- NoViewLatch
+                stop_timer_if_idle ()
+                Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
     | PivotActive active ->
         if Win32.GetForegroundWindow() <> active.window then
             match release_view_latch () with
@@ -483,7 +506,12 @@ let update_middle_mouse_modifiers () =
             | Ok() ->
                 state.side_button_restart_pending <- false
                 state.middle_mouse_modifiers_down <- modifiersDown
-            | Error error -> Debug.WriteLine $"RhinosCanFly mouse override: {error}"
+            | Error error ->
+                Debug.WriteLine $"RhinosCanFly mouse override: {error}"
+
+                match release_all () with
+                | Ok() -> ()
+                | Error cleanupError -> Debug.WriteLine $"RhinosCanFly mouse override cleanup: {cleanupError}"
         elif modifiersDown <> state.middle_mouse_modifiers_down then
             match Win32.send_middle_mouse false with
             | Ok() -> state.side_button_restart_pending <- true
@@ -585,7 +613,7 @@ let update_button_from_move (button: SideButton) (event: MouseCallbackEventArgs)
         if is_down button then
             begin_drag button event.ViewportPoint (event_root_window event)
             update_hold_drag button event.ViewportPoint
-        else
+        elif get_button_state button <> Released then
             finish_button button
     | Toggle, false ->
         match get_button_state button, is_down button with
@@ -699,6 +727,31 @@ pollTimer.Tick.Add(fun (_: EventArgs) ->
     with error ->
         Debug.WriteLine $"RhinosCanFly mouse override timer: {error.Message}")
 
+let handle_keyboard_key_down (virtualKey: int) =
+    try
+        if
+            state.lifecycle = Available
+            && (any_button_engaged () || view_latch_engaged ())
+            && exit_binding_down_for_event virtualKey
+        then
+            match release_all () with
+            | Ok() -> true
+            | Error error ->
+                Debug.WriteLine $"RhinosCanFly mouse override exit: {error}"
+                false
+        else
+            false
+    with error ->
+        Debug.WriteLine $"RhinosCanFly mouse override keyboard hook: {error.Message}"
+        false
+
+let keyboardHook =
+    match Win32.install_keyboard_hook handle_keyboard_key_down with
+    | Ok hook -> Some hook
+    | Error error ->
+        Debug.WriteLine $"RhinosCanFly mouse override keyboard hook: {error}"
+        None
+
 let configured_view_latch_mode (mode: ModifiedRightClickMode) =
     match mode with
     | ModifiedRightClickMode.Off -> None
@@ -789,6 +842,13 @@ let shutdown () =
     if state.lifecycle <> ShutDown then
         state.lifecycle <- ShutDown
         callback.Enabled <- false
+
+        match keyboardHook with
+        | Some hook ->
+            match Win32.remove_keyboard_hook hook with
+            | Ok() -> ()
+            | Error error -> Debug.WriteLine $"RhinosCanFly mouse override keyboard hook: {error}"
+        | None -> ()
 
         match release_all () with
         | Ok() -> ()
