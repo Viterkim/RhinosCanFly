@@ -11,12 +11,12 @@ type FlyState =
       original_cursor: CursorPosition
       original_lens_length: float
       gumball_pivot_target: Point3d option
-      mutable pivot_target: Point3d
-      mutable pivot_direction: PivotDirection
-      mutable pivot_input_state: PivotInputState
-      mutable mouse_navigation: MouseNavigationMode
-      mutable latched_mouse_navigation: MouseNavigationKind
-      mutable keyboard_held_mouse_navigation: MouseNavigationKind
+      mutable key_pivot_target: Point3d
+      mutable key_pivot_direction: KeyPivotDirection
+      mutable key_pivot_input_state: KeyPivotInputState
+      mutable active_mouse_navigation: ActiveMouseNavigation
+      mutable latched_mouse_navigation: MouseNavigationMode
+      mutable keyboard_held_mouse_navigation: MouseNavigationMode
       mutable keyboard_pivot_toggle_was_down: bool
       mutable keyboard_pan_toggle_was_down: bool
       mutable running: bool

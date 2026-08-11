@@ -40,32 +40,33 @@ let run (rawInput: InputAccumulator.State) (state: FlyState) =
 
             if state.running then
                 let input = FlightControls.read_movement state
-                let requestedPivotDirection = FlightInput.pivot_direction input
+                let requestedPivotDirection = FlightInput.key_pivot_direction input
 
                 let movement =
-                    match state.pivot_input_state, requestedPivotDirection with
-                    | PivotInputArmed, _ -> input
-                    | WaitingForNeutralPivotInput, NoPivot ->
-                        state.pivot_input_state <- PivotInputArmed
+                    match state.key_pivot_input_state, requestedPivotDirection with
+                    | KeyPivotInputArmed, _ -> input
+                    | WaitingForNeutralKeyPivotInput, NoKeyPivot ->
+                        state.key_pivot_input_state <- KeyPivotInputArmed
                         input
-                    | WaitingForNeutralPivotInput, (PivotLeft | PivotRight) -> FlightInput.without_pivot input
+                    | WaitingForNeutralKeyPivotInput, (KeyPivotLeft | KeyPivotRight) ->
+                        FlightInput.without_key_pivot input
 
                 let now = clock.Elapsed.TotalSeconds
                 let currentlyMoving = FlightInput.movement_active movement
-                let pivotDirection = FlightInput.pivot_direction movement
+                let pivotDirection = FlightInput.key_pivot_direction movement
 
-                if pivotDirection <> NoPivot && pivotDirection <> state.pivot_direction then
-                    state.pivot_target <- FlightCamera.navigation_target state.view state.gumball_pivot_target
+                if pivotDirection <> NoKeyPivot && pivotDirection <> state.key_pivot_direction then
+                    state.key_pivot_target <- FlightCamera.navigation_target state.view state.gumball_pivot_target
 
-                state.pivot_direction <- pivotDirection
+                state.key_pivot_direction <- pivotDirection
 
                 if movementActive && currentlyMoving then
                     let dt = min (now - previousFrame) maximum_frame_delta_seconds
 
-                    state.camera <- Movement.step state.config.movement movement state.pivot_target dt state.camera
+                    state.camera <- Movement.step state.config.movement movement state.key_pivot_target dt state.camera
                     movementChanged <- true
 
-                    if pivotDirection <> NoPivot then
+                    if pivotDirection <> NoKeyPivot then
                         directionChanged <- true
 
                 previousFrame <- now

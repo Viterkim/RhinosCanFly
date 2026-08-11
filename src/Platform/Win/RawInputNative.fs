@@ -127,6 +127,7 @@ extern uint32 GetCurrentThreadId()
 
 let deviceSize = uint32 (Marshal.SizeOf<Device>())
 let headerSize = uint32 (Marshal.SizeOf<Header>())
+let mouseInputSize = headerSize + uint32 (Marshal.SizeOf<Mouse>())
 
 let get_registered_mouse () =
     let mutable deviceCount = 0u
@@ -215,12 +216,16 @@ let try_read_mouse (rawInput: nativeint) (buffer: nativeint) (bufferCapacity: in
     let mutable bytes = uint32 bufferCapacity
     let bytesRead = GetRawInputData(rawInput, rid_input, buffer, &bytes, headerSize)
 
-    if bytesRead = UInt32.MaxValue || bytesRead = 0u then
+    if bytesRead = UInt32.MaxValue || bytesRead < headerSize then
         false
     else
         let header = NativePtr.read (NativePtr.ofNativeInt<Header> buffer)
 
-        if header.input_type <> rim_type_mouse then
+        if
+            header.input_type <> rim_type_mouse
+            || header.size < mouseInputSize
+            || bytesRead < mouseInputSize
+        then
             false
         else
             let mouseBuffer = IntPtr.Add(buffer, int headerSize)

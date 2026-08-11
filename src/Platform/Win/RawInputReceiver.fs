@@ -11,8 +11,7 @@ type RawInputReceiver
     =
     inherit NativeWindow()
 
-    let bufferCapacity =
-        Marshal.SizeOf<RawInputNative.Header>() + Marshal.SizeOf<RawInputNative.Mouse>()
+    let bufferCapacity = int RawInputNative.mouseInputSize
 
     let buffer = Marshal.AllocHGlobal bufferCapacity
     let mutable handleCreated = false
@@ -120,13 +119,23 @@ type RawInputReceiver
         | _ -> raise (AggregateException errors)
 
     let process_mouse (mouse: RawInputNative.Mouse) =
-        if mouse.flags &&& RawInputNative.mouse_move_absolute = 0us then
+        let mouseMoved =
+            mouse.flags &&& RawInputNative.mouse_move_absolute = 0us
+            && (mouse.last_x <> 0 || mouse.last_y <> 0)
+
+        if mouseMoved then
             InputAccumulator.add_mouse mouse.last_x mouse.last_y input
 
         let flags = RawInputNative.button_flags mouse
 
-        if flags &&& RawInputNative.mouse_wheel <> 0us then
-            InputAccumulator.add_wheel (RawInputNative.signed_button_data mouse) input
+        let wheelDelta =
+            if flags &&& RawInputNative.mouse_wheel <> 0us then
+                RawInputNative.signed_button_data mouse
+            else
+                0
+
+        if wheelDelta <> 0 then
+            InputAccumulator.add_wheel wheelDelta input
 
         let middlePivotRequested =
             config.middle_mouse_while_flying = FlyingMiddleMouseMode.TogglePivot
@@ -163,22 +172,46 @@ type RawInputReceiver
         if mouse4HeldChanged || mouse5HeldChanged then
             InputAccumulator.set_pivot_held (heldPivotButtons <> 0) input
 
-        if middlePivotRequested || mouse4PivotRequested || mouse5PivotRequested then
+        let pivotToggleRequested =
+            middlePivotRequested || mouse4PivotRequested || mouse5PivotRequested
+
+        if pivotToggleRequested then
             InputAccumulator.request_pivot_toggle input
 
-        if
+        let heldEntryReleased =
             sessionMode = FlightSessionMode.WhileRightMouseHeld
             && flags &&& RawInputNative.right_button_up <> 0us
-            || config.exit_on_mouse_left && flags &&& RawInputNative.left_button_down <> 0us
-            || sessionMode = FlightSessionMode.Persistent
-               && config.exit_on_mouse_right
-               && flags &&& RawInputNative.right_button_down <> 0us
-            || config.middle_mouse_while_flying = FlyingMiddleMouseMode.ExitFlying
-               && flags &&& RawInputNative.middle_button_up <> 0us
-        then
+
+        let leftExitRequested =
+            config.exit_on_mouse_left && flags &&& RawInputNative.left_button_down <> 0us
+
+        let rightExitRequested =
+            sessionMode = FlightSessionMode.Persistent
+            && config.exit_on_mouse_right
+            && flags &&& RawInputNative.right_button_down <> 0us
+
+        let middleExitRequested =
+            config.middle_mouse_while_flying = FlyingMiddleMouseMode.ExitFlying
+            && flags &&& RawInputNative.middle_button_up <> 0us
+
+        let exitRequested =
+            heldEntryReleased
+            || leftExitRequested
+            || rightExitRequested
+            || middleExitRequested
+
+        if exitRequested then
             InputAccumulator.request_exit input
 
-        inputAvailable.Invoke()
+        if
+            mouseMoved
+            || wheelDelta <> 0
+            || mouse4HeldChanged
+            || mouse5HeldChanged
+            || pivotToggleRequested
+            || exitRequested
+        then
+            inputAvailable.Invoke()
 
     do
         try

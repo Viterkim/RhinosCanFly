@@ -39,7 +39,7 @@ let navigation_target (view: RhinoView) (gumballTarget: Point3d option) =
 
 let update_navigation_mode (input: InputAccumulator.State) (state: FlyState) =
     if InputAccumulator.drain_pivot_toggles input % 2 <> 0 then
-        state.latched_mouse_navigation <- MouseNavigationKind.toggle PivotNavigation state.latched_mouse_navigation
+        state.latched_mouse_navigation <- MouseNavigationMode.toggle PivotNavigation state.latched_mouse_navigation
 
     let requestedNavigation =
         if state.keyboard_held_mouse_navigation <> LookNavigation then
@@ -49,14 +49,14 @@ let update_navigation_mode (input: InputAccumulator.State) (state: FlyState) =
         else
             state.latched_mouse_navigation
 
-    state.mouse_navigation <-
-        match state.mouse_navigation, requestedNavigation with
+    state.active_mouse_navigation <-
+        match state.active_mouse_navigation, requestedNavigation with
         | MouseLook, LookNavigation
         | MousePivot _, LookNavigation
         | MousePan _, LookNavigation -> MouseLook
-        | MousePivot _, PivotNavigation -> state.mouse_navigation
+        | MousePivot _, PivotNavigation -> state.active_mouse_navigation
         | _, PivotNavigation -> MousePivot(navigation_target state.view state.gumball_pivot_target)
-        | MousePan _, PanNavigation -> state.mouse_navigation
+        | MousePan _, PanNavigation -> state.active_mouse_navigation
         | _, PanNavigation ->
             let panTarget = navigation_target state.view None
             let targetDistance = state.camera.position.DistanceTo panTarget
@@ -78,7 +78,7 @@ let apply_mouse_input (input: InputAccumulator.State) (state: FlyState) =
     if dx = 0L && dy = 0L then
         NoCameraChange
     else
-        match state.mouse_navigation with
+        match state.active_mouse_navigation with
         | MouseLook ->
             state.camera <- Movement.look state.config.mouse dx dy state.camera
             DirectionChanged

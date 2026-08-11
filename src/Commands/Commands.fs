@@ -45,26 +45,14 @@ let set_speed (document: RhinoDoc) =
         let behavior = config.behavior
 
         let mutable speed =
-            FlightSpeed.current
-                document
-                behavior.load_speed_from_document
-                movement.minimum_speed
-                movement.maximum_speed
-                movement.base_speed
+            FlightSpeed.current document behavior.load_speed_from_document movement.speed_range movement.base_speed
 
         let result = RhinoGet.GetNumber("Flying speed", false, &speed)
 
         if result <> Result.Success then
             result
         else
-            match
-                FlightSpeed.set
-                    document
-                    behavior.save_speed_to_document
-                    movement.minimum_speed
-                    movement.maximum_speed
-                    speed
-            with
+            match FlightSpeed.set document behavior.save_speed_to_document movement.speed_range speed with
             | Ok saved ->
                 RhinoApp.WriteLine $"RhinosCanFly speed set to {saved}."
                 Result.Success

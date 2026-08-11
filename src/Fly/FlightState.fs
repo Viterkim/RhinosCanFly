@@ -36,10 +36,10 @@ let create (view: RhinoView) (config: FlyConfig) =
       original_cursor = originalCursor
       original_lens_length = viewport.Camera35mmLensLength
       gumball_pivot_target = gumballPivotTarget
-      pivot_target = viewport.CameraTarget
-      pivot_direction = NoPivot
-      pivot_input_state = WaitingForNeutralPivotInput
-      mouse_navigation = MouseLook
+      key_pivot_target = viewport.CameraTarget
+      key_pivot_direction = NoKeyPivot
+      key_pivot_input_state = WaitingForNeutralKeyPivotInput
+      active_mouse_navigation = MouseLook
       latched_mouse_navigation = LookNavigation
       keyboard_held_mouse_navigation = LookNavigation
       keyboard_pivot_toggle_was_down = FlightControls.is_optional_down mouseNavigationBindings.pivot.toggle
@@ -50,12 +50,7 @@ let create (view: RhinoView) (config: FlyConfig) =
           yaw = yaw
           pitch = pitch }
       speed =
-        FlightSpeed.current
-            view.Document
-            behavior.load_speed_from_document
-            movement.minimum_speed
-            movement.maximum_speed
-            movement.base_speed
+        FlightSpeed.current view.Document behavior.load_speed_from_document movement.speed_range movement.base_speed
       boost_enabled = false
       boost_was_down = FlightControls.is_down bindings.boost
       slow_enabled = false

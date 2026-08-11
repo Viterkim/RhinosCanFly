@@ -14,16 +14,18 @@ let current_lens () =
 let current_speed (config: FlyConfigFile) =
     let document = RhinoDoc.ActiveDoc
 
-    FlightSpeed.current
-        document
-        config.load_speed_from_document
-        config.minimum_speed
-        config.maximum_speed
-        config.base_speed
+    let range: SpeedRange =
+        { minimum = config.minimum_speed
+          maximum = config.maximum_speed }
+
+    FlightSpeed.current document config.load_speed_from_document range config.base_speed
 
 let load (control: SettingsControl) =
     match RuntimeSettings.current () with
-    | Error error -> control.ShowError $"Could not load configuration: {error}"
+    | Error error ->
+        control.LoadConfig ConfigSchema.defaults
+        control.ShowRuntimeState(current_speed ConfigSchema.defaults, current_lens ())
+        control.ShowError $"Could not load configuration: {error}"
     | Ok result ->
         control.LoadConfig result.config_file
 

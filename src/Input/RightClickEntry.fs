@@ -20,18 +20,41 @@ type RightClickGesture =
     | FlyButtonReleased of QueuedFlyEntry
 
 type Config =
-    { fly_entry_enabled: bool
-      enter_during_commands: bool
-      session_mode: FlightSessionMode
+    { fly_entry_mode: RightClickEntryMode
       view_manipulation_enabled: bool }
 
 type RightClickCallback() =
     inherit MouseCallback()
 
     let mutable gesture = NoRightClickGesture
-    let mutable flyEnabled = false
-    let mutable enterDuringCommands = false
-    let mutable entrySessionMode = FlightSessionMode.Persistent
+    let mutable flyEntryMode = RightClickEntryMode.Off
+
+    let fly_entry_enabled () =
+        match flyEntryMode with
+        | RightClickEntryMode.EnterFlying
+        | RightClickEntryMode.EnterFlyingDuringCommands
+        | RightClickEntryMode.EnterFlyingWhileHeld
+        | RightClickEntryMode.EnterFlyingWhileHeldDuringCommands -> true
+        | RightClickEntryMode.Off
+        | _ -> false
+
+    let enter_during_commands () =
+        match flyEntryMode with
+        | RightClickEntryMode.EnterFlyingDuringCommands
+        | RightClickEntryMode.EnterFlyingWhileHeldDuringCommands -> true
+        | RightClickEntryMode.Off
+        | RightClickEntryMode.EnterFlying
+        | RightClickEntryMode.EnterFlyingWhileHeld
+        | _ -> false
+
+    let flight_session_mode () =
+        match flyEntryMode with
+        | RightClickEntryMode.EnterFlyingWhileHeld
+        | RightClickEntryMode.EnterFlyingWhileHeldDuringCommands -> FlightSessionMode.WhileRightMouseHeld
+        | RightClickEntryMode.Off
+        | RightClickEntryMode.EnterFlying
+        | RightClickEntryMode.EnterFlyingDuringCommands
+        | _ -> FlightSessionMode.Persistent
 
     let log_error (context: string) (error: exn) =
         Debug.WriteLine $"RhinosCanFly {context}: {error.Message}"
@@ -59,7 +82,7 @@ type RightClickCallback() =
         log_error context error
 
     let can_enter () =
-        enterDuringCommands || not (Command.InCommand())
+        enter_during_commands () || not (Command.InCommand())
 
     let run_fly_entry (entry: QueuedFlyEntry) =
         let queuedView = RhinoView.FromRuntimeSerialNumber entry.view_serial_number
@@ -82,7 +105,7 @@ type RightClickCallback() =
         let handler =
             EventHandler(fun (_: obj) (_: EventArgs) ->
                 try
-                    if not flyEnabled then
+                    if not (fly_entry_enabled ()) then
                         clear_gesture ()
 
                     match gesture with
@@ -114,7 +137,7 @@ type RightClickCallback() =
             FlyButtonDown
                 { view_serial_number = view.RuntimeSerialNumber
                   root_window = PlatformInput.root_window view
-                  session_mode = entrySessionMode
+                  session_mode = flight_session_mode ()
                   handler = handler }
 
         try
@@ -150,7 +173,7 @@ type RightClickCallback() =
 
             if
                 not viewManipulationHandled
-                && flyEnabled
+                && fly_entry_enabled ()
                 && isRightButton
                 && isPerspective
                 && can_enter ()
@@ -185,19 +208,16 @@ type RightClickCallback() =
             recover_from_callback_error "right-click mouse-up callback" event error
 
     member this.Configure(config: Config) =
-        if not config.fly_entry_enabled then
+        flyEntryMode <- config.fly_entry_mode
+
+        if not (fly_entry_enabled ()) then
             clear_gesture ()
 
-        flyEnabled <- config.fly_entry_enabled
-        enterDuringCommands <- config.enter_during_commands
-        entrySessionMode <- config.session_mode
-        this.Enabled <- config.fly_entry_enabled || config.view_manipulation_enabled
+        this.Enabled <- fly_entry_enabled () || config.view_manipulation_enabled
 
     member this.Shutdown() =
         this.Configure
-            { fly_entry_enabled = false
-              enter_during_commands = false
-              session_mode = FlightSessionMode.Persistent
+            { fly_entry_mode = RightClickEntryMode.Off
               view_manipulation_enabled = false }
 
 let callback = RightClickCallback()

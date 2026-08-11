@@ -14,22 +14,22 @@ type CameraChange =
     | DirectionChanged
     | PositionAndDirectionChanged
 
-type PivotDirection =
-    | NoPivot
-    | PivotLeft
-    | PivotRight
+type KeyPivotDirection =
+    | NoKeyPivot
+    | KeyPivotLeft
+    | KeyPivotRight
 
-type PivotInputState =
-    | WaitingForNeutralPivotInput
-    | PivotInputArmed
+type KeyPivotInputState =
+    | WaitingForNeutralKeyPivotInput
+    | KeyPivotInputArmed
 
-type MouseNavigationKind =
+type MouseNavigationMode =
     | LookNavigation
     | PivotNavigation
     | PanNavigation
 
-module MouseNavigationKind =
-    let toggle (requested: MouseNavigationKind) (current: MouseNavigationKind) =
+module MouseNavigationMode =
+    let toggle (requested: MouseNavigationMode) (current: MouseNavigationMode) =
         match requested, current with
         | PivotNavigation, PivotNavigation
         | PanNavigation, PanNavigation -> LookNavigation
@@ -38,7 +38,7 @@ module MouseNavigationKind =
 [<Struct>]
 type MousePanUnitsPerRadian = MousePanUnitsPerRadian of units_per_radian: float
 
-type MouseNavigationMode =
+type ActiveMouseNavigation =
     | MouseLook
     | MousePivot of target: Point3d
     | MousePan of units_per_radian: MousePanUnitsPerRadian
@@ -51,6 +51,6 @@ type InputSnapshot =
       right: bool
       up: bool
       down: bool
-      pivot_left: bool
-      pivot_right: bool
+      key_pivot_left: bool
+      key_pivot_right: bool
       move_speed: float }

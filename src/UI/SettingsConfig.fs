@@ -12,7 +12,7 @@ type NumberValues =
       boost_multiplier: float
       slow_multiplier: float
       vertical_speed_multiplier: float
-      pivot_speed_multiplier: float
+      key_pivot_speed_multiplier: float
       mouse_pivot_multiplier: float
       mouse_pan_multiplier: float
       mouse_sensitivity: float
@@ -66,7 +66,7 @@ let parse_numbers (fields: SettingsFields.NumberFields) =
           boost_multiplier = required "Boost multiplier" fields.boost_multiplier
           slow_multiplier = required "Slow multiplier" fields.slow_multiplier
           vertical_speed_multiplier = required "Move up/down multiplier" fields.vertical_speed_multiplier
-          pivot_speed_multiplier = required "Key pivot speed multi" fields.pivot_speed_multiplier
+          key_pivot_speed_multiplier = required "Key pivot speed multi" fields.key_pivot_speed_multiplier
           mouse_pivot_multiplier = required "Pivot multiplier" fields.mouse_pivot_multiplier
           mouse_pan_multiplier = required "Pan multiplier" fields.mouse_pan_multiplier
           mouse_sensitivity = required "Mouse sensitivity" fields.mouse_sensitivity
@@ -91,11 +91,11 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     bindings.right.Text <- config.right
     bindings.up.Text <- config.up
     bindings.down.Text <- config.down
-    bindings.pivot_left.Text <- config.pivot_left
-    bindings.pivot_right.Text <- config.pivot_right
+    bindings.key_pivot_left.Text <- config.key_pivot_left
+    bindings.key_pivot_right.Text <- config.key_pivot_right
     bindings.pivot_toggle.Text <- config.pivot_toggle
-    bindings.pan_toggle.Text <- config.pan_toggle
     bindings.pivot_hold.Text <- config.pivot_hold
+    bindings.pan_toggle.Text <- config.pan_toggle
     bindings.pan_hold.Text <- config.pan_hold
     bindings.boost.Text <- config.boost
     bindings.slow.Text <- config.slow
@@ -109,7 +109,7 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     numbers.boost_multiplier.Text <- ConfigSchema.format_number config.boost_multiplier
     numbers.slow_multiplier.Text <- ConfigSchema.format_number config.slow_multiplier
     numbers.vertical_speed_multiplier.Text <- ConfigSchema.format_number config.vertical_speed_multiplier
-    numbers.pivot_speed_multiplier.Text <- ConfigSchema.format_number config.pivot_speed_multiplier
+    numbers.key_pivot_speed_multiplier.Text <- ConfigSchema.format_number config.key_pivot_speed_multiplier
     numbers.mouse_pivot_multiplier.Text <- ConfigSchema.format_number config.mouse_pivot_multiplier
     numbers.mouse_pan_multiplier.Text <- ConfigSchema.format_number config.mouse_pan_multiplier
     numbers.mouse_sensitivity.Text <- ConfigSchema.format_number config.mouse_sensitivity
@@ -155,11 +155,11 @@ let read (fields: SettingsFields.ConfigFields) =
               right = bindings.right.Text
               up = bindings.up.Text
               down = bindings.down.Text
-              pivot_left = bindings.pivot_left.Text
-              pivot_right = bindings.pivot_right.Text
+              key_pivot_left = bindings.key_pivot_left.Text
+              key_pivot_right = bindings.key_pivot_right.Text
               pivot_toggle = bindings.pivot_toggle.Text
-              pan_toggle = bindings.pan_toggle.Text
               pivot_hold = bindings.pivot_hold.Text
+              pan_toggle = bindings.pan_toggle.Text
               pan_hold = bindings.pan_hold.Text
               boost = bindings.boost.Text
               slow = bindings.slow.Text
@@ -172,7 +172,7 @@ let read (fields: SettingsFields.ConfigFields) =
               speed_step_multiplier = numbers.speed_step_multiplier
               boost_multiplier = numbers.boost_multiplier
               slow_multiplier = numbers.slow_multiplier
-              pivot_speed_multiplier = numbers.pivot_speed_multiplier
+              key_pivot_speed_multiplier = numbers.key_pivot_speed_multiplier
               mouse_pivot_multiplier = numbers.mouse_pivot_multiplier
               mouse_pan_multiplier = numbers.mouse_pan_multiplier
               mouse_sensitivity = numbers.mouse_sensitivity

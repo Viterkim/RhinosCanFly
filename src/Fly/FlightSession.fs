@@ -167,8 +167,7 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                         FlightSpeed.set
                             view.Document
                             state.config.behavior.save_speed_to_document
-                            state.config.movement.minimum_speed
-                            state.config.movement.maximum_speed
+                            state.config.movement.speed_range
                             state.speed
                     with
                     | Ok _ -> ()
@@ -195,7 +194,7 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
 
         sessionState <- if rawInputClean then Ready else RestartRequired
 
-        let cleanupMessage = cleanupErrors |> Seq.toList |> String.concat "; "
+        let cleanupMessage = String.concat "; " cleanupErrors
 
         match flightResult, cleanupErrors.Count with
         | Ok(), 0 -> Ok()

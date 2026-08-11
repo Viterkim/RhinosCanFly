@@ -14,7 +14,7 @@ Run (set your version)
 
 Or for debugging / installing the build locally. `build-and-install.ps1` builds and registers the dev build as the current Windows user. Close rhino then the script builds, installs the addon and runs Rhino.
 
-```
+```powershell
 .\build-and-install.ps1 -RhinoVersion 8
 ```
 
@@ -26,7 +26,7 @@ Uninstall the Package Manager version before using a dev registration. The dev i
 
 First login
 
-```
+```powershell
 $yak = "C:\Program Files\Rhino 8\System\yak.exe"
 & $yak login --source https://test.yak.rhino3d.com
 ```

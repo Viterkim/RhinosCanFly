@@ -15,8 +15,8 @@ type FlightBindings =
       right: KeyBinding
       up: KeyBinding
       down: KeyBinding
-      pivot_left: KeyBinding
-      pivot_right: KeyBinding
+      key_pivot_left: KeyBinding
+      key_pivot_right: KeyBinding
       mouse_navigation: MouseNavigationBindings
       boost: KeyBinding
       slow: KeyBinding
@@ -26,12 +26,11 @@ type FlightBindings =
 
 type MovementConfig =
     { base_speed: float
-      minimum_speed: float
-      maximum_speed: float
+      speed_range: SpeedRange
       speed_step_multiplier: float
       boost_multiplier: float
       slow_multiplier: float
-      pivot_speed_multiplier: float
+      key_pivot_speed_multiplier: float
       vertical_speed_multiplier: float
       normalize_diagonal_movement: bool
       wheel_speed_mode: MouseWheelSpeedMode

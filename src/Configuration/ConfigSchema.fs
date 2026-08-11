@@ -15,11 +15,11 @@ let defaults: FlyConfigFile =
       right = "D"
       up = "Q"
       down = "E"
-      pivot_left = "Z"
-      pivot_right = "X"
+      key_pivot_left = "Z"
+      key_pivot_right = "X"
       pivot_toggle = "F"
-      pan_toggle = "C"
       pivot_hold = "G"
+      pan_toggle = "C"
       pan_hold = "V"
       boost = "LeftShift"
       slow = "LeftAlt"
@@ -32,7 +32,7 @@ let defaults: FlyConfigFile =
       speed_step_multiplier = 1.2
       boost_multiplier = 3.
       slow_multiplier = 0.4
-      pivot_speed_multiplier = 10.
+      key_pivot_speed_multiplier = 10.
       mouse_pivot_multiplier = 4.
       mouse_pan_multiplier = 2.
       mouse_sensitivity = 15.
@@ -79,7 +79,7 @@ let normalize_numbers (source: FlyConfigFile) =
         speed_step_multiplier = normalize_number source.speed_step_multiplier
         boost_multiplier = normalize_number source.boost_multiplier
         slow_multiplier = normalize_number source.slow_multiplier
-        pivot_speed_multiplier = normalize_number source.pivot_speed_multiplier
+        key_pivot_speed_multiplier = normalize_number source.key_pivot_speed_multiplier
         mouse_pivot_multiplier = normalize_number source.mouse_pivot_multiplier
         mouse_pan_multiplier = normalize_number source.mouse_pan_multiplier
         mouse_sensitivity = normalize_number source.mouse_sensitivity
@@ -114,7 +114,7 @@ let compile (source: FlyConfigFile) =
       "speed_step_multiplier", source.speed_step_multiplier
       "boost_multiplier", source.boost_multiplier
       "slow_multiplier", source.slow_multiplier
-      "pivot_speed_multiplier", source.pivot_speed_multiplier
+      "key_pivot_speed_multiplier", source.key_pivot_speed_multiplier
       "mouse_pivot_multiplier", source.mouse_pivot_multiplier
       "mouse_pan_multiplier", source.mouse_pan_multiplier
       "mouse_sensitivity", source.mouse_sensitivity
@@ -164,8 +164,8 @@ let compile (source: FlyConfigFile) =
               right = required "right" source.right
               up = required "up" source.up
               down = required "down" source.down
-              pivot_left = required "pivot_left" source.pivot_left
-              pivot_right = required "pivot_right" source.pivot_right
+              key_pivot_left = required "key_pivot_left" source.key_pivot_left
+              key_pivot_right = required "key_pivot_right" source.key_pivot_right
               mouse_navigation =
                 { pivot =
                     { toggle = optional "pivot_toggle" source.pivot_toggle
@@ -180,12 +180,13 @@ let compile (source: FlyConfigFile) =
               exit_key = required "exit_key" source.exit_key }
           movement =
             { base_speed = source.base_speed
-              minimum_speed = source.minimum_speed
-              maximum_speed = source.maximum_speed
+              speed_range =
+                { minimum = source.minimum_speed
+                  maximum = source.maximum_speed }
               speed_step_multiplier = source.speed_step_multiplier
               boost_multiplier = source.boost_multiplier
               slow_multiplier = source.slow_multiplier
-              pivot_speed_multiplier = source.pivot_speed_multiplier
+              key_pivot_speed_multiplier = source.key_pivot_speed_multiplier
               vertical_speed_multiplier = source.vertical_speed_multiplier
               normalize_diagonal_movement = source.normalize_diagonal_movement
               wheel_speed_mode = source.wheel_speed_mode

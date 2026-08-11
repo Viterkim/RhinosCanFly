@@ -177,8 +177,8 @@ type SettingsControl() as self =
               SettingsLayout.item "Move right" (binding_editor bindings.right defaults.right)
               SettingsLayout.item "Move up" (binding_editor bindings.up defaults.up)
               SettingsLayout.item "Move down" (binding_editor bindings.down defaults.down)
-              SettingsLayout.item "Pivot left" (binding_editor bindings.pivot_left defaults.pivot_left)
-              SettingsLayout.item "Pivot right" (binding_editor bindings.pivot_right defaults.pivot_right)
+              SettingsLayout.item "Pivot left" (binding_editor bindings.key_pivot_left defaults.key_pivot_left)
+              SettingsLayout.item "Pivot right" (binding_editor bindings.key_pivot_right defaults.key_pivot_right)
               SettingsLayout.item "Toggle pivot" (binding_editor bindings.pivot_toggle defaults.pivot_toggle)
               SettingsLayout.item "Hold pivot" (binding_editor bindings.pivot_hold defaults.pivot_hold)
               SettingsLayout.item "Toggle pan" (binding_editor bindings.pan_toggle defaults.pan_toggle)
@@ -220,7 +220,7 @@ type SettingsControl() as self =
               SettingsLayout.item "Boost multiplier" numbers.boost_multiplier
               SettingsLayout.item "Slow multiplier" numbers.slow_multiplier
               SettingsLayout.item "Move up/down multiplier" numbers.vertical_speed_multiplier
-              SettingsLayout.item "Key pivot speed multi" numbers.pivot_speed_multiplier
+              SettingsLayout.item "Key pivot speed multi" numbers.key_pivot_speed_multiplier
               SettingsLayout.item "Pivot multiplier" numbers.mouse_pivot_multiplier
               SettingsLayout.item "Pan multiplier" numbers.mouse_pan_multiplier ]
         |> SettingsLayout.full_width

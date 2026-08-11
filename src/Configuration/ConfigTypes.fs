@@ -54,11 +54,11 @@ type FlyConfigFile =
       right: string
       up: string
       down: string
-      pivot_left: string
-      pivot_right: string
+      key_pivot_left: string
+      key_pivot_right: string
       pivot_toggle: string
-      pan_toggle: string
       pivot_hold: string
+      pan_toggle: string
       pan_hold: string
       boost: string
       slow: string
@@ -71,7 +71,7 @@ type FlyConfigFile =
       speed_step_multiplier: float
       boost_multiplier: float
       slow_multiplier: float
-      pivot_speed_multiplier: float
+      key_pivot_speed_multiplier: float
       mouse_pivot_multiplier: float
       mouse_pan_multiplier: float
       mouse_sensitivity: float

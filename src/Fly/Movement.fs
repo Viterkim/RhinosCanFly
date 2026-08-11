@@ -23,10 +23,10 @@ let keyboard_pivot_radians_per_second = Math.PI / 6.
 let maximum_pitch_radians = RhinoMath.ToRadians 89.
 
 [<Struct>]
-type MouseRotation =
+type MouseAngleDeltas =
     { yaw_delta: float; pitch_delta: float }
 
-let mouse_angle_deltas (config: FlyingMouseConfig) (multiplier: float) (mouseDx: int64) (mouseDy: int64) =
+let scaled_mouse_angle_deltas (config: FlyingMouseConfig) (multiplier: float) (mouseDx: int64) (mouseDy: int64) =
     let horizontal_sign = if config.x_mode = MouseAxisMode.Inverted then 1. else -1.
 
     let vertical_sign = if config.y_mode = MouseAxisMode.Inverted then 1. else -1.
@@ -38,14 +38,14 @@ let mouse_angle_deltas (config: FlyingMouseConfig) (multiplier: float) (mouseDx:
     { yaw_delta = yawDelta
       pitch_delta = pitchDelta }
 
-let mouse_rotation
+let clamped_mouse_angle_deltas
     (config: FlyingMouseConfig)
     (multiplier: float)
     (mouseDx: int64)
     (mouseDy: int64)
     (camera: CameraState)
     =
-    let deltas = mouse_angle_deltas config multiplier mouseDx mouseDy
+    let deltas = scaled_mouse_angle_deltas config multiplier mouseDx mouseDy
 
     let requestedPitch = camera.pitch + deltas.pitch_delta
 
@@ -55,7 +55,7 @@ let mouse_rotation
       pitch_delta = pitch - camera.pitch }
 
 let look (config: FlyingMouseConfig) (mouseDx: int64) (mouseDy: int64) (camera: CameraState) =
-    let rotation = mouse_rotation config 1. mouseDx mouseDy camera
+    let rotation = clamped_mouse_angle_deltas config 1. mouseDx mouseDy camera
 
     { camera with
         yaw = camera.yaw + rotation.yaw_delta
@@ -70,7 +70,7 @@ let mouse_pivot (config: FlyingMouseConfig) (target: Point3d) (mouseDx: int64) (
     let offset = camera.position - target
     let (MousePivotMultiplier multiplier) = config.pivot_multiplier
 
-    let rotation = mouse_rotation config multiplier mouseDx mouseDy camera
+    let rotation = clamped_mouse_angle_deltas config multiplier mouseDx mouseDy camera
 
     let direction = direction_from_angles camera.yaw camera.pitch
     let yawOffset = rotate_vector Vector3d.ZAxis rotation.yaw_delta offset
@@ -105,7 +105,7 @@ let mouse_pan
         let mutable up = Vector3d.CrossProduct(right, direction)
 
         if up.Unitize() then
-            let deltas = mouse_angle_deltas config multiplier mouseDx mouseDy
+            let deltas = scaled_mouse_angle_deltas config multiplier mouseDx mouseDy
 
             { camera with
                 position =
@@ -142,7 +142,7 @@ let orbit (target: Point3d) (requestedAngle: float) (camera: CameraState) =
           yaw = yaw
           pitch = pitch }
 
-let step (config: MovementConfig) (input: InputSnapshot) (pivotTarget: Point3d) (dt: float) (camera: CameraState) =
+let step (config: MovementConfig) (input: InputSnapshot) (keyPivotTarget: Point3d) (dt: float) (camera: CameraState) =
     let yaw = camera.yaw
     let pitch = camera.pitch
 
@@ -179,16 +179,16 @@ let step (config: MovementConfig) (input: InputSnapshot) (pivotTarget: Point3d) 
           yaw = yaw
           pitch = pitch }
 
-    let pivotAmount =
-        match FlightInput.pivot_direction input with
-        | NoPivot -> 0.
-        | PivotLeft -> -1.
-        | PivotRight -> 1.
+    let keyPivotAmount =
+        match FlightInput.key_pivot_direction input with
+        | NoKeyPivot -> 0.
+        | KeyPivotLeft -> -1.
+        | KeyPivotRight -> 1.
 
-    let pivotAngle =
-        pivotAmount
+    let keyPivotAngle =
+        keyPivotAmount
         * keyboard_pivot_radians_per_second
-        * config.pivot_speed_multiplier
+        * config.key_pivot_speed_multiplier
         * dt
 
-    orbit pivotTarget pivotAngle translated
+    orbit keyPivotTarget keyPivotAngle translated

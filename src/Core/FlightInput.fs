@@ -7,17 +7,17 @@ let movement_active (input: InputSnapshot) =
     || input.right
     || input.up
     || input.down
-    || input.pivot_left
-    || input.pivot_right
+    || input.key_pivot_left
+    || input.key_pivot_right
 
-let pivot_direction (input: InputSnapshot) =
-    match input.pivot_left, input.pivot_right with
-    | true, false -> PivotLeft
-    | false, true -> PivotRight
+let key_pivot_direction (input: InputSnapshot) =
+    match input.key_pivot_left, input.key_pivot_right with
+    | true, false -> KeyPivotLeft
+    | false, true -> KeyPivotRight
     | false, false
-    | true, true -> NoPivot
+    | true, true -> NoKeyPivot
 
-let without_pivot (input: InputSnapshot) =
+let without_key_pivot (input: InputSnapshot) =
     { input with
-        pivot_left = false
-        pivot_right = false }
+        key_pivot_left = false
+        key_pivot_right = false }

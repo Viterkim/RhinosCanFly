@@ -29,13 +29,7 @@ let try_document_speed (document: RhinoDoc) =
         |> Option.ofObj
         |> Option.bind Speed.try_parse
 
-let current
-    (document: RhinoDoc)
-    (loadFromDocument: bool)
-    (minimumSpeed: float)
-    (maximumSpeed: float)
-    (fallback: float)
-    =
+let current (document: RhinoDoc) (loadFromDocument: bool) (range: SpeedRange) (fallback: float) =
     let documentSerialNumber = document_serial_number document
 
     let requestedSpeed =
@@ -44,16 +38,10 @@ let current
         | _ when loadFromDocument -> try_document_speed document |> Option.defaultValue fallback
         | _ -> fallback
 
-    Speed.allowed minimumSpeed maximumSpeed requestedSpeed
+    Speed.allowed range requestedSpeed
 
-let set
-    (document: RhinoDoc)
-    (saveToDocument: bool)
-    (minimumSpeed: float)
-    (maximumSpeed: float)
-    (requestedSpeed: float)
-    =
-    let speed = Speed.allowed minimumSpeed maximumSpeed requestedSpeed
+let set (document: RhinoDoc) (saveToDocument: bool) (range: SpeedRange) (requestedSpeed: float) =
+    let speed = Speed.allowed range requestedSpeed
 
     sessionSpeed <-
         Some
@@ -74,12 +62,12 @@ let set
     with error ->
         Error $"Could not save flying speed to the document: {error.Message}"
 
-let step (config: MovementConfig) (speed: float) (direction: float) =
-    let stepped = speed * Math.Pow(config.speed_step_multiplier, direction)
+let step (config: MovementConfig) (speed: float) (SpeedStepCount steps: SpeedStepCount) =
+    let stepped = speed * Math.Pow(config.speed_step_multiplier, steps)
 
     let requested =
-        if direction < 0. then Math.Floor stepped
-        elif direction > 0. then Math.Ceiling stepped
+        if steps < 0. then Math.Floor stepped
+        elif steps > 0. then Math.Ceiling stepped
         else speed
 
-    Speed.allowed config.minimum_speed config.maximum_speed requested
+    Speed.allowed config.speed_range requested

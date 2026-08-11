@@ -1,10 +1,15 @@
 module RhinosCanFly.Platform.Win.Win32
 
+#nowarn "9"
+
 open System
 open System.ComponentModel
 open System.Drawing
 open System.Runtime.InteropServices
 open System.Text
+open Microsoft.FSharp.NativeInterop
+
+let nativeInputSize = Marshal.SizeOf<Win32Native.NativeInput>()
 
 let win32_error (operation: string) (errorCode: int) =
     Win32Exception(errorCode)
@@ -132,7 +137,7 @@ let install_mouse_hook (handleEvent: int -> uint32 -> Point -> nativeint -> bool
                     || message = Win32Native.WM_XBUTTONUP
                     || message = Win32Native.WM_XBUTTONDBLCLK)
             then
-                let data = Marshal.PtrToStructure<Win32Native.MouseHookData> lparam
+                let data = NativePtr.read (NativePtr.ofNativeInt<Win32Native.MouseHookData> lparam)
                 let point = Point(data.point.x, data.point.y)
 
                 if handleEvent message data.mouse_data point data.window then
@@ -186,8 +191,7 @@ let keyboard_input (virtualKey: int) (flags: uint32) =
     input
 
 let try_send_inputs (operation: string) (inputs: Win32Native.NativeInput array) =
-    let sent =
-        Win32Native.SendInput(uint32 inputs.Length, inputs, Marshal.SizeOf<Win32Native.NativeInput>())
+    let sent = Win32Native.SendInput(uint32 inputs.Length, inputs, nativeInputSize)
 
     if sent = uint32 inputs.Length then
         Ok()

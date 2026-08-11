@@ -14,11 +14,11 @@ type BindingFields =
       right: TextBox
       up: TextBox
       down: TextBox
-      pivot_left: TextBox
-      pivot_right: TextBox
+      key_pivot_left: TextBox
+      key_pivot_right: TextBox
       pivot_toggle: TextBox
-      pan_toggle: TextBox
       pivot_hold: TextBox
+      pan_toggle: TextBox
       pan_hold: TextBox
       boost: TextBox
       slow: TextBox
@@ -34,7 +34,7 @@ type NumberFields =
       boost_multiplier: TextBox
       slow_multiplier: TextBox
       vertical_speed_multiplier: TextBox
-      pivot_speed_multiplier: TextBox
+      key_pivot_speed_multiplier: TextBox
       mouse_pivot_multiplier: TextBox
       mouse_pan_multiplier: TextBox
       mouse_sensitivity: TextBox
@@ -172,11 +172,11 @@ let create () =
               right = text_box ()
               up = text_box ()
               down = text_box ()
-              pivot_left = text_box ()
-              pivot_right = text_box ()
+              key_pivot_left = text_box ()
+              key_pivot_right = text_box ()
               pivot_toggle = text_box ()
-              pan_toggle = text_box ()
               pivot_hold = text_box ()
+              pan_toggle = text_box ()
               pan_hold = text_box ()
               boost = text_box ()
               slow = text_box ()
@@ -191,7 +191,7 @@ let create () =
               boost_multiplier = text_box ()
               slow_multiplier = text_box ()
               vertical_speed_multiplier = text_box ()
-              pivot_speed_multiplier = text_box ()
+              key_pivot_speed_multiplier = text_box ()
               mouse_pivot_multiplier = text_box ()
               mouse_pan_multiplier = text_box ()
               mouse_sensitivity = text_box ()
