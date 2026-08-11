@@ -1,5 +1,13 @@
 namespace RhinosCanFly
 
+type MouseNavigationModeBindings =
+    { toggle: KeyBinding option
+      hold: KeyBinding option }
+
+type MouseNavigationBindings =
+    { pivot: MouseNavigationModeBindings
+      pan: MouseNavigationModeBindings }
+
 type FlightBindings =
     { forward: KeyBinding
       backward: KeyBinding
@@ -9,8 +17,7 @@ type FlightBindings =
       down: KeyBinding
       pivot_left: KeyBinding
       pivot_right: KeyBinding
-      pivot_toggle: KeyBinding option
-      pivot_hold: KeyBinding option
+      mouse_navigation: MouseNavigationBindings
       boost: KeyBinding
       slow: KeyBinding
       speed_increase: KeyBinding option
@@ -32,7 +39,8 @@ type MovementConfig =
       slow_mode: KeyActivationMode }
 
 type FlyingMouseConfig =
-    { pivot_multiplier: float
+    { pivot_multiplier: MousePivotMultiplier
+      pan_multiplier: MousePanMultiplier
       sensitivity: RuntimeMouseSensitivity
       x_mode: MouseAxisMode
       y_mode: MouseAxisMode

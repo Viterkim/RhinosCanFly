@@ -26,6 +26,18 @@ let maximum_pitch_radians = RhinoMath.ToRadians 89.
 type MouseRotation =
     { yaw_delta: float; pitch_delta: float }
 
+let mouse_angle_deltas (config: FlyingMouseConfig) (multiplier: float) (mouseDx: int64) (mouseDy: int64) =
+    let horizontal_sign = if config.x_mode = MouseAxisMode.Inverted then 1. else -1.
+
+    let vertical_sign = if config.y_mode = MouseAxisMode.Inverted then 1. else -1.
+
+    let sensitivity = MouseSensitivity.radians_per_count config.sensitivity
+    let yawDelta = float mouseDx * sensitivity * horizontal_sign * multiplier
+    let pitchDelta = float mouseDy * sensitivity * vertical_sign * multiplier
+
+    { yaw_delta = yawDelta
+      pitch_delta = pitchDelta }
+
 let mouse_rotation
     (config: FlyingMouseConfig)
     (multiplier: float)
@@ -33,19 +45,13 @@ let mouse_rotation
     (mouseDy: int64)
     (camera: CameraState)
     =
-    let horizontal_sign = if config.x_mode = MouseAxisMode.Inverted then 1. else -1.
+    let deltas = mouse_angle_deltas config multiplier mouseDx mouseDy
 
-    let vertical_sign = if config.y_mode = MouseAxisMode.Inverted then 1. else -1.
-
-    let sensitivity = MouseSensitivity.radians_per_count config.sensitivity
-    let yawDelta = float mouseDx * sensitivity * horizontal_sign * multiplier
-
-    let requestedPitch =
-        camera.pitch + float mouseDy * sensitivity * vertical_sign * multiplier
+    let requestedPitch = camera.pitch + deltas.pitch_delta
 
     let pitch = clamp -maximum_pitch_radians maximum_pitch_radians requestedPitch
 
-    { yaw_delta = yawDelta
+    { yaw_delta = deltas.yaw_delta
       pitch_delta = pitch - camera.pitch }
 
 let look (config: FlyingMouseConfig) (mouseDx: int64) (mouseDy: int64) (camera: CameraState) =
@@ -62,8 +68,9 @@ let rotate_vector (axis: Vector3d) (angle: float) (vector: Vector3d) =
 
 let mouse_pivot (config: FlyingMouseConfig) (target: Point3d) (mouseDx: int64) (mouseDy: int64) (camera: CameraState) =
     let offset = camera.position - target
+    let (MousePivotMultiplier multiplier) = config.pivot_multiplier
 
-    let rotation = mouse_rotation config config.pivot_multiplier mouseDx mouseDy camera
+    let rotation = mouse_rotation config multiplier mouseDx mouseDy camera
 
     let direction = direction_from_angles camera.yaw camera.pitch
     let yawOffset = rotate_vector Vector3d.ZAxis rotation.yaw_delta offset
@@ -82,6 +89,32 @@ let mouse_pivot (config: FlyingMouseConfig) (target: Point3d) (mouseDx: int64) (
     { position = target + rotatedOffset
       yaw = yaw
       pitch = pitch }
+
+let mouse_pan
+    (config: FlyingMouseConfig)
+    (MousePanUnitsPerRadian unitsPerRadian: MousePanUnitsPerRadian)
+    (mouseDx: int64)
+    (mouseDy: int64)
+    (camera: CameraState)
+    =
+    let (MousePanMultiplier multiplier) = config.pan_multiplier
+    let direction = direction_from_angles camera.yaw camera.pitch
+    let mutable right = Vector3d.CrossProduct(direction, Vector3d.ZAxis)
+
+    if right.Unitize() then
+        let mutable up = Vector3d.CrossProduct(right, direction)
+
+        if up.Unitize() then
+            let deltas = mouse_angle_deltas config multiplier mouseDx mouseDy
+
+            { camera with
+                position =
+                    camera.position + right * deltas.yaw_delta * unitsPerRadian
+                    - up * deltas.pitch_delta * unitsPerRadian }
+        else
+            camera
+    else
+        camera
 
 let orbit (target: Point3d) (requestedAngle: float) (camera: CameraState) =
     if requestedAngle = 0. then

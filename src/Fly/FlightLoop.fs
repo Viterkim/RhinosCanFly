@@ -17,7 +17,7 @@ let run (rawInput: InputAccumulator.State) (state: FlyState) =
 
         RhinoApp.Wait()
 
-        FlightControls.update_keyboard_pivot_input state
+        FlightControls.update_keyboard_navigation_input state
         FlightCamera.update_navigation_mode rawInput state
         let mouseChange = FlightCamera.apply_mouse_input rawInput state
 
@@ -55,7 +55,7 @@ let run (rawInput: InputAccumulator.State) (state: FlyState) =
                 let pivotDirection = FlightInput.pivot_direction movement
 
                 if pivotDirection <> NoPivot && pivotDirection <> state.pivot_direction then
-                    state.pivot_target <- FlightCamera.pivot_target state.view state.gumball_pivot_target
+                    state.pivot_target <- FlightCamera.navigation_target state.view state.gumball_pivot_target
 
                 state.pivot_direction <- pivotDirection
 

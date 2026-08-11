@@ -10,15 +10,29 @@ let is_optional_down (key: KeyBinding option) =
 let speed_step (state: FlyState) (direction: float) =
     state.speed <- FlightSpeed.step state.config.movement state.speed direction
 
-let update_keyboard_pivot_input (state: FlyState) =
-    let bindings = state.config.bindings
-    let toggle = is_optional_down bindings.pivot_toggle
+let update_keyboard_navigation_input (state: FlyState) =
+    let bindings = state.config.bindings.mouse_navigation
+    let pivotToggle = is_optional_down bindings.pivot.toggle
 
-    if toggle && not state.keyboard_pivot_toggle_was_down then
-        state.pivot_latched <- not state.pivot_latched
+    if pivotToggle && not state.keyboard_pivot_toggle_was_down then
+        state.latched_mouse_navigation <- MouseNavigationKind.toggle PivotNavigation state.latched_mouse_navigation
 
-    state.keyboard_pivot_toggle_was_down <- toggle
-    state.keyboard_pivot_held <- is_optional_down bindings.pivot_hold
+    state.keyboard_pivot_toggle_was_down <- pivotToggle
+
+    let panToggle = is_optional_down bindings.pan.toggle
+
+    if panToggle && not state.keyboard_pan_toggle_was_down then
+        state.latched_mouse_navigation <- MouseNavigationKind.toggle PanNavigation state.latched_mouse_navigation
+
+    state.keyboard_pan_toggle_was_down <- panToggle
+
+    state.keyboard_held_mouse_navigation <-
+        if is_optional_down bindings.pan.hold then
+            PanNavigation
+        elif is_optional_down bindings.pivot.hold then
+            PivotNavigation
+        else
+            LookNavigation
 
 let update_toggles (state: FlyState) =
     let bindings = state.config.bindings

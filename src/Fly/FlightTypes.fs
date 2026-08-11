@@ -15,9 +15,10 @@ type FlyState =
       mutable pivot_direction: PivotDirection
       mutable pivot_input_state: PivotInputState
       mutable mouse_navigation: MouseNavigationMode
-      mutable pivot_latched: bool
-      mutable keyboard_pivot_held: bool
+      mutable latched_mouse_navigation: MouseNavigationKind
+      mutable keyboard_held_mouse_navigation: MouseNavigationKind
       mutable keyboard_pivot_toggle_was_down: bool
+      mutable keyboard_pan_toggle_was_down: bool
       mutable running: bool
       mutable camera: CameraState
       mutable speed: float

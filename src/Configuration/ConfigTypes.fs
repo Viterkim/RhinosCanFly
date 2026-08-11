@@ -57,7 +57,9 @@ type FlyConfigFile =
       pivot_left: string
       pivot_right: string
       pivot_toggle: string
+      pan_toggle: string
       pivot_hold: string
+      pan_hold: string
       boost: string
       slow: string
       speed_increase: string
@@ -71,6 +73,7 @@ type FlyConfigFile =
       slow_multiplier: float
       pivot_speed_multiplier: float
       mouse_pivot_multiplier: float
+      mouse_pan_multiplier: float
       mouse_sensitivity: float
       mouse_x_mode: MouseAxisMode
       mouse_y_mode: MouseAxisMode
@@ -103,6 +106,12 @@ type ConfigMouseSensitivity = ConfigMouseSensitivity of float
 
 [<Struct>]
 type RuntimeMouseSensitivity = RuntimeMouseSensitivity of float
+
+[<Struct>]
+type MousePivotMultiplier = MousePivotMultiplier of float
+
+[<Struct>]
+type MousePanMultiplier = MousePanMultiplier of float
 
 type LensAdjustment =
     { forced_length_mm: float option

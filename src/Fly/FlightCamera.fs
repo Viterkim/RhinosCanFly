@@ -4,7 +4,7 @@ open Rhino
 open Rhino.Display
 open Rhino.Geometry
 
-let pivot_target (view: RhinoView) (gumballTarget: Point3d option) =
+let navigation_target (view: RhinoView) (gumballTarget: Point3d option) =
     match gumballTarget with
     | Some target -> target
     | None ->
@@ -39,18 +39,38 @@ let pivot_target (view: RhinoView) (gumballTarget: Point3d option) =
 
 let update_navigation_mode (input: InputAccumulator.State) (state: FlyState) =
     if InputAccumulator.drain_pivot_toggles input % 2 <> 0 then
-        state.pivot_latched <- not state.pivot_latched
+        state.latched_mouse_navigation <- MouseNavigationKind.toggle PivotNavigation state.latched_mouse_navigation
 
-    let pivotActive =
-        state.pivot_latched
-        || state.keyboard_pivot_held
-        || InputAccumulator.pivot_held input
+    let requestedNavigation =
+        if state.keyboard_held_mouse_navigation <> LookNavigation then
+            state.keyboard_held_mouse_navigation
+        elif InputAccumulator.pivot_held input then
+            PivotNavigation
+        else
+            state.latched_mouse_navigation
 
     state.mouse_navigation <-
-        match state.mouse_navigation, pivotActive with
-        | MouseLook, true -> MousePivot(pivot_target state.view state.gumball_pivot_target)
-        | MousePivot _, false -> MouseLook
-        | navigation, _ -> navigation
+        match state.mouse_navigation, requestedNavigation with
+        | MouseLook, LookNavigation
+        | MousePivot _, LookNavigation
+        | MousePan _, LookNavigation -> MouseLook
+        | MousePivot _, PivotNavigation -> state.mouse_navigation
+        | _, PivotNavigation -> MousePivot(navigation_target state.view state.gumball_pivot_target)
+        | MousePan _, PanNavigation -> state.mouse_navigation
+        | _, PanNavigation ->
+            let panTarget = navigation_target state.view None
+            let targetDistance = state.camera.position.DistanceTo panTarget
+
+            let unitsPerRadian =
+                if
+                    RhinoMath.IsValidDouble targetDistance
+                    && targetDistance > RhinoMath.ZeroTolerance
+                then
+                    targetDistance
+                else
+                    1.
+
+            MousePan(MousePanUnitsPerRadian unitsPerRadian)
 
 let apply_mouse_input (input: InputAccumulator.State) (state: FlyState) =
     let struct (dx, dy) = InputAccumulator.drain_mouse input
@@ -65,6 +85,9 @@ let apply_mouse_input (input: InputAccumulator.State) (state: FlyState) =
         | MousePivot target ->
             state.camera <- Movement.mouse_pivot state.config.mouse target dx dy state.camera
             PositionAndDirectionChanged
+        | MousePan unitsPerRadian ->
+            state.camera <- Movement.mouse_pan state.config.mouse unitsPerRadian dx dy state.camera
+            PositionChanged
 
 let apply (state: FlyState) (change: CameraChange) =
     let changed =

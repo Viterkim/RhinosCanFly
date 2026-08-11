@@ -49,8 +49,10 @@ let start (bindings: FlightBindings) (state: State) =
     add_binding state bindings.down
     add_binding state bindings.pivot_left
     add_binding state bindings.pivot_right
-    add_optional_binding state bindings.pivot_toggle
-    add_optional_binding state bindings.pivot_hold
+    add_optional_binding state bindings.mouse_navigation.pivot.toggle
+    add_optional_binding state bindings.mouse_navigation.pivot.hold
+    add_optional_binding state bindings.mouse_navigation.pan.toggle
+    add_optional_binding state bindings.mouse_navigation.pan.hold
     add_binding state bindings.boost
     add_binding state bindings.slow
     add_optional_binding state bindings.speed_increase

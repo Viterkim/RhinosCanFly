@@ -181,6 +181,8 @@ type SettingsControl() as self =
               SettingsLayout.item "Pivot right" (binding_editor bindings.pivot_right defaults.pivot_right)
               SettingsLayout.item "Toggle pivot" (binding_editor bindings.pivot_toggle defaults.pivot_toggle)
               SettingsLayout.item "Hold pivot" (binding_editor bindings.pivot_hold defaults.pivot_hold)
+              SettingsLayout.item "Toggle pan" (binding_editor bindings.pan_toggle defaults.pan_toggle)
+              SettingsLayout.item "Hold pan" (binding_editor bindings.pan_hold defaults.pan_hold)
               SettingsLayout.item "Exit" (binding_editor bindings.exit_key defaults.exit_key) ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
@@ -219,7 +221,8 @@ type SettingsControl() as self =
               SettingsLayout.item "Slow multiplier" numbers.slow_multiplier
               SettingsLayout.item "Move up/down multiplier" numbers.vertical_speed_multiplier
               SettingsLayout.item "Key pivot speed multi" numbers.pivot_speed_multiplier
-              SettingsLayout.item "Fly + pivot sens multi" numbers.mouse_pivot_multiplier ]
+              SettingsLayout.item "Pivot multiplier" numbers.mouse_pivot_multiplier
+              SettingsLayout.item "Pan multiplier" numbers.mouse_pan_multiplier ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 

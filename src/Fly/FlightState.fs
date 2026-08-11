@@ -6,6 +6,7 @@ open Rhino.Geometry
 let create (view: RhinoView) (config: FlyConfig) =
     let viewport = view.ActiveViewport
     let bindings = config.bindings
+    let mouseNavigationBindings = bindings.mouse_navigation
     let movement = config.movement
     let behavior = config.behavior
 
@@ -39,9 +40,10 @@ let create (view: RhinoView) (config: FlyConfig) =
       pivot_direction = NoPivot
       pivot_input_state = WaitingForNeutralPivotInput
       mouse_navigation = MouseLook
-      pivot_latched = false
-      keyboard_pivot_held = false
-      keyboard_pivot_toggle_was_down = FlightControls.is_optional_down bindings.pivot_toggle
+      latched_mouse_navigation = LookNavigation
+      keyboard_held_mouse_navigation = LookNavigation
+      keyboard_pivot_toggle_was_down = FlightControls.is_optional_down mouseNavigationBindings.pivot.toggle
+      keyboard_pan_toggle_was_down = FlightControls.is_optional_down mouseNavigationBindings.pan.toggle
       running = true
       camera =
         { position = viewport.CameraLocation

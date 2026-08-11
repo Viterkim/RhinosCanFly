@@ -14,6 +14,7 @@ type NumberValues =
       vertical_speed_multiplier: float
       pivot_speed_multiplier: float
       mouse_pivot_multiplier: float
+      mouse_pan_multiplier: float
       mouse_sensitivity: float
       forced_lens_length_mm: float
       lens_length_delta_mm: float }
@@ -66,7 +67,8 @@ let parse_numbers (fields: SettingsFields.NumberFields) =
           slow_multiplier = required "Slow multiplier" fields.slow_multiplier
           vertical_speed_multiplier = required "Move up/down multiplier" fields.vertical_speed_multiplier
           pivot_speed_multiplier = required "Key pivot speed multi" fields.pivot_speed_multiplier
-          mouse_pivot_multiplier = required "Fly + pivot sens multi" fields.mouse_pivot_multiplier
+          mouse_pivot_multiplier = required "Pivot multiplier" fields.mouse_pivot_multiplier
+          mouse_pan_multiplier = required "Pan multiplier" fields.mouse_pan_multiplier
           mouse_sensitivity = required "Mouse sensitivity" fields.mouse_sensitivity
           forced_lens_length_mm = optional "Force lens length" fields.forced_lens_length_mm
           lens_length_delta_mm = optional "Force lens length delta" fields.lens_length_delta_mm }
@@ -92,7 +94,9 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     bindings.pivot_left.Text <- config.pivot_left
     bindings.pivot_right.Text <- config.pivot_right
     bindings.pivot_toggle.Text <- config.pivot_toggle
+    bindings.pan_toggle.Text <- config.pan_toggle
     bindings.pivot_hold.Text <- config.pivot_hold
+    bindings.pan_hold.Text <- config.pan_hold
     bindings.boost.Text <- config.boost
     bindings.slow.Text <- config.slow
     bindings.speed_increase.Text <- config.speed_increase
@@ -107,6 +111,7 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     numbers.vertical_speed_multiplier.Text <- ConfigSchema.format_number config.vertical_speed_multiplier
     numbers.pivot_speed_multiplier.Text <- ConfigSchema.format_number config.pivot_speed_multiplier
     numbers.mouse_pivot_multiplier.Text <- ConfigSchema.format_number config.mouse_pivot_multiplier
+    numbers.mouse_pan_multiplier.Text <- ConfigSchema.format_number config.mouse_pan_multiplier
     numbers.mouse_sensitivity.Text <- ConfigSchema.format_number config.mouse_sensitivity
     numbers.forced_lens_length_mm.Text <- ConfigSchema.format_number config.forced_lens_length_mm
     numbers.lens_length_delta_mm.Text <- ConfigSchema.format_number config.lens_length_delta_mm
@@ -153,7 +158,9 @@ let read (fields: SettingsFields.ConfigFields) =
               pivot_left = bindings.pivot_left.Text
               pivot_right = bindings.pivot_right.Text
               pivot_toggle = bindings.pivot_toggle.Text
+              pan_toggle = bindings.pan_toggle.Text
               pivot_hold = bindings.pivot_hold.Text
+              pan_hold = bindings.pan_hold.Text
               boost = bindings.boost.Text
               slow = bindings.slow.Text
               speed_increase = bindings.speed_increase.Text
@@ -167,6 +174,7 @@ let read (fields: SettingsFields.ConfigFields) =
               slow_multiplier = numbers.slow_multiplier
               pivot_speed_multiplier = numbers.pivot_speed_multiplier
               mouse_pivot_multiplier = numbers.mouse_pivot_multiplier
+              mouse_pan_multiplier = numbers.mouse_pan_multiplier
               mouse_sensitivity = numbers.mouse_sensitivity
               mouse_x_mode = SettingsFields.selected_mode modes.mouse_x_mode
               mouse_y_mode = SettingsFields.selected_mode modes.mouse_y_mode

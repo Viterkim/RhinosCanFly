@@ -4,7 +4,7 @@ open System
 open System.Globalization
 
 [<Literal>]
-let current_version = 4
+let current_version = 5
 
 let defaults: FlyConfigFile =
     { config_version = current_version
@@ -18,7 +18,9 @@ let defaults: FlyConfigFile =
       pivot_left = "Z"
       pivot_right = "X"
       pivot_toggle = "F"
+      pan_toggle = "C"
       pivot_hold = "G"
+      pan_hold = "V"
       boost = "LeftShift"
       slow = "LeftAlt"
       speed_increase = "Equals"
@@ -31,7 +33,8 @@ let defaults: FlyConfigFile =
       boost_multiplier = 3.
       slow_multiplier = 0.4
       pivot_speed_multiplier = 10.
-      mouse_pivot_multiplier = 5.
+      mouse_pivot_multiplier = 4.
+      mouse_pan_multiplier = 2.
       mouse_sensitivity = 15.
       mouse_x_mode = MouseAxisMode.Normal
       mouse_y_mode = MouseAxisMode.Normal
@@ -78,6 +81,7 @@ let normalize_numbers (source: FlyConfigFile) =
         slow_multiplier = normalize_number source.slow_multiplier
         pivot_speed_multiplier = normalize_number source.pivot_speed_multiplier
         mouse_pivot_multiplier = normalize_number source.mouse_pivot_multiplier
+        mouse_pan_multiplier = normalize_number source.mouse_pan_multiplier
         mouse_sensitivity = normalize_number source.mouse_sensitivity
         vertical_speed_multiplier = normalize_number source.vertical_speed_multiplier
         forced_lens_length_mm = normalize_number source.forced_lens_length_mm
@@ -112,6 +116,7 @@ let compile (source: FlyConfigFile) =
       "slow_multiplier", source.slow_multiplier
       "pivot_speed_multiplier", source.pivot_speed_multiplier
       "mouse_pivot_multiplier", source.mouse_pivot_multiplier
+      "mouse_pan_multiplier", source.mouse_pan_multiplier
       "mouse_sensitivity", source.mouse_sensitivity
       "vertical_speed_multiplier", source.vertical_speed_multiplier ]
     |> List.iter (fun (name: string, value: float) -> positive name value)
@@ -161,8 +166,13 @@ let compile (source: FlyConfigFile) =
               down = required "down" source.down
               pivot_left = required "pivot_left" source.pivot_left
               pivot_right = required "pivot_right" source.pivot_right
-              pivot_toggle = optional "pivot_toggle" source.pivot_toggle
-              pivot_hold = optional "pivot_hold" source.pivot_hold
+              mouse_navigation =
+                { pivot =
+                    { toggle = optional "pivot_toggle" source.pivot_toggle
+                      hold = optional "pivot_hold" source.pivot_hold }
+                  pan =
+                    { toggle = optional "pan_toggle" source.pan_toggle
+                      hold = optional "pan_hold" source.pan_hold } }
               boost = required "boost" source.boost
               slow = required "slow" source.slow
               speed_increase = optional "speed_increase" source.speed_increase
@@ -182,7 +192,8 @@ let compile (source: FlyConfigFile) =
               boost_mode = source.boost_mode
               slow_mode = source.slow_mode }
           mouse =
-            { pivot_multiplier = source.mouse_pivot_multiplier
+            { pivot_multiplier = MousePivotMultiplier source.mouse_pivot_multiplier
+              pan_multiplier = MousePanMultiplier source.mouse_pan_multiplier
               sensitivity =
                 source.mouse_sensitivity
                 |> ConfigMouseSensitivity
