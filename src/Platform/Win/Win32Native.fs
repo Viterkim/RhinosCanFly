@@ -51,7 +51,25 @@ let INFINITE = 0xFFFFFFFFu
 let WH_KEYBOARD = 2
 
 [<Literal>]
+let WH_MOUSE = 7
+
+[<Literal>]
 let HC_ACTION = 0
+
+[<Literal>]
+let WM_XBUTTONDOWN = 0x020B
+
+[<Literal>]
+let WM_XBUTTONUP = 0x020C
+
+[<Literal>]
+let WM_XBUTTONDBLCLK = 0x020D
+
+[<Literal>]
+let XBUTTON1 = 0x0001u
+
+[<Literal>]
+let XBUTTON2 = 0x0002u
 
 [<Literal>]
 let VK_LBUTTON = 0x01
@@ -137,12 +155,20 @@ type NativeInput =
     val mutable input_type: uint32
     val mutable data: InputData
 
+[<Struct; StructLayout(LayoutKind.Sequential)>]
+type MouseHookData =
+    val mutable point: NativePoint
+    val mutable window: nativeint
+    val mutable hit_test_code: uint32
+    val mutable extra_info: unativeint
+    val mutable mouse_data: uint32
+
 type EnumThreadWindowCallback = delegate of nativeint * nativeint -> bool
 
 [<UnmanagedFunctionPointer(CallingConvention.Winapi)>]
 type HookProcedure = delegate of int * nativeint * nativeint -> nativeint
 
-type KeyboardHook =
+type WindowsHook =
     { handle: nativeint
       procedure: HookProcedure }
 

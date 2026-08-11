@@ -1,6 +1,5 @@
 module RhinosCanFly.Platform.Win.ViewNavigationTypes
 
-open System.Drawing
 open System.Windows.Forms
 open RhinosCanFly
 
@@ -28,7 +27,6 @@ type SideButton =
 
 type SideButtonState =
     | Released
-    | WaitingForDrag of start: Point * window: RootWindow
     | HoldActive of window: RootWindow
     | TogglePressed of window: RootWindow
     | ToggleLatched of window: RootWindow
@@ -67,7 +65,6 @@ type State =
       mutable synthetic_shift: SyntheticShiftState
       mutable side_button_restart_pending: bool
       mutable middle_mouse_modifiers_down: bool
-      drag_size: Size
       poll_timer: Timer }
 
 [<Literal>]
@@ -91,5 +88,4 @@ let create_state () =
       synthetic_shift = ShiftReleased
       side_button_restart_pending = false
       middle_mouse_modifiers_down = false
-      drag_size = SystemInformation.DragSize
       poll_timer = new Timer(Interval = poll_timer_interval_milliseconds) }

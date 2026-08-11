@@ -1,7 +1,5 @@
 module RhinosCanFly.Platform.Win.ViewNavigationState
 
-open System.Drawing
-open System.Windows.Forms
 open RhinosCanFly
 open RhinosCanFly.Platform.Win.ViewNavigationTypes
 
@@ -29,7 +27,6 @@ let button_holds_middle (buttonState: SideButtonState) =
     | TogglePressed _
     | ToggleLatched _ -> true
     | Released
-    | WaitingForDrag _
     | ToggleReleasePressed -> false
 
 let any_button_holds_middle (state: State) =
@@ -124,18 +121,6 @@ let alt_down () =
     || Win32Native.GetAsyncKeyState Win32Native.VK_RMENU < 0s
 
 let view_modifier_down () = shift_down () || alt_down ()
-
-let moved_enough (state: State) (start: Point) (current: Point) =
-    abs (current.X - start.X) >= max 1 (state.drag_size.Width / 2)
-    || abs (current.Y - start.Y) >= max 1 (state.drag_size.Height / 2)
-
-let event_has_button (button: SideButton) (buttons: MouseButtons) =
-    let expected =
-        match button with
-        | Mouse4 -> MouseButtons.XButton1
-        | Mouse5 -> MouseButtons.XButton2
-
-    buttons &&& expected = expected
 
 let keep_timer_running (state: State) =
     if not state.poll_timer.Enabled then

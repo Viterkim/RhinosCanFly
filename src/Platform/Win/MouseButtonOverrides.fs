@@ -1,7 +1,11 @@
 module RhinosCanFly.Platform.Win.MouseButtonOverrides
 
+#nowarn "44"
+
 open System
 open System.Diagnostics
+open System.Drawing
+open Rhino
 open Rhino.UI
 open RhinosCanFly
 open RhinosCanFly.Platform.Win.ViewNavigationTypes
@@ -9,7 +13,7 @@ open RhinosCanFly.Platform.Win.ViewNavigationTypes
 let state = create_state ()
 let flightKeyboard = FlightKeyboardSuppression.create ()
 
-type SideButtonCallback() =
+type NavigationExitCallback() =
     inherit MouseCallback()
 
     override _.OnMouseDown(event: MouseCallbackEventArgs) =
@@ -27,48 +31,13 @@ type SideButtonCallback() =
                 match ViewNavigationState.release_all state with
                 | Ok() -> ()
                 | Error error -> Debug.WriteLine $"RhinosCanFly mouse override exit: {error}"
-            else
-                if ViewNavigationState.event_has_button Mouse4 event.Button then
-                    SideButtonTransitions.handle_down
-                        state
-                        Mouse4
-                        event.ViewportPoint
-                        (SideButtonTransitions.event_root_window event)
-
-                if ViewNavigationState.event_has_button Mouse5 event.Button then
-                    SideButtonTransitions.handle_down
-                        state
-                        Mouse5
-                        event.ViewportPoint
-                        (SideButtonTransitions.event_root_window event)
         with error ->
             Debug.WriteLine $"RhinosCanFly mouse override callback: {error.Message}"
 
-    override _.OnMouseMove(event: MouseCallbackEventArgs) =
-        try
-            if ViewNavigationState.side_button_routing_enabled state then
-                SideButtonTransitions.update_from_move state Mouse4 event
-                SideButtonTransitions.update_from_move state Mouse5 event
-        with error ->
-            Debug.WriteLine $"RhinosCanFly mouse override callback: {error.Message}"
-
-    override _.OnMouseUp(event: MouseCallbackEventArgs) =
-        try
-            if ViewNavigationState.event_has_button Mouse4 event.Button then
-                SideButtonTransitions.finish state Mouse4
-
-            if ViewNavigationState.event_has_button Mouse5 event.Button then
-                SideButtonTransitions.finish state Mouse5
-        with error ->
-            Debug.WriteLine $"RhinosCanFly mouse override callback: {error.Message}"
-
-let callback = SideButtonCallback()
+let callback = NavigationExitCallback()
 
 let refresh_callback_enabled () =
-    callback.Enabled <-
-        state.lifecycle = Available
-        && (ViewNavigationState.side_button_routing_enabled state
-            || ViewNavigationState.left_mouse_exit_enabled state)
+    callback.Enabled <- state.lifecycle = Available && ViewNavigationState.left_mouse_exit_enabled state
 
 state.poll_timer.Tick.Add(fun (_: EventArgs) ->
     try
@@ -123,6 +92,82 @@ let keyboard_hook =
         Debug.WriteLine $"RhinosCanFly mouse override keyboard hook: {error}"
         None
 
+let point_over_view (point: Point) =
+    RhinoDoc.OpenDocuments()
+    |> Array.exists (fun (document: RhinoDoc) ->
+        document.Views.GetViewList(true, true)
+        |> Array.exists (fun (view: Rhino.Display.RhinoView) -> view.ScreenRectangle.Contains point))
+
+let side_button_from_data (mouseData: uint32) =
+    match mouseData >>> 16 with
+    | Win32Native.XBUTTON1 -> Some Mouse4
+    | Win32Native.XBUTTON2 -> Some Mouse5
+    | _ -> None
+
+let handle_mouse_event (message: int) (mouseData: uint32) (point: Point) (window: nativeint) =
+    try
+        match side_button_from_data mouseData with
+        | None -> false
+        | Some button when
+            state.lifecycle <> Available
+            || ViewNavigationState.mode_for state button = Disabled
+            ->
+            false
+        | Some button ->
+            let isDown =
+                message = Win32Native.WM_XBUTTONDOWN || message = Win32Native.WM_XBUTTONDBLCLK
+
+            let isUp = message = Win32Native.WM_XBUTTONUP
+
+            if isDown && point_over_view point then
+                let rootWindow =
+                    if window = nativeint 0 then
+                        ViewNavigationState.foreground_root_window ()
+                    else
+                        ViewNavigationState.root_window window
+
+                SideButtonTransitions.handle_down state button rootWindow
+                true
+            elif isUp && ViewNavigationState.get_button_state state button <> Released then
+                SideButtonTransitions.finish state button
+                true
+            else
+                false
+    with error ->
+        Debug.WriteLine $"RhinosCanFly mouse override hook: {error.Message}"
+        false
+
+let mutable mouse_hook: Win32Native.WindowsHook option = None
+
+let install_mouse_hook () =
+    match mouse_hook with
+    | Some _ -> Ok()
+    | None ->
+        match Win32.install_mouse_hook handle_mouse_event with
+        | Ok hook ->
+            mouse_hook <- Some hook
+            Ok()
+        | Error error -> Error error
+
+let remove_mouse_hook () =
+    match mouse_hook with
+    | None -> Ok()
+    | Some hook ->
+        match Win32.remove_hook hook with
+        | Ok() ->
+            mouse_hook <- None
+            Ok()
+        | Error error -> Error error
+
+let refresh_mouse_hook () =
+    if
+        state.lifecycle = Available
+        && ViewNavigationState.side_button_routing_enabled state
+    then
+        install_mouse_hook ()
+    else
+        remove_mouse_hook ()
+
 let suppress_flight_keyboard (bindings: FlightBindings) =
     match keyboard_hook with
     | Some _ ->
@@ -163,7 +208,7 @@ let apply (config: MouseOverrideConfig) =
                   exit_on_mouse_right = config.exit_on_right }
 
             refresh_callback_enabled ()
-            Ok()
+            refresh_mouse_hook ()
 
 let suspend () =
     if state.lifecycle = ShutDown then
@@ -172,17 +217,25 @@ let suspend () =
         callback.Enabled <- false
 
         match ViewNavigationState.release_all state with
-        | Ok() ->
-            state.lifecycle <- Suspended
-            Ok()
         | Error error ->
             refresh_callback_enabled ()
             Error error
+        | Ok() ->
+            match remove_mouse_hook () with
+            | Ok() ->
+                state.lifecycle <- Suspended
+                Ok()
+            | Error error ->
+                refresh_callback_enabled ()
+                Error error
 
 let resume () =
-    if state.lifecycle <> ShutDown then
+    if state.lifecycle = ShutDown then
+        Error "Mouse button overrides have already shut down."
+    else
         state.lifecycle <- Available
         refresh_callback_enabled ()
+        refresh_mouse_hook ()
 
 let shutdown () =
     if state.lifecycle <> ShutDown then
@@ -192,10 +245,14 @@ let shutdown () =
 
         match keyboard_hook with
         | Some hook ->
-            match Win32.remove_keyboard_hook hook with
+            match Win32.remove_hook hook with
             | Ok() -> ()
             | Error error -> Debug.WriteLine $"RhinosCanFly mouse override keyboard hook: {error}"
         | None -> ()
+
+        match remove_mouse_hook () with
+        | Ok() -> ()
+        | Error error -> Debug.WriteLine $"RhinosCanFly mouse override hook: {error}"
 
         match ViewNavigationState.release_all state with
         | Ok() -> ()

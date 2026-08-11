@@ -115,12 +115,43 @@ let install_keyboard_hook (handleEvent: int -> bool -> bool) =
     if hook = nativeint 0 then
         Error(last_error "SetWindowsHookEx(WH_KEYBOARD)")
     else
-        let keyboardHook: Win32Native.KeyboardHook =
-            { handle = hook; procedure = procedure }
+        let keyboardHook: Win32Native.WindowsHook = { handle = hook; procedure = procedure }
 
         Ok keyboardHook
 
-let remove_keyboard_hook (hook: Win32Native.KeyboardHook) =
+let install_mouse_hook (handleEvent: int -> uint32 -> Point -> nativeint -> bool) =
+    let mutable hook = nativeint 0
+
+    let procedure =
+        Win32Native.HookProcedure(fun (code: int) (wparam: nativeint) (lparam: nativeint) ->
+            let message = int wparam
+
+            if
+                code = Win32Native.HC_ACTION
+                && (message = Win32Native.WM_XBUTTONDOWN
+                    || message = Win32Native.WM_XBUTTONUP
+                    || message = Win32Native.WM_XBUTTONDBLCLK)
+            then
+                let data = Marshal.PtrToStructure<Win32Native.MouseHookData> lparam
+                let point = Point(data.point.x, data.point.y)
+
+                if handleEvent message data.mouse_data point data.window then
+                    nativeint 1
+                else
+                    Win32Native.CallNextHookEx(hook, code, wparam, lparam)
+            else
+                Win32Native.CallNextHookEx(hook, code, wparam, lparam))
+
+    hook <- Win32Native.SetWindowsHookEx(Win32Native.WH_MOUSE, procedure, nativeint 0, Win32Native.GetCurrentThreadId())
+
+    if hook = nativeint 0 then
+        Error(last_error "SetWindowsHookEx(WH_MOUSE)")
+    else
+        let mouseHook: Win32Native.WindowsHook = { handle = hook; procedure = procedure }
+
+        Ok mouseHook
+
+let remove_hook (hook: Win32Native.WindowsHook) =
     let removed = Win32Native.UnhookWindowsHookEx hook.handle
     GC.KeepAlive hook.procedure
 

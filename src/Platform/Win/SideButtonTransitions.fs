@@ -1,9 +1,7 @@
 module RhinosCanFly.Platform.Win.SideButtonTransitions
 
 open System.Diagnostics
-open System.Drawing
 open System.Windows.Forms
-open Rhino.UI
 open RhinosCanFly
 open RhinosCanFly.Platform.Win.ViewNavigationTypes
 
@@ -18,18 +16,19 @@ let is_down (button: SideButton) =
 let begin_hold (state: State) (button: SideButton) (window: RootWindow) =
     if ViewNavigationState.middle_mouse_down state then
         ViewNavigationState.set_button_state state button (HoldActive window)
+        ViewNavigationState.keep_timer_running state
     else
         match Win32.send_middle_mouse true with
         | Ok() ->
             ViewNavigationState.set_button_state state button (HoldActive window)
             state.side_button_restart_pending <- false
             state.middle_mouse_modifiers_down <- ViewNavigationState.view_modifier_down ()
+            ViewNavigationState.keep_timer_running state
         | Error error -> Debug.WriteLine $"RhinosCanFly mouse override: {error}"
 
 let finish (state: State) (button: SideButton) =
     match ViewNavigationState.get_button_state state button with
     | Released -> ()
-    | WaitingForDrag _ -> ViewNavigationState.set_button_state state button Released
     | TogglePressed window -> ViewNavigationState.set_button_state state button (ToggleLatched window)
     | ToggleLatched _ -> ()
     | ToggleReleasePressed -> ViewNavigationState.set_button_state state button Released
@@ -80,23 +79,6 @@ let update_middle_mouse_modifiers (state: State) =
             | Ok() -> state.side_button_restart_pending <- true
             | Error error -> Debug.WriteLine $"RhinosCanFly mouse override: {error}"
 
-let begin_drag (state: State) (button: SideButton) (position: Point) (window: RootWindow) =
-    if ViewNavigationState.get_button_state state button = Released then
-        ViewNavigationState.set_button_state state button (WaitingForDrag(position, window))
-
-        ViewNavigationState.keep_timer_running state
-
-let update_hold_drag (state: State) (button: SideButton) (position: Point) =
-    match ViewNavigationState.get_button_state state button with
-    | WaitingForDrag(start, window) when ViewNavigationState.moved_enough state start position ->
-        begin_hold state button window
-    | Released
-    | WaitingForDrag _
-    | HoldActive _
-    | TogglePressed _
-    | ToggleLatched _
-    | ToggleReleasePressed -> ()
-
 let stop_toggle (state: State) (button: SideButton) (nextState: SideButtonState) =
     let previous = ViewNavigationState.get_button_state state button
     ViewNavigationState.set_button_state state button nextState
@@ -141,12 +123,11 @@ let toggle (state: State) (button: SideButton) (window: RootWindow) =
                 start ()
             | Error error -> Debug.WriteLine $"RhinosCanFly mouse override: {error}"
     | ToggleLatched _ -> stop_toggle state button ToggleReleasePressed
-    | WaitingForDrag _
     | HoldActive _
     | TogglePressed _
     | ToggleReleasePressed -> ()
 
-let handle_down (state: State) (button: SideButton) (position: Point) (window: RootWindow) =
+let handle_down (state: State) (button: SideButton) (window: RootWindow) =
     let mode = ViewNavigationState.mode_for state button
 
     if ViewNavigationState.view_latch_engaged state then
@@ -155,48 +136,18 @@ let handle_down (state: State) (button: SideButton) (position: Point) (window: R
         | Ok() ->
             match mode with
             | Disabled -> ()
-            | Hold -> begin_drag state button position window
+            | Hold -> begin_hold state button window
             | Toggle ->
                 ViewNavigationState.set_button_state state button ToggleReleasePressed
                 ViewNavigationState.keep_timer_running state
     else
         match mode with
         | Disabled -> ()
-        | Hold -> begin_drag state button position window
+        | Hold -> begin_hold state button window
         | Toggle -> toggle state button window
-
-let event_root_window (event: MouseCallbackEventArgs) =
-    if isNull event.View then
-        ViewNavigationState.foreground_root_window ()
-    else
-        ViewNavigationState.root_window event.View.Handle
-
-let update_from_move (state: State) (button: SideButton) (event: MouseCallbackEventArgs) =
-    match ViewNavigationState.mode_for state button, ViewNavigationState.view_latch_engaged state with
-    | _, true -> ()
-    | Disabled, false -> ()
-    | Hold, false ->
-        if is_down button then
-            begin_drag state button event.ViewportPoint (event_root_window event)
-            update_hold_drag state button event.ViewportPoint
-        elif ViewNavigationState.get_button_state state button <> Released then
-            finish state button
-    | Toggle, false ->
-        match ViewNavigationState.get_button_state state button, is_down button with
-        | Released, true
-        | ToggleLatched _, true -> toggle state button (event_root_window event)
-        | TogglePressed _, false
-        | ToggleReleasePressed, false -> finish state button
-        | Released, false
-        | WaitingForDrag _, _
-        | HoldActive _, _
-        | TogglePressed _, true
-        | ToggleLatched _, false
-        | ToggleReleasePressed, true -> ()
 
 let lost_focus (foreground: RootWindow) (buttonState: SideButtonState) =
     match buttonState with
-    | WaitingForDrag(_, window)
     | HoldActive window
     | TogglePressed window
     | ToggleLatched window -> foreground <> window
@@ -206,14 +157,12 @@ let lost_focus (foreground: RootWindow) (buttonState: SideButtonState) =
 let poll (state: State) (button: SideButton) =
     match ViewNavigationState.get_button_state state button with
     | Released -> ()
-    | WaitingForDrag _
     | HoldActive _
     | TogglePressed _
     | ToggleReleasePressed when not (is_down button) -> finish state button
     | ToggleLatched window when ViewNavigationState.foreground_root_window () <> window ->
         stop_toggle state button Released
     | ToggleLatched _ when is_down button -> stop_toggle state button ToggleReleasePressed
-    | WaitingForDrag _
     | HoldActive _
     | TogglePressed _
     | ToggleLatched _

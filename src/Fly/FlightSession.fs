@@ -186,7 +186,9 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
 
         if overridesSuspended then
             attempt_cleanup cleanupErrors "mouse button overrides" (fun () ->
-                PlatformInput.resume_mouse_button_overrides ())
+                match PlatformInput.resume_mouse_button_overrides () with
+                | Ok() -> ()
+                | Error error -> failwith error)
 
         if not rawInputClean then
             cleanupErrors.Add "raw input did not shut down cleanly; restart Rhino before using fly mode again"
