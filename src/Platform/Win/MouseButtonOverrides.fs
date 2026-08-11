@@ -27,10 +27,8 @@ type NavigationExitCallback() =
 
             if exitsNavigation then
                 event.Cancel <- true
-
-                match ViewNavigationState.release_all state with
-                | Ok() -> ()
-                | Error error -> Debug.WriteLine $"RhinosCanFly mouse override exit: {error}"
+                state.navigation_exit_requested <- true
+                ViewNavigationState.keep_timer_running state
         with error ->
             Debug.WriteLine $"RhinosCanFly mouse override callback: {error.Message}"
 
@@ -41,6 +39,8 @@ let refresh_callback_enabled () =
 
 state.poll_timer.Tick.Add(fun (_: EventArgs) ->
     try
+        SideButtonTransitions.process_hook_events state
+
         let foreground = ViewNavigationState.foreground_root_window ()
 
         if
@@ -50,7 +50,7 @@ state.poll_timer.Tick.Add(fun (_: EventArgs) ->
             match ViewNavigationState.release_all state with
             | Ok() -> ()
             | Error error -> Debug.WriteLine $"RhinosCanFly mouse override focus loss: {error}"
-        elif ViewNavigationState.exit_key_down state then
+        elif state.navigation_exit_requested || ViewNavigationState.exit_key_down state then
             match ViewNavigationState.release_all state with
             | Ok() -> ()
             | Error error -> Debug.WriteLine $"RhinosCanFly mouse override exit: {error}"
@@ -74,11 +74,8 @@ let handle_keyboard_event (virtualKey: int) (keyReleased: bool) =
                 || ViewNavigationState.view_latch_engaged state)
             && ViewNavigationState.exit_binding_down_for_event state virtualKey
         then
-            match ViewNavigationState.release_all state with
-            | Ok() -> true
-            | Error error ->
-                Debug.WriteLine $"RhinosCanFly mouse override exit: {error}"
-                false
+            state.navigation_exit_requested <- true
+            true
         else
             false
     with error ->
@@ -119,17 +116,23 @@ let handle_mouse_event (message: int) (mouseData: uint32) (point: Point) (window
 
             let isUp = message = Win32Native.WM_XBUTTONUP
 
-            if isDown && point_over_view point then
+            if isDown && ViewNavigationState.hook_owns_button state button then
+                true
+            elif isDown && point_over_view point then
                 let rootWindow =
                     if window = nativeint 0 then
                         ViewNavigationState.foreground_root_window ()
                     else
                         ViewNavigationState.root_window window
 
-                SideButtonTransitions.handle_down state button rootWindow
+                ViewNavigationState.set_hook_owns_button state button true
+                state.pending_side_button_events.Enqueue(ButtonDown(button, rootWindow))
+                ViewNavigationState.keep_timer_running state
                 true
-            elif isUp && ViewNavigationState.get_button_state state button <> Released then
-                SideButtonTransitions.finish state button
+            elif isUp && ViewNavigationState.hook_owns_button state button then
+                ViewNavigationState.set_hook_owns_button state button false
+                state.pending_side_button_events.Enqueue(ButtonUp button)
+                ViewNavigationState.keep_timer_running state
                 true
             else
                 false

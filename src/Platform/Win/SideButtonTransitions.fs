@@ -146,6 +146,16 @@ let handle_down (state: State) (button: SideButton) (window: RootWindow) =
         | Hold -> begin_hold state button window
         | Toggle -> toggle state button window
 
+let process_hook_events (state: State) =
+    while state.lifecycle = Available && state.pending_side_button_events.Count > 0 do
+        match state.pending_side_button_events.Dequeue() with
+        | ButtonDown(button, window) when ViewNavigationState.foreground_root_window () = window ->
+            handle_down state button window
+        | ButtonDown _ -> ()
+        | ButtonUp button -> finish state button
+
+    ViewNavigationState.stop_timer_if_idle state
+
 let lost_focus (foreground: RootWindow) (buttonState: SideButtonState) =
     match buttonState with
     | HoldActive window

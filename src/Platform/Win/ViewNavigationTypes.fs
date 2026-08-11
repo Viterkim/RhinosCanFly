@@ -1,6 +1,7 @@
 module RhinosCanFly.Platform.Win.ViewNavigationTypes
 
 open System
+open System.Collections.Generic
 open System.Windows.Forms
 open RhinosCanFly
 
@@ -25,6 +26,15 @@ type RoutingConfig =
 type SideButton =
     | Mouse4
     | Mouse5
+
+[<Struct>]
+type SideButtonHookEvent =
+    | ButtonDown of button: SideButton * window: RootWindow
+    | ButtonUp of button: SideButton
+
+type SideButtonHookCapture =
+    { mutable mouse4: bool
+      mutable mouse5: bool }
 
 type SideButtonState =
     | Released
@@ -67,6 +77,9 @@ type State =
       mutable synthetic_shift: SyntheticShiftState
       mutable side_button_restart_pending: bool
       mutable middle_mouse_modifiers_down: bool
+      pending_side_button_events: Queue<SideButtonHookEvent>
+      side_button_hook_capture: SideButtonHookCapture
+      mutable navigation_exit_requested: bool
       poll_timer: Timer }
 
 [<Literal>]
@@ -90,4 +103,7 @@ let create_state () =
       synthetic_shift = ShiftReleased
       side_button_restart_pending = false
       middle_mouse_modifiers_down = false
+      pending_side_button_events = Queue<SideButtonHookEvent>()
+      side_button_hook_capture = { mouse4 = false; mouse5 = false }
+      navigation_exit_requested = false
       poll_timer = new Timer(Interval = poll_timer_interval_milliseconds) }

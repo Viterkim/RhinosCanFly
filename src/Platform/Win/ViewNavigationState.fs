@@ -13,6 +13,21 @@ let set_button_state (state: State) (button: SideButton) (buttonState: SideButto
     | Mouse4 -> state.mouse4 <- buttonState
     | Mouse5 -> state.mouse5 <- buttonState
 
+let hook_owns_button (state: State) (button: SideButton) =
+    match button with
+    | Mouse4 -> state.side_button_hook_capture.mouse4
+    | Mouse5 -> state.side_button_hook_capture.mouse5
+
+let set_hook_owns_button (state: State) (button: SideButton) (owned: bool) =
+    match button with
+    | Mouse4 -> state.side_button_hook_capture.mouse4 <- owned
+    | Mouse5 -> state.side_button_hook_capture.mouse5 <- owned
+
+let clear_hook_events (state: State) =
+    state.pending_side_button_events.Clear()
+    state.side_button_hook_capture.mouse4 <- false
+    state.side_button_hook_capture.mouse5 <- false
+
 let mode_for (state: State) (button: SideButton) =
     match button with
     | Mouse4 -> state.routing.mouse4
@@ -172,6 +187,8 @@ let release_all (state: State) =
         match release_synthetic_shift state with
         | Ok() ->
             state.middle_mouse_modifiers_down <- false
+            state.navigation_exit_requested <- false
+            clear_hook_events state
             state.poll_timer.Stop()
             complete_view_latch previousViewLatch
         | Error error ->
@@ -196,5 +213,7 @@ let release_all (state: State) =
         | Ok() ->
             state.synthetic_shift <- ShiftReleased
             state.middle_mouse_modifiers_down <- false
+            state.navigation_exit_requested <- false
+            clear_hook_events state
             state.poll_timer.Stop()
             complete_view_latch previousViewLatch

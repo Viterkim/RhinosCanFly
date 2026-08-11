@@ -68,18 +68,18 @@ let handle_right_click (state: State) (window: RootWindow) =
         && (state.routing.exit_on_mouse_right || ViewNavigationState.exit_key_down state)
         && ViewNavigationState.any_button_engaged state
     then
-        match ViewNavigationState.release_all state with
-        | Ok() -> Ok true
-        | Error error -> Error error
+        state.navigation_exit_requested <- true
+        ViewNavigationState.keep_timer_running state
+        Ok true
     else
         match state.view_latch with
         | PivotActive _
         | PanActive _
         | WaitingForRelease _
         | RetryingPivot _ ->
-            match release state with
-            | Ok() -> Ok true
-            | Error error -> Error error
+            state.navigation_exit_requested <- true
+            ViewNavigationState.keep_timer_running state
+            Ok true
         | NoViewLatch ->
             match requested_mode state with
             | Some mode when state.lifecycle = Available ->
