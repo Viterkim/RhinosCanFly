@@ -22,7 +22,8 @@ type FlightBindings =
       slow: KeyBinding
       speed_increase: KeyBinding option
       speed_decrease: KeyBinding option
-      exit_key: KeyBinding }
+      exit_key: KeyBinding
+      cancel_flight_and_restore: KeyBinding }
 
 type MovementConfig =
     { base_speed: float

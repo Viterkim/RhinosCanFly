@@ -24,7 +24,8 @@ type BindingFields =
       slow: TextBox
       speed_increase: TextBox
       speed_decrease: TextBox
-      exit_key: TextBox }
+      exit_key: TextBox
+      cancel_flight_and_restore: TextBox }
 
 type NumberFields =
     { base_speed: TextBox
@@ -48,6 +49,7 @@ type ModeFields =
       mouse_x_mode: ModeField<MouseAxisMode>
       mouse_y_mode: ModeField<MouseAxisMode>
       right_click_entry_mode: ModeField<RightClickEntryMode>
+      default_flight_mode: ModeField<DefaultFlightMode>
       shift_right_click_mode: ModeField<ModifiedRightClickMode>
       alt_right_click_mode: ModeField<ModifiedRightClickMode>
       mouse4_pivot_mode: ModeField<MouseButtonPivotMode>
@@ -159,6 +161,11 @@ let create () =
            RightClickEntryMode.EnterFlyingWhileHeld, "Held enters flying"
            RightClickEntryMode.EnterFlyingWhileHeldDuringCommands, "Held enters flying + during cmds" |]
 
+    let flightModes =
+        [| DefaultFlightMode.Normal, "Normal"
+           DefaultFlightMode.Temporary, "Temp"
+           DefaultFlightMode.TemporaryIncludingSoloCommands, "Temp + for solo cmds" |]
+
     let redrawModes =
         [| ViewportRedrawMode.Rhino, "Rhino redraw (default)"
            ViewportRedrawMode.RhinoImmediate, "Rhino redraw with immediate paint"
@@ -182,7 +189,8 @@ let create () =
               slow = text_box ()
               speed_increase = text_box ()
               speed_decrease = text_box ()
-              exit_key = text_box () }
+              exit_key = text_box ()
+              cancel_flight_and_restore = text_box () }
           numbers =
             { base_speed = text_box ()
               minimum_speed = text_box ()
@@ -204,6 +212,7 @@ let create () =
               mouse_x_mode = mode_field mouseAxisModes MouseAxisMode.Normal
               mouse_y_mode = mode_field mouseAxisModes MouseAxisMode.Normal
               right_click_entry_mode = mode_field rightClickEntryModes RightClickEntryMode.EnterFlyingDuringCommands
+              default_flight_mode = mode_field flightModes DefaultFlightMode.Normal
               shift_right_click_mode = mode_field modifiedRightClickModes ModifiedRightClickMode.Off
               alt_right_click_mode = mode_field modifiedRightClickModes ModifiedRightClickMode.Off
               mouse4_pivot_mode = mode_field mousePivotModes MouseButtonPivotMode.Off

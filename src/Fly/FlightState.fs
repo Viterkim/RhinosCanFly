@@ -3,7 +3,7 @@ module RhinosCanFly.FlightState
 open Rhino.Display
 open Rhino.Geometry
 
-let create (view: RhinoView) (config: FlyConfig) =
+let create (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
     let viewport = view.ActiveViewport
     let bindings = config.bindings
     let mouseNavigationBindings = bindings.mouse_navigation
@@ -34,6 +34,7 @@ let create (view: RhinoView) (config: FlyConfig) =
       config = config
       root_window = PlatformInput.root_window view
       original_cursor = originalCursor
+      original_camera = CameraSnapshot.capture viewport
       original_lens_length = viewport.Camera35mmLensLength
       gumball_pivot_target = gumballPivotTarget
       key_pivot_target = viewport.CameraTarget
@@ -45,6 +46,7 @@ let create (view: RhinoView) (config: FlyConfig) =
       keyboard_pivot_toggle_was_down = FlightControls.is_optional_down mouseNavigationBindings.pivot.toggle
       keyboard_pan_toggle_was_down = FlightControls.is_optional_down mouseNavigationBindings.pan.toggle
       running = true
+      restore_camera_on_exit = sessionMode.flight_mode = FlightMode.Temporary
       camera =
         { position = viewport.CameraLocation
           yaw = yaw

@@ -179,14 +179,14 @@ type RawInputReceiver
             InputAccumulator.request_pivot_toggle input
 
         let heldEntryReleased =
-            sessionMode = FlightSessionMode.WhileRightMouseHeld
+            sessionMode.lifetime = FlightLifetime.WhileRightMouseHeld
             && flags &&& RawInputNative.right_button_up <> 0us
 
         let leftExitRequested =
             config.exit_on_mouse_left && flags &&& RawInputNative.left_button_down <> 0us
 
         let rightExitRequested =
-            sessionMode = FlightSessionMode.Persistent
+            sessionMode.lifetime = FlightLifetime.UntilExit
             && config.exit_on_mouse_right
             && flags &&& RawInputNative.right_button_down <> 0us
 

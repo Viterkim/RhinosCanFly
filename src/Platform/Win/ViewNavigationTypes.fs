@@ -1,5 +1,6 @@
 module RhinosCanFly.Platform.Win.ViewNavigationTypes
 
+open System
 open System.Windows.Forms
 open RhinosCanFly
 
@@ -32,20 +33,21 @@ type SideButtonState =
     | ToggleLatched of window: RootWindow
     | ToggleReleasePressed
 
-type PendingViewLatch =
+type ViewLatchSession =
     { window: RootWindow
-      mode: ViewLatchMode }
+      mode: ViewLatchMode
+      completion: Action option }
 
 type PivotViewLatch =
-    { window: RootWindow
+    { session: ViewLatchSession
       modifiers_down: bool }
 
 type ViewLatch =
     | NoViewLatch
-    | WaitingForRelease of PendingViewLatch
-    | RetryingPivot of window: RootWindow
+    | WaitingForRelease of ViewLatchSession
+    | RetryingPivot of ViewLatchSession
     | PivotActive of PivotViewLatch
-    | PanActive of RootWindow
+    | PanActive of ViewLatchSession
 
 type SyntheticShiftState =
     | ShiftReleased

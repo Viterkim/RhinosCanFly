@@ -184,8 +184,8 @@ let right_click_enabled () =
 let handle_right_click (window: RootWindow) =
     ViewLatchTransitions.handle_right_click state window
 
-let start_view_latch (window: RootWindow) (mode: ViewLatchMode) =
-    ViewLatchTransitions.start_or_switch state window mode
+let start_view_latch (window: RootWindow) (mode: ViewLatchMode) (completion: Action option) =
+    ViewLatchTransitions.start_or_switch state window mode completion
 
 let stop_view_latch (mode: ViewLatchMode) = ViewLatchTransitions.stop state mode
 

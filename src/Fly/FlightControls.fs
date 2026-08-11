@@ -99,11 +99,17 @@ let read_movement (state: FlyState) =
       move_speed = state.speed * slow * boost }
 
 let update_state (input: InputAccumulator.State) (state: FlyState) =
+    let cancelAndRestore = is_down state.config.bindings.cancel_flight_and_restore
+
     if
         PlatformInput.foreground_root_window () <> state.root_window
         || is_down state.config.bindings.exit_key
+        || cancelAndRestore
         || InputAccumulator.exit_requested input
     then
+        if cancelAndRestore then
+            state.restore_camera_on_exit <- true
+
         state.running <- false
     else
         let wheel = InputAccumulator.drain_wheel input

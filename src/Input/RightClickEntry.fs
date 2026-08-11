@@ -21,6 +21,7 @@ type RightClickGesture =
 
 type Config =
     { fly_entry_mode: RightClickEntryMode
+      default_flight_mode: DefaultFlightMode
       view_manipulation_enabled: bool }
 
 type RightClickCallback() =
@@ -28,6 +29,7 @@ type RightClickCallback() =
 
     let mutable gesture = NoRightClickGesture
     let mutable flyEntryMode = RightClickEntryMode.Off
+    let mutable defaultFlightMode = DefaultFlightMode.Normal
 
     let fly_entry_enabled () =
         match flyEntryMode with
@@ -48,13 +50,17 @@ type RightClickCallback() =
         | _ -> false
 
     let flight_session_mode () =
-        match flyEntryMode with
-        | RightClickEntryMode.EnterFlyingWhileHeld
-        | RightClickEntryMode.EnterFlyingWhileHeldDuringCommands -> FlightSessionMode.WhileRightMouseHeld
-        | RightClickEntryMode.Off
-        | RightClickEntryMode.EnterFlying
-        | RightClickEntryMode.EnterFlyingDuringCommands
-        | _ -> FlightSessionMode.Persistent
+        let lifetime =
+            match flyEntryMode with
+            | RightClickEntryMode.EnterFlyingWhileHeld
+            | RightClickEntryMode.EnterFlyingWhileHeldDuringCommands -> FlightLifetime.WhileRightMouseHeld
+            | RightClickEntryMode.Off
+            | RightClickEntryMode.EnterFlying
+            | RightClickEntryMode.EnterFlyingDuringCommands
+            | _ -> FlightLifetime.UntilExit
+
+        { lifetime = lifetime
+          flight_mode = DefaultFlightMode.flight_mode defaultFlightMode }
 
     let log_error (context: string) (error: exn) =
         Debug.WriteLine $"RhinosCanFly {context}: {error.Message}"
@@ -94,9 +100,16 @@ type RightClickCallback() =
 
             if can_enter () && Runtime.can_start () then
                 let command =
-                    match entry.session_mode with
-                    | FlightSessionMode.Persistent -> "'_RhinosCanFly"
-                    | FlightSessionMode.WhileRightMouseHeld -> "'_RhinosCanFlyHeld"
+                    match entry.session_mode.flight_mode with
+                    | FlightMode.Normal ->
+                        match entry.session_mode.lifetime with
+                        | FlightLifetime.UntilExit -> "'_RhinosCanFly"
+                        | FlightLifetime.WhileRightMouseHeld -> "'_RhinosCanFlyHeld"
+                    | FlightMode.Temporary ->
+                        match entry.session_mode.lifetime with
+                        | FlightLifetime.UntilExit -> "'_RhinosCanFlyTempFly"
+                        | FlightLifetime.WhileRightMouseHeld -> "'_RhinosCanFlyTempFlyHeld"
+                    | _ -> "'_RhinosCanFly"
 
                 RhinoApp.RunScript(queuedView.Document.RuntimeSerialNumber, command, false)
                 |> ignore
@@ -113,11 +126,15 @@ type RightClickCallback() =
                         if PlatformInput.foreground_root_window () <> entry.root_window then
                             clear_gesture ()
                         else
-                            match entry.session_mode, PlatformInput.right_mouse_button_down () with
-                            | FlightSessionMode.Persistent, false -> gesture <- FlyButtonReleased entry
-                            | FlightSessionMode.Persistent, true -> ()
-                            | FlightSessionMode.WhileRightMouseHeld, true -> run_fly_entry entry
-                            | FlightSessionMode.WhileRightMouseHeld, false -> clear_gesture ()
+                            match entry.session_mode.lifetime with
+                            | FlightLifetime.UntilExit ->
+                                if not (PlatformInput.right_mouse_button_down ()) then
+                                    gesture <- FlyButtonReleased entry
+                            | FlightLifetime.WhileRightMouseHeld ->
+                                if PlatformInput.right_mouse_button_down () then
+                                    run_fly_entry entry
+                                else
+                                    clear_gesture ()
                     | FlyButtonReleased entry ->
                         if PlatformInput.foreground_root_window () <> entry.root_window then
                             clear_gesture ()
@@ -197,9 +214,9 @@ type RightClickCallback() =
                     gesture <- NoRightClickGesture
                     event.Cancel <- true
                 | FlyButtonDown entry ->
-                    match entry.session_mode with
-                    | FlightSessionMode.Persistent -> gesture <- FlyButtonReleased entry
-                    | FlightSessionMode.WhileRightMouseHeld -> clear_gesture ()
+                    match entry.session_mode.lifetime with
+                    | FlightLifetime.UntilExit -> gesture <- FlyButtonReleased entry
+                    | FlightLifetime.WhileRightMouseHeld -> clear_gesture ()
 
                     event.Cancel <- true
                 | FlyButtonReleased _ -> event.Cancel <- true
@@ -209,6 +226,7 @@ type RightClickCallback() =
 
     member this.Configure(config: Config) =
         flyEntryMode <- config.fly_entry_mode
+        defaultFlightMode <- config.default_flight_mode
 
         if not (fly_entry_enabled ()) then
             clear_gesture ()
@@ -218,6 +236,7 @@ type RightClickCallback() =
     member this.Shutdown() =
         this.Configure
             { fly_entry_mode = RightClickEntryMode.Off
+              default_flight_mode = DefaultFlightMode.Normal
               view_manipulation_enabled = false }
 
 let callback = RightClickCallback()

@@ -16,7 +16,17 @@ type RhinosCanFlyCommand() =
     override _.CommandContextHelpUrl = CommandHelp.blank_url
 
     override _.RunCommand(document: RhinoDoc, _mode: RunMode) =
-        Commands.run FlightSessionMode.Persistent document
+        Commands.run (FlightSessionMode.until_exit FlightMode.Normal) document
+
+[<Guid("38D5BD6A-334F-4038-A3C7-B374CBD760BB")>]
+[<CommandStyle(Style.Transparent)>]
+type RhinosCanFlyTempFlyCommand() =
+    inherit Command()
+    override _.EnglishName = "RhinosCanFlyTempFly"
+    override _.CommandContextHelpUrl = CommandHelp.blank_url
+
+    override _.RunCommand(document: RhinoDoc, _mode: RunMode) =
+        Commands.run (FlightSessionMode.until_exit FlightMode.Temporary) document
 
 [<Guid("D78B9DD9-30B0-45E5-9436-57C4253BA0C6")>]
 [<CommandStyle(Style.Hidden ||| Style.Transparent ||| Style.DoNotRepeat)>]
@@ -26,7 +36,17 @@ type RhinosCanFlyHeldCommand() =
     override _.CommandContextHelpUrl = CommandHelp.blank_url
 
     override _.RunCommand(document: RhinoDoc, _mode: RunMode) =
-        Commands.run FlightSessionMode.WhileRightMouseHeld document
+        Commands.run (FlightSessionMode.while_right_mouse_held FlightMode.Normal) document
+
+[<Guid("D06ECC7F-7346-4112-9367-F1E9D7B228F7")>]
+[<CommandStyle(Style.Hidden ||| Style.Transparent ||| Style.DoNotRepeat)>]
+type RhinosCanFlyTempFlyHeldCommand() =
+    inherit Command()
+    override _.EnglishName = "RhinosCanFlyTempFlyHeld"
+    override _.CommandContextHelpUrl = CommandHelp.blank_url
+
+    override _.RunCommand(document: RhinoDoc, _mode: RunMode) =
+        Commands.run (FlightSessionMode.while_right_mouse_held FlightMode.Temporary) document
 
 [<Guid("06912096-2514-4F29-9E35-A00D0D436334")>]
 type RhinosCanFlyOptionsCommand() =

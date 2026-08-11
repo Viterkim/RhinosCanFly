@@ -42,6 +42,7 @@ let apply (loaded: ConfigLoadResult) =
 
         RightClickEntry.configure
             { fly_entry_mode = flyEntryMode
+              default_flight_mode = config.default_flight_mode
               view_manipulation_enabled = PlatformInput.mouse_button_right_click_enabled () }
 
         RepeatBehavior.apply config.commands_do_not_repeat

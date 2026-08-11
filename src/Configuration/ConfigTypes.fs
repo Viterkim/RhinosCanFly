@@ -35,9 +35,43 @@ type RightClickEntryMode =
     | EnterFlyingWhileHeld = 3
     | EnterFlyingWhileHeldDuringCommands = 4
 
-type FlightSessionMode =
-    | Persistent
+type FlightMode =
+    | Normal = 0
+    | Temporary = 1
+
+type DefaultFlightMode =
+    | Normal = 0
+    | Temporary = 1
+    | TemporaryIncludingSoloCommands = 2
+
+module DefaultFlightMode =
+    let flight_mode (mode: DefaultFlightMode) =
+        match mode with
+        | DefaultFlightMode.Temporary
+        | DefaultFlightMode.TemporaryIncludingSoloCommands -> FlightMode.Temporary
+        | DefaultFlightMode.Normal
+        | _ -> FlightMode.Normal
+
+    let restores_solo_commands (mode: DefaultFlightMode) =
+        mode = DefaultFlightMode.TemporaryIncludingSoloCommands
+
+type FlightLifetime =
+    | UntilExit
     | WhileRightMouseHeld
+
+[<Struct>]
+type FlightSessionMode =
+    { lifetime: FlightLifetime
+      flight_mode: FlightMode }
+
+module FlightSessionMode =
+    let until_exit (flightMode: FlightMode) =
+        { lifetime = FlightLifetime.UntilExit
+          flight_mode = flightMode }
+
+    let while_right_mouse_held (flightMode: FlightMode) =
+        { lifetime = FlightLifetime.WhileRightMouseHeld
+          flight_mode = flightMode }
 
 type ViewportRedrawMode =
     | Rhino = 0
@@ -65,6 +99,7 @@ type FlyConfigFile =
       speed_increase: string
       speed_decrease: string
       exit_key: string
+      cancel_flight_and_restore: string
       base_speed: float
       minimum_speed: float
       maximum_speed: float
@@ -89,6 +124,7 @@ type FlyConfigFile =
       mouse4_also_while_flying: bool
       mouse5_also_while_flying: bool
       right_click_entry_mode: RightClickEntryMode
+      default_flight_mode: DefaultFlightMode
       commands_do_not_repeat: bool
       mouse4_pivot_mode: MouseButtonPivotMode
       mouse5_pivot_mode: MouseButtonPivotMode

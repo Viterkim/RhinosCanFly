@@ -62,7 +62,7 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                 | Ok() -> keyboardSuppressed <- true
                 | Error error -> failwith $"Could not suppress flight keyboard input: {error}"
 
-                let state = FlightState.create view config
+                let state = FlightState.create view config sessionMode
                 let rawInput = InputAccumulator.create ()
                 let originalTooltipsEnabled = CursorTooltipSettings.TooltipsEnabled
                 let originalGumballEnabled = ModelAidSettings.AutoGumballEnabled
@@ -108,7 +108,7 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                         rawInputClean <- false
 
                         if
-                            sessionMode = FlightSessionMode.WhileRightMouseHeld
+                            sessionMode.lifetime = FlightLifetime.WhileRightMouseHeld
                             && not (PlatformInput.right_mouse_button_down ())
                         then
                             state.running <- false
@@ -151,6 +151,10 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
 
                 if cursorHidden then
                     attempt_cleanup cleanupErrors "cursor visibility" (fun () -> PlatformInput.show_cursor ())
+
+                if state.restore_camera_on_exit then
+                    attempt_cleanup cleanupErrors "camera" (fun () ->
+                        CameraSnapshot.restore state.viewport state.original_camera)
 
                 attempt_cleanup cleanupErrors "lens" (fun () ->
                     state.viewport.Camera35mmLensLength <- state.original_lens_length)

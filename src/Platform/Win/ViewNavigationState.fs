@@ -138,6 +138,24 @@ let root_window (window: nativeint) =
 let foreground_root_window () =
     RootWindow(Win32Native.GetForegroundWindow())
 
+let view_latch_completion (latch: ViewLatch) =
+    match latch with
+    | NoViewLatch -> None
+    | WaitingForRelease session
+    | RetryingPivot session
+    | PanActive session -> session.completion
+    | PivotActive active -> active.session.completion
+
+let complete_view_latch (latch: ViewLatch) =
+    match view_latch_completion latch with
+    | None -> Ok()
+    | Some completion ->
+        try
+            completion.Invoke()
+            Ok()
+        with error ->
+            Error $"Could not restore the original view: {error.Message}"
+
 let release_all (state: State) =
     let previousMouse4 = state.mouse4
     let previousMouse5 = state.mouse5
@@ -155,7 +173,7 @@ let release_all (state: State) =
         | Ok() ->
             state.middle_mouse_modifiers_down <- false
             state.poll_timer.Stop()
-            Ok()
+            complete_view_latch previousViewLatch
         | Error error ->
             state.mouse4 <- previousMouse4
             state.mouse5 <- previousMouse5
@@ -179,4 +197,4 @@ let release_all (state: State) =
             state.synthetic_shift <- ShiftReleased
             state.middle_mouse_modifiers_down <- false
             state.poll_timer.Stop()
-            Ok()
+            complete_view_latch previousViewLatch

@@ -113,6 +113,7 @@ type SettingsControl() as self =
         SettingsLayout.grid
             2
             [ SettingsLayout.item "Right click" modes.right_click_entry_mode.control
+              SettingsLayout.item "Default flight mode" modes.default_flight_mode.control
               SettingsLayout.item "Shift + right click" modes.shift_right_click_mode.control
               SettingsLayout.item "Alt + right click" modes.alt_right_click_mode.control ]
         |> SettingsLayout.full_width
@@ -183,7 +184,10 @@ type SettingsControl() as self =
               SettingsLayout.item "Hold pivot" (binding_editor bindings.pivot_hold defaults.pivot_hold)
               SettingsLayout.item "Toggle pan" (binding_editor bindings.pan_toggle defaults.pan_toggle)
               SettingsLayout.item "Hold pan" (binding_editor bindings.pan_hold defaults.pan_hold)
-              SettingsLayout.item "Exit" (binding_editor bindings.exit_key defaults.exit_key) ]
+              SettingsLayout.item "Exit" (binding_editor bindings.exit_key defaults.exit_key)
+              SettingsLayout.item
+                  "Cancel flight go back"
+                  (binding_editor bindings.cancel_flight_and_restore defaults.cancel_flight_and_restore) ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 

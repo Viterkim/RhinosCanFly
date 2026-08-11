@@ -102,18 +102,20 @@ let mouse_button_right_click_enabled () =
 let handle_view_manipulation_right_click (view: RhinoView) =
     MouseButtonOverrides.handle_right_click (ViewNavigationState.root_window view.Handle)
 
-let start_pivot (view: RhinoView) =
+let start_pivot (view: RhinoView) (completion: Action option) =
     MouseButtonOverrides.start_view_latch
         (ViewNavigationState.root_window view.Handle)
         ViewNavigationTypes.ViewLatchMode.Pivot
+        completion
 
 let stop_pivot () =
     MouseButtonOverrides.stop_view_latch ViewNavigationTypes.ViewLatchMode.Pivot
 
-let start_pan (view: RhinoView) =
+let start_pan (view: RhinoView) (completion: Action option) =
     MouseButtonOverrides.start_view_latch
         (ViewNavigationState.root_window view.Handle)
         ViewNavigationTypes.ViewLatchMode.Pan
+        completion
 
 let stop_pan () =
     MouseButtonOverrides.stop_view_latch ViewNavigationTypes.ViewLatchMode.Pan

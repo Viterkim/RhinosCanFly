@@ -58,6 +58,7 @@ let start (bindings: FlightBindings) (state: State) =
     add_optional_binding state bindings.speed_increase
     add_optional_binding state bindings.speed_decrease
     add_binding state bindings.exit_key
+    add_binding state bindings.cancel_flight_and_restore
 
 let stop (state: State) = state.keys.Clear()
 

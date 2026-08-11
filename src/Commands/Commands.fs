@@ -20,7 +20,7 @@ let run (sessionMode: FlightSessionMode) (document: RhinoDoc) =
     let view = document.Views.ActiveView
 
     if
-        sessionMode = FlightSessionMode.WhileRightMouseHeld
+        sessionMode.lifetime = FlightLifetime.WhileRightMouseHeld
         && not (PlatformInput.right_mouse_button_down ())
     then
         Result.Cancel
@@ -106,8 +106,9 @@ let show_options (document: RhinoDoc) =
 let toggle_view_manipulation
     (name: string)
     (isActive: unit -> bool)
-    (start: Rhino.Display.RhinoView -> Result<unit, string>)
+    (start: Rhino.Display.RhinoView -> Action option -> Result<unit, string>)
     (stop: unit -> Result<unit, string>)
+    (stopConflictingMode: unit -> Result<unit, string>)
     (document: RhinoDoc)
     =
     if isActive () then
@@ -135,11 +136,29 @@ let toggle_view_manipulation
                     RhinoApp.WriteLine $"{name}: move the cursor over the active viewport."
                     Result.Cancel
                 | Ok true ->
-                    match start view with
-                    | Ok() -> Result.Success
+                    match stopConflictingMode () with
                     | Error error ->
                         RhinoApp.WriteLine $"{name} failed: {error}"
-                        Result.Failure)
+                        Result.Failure
+                    | Ok() ->
+                        let completion =
+                            if DefaultFlightMode.restores_solo_commands loaded.config_file.default_flight_mode then
+                                let viewport = view.ActiveViewport
+                                let snapshot = CameraSnapshot.capture viewport
+
+                                Some(
+                                    Action(fun () ->
+                                        CameraSnapshot.restore viewport snapshot
+                                        FlightRedraw.redraw loaded.config.behavior.viewport_redraw_mode view)
+                                )
+                            else
+                                None
+
+                        match start view completion with
+                        | Ok() -> Result.Success
+                        | Error error ->
+                            RhinoApp.WriteLine $"{name} failed: {error}"
+                            Result.Failure)
 
 let pivot (document: RhinoDoc) =
     toggle_view_manipulation
@@ -147,6 +166,7 @@ let pivot (document: RhinoDoc) =
         PlatformInput.pivot_active
         PlatformInput.start_pivot
         PlatformInput.stop_pivot
+        PlatformInput.stop_pan
         document
 
 let pan (document: RhinoDoc) =
@@ -155,4 +175,5 @@ let pan (document: RhinoDoc) =
         PlatformInput.pan_active
         PlatformInput.start_pan
         PlatformInput.stop_pan
+        PlatformInput.stop_pivot
         document

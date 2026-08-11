@@ -102,6 +102,7 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     bindings.speed_increase.Text <- config.speed_increase
     bindings.speed_decrease.Text <- config.speed_decrease
     bindings.exit_key.Text <- config.exit_key
+    bindings.cancel_flight_and_restore.Text <- config.cancel_flight_and_restore
     numbers.base_speed.Text <- ConfigSchema.format_number config.base_speed
     numbers.minimum_speed.Text <- ConfigSchema.format_number config.minimum_speed
     numbers.maximum_speed.Text <- ConfigSchema.format_number config.maximum_speed
@@ -120,6 +121,7 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     SettingsFields.set_mode modes.slow_mode config.slow_mode
     SettingsFields.set_mode modes.wheel_speed_mode config.wheel_speed_mode
     SettingsFields.set_mode modes.right_click_entry_mode config.right_click_entry_mode
+    SettingsFields.set_mode modes.default_flight_mode config.default_flight_mode
     SettingsFields.set_mode modes.shift_right_click_mode config.shift_right_click_mode
     SettingsFields.set_mode modes.alt_right_click_mode config.alt_right_click_mode
     SettingsFields.set_mode modes.mouse4_pivot_mode config.mouse4_pivot_mode
@@ -166,6 +168,7 @@ let read (fields: SettingsFields.ConfigFields) =
               speed_increase = bindings.speed_increase.Text
               speed_decrease = bindings.speed_decrease.Text
               exit_key = bindings.exit_key.Text
+              cancel_flight_and_restore = bindings.cancel_flight_and_restore.Text
               base_speed = numbers.base_speed
               minimum_speed = numbers.minimum_speed
               maximum_speed = numbers.maximum_speed
@@ -190,6 +193,7 @@ let read (fields: SettingsFields.ConfigFields) =
               mouse4_also_while_flying = is_checked options.mouse4_also_while_flying
               mouse5_also_while_flying = is_checked options.mouse5_also_while_flying
               right_click_entry_mode = SettingsFields.selected_mode modes.right_click_entry_mode
+              default_flight_mode = SettingsFields.selected_mode modes.default_flight_mode
               commands_do_not_repeat = is_checked options.commands_do_not_repeat
               mouse4_pivot_mode = SettingsFields.selected_mode modes.mouse4_pivot_mode
               mouse5_pivot_mode = SettingsFields.selected_mode modes.mouse5_pivot_mode

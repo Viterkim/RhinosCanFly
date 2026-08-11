@@ -9,6 +9,7 @@ type FlyState =
       config: FlyConfig
       root_window: RootWindow
       original_cursor: CursorPosition
+      original_camera: CameraSnapshot
       original_lens_length: float
       gumball_pivot_target: Point3d option
       mutable key_pivot_target: Point3d
@@ -20,6 +21,7 @@ type FlyState =
       mutable keyboard_pivot_toggle_was_down: bool
       mutable keyboard_pan_toggle_was_down: bool
       mutable running: bool
+      mutable restore_camera_on_exit: bool
       mutable camera: CameraState
       mutable speed: float
       mutable boost_enabled: bool

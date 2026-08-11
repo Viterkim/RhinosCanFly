@@ -8,6 +8,22 @@ type CameraState =
       yaw: float
       pitch: float }
 
+[<Struct>]
+type CameraSnapshot =
+    { location: Point3d
+      target: Point3d
+      up: Vector3d }
+
+module CameraSnapshot =
+    let capture (viewport: Rhino.Display.RhinoViewport) =
+        { location = viewport.CameraLocation
+          target = viewport.CameraTarget
+          up = viewport.CameraUp }
+
+    let restore (viewport: Rhino.Display.RhinoViewport) (snapshot: CameraSnapshot) =
+        viewport.SetCameraLocations(snapshot.target, snapshot.location)
+        viewport.CameraUp <- snapshot.up
+
 type CameraChange =
     | NoCameraChange
     | PositionChanged
