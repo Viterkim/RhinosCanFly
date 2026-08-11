@@ -108,7 +108,7 @@ type Mouse =
     val mutable extra_information: uint32
 
 [<DllImport("user32.dll", SetLastError = true)>]
-extern bool RegisterRawInputDevices(Device[] devices, uint32 device_count, uint32 device_size)
+extern bool RegisterRawInputDevices(Device& devices, uint32 device_count, uint32 device_size)
 
 [<DllImport("user32.dll", SetLastError = true)>]
 extern uint32 GetRegisteredRawInputDevices(nativeint devices, uint32& device_count, uint32 device_size)
@@ -153,15 +153,19 @@ let get_registered_mouse () =
             else
                 let count = min read deviceCount
 
-                if count = 0u then
-                    Ok None
-                else
-                    seq { 0u .. count - 1u }
-                    |> Seq.map (fun (index: uint32) ->
-                        Marshal.PtrToStructure<Device>(IntPtr.Add(buffer, int (index * deviceSize))))
-                    |> Seq.tryFind (fun (device: Device) ->
-                        device.usage_page = generic_desktop_usage_page && device.usage = mouse_usage)
-                    |> Ok
+                let mutable index = 0u
+                let mutable registeredMouse = None
+
+                while index < count && Option.isNone registeredMouse do
+                    let address = IntPtr.Add(buffer, int (index * deviceSize))
+                    let device = NativePtr.read (NativePtr.ofNativeInt<Device> address)
+
+                    if device.usage_page = generic_desktop_usage_page && device.usage = mouse_usage then
+                        registeredMouse <- Some device
+
+                    index <- index + 1u
+
+                Ok registeredMouse
         finally
             Marshal.FreeHGlobal buffer
 
@@ -172,7 +176,7 @@ let register_mouse (target: nativeint) =
     device.flags <- ridev_no_legacy
     device.target <- target
 
-    if RegisterRawInputDevices([| device |], 1u, deviceSize) then
+    if RegisterRawInputDevices(&device, 1u, deviceSize) then
         Ok()
     else
         Error(Win32.last_error "RegisterRawInputDevices")
@@ -184,15 +188,17 @@ let unregister_mouse () =
     device.flags <- ridev_remove
     device.target <- nativeint 0
 
-    if RegisterRawInputDevices([| device |], 1u, deviceSize) then
+    if RegisterRawInputDevices(&device, 1u, deviceSize) then
         Ok()
     else
         Error(Win32.last_error "RegisterRawInputDevices(remove)")
 
 let restore_mouse (previous: Device option) =
     match previous with
-    | Some device ->
-        if RegisterRawInputDevices([| device |], 1u, deviceSize) then
+    | Some previous ->
+        let mutable device = previous
+
+        if RegisterRawInputDevices(&device, 1u, deviceSize) then
             Ok()
         else
             Error(Win32.last_error "RegisterRawInputDevices(restore)")

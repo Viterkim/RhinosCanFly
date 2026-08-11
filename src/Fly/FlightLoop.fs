@@ -72,8 +72,12 @@ let run (rawInput: InputAccumulator.State) (state: FlyState) =
                 previousFrame <- now
                 movementActive <- currentlyMoving
 
-        match movementChanged, directionChanged with
-        | true, true -> FlightCamera.apply state PositionAndDirectionChanged
-        | true, false -> FlightCamera.apply state PositionChanged
-        | false, true -> FlightCamera.apply state DirectionChanged
-        | false, false -> ()
+        // keep this boring without 'match movementChanged, directionChanged'
+        // because it fucking spits out a 'newobj System.Tuple<bool, bool>' on every iter (so heap gg)
+        if movementChanged then
+            if directionChanged then
+                FlightCamera.apply state PositionAndDirectionChanged
+            else
+                FlightCamera.apply state PositionChanged
+        elif directionChanged then
+            FlightCamera.apply state DirectionChanged
