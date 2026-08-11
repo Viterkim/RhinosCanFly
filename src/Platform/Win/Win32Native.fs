@@ -6,6 +6,9 @@ open System.Runtime.InteropServices
 open System.Text
 
 [<Literal>]
+let WM_NULL = 0x0000
+
+[<Literal>]
 let WM_MOUSELEAVE = 0x02A3
 
 [<Literal>]
@@ -201,6 +204,9 @@ extern nativeint GetAncestor(nativeint window, uint32 flags)
 
 [<DllImport("user32.dll")>]
 extern nativeint SendMessage(nativeint window, int message, nativeint wparam, nativeint lparam)
+
+[<DllImport("user32.dll", SetLastError = true)>]
+extern bool PostMessage(nativeint window, int message, nativeint wparam, nativeint lparam)
 
 [<DllImport("user32.dll")>]
 extern uint32 GetWindowThreadProcessId(nativeint window, uint32& process_id)

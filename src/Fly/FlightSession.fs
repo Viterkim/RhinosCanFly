@@ -71,7 +71,8 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                 let mutable cursorHidden = false
                 let mutable tooltipsChanged = false
                 let mutable gumballChanged = false
-                let inputWake = PlatformInput.create_raw_input_wake ()
+                let inputWake = PlatformInput.create_raw_input_wake state.root_window
+                let inputAvailable = PlatformInput.raw_input_wake_action inputWake
 
                 let activeResult =
                     try
@@ -101,7 +102,7 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                               mouse5_also_while_flying = state.config.mouse.mouse5_also_while_flying }
 
                         let session =
-                            PlatformInput.open_raw_input rawInputConfig sessionMode rawInput inputWake
+                            PlatformInput.open_raw_input rawInputConfig sessionMode rawInput inputAvailable
 
                         raw <- Some session
                         rawInputClean <- false
@@ -116,7 +117,7 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                         cursorHidden <- true
                         FlightCamera.apply_entry_lens state
                         FlightRedraw.redraw state.config.behavior.viewport_redraw_mode view
-                        FlightLoop.run rawInput state
+                        FlightLoop.run inputWake rawInput state
 
                         Ok()
                     with error ->

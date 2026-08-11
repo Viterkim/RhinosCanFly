@@ -11,11 +11,12 @@ let movement_active (input: InputSnapshot) =
     || input.key_pivot_right
 
 let key_pivot_direction (input: InputSnapshot) =
-    match input.key_pivot_left, input.key_pivot_right with
-    | true, false -> KeyPivotLeft
-    | false, true -> KeyPivotRight
-    | false, false
-    | true, true -> NoKeyPivot
+    if input.key_pivot_left = input.key_pivot_right then
+        NoKeyPivot
+    elif input.key_pivot_left then
+        KeyPivotLeft
+    else
+        KeyPivotRight
 
 let without_key_pivot (input: InputSnapshot) =
     { input with

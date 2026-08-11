@@ -50,27 +50,31 @@ let update_navigation_mode (input: InputAccumulator.State) (state: FlyState) =
             state.latched_mouse_navigation
 
     state.active_mouse_navigation <-
-        match state.active_mouse_navigation, requestedNavigation with
-        | MouseLook, LookNavigation
-        | MousePivot _, LookNavigation
-        | MousePan _, LookNavigation -> MouseLook
-        | MousePivot _, PivotNavigation -> state.active_mouse_navigation
-        | _, PivotNavigation -> MousePivot(navigation_target state.view state.gumball_pivot_target)
-        | MousePan _, PanNavigation -> state.active_mouse_navigation
-        | _, PanNavigation ->
-            let panTarget = navigation_target state.view None
-            let targetDistance = state.camera.position.DistanceTo panTarget
+        match requestedNavigation with
+        | LookNavigation -> MouseLook
+        | PivotNavigation ->
+            match state.active_mouse_navigation with
+            | MousePivot _ -> state.active_mouse_navigation
+            | MouseLook
+            | MousePan _ -> MousePivot(navigation_target state.view state.gumball_pivot_target)
+        | PanNavigation ->
+            match state.active_mouse_navigation with
+            | MousePan _ -> state.active_mouse_navigation
+            | MouseLook
+            | MousePivot _ ->
+                let panTarget = navigation_target state.view None
+                let targetDistance = state.camera.position.DistanceTo panTarget
 
-            let unitsPerRadian =
-                if
-                    RhinoMath.IsValidDouble targetDistance
-                    && targetDistance > RhinoMath.ZeroTolerance
-                then
-                    targetDistance
-                else
-                    1.
+                let unitsPerRadian =
+                    if
+                        RhinoMath.IsValidDouble targetDistance
+                        && targetDistance > RhinoMath.ZeroTolerance
+                    then
+                        targetDistance
+                    else
+                        1.
 
-            MousePan(MousePanUnitsPerRadian unitsPerRadian)
+                MousePan(MousePanUnitsPerRadian unitsPerRadian)
 
 let apply_mouse_input (input: InputAccumulator.State) (state: FlyState) =
     let struct (dx, dy) = InputAccumulator.drain_mouse input

@@ -98,8 +98,8 @@ type RightClickCallback() =
                     | FlightSessionMode.Persistent -> "'_RhinosCanFly"
                     | FlightSessionMode.WhileRightMouseHeld -> "'_RhinosCanFlyHeld"
 
-                if not (RhinoApp.RunScript(queuedView.Document.RuntimeSerialNumber, command, false)) then
-                    RhinoApp.WriteLine "RhinosCanFly could not start during the current command."
+                RhinoApp.RunScript(queuedView.Document.RuntimeSerialNumber, command, false)
+                |> ignore
 
     let queue_fly_entry (view: RhinoView) =
         let handler =

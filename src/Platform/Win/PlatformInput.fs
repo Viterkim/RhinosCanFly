@@ -10,6 +10,15 @@ let wheel_delta = Win32Native.WHEEL_DELTA
 let wait_for_input () =
     Win32.wait_for_input Win32Native.INFINITE
 
+let wait_for_input_for (timeout: TimeSpan) =
+    let milliseconds =
+        timeout.TotalMilliseconds
+        |> max 0.0
+        |> min (float (UInt32.MaxValue - 1u))
+        |> uint32
+
+    Win32.wait_for_input milliseconds
+
 let foreground_root_window () =
     RootWindow(Win32Native.GetForegroundWindow())
 
@@ -58,12 +67,16 @@ let hide_cursor () = Win32Native.ShowCursor false |> ignore
 let show_cursor () = Win32Native.ShowCursor true |> ignore
 
 type RawInputSession = RawInputThread.Session
+type RawInputWake = RhinosCanFly.Platform.Win.RawInputWake.State
 
-let create_raw_input_wake () =
-    let state = RawInputWake.create ()
-    let clearPending = Action(fun () -> RawInputWake.clear state)
+let create_raw_input_wake (window: RootWindow) =
+    RhinosCanFly.Platform.Win.RawInputWake.create window
 
-    Action(fun () -> RawInputWake.signal clearPending state)
+let raw_input_wake_action (wake: RawInputWake) =
+    Action(fun () -> RhinosCanFly.Platform.Win.RawInputWake.signal wake)
+
+let clear_raw_input_wake (wake: RawInputWake) =
+    RhinosCanFly.Platform.Win.RawInputWake.clear wake
 
 let open_raw_input
     (config: RawInputConfig)

@@ -6,12 +6,45 @@ open Eto.Forms
 open Rhino
 open Rhino.UI
 
-module SettingsDialogPosition =
+module SettingsDialogPlacement =
+    [<Literal>]
+    let preferred_width = 1000
+
+    [<Literal>]
+    let preferred_height = 1000
+
+    [<Literal>]
+    let screen_margin = 24
+
     let mutable last_location: Point option = None
+
+    let fit_size (minimum: Size) (workingArea: RectangleF) =
+        let availableWidth = max minimum.Width (int workingArea.Width - screen_margin * 2)
+
+        let availableHeight =
+            max minimum.Height (int workingArea.Height - screen_margin * 2)
+
+        Size(min preferred_width availableWidth, min preferred_height availableHeight)
+
+    let centered_location (bounds: RectangleF) (size: Size) =
+        Point(int bounds.X + (int bounds.Width - size.Width) / 2, int bounds.Y + (int bounds.Height - size.Height) / 2)
+
+    let clamped_location (workingArea: RectangleF) (size: Size) (location: Point) =
+        let minimumX = int workingArea.X
+        let minimumY = int workingArea.Y
+        let maximumX = max minimumX (int workingArea.Right - size.Width)
+        let maximumY = max minimumY (int workingArea.Bottom - size.Height)
+
+        Point(min maximumX (max minimumX location.X), min maximumY (max minimumY location.Y))
 
 type RhinosCanFlySettingsDialog() as self =
     inherit
-        Dialog(Title = "Rhinos Can Fly Options", Size = Size(990, 990), MinimumSize = Size(650, 500), Resizable = true)
+        Dialog(
+            Title = "Rhinos Can Fly Options",
+            Size = Size(SettingsDialogPlacement.preferred_width, SettingsDialogPlacement.preferred_height),
+            MinimumSize = Size(700, 550),
+            Resizable = true
+        )
 
     let control = new SettingsControl()
     let saveButton = new Button(Text = "Save")
@@ -47,7 +80,7 @@ type RhinosCanFlySettingsDialog() as self =
 
         cancelButton.Click.Add(fun (_: EventArgs) -> self.Close())
 
-        self.Closed.Add(fun (_: EventArgs) -> SettingsDialogPosition.last_location <- Some self.Location)
+        self.Closed.Add(fun (_: EventArgs) -> SettingsDialogPlacement.last_location <- Some self.Location)
 
         Settings.load control
 
@@ -59,14 +92,35 @@ type RhinosCanFlySettingsDialog() as self =
         base.Dispose disposing
 
     member _.ShowForRhino(document: RhinoDoc) =
-        SettingsDialogPosition.last_location
-        |> Option.iter (fun (location: Point) -> self.Location <- location)
-
         let parent =
             if isNull document then
                 RhinoEtoApp.MainWindow
             else
                 RhinoEtoApp.MainWindowForDocument document
+
+        let parentScreen =
+            if isNull parent || isNull parent.Screen then
+                Screen.PrimaryScreen
+            else
+                parent.Screen
+
+        let screen =
+            match SettingsDialogPlacement.last_location with
+            | Some saved ->
+                let savedScreen = Screen.FromPoint(PointF saved)
+
+                if isNull savedScreen then parentScreen else savedScreen
+            | None -> parentScreen
+
+        let workingArea = screen.WorkingArea
+        self.Size <- SettingsDialogPlacement.fit_size self.MinimumSize workingArea
+
+        let location =
+            match SettingsDialogPlacement.last_location with
+            | Some saved -> saved
+            | None -> SettingsDialogPlacement.centered_location workingArea self.Size
+
+        self.Location <- SettingsDialogPlacement.clamped_location workingArea self.Size location
 
         if isNull parent then
             self.ShowModal()

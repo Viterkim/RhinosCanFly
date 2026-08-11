@@ -117,9 +117,6 @@ extern uint32 GetRegisteredRawInputDevices(nativeint devices, uint32& device_cou
 extern uint32 GetRawInputData(nativeint raw_input, uint32 command, nativeint data, uint32& size, uint32 header_size)
 
 [<DllImport("user32.dll", SetLastError = true)>]
-extern bool PostMessage(nativeint window, int message, nativeint wparam, nativeint lparam)
-
-[<DllImport("user32.dll", SetLastError = true)>]
 extern bool PostThreadMessage(uint32 thread_id, int message, nativeint wparam, nativeint lparam)
 
 [<DllImport("kernel32.dll")>]
@@ -239,7 +236,7 @@ let try_read_mouse (rawInput: nativeint) (buffer: nativeint) (bufferCapacity: in
             true
 
 let post_stop (window: nativeint) =
-    if PostMessage(window, stop_message, nativeint 0, nativeint 0) then
+    if Win32Native.PostMessage(window, stop_message, nativeint 0, nativeint 0) then
         Ok()
     else
         Error(Win32.last_error "PostMessage")

@@ -34,10 +34,7 @@ type RhinosCanFlyOptionsCommand() =
     override _.EnglishName = "RhinosCanFlyOptions"
     override _.CommandContextHelpUrl = CommandHelp.blank_url
 
-    override _.RunCommand(document: RhinoDoc, _mode: RunMode) =
-        use dialog = new RhinosCanFlySettingsDialog()
-        dialog.ShowForRhino document
-        Result.Success
+    override _.RunCommand(document: RhinoDoc, _mode: RunMode) = Commands.show_options document
 
 [<Guid("EAB2EC5E-2183-4661-B523-30BB72EA12EE")>]
 type RhinosCanFlySetSpeedCommand() =

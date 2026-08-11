@@ -6,7 +6,7 @@ open Rhino
 [<Literal>]
 let maximum_frame_delta_seconds = 0.05
 
-let run (rawInput: InputAccumulator.State) (state: FlyState) =
+let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.State) (state: FlyState) =
     let clock = Stopwatch.StartNew()
     let mutable previousFrame = clock.Elapsed.TotalSeconds
     let mutable movementActive = false
@@ -16,6 +16,7 @@ let run (rawInput: InputAccumulator.State) (state: FlyState) =
             PlatformInput.wait_for_input ()
 
         RhinoApp.Wait()
+        PlatformInput.clear_raw_input_wake inputWake
 
         FlightControls.update_keyboard_navigation_input state
         FlightCamera.update_navigation_mode rawInput state
@@ -43,13 +44,15 @@ let run (rawInput: InputAccumulator.State) (state: FlyState) =
                 let requestedPivotDirection = FlightInput.key_pivot_direction input
 
                 let movement =
-                    match state.key_pivot_input_state, requestedPivotDirection with
-                    | KeyPivotInputArmed, _ -> input
-                    | WaitingForNeutralKeyPivotInput, NoKeyPivot ->
-                        state.key_pivot_input_state <- KeyPivotInputArmed
-                        input
-                    | WaitingForNeutralKeyPivotInput, (KeyPivotLeft | KeyPivotRight) ->
-                        FlightInput.without_key_pivot input
+                    match state.key_pivot_input_state with
+                    | KeyPivotInputArmed -> input
+                    | WaitingForNeutralKeyPivotInput ->
+                        match requestedPivotDirection with
+                        | NoKeyPivot ->
+                            state.key_pivot_input_state <- KeyPivotInputArmed
+                            input
+                        | KeyPivotLeft
+                        | KeyPivotRight -> FlightInput.without_key_pivot input
 
                 let now = clock.Elapsed.TotalSeconds
                 let currentlyMoving = FlightInput.movement_active movement
