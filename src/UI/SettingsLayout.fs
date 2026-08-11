@@ -44,7 +44,7 @@ let grid (columns: int) (controls: Control list) =
 
 let heading (text: string) =
     let label =
-        new Label(Text = text, Font = SystemFonts.Bold(System.Nullable(), FontDecoration.None))
+        new Label(Text = text, Font = SystemFonts.Bold(System.Nullable 14.f, FontDecoration.None))
 
     new Panel(Content = label, Padding = Padding(0, 10, 0, 2)) :> Control
 

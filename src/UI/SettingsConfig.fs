@@ -122,6 +122,7 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     SettingsFields.set_mode modes.wheel_speed_mode config.wheel_speed_mode
     SettingsFields.set_mode modes.right_click_entry_mode config.right_click_entry_mode
     SettingsFields.set_mode modes.default_flight_mode config.default_flight_mode
+    SettingsFields.set_mode modes.auto_pivot_target_on_exit config.auto_pivot_target_on_exit
     SettingsFields.set_mode modes.shift_right_click_mode config.shift_right_click_mode
     SettingsFields.set_mode modes.alt_right_click_mode config.alt_right_click_mode
     SettingsFields.set_mode modes.mouse4_pivot_mode config.mouse4_pivot_mode
@@ -132,6 +133,7 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     set_checked options.normalize_diagonal_movement config.normalize_diagonal_movement
     set_checked options.hide_gumball_while_flying config.hide_gumball_while_flying
     set_checked options.pivot_bindings_ignore_gumball config.pivot_bindings_ignore_gumball
+    set_checked options.retarget_temporary_flights config.retarget_temporary_flights
     set_checked options.save_speed_to_document config.save_speed_to_document
     set_checked options.load_speed_from_document config.load_speed_from_document
     set_checked options.exit_on_mouse_left config.exit_on_mouse_left
@@ -194,6 +196,8 @@ let read (fields: SettingsFields.ConfigFields) =
               mouse5_also_while_flying = is_checked options.mouse5_also_while_flying
               right_click_entry_mode = SettingsFields.selected_mode modes.right_click_entry_mode
               default_flight_mode = SettingsFields.selected_mode modes.default_flight_mode
+              auto_pivot_target_on_exit = SettingsFields.selected_mode modes.auto_pivot_target_on_exit
+              retarget_temporary_flights = is_checked options.retarget_temporary_flights
               commands_do_not_repeat = is_checked options.commands_do_not_repeat
               mouse4_pivot_mode = SettingsFields.selected_mode modes.mouse4_pivot_mode
               mouse5_pivot_mode = SettingsFields.selected_mode modes.mouse5_pivot_mode

@@ -47,6 +47,11 @@ type SettingsControl() as self =
         options.mouse5_also_while_flying.Enabled <-
             SettingsFields.selected_mode modes.mouse5_pivot_mode <> MouseButtonPivotMode.Off
 
+    let refresh_exit_target_controls () =
+        options.retarget_temporary_flights.Enabled <-
+            SettingsFields.selected_mode modes.auto_pivot_target_on_exit
+            <> AutoPivotTargetMode.Off
+
     let binding_editor (field: TextBox) (defaultValue: string) =
         BindingCapture.editor bindingCapture field defaultValue
 
@@ -134,6 +139,15 @@ type SettingsControl() as self =
               options.exit_on_mouse_left
               options.hide_gumball_while_flying
               options.pivot_bindings_ignore_gumball ]
+        |> SettingsLayout.full_width
+        |> mainTable.Rows.Add
+
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.spacer 2))
+
+        SettingsLayout.grid
+            2
+            [ SettingsLayout.item "Auto pivot target on exit" modes.auto_pivot_target_on_exit.control
+              options.retarget_temporary_flights ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
@@ -274,7 +288,11 @@ type SettingsControl() as self =
         modes.mouse5_pivot_mode.control.SelectedIndexChanged.Add(fun (_: EventArgs) ->
             refresh_side_button_flight_controls ())
 
+        modes.auto_pivot_target_on_exit.control.SelectedIndexChanged.Add(fun (_: EventArgs) ->
+            refresh_exit_target_controls ())
+
         refresh_side_button_flight_controls ()
+        refresh_exit_target_controls ()
 
         actions.raw_json_toggle.Click.Add(fun (_: EventArgs) ->
             rawJsonPanel.Visible <- not rawJsonPanel.Visible
@@ -344,5 +362,6 @@ type SettingsControl() as self =
     member _.LoadConfig(config: FlyConfigFile) =
         SettingsConfig.load fields.config config
         refresh_side_button_flight_controls ()
+        refresh_exit_target_controls ()
 
     member _.ReadConfig() = SettingsConfig.read fields.config

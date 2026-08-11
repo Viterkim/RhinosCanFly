@@ -76,6 +76,7 @@
     <Compile Include="src/Platform/Win/PlatformInput.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Fly/FlightRedraw.fs" />
     <Compile Include="src/Fly/FlightCamera.fs" />
+    <Compile Include="src/Fly/ExitPivotTarget.fs" />
     <Compile Include="src/Fly/FlightControls.fs" />
     <Compile Include="src/Fly/FlightState.fs" />
     <Compile Include="src/Fly/FlightLoop.fs" />

@@ -50,6 +50,7 @@ type ModeFields =
       mouse_y_mode: ModeField<MouseAxisMode>
       right_click_entry_mode: ModeField<RightClickEntryMode>
       default_flight_mode: ModeField<DefaultFlightMode>
+      auto_pivot_target_on_exit: ModeField<AutoPivotTargetMode>
       shift_right_click_mode: ModeField<ModifiedRightClickMode>
       alt_right_click_mode: ModeField<ModifiedRightClickMode>
       mouse4_pivot_mode: ModeField<MouseButtonPivotMode>
@@ -62,6 +63,7 @@ type OptionFields =
       normalize_diagonal_movement: CheckBox
       hide_gumball_while_flying: CheckBox
       pivot_bindings_ignore_gumball: CheckBox
+      retarget_temporary_flights: CheckBox
       save_speed_to_document: CheckBox
       load_speed_from_document: CheckBox
       exit_on_mouse_left: CheckBox
@@ -166,6 +168,12 @@ let create () =
            DefaultFlightMode.Temporary, "Temp"
            DefaultFlightMode.TemporaryIncludingSoloCommands, "Temp + for solo cmds" |]
 
+    let autoPivotTargetModes =
+        [| AutoPivotTargetMode.Off, "Off"
+           AutoPivotTargetMode.Geometry, "Geometry"
+           AutoPivotTargetMode.GeometryThenCPlane, "Geometry, then CPlane"
+           AutoPivotTargetMode.GeometryThenWorldXY, "Geometry, then World XY" |]
+
     let redrawModes =
         [| ViewportRedrawMode.Rhino, "Rhino redraw (default)"
            ViewportRedrawMode.RhinoImmediate, "Rhino redraw with immediate paint"
@@ -213,6 +221,7 @@ let create () =
               mouse_y_mode = mode_field mouseAxisModes MouseAxisMode.Normal
               right_click_entry_mode = mode_field rightClickEntryModes RightClickEntryMode.EnterFlyingDuringCommands
               default_flight_mode = mode_field flightModes DefaultFlightMode.Normal
+              auto_pivot_target_on_exit = mode_field autoPivotTargetModes AutoPivotTargetMode.Off
               shift_right_click_mode = mode_field modifiedRightClickModes ModifiedRightClickMode.Off
               alt_right_click_mode = mode_field modifiedRightClickModes ModifiedRightClickMode.Off
               mouse4_pivot_mode = mode_field mousePivotModes MouseButtonPivotMode.Off
@@ -224,6 +233,7 @@ let create () =
               normalize_diagonal_movement = new CheckBox(Text = "Normalize diagonal movement")
               hide_gumball_while_flying = new CheckBox(Text = "Hide gumball while flying")
               pivot_bindings_ignore_gumball = new CheckBox(Text = "Pivot binds don't rotate around gumball")
+              retarget_temporary_flights = new CheckBox(Text = "Retarget temporary flights")
               save_speed_to_document = new CheckBox(Text = "Save current speed to file")
               load_speed_from_document = new CheckBox(Text = "Load speed from file")
               exit_on_mouse_left = new CheckBox(Text = "Left click exits")

@@ -55,6 +55,8 @@ type FlyingMouseConfig =
 type FlightBehavior =
     { hide_gumball: bool
       pivot_bindings_ignore_gumball: bool
+      auto_pivot_target_on_exit: AutoPivotTargetMode
+      retarget_temporary_flights: bool
       save_speed_to_document: bool
       load_speed_from_document: bool
       lens_adjustment: LensAdjustment

@@ -44,6 +44,12 @@ type DefaultFlightMode =
     | Temporary = 1
     | TemporaryIncludingSoloCommands = 2
 
+type AutoPivotTargetMode =
+    | Off = 0
+    | Geometry = 1
+    | GeometryThenCPlane = 2
+    | GeometryThenWorldXY = 3
+
 module DefaultFlightMode =
     let flight_mode (mode: DefaultFlightMode) =
         match mode with
@@ -125,6 +131,8 @@ type FlyConfigFile =
       mouse5_also_while_flying: bool
       right_click_entry_mode: RightClickEntryMode
       default_flight_mode: DefaultFlightMode
+      auto_pivot_target_on_exit: AutoPivotTargetMode
+      retarget_temporary_flights: bool
       commands_do_not_repeat: bool
       mouse4_pivot_mode: MouseButtonPivotMode
       mouse5_pivot_mode: MouseButtonPivotMode
