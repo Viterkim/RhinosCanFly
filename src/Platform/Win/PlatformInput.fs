@@ -59,9 +59,6 @@ let clip_cursor (view: RhinoView) = Win32.clip_cursor view.ScreenRectangle
 
 let clear_cursor_clip () = Win32.clear_cursor_clip ()
 
-let focus (view: RhinoView) =
-    Win32Native.SetFocus view.Handle |> ignore
-
 let hide_cursor () = Win32Native.ShowCursor false |> ignore
 
 let show_cursor () = Win32Native.ShowCursor true |> ignore

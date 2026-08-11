@@ -2,7 +2,7 @@ module RhinosCanFly.Platform.Win.ViewNavigationTypes
 
 open System
 open System.Collections.Generic
-open System.Windows.Forms
+open Eto.Forms
 open RhinosCanFly
 
 type ViewLatchMode =
@@ -32,9 +32,14 @@ type SideButtonHookEvent =
     | ButtonDown of button: SideButton * window: RootWindow
     | ButtonUp of button: SideButton
 
+type HookButtonOwnership =
+    | NotOwned
+    | Owned
+    | ReleaseObserved
+
 type SideButtonHookCapture =
-    { mutable mouse4: bool
-      mutable mouse5: bool }
+    { mutable mouse4: HookButtonOwnership
+      mutable mouse5: HookButtonOwnership }
 
 type SideButtonState =
     | Released
@@ -80,10 +85,10 @@ type State =
       pending_side_button_events: Queue<SideButtonHookEvent>
       side_button_hook_capture: SideButtonHookCapture
       mutable navigation_exit_requested: bool
-      poll_timer: Timer }
+      poll_timer: UITimer }
 
 [<Literal>]
-let poll_timer_interval_milliseconds = 15
+let poll_timer_interval_seconds = 0.015
 
 let empty_routing =
     { mouse4 = Disabled
@@ -104,6 +109,6 @@ let create_state () =
       side_button_restart_pending = false
       middle_mouse_modifiers_down = false
       pending_side_button_events = Queue<SideButtonHookEvent>()
-      side_button_hook_capture = { mouse4 = false; mouse5 = false }
+      side_button_hook_capture = { mouse4 = NotOwned; mouse5 = NotOwned }
       navigation_exit_requested = false
-      poll_timer = new Timer(Interval = poll_timer_interval_milliseconds) }
+      poll_timer = new UITimer(Interval = poll_timer_interval_seconds) }

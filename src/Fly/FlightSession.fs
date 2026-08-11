@@ -89,7 +89,6 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                         | Ok() -> captured <- true
                         | Error error -> failwith error
 
-                        PlatformInput.focus view
                         state.viewport.CameraUp <- Vector3d.ZAxis
 
                         let rawInputConfig: RawInputConfig =
@@ -156,16 +155,16 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                     attempt_cleanup cleanupErrors "camera" (fun () ->
                         CameraSnapshot.restore state.viewport state.original_camera)
 
+                attempt_cleanup cleanupErrors "lens" (fun () ->
+                    state.viewport.Camera35mmLensLength <- state.original_lens_length)
+
                 if
                     state.config.behavior.auto_pivot_target_on_exit <> AutoPivotTargetMode.Off
                     && (not state.restore_camera_on_exit
-                        || state.config.behavior.retarget_temporary_flights)
+                        || state.config.behavior.retarget_restored_flights)
                 then
                     attempt_cleanup cleanupErrors "pivot target" (fun () ->
                         ExitPivotTarget.apply state.config.behavior.auto_pivot_target_on_exit state.viewport)
-
-                attempt_cleanup cleanupErrors "lens" (fun () ->
-                    state.viewport.Camera35mmLensLength <- state.original_lens_length)
 
                 if tooltipsChanged then
                     attempt_cleanup cleanupErrors "tooltips" (fun () ->

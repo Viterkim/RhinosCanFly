@@ -63,7 +63,7 @@ type OptionFields =
       normalize_diagonal_movement: CheckBox
       hide_gumball_while_flying: CheckBox
       pivot_bindings_ignore_gumball: CheckBox
-      retarget_temporary_flights: CheckBox
+      retarget_restored_flights: CheckBox
       save_speed_to_document: CheckBox
       load_speed_from_document: CheckBox
       exit_on_mouse_left: CheckBox
@@ -233,7 +233,7 @@ let create () =
               normalize_diagonal_movement = new CheckBox(Text = "Normalize diagonal movement")
               hide_gumball_while_flying = new CheckBox(Text = "Hide gumball while flying")
               pivot_bindings_ignore_gumball = new CheckBox(Text = "Pivot binds don't rotate around gumball")
-              retarget_temporary_flights = new CheckBox(Text = "Retarget temporary flights")
+              retarget_restored_flights = new CheckBox(Text = "Also retarget restored flights")
               save_speed_to_document = new CheckBox(Text = "Save current speed to file")
               load_speed_from_document = new CheckBox(Text = "Load speed from file")
               exit_on_mouse_left = new CheckBox(Text = "Left click exits")

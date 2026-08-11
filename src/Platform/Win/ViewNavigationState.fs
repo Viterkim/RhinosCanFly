@@ -15,18 +15,36 @@ let set_button_state (state: State) (button: SideButton) (buttonState: SideButto
 
 let hook_owns_button (state: State) (button: SideButton) =
     match button with
-    | Mouse4 -> state.side_button_hook_capture.mouse4
-    | Mouse5 -> state.side_button_hook_capture.mouse5
+    | Mouse4 -> state.side_button_hook_capture.mouse4 <> NotOwned
+    | Mouse5 -> state.side_button_hook_capture.mouse5 <> NotOwned
 
 let set_hook_owns_button (state: State) (button: SideButton) (owned: bool) =
-    match button with
-    | Mouse4 -> state.side_button_hook_capture.mouse4 <- owned
-    | Mouse5 -> state.side_button_hook_capture.mouse5 <- owned
+    let ownership = if owned then Owned else NotOwned
 
-let clear_hook_events (state: State) =
+    match button with
+    | Mouse4 -> state.side_button_hook_capture.mouse4 <- ownership
+    | Mouse5 -> state.side_button_hook_capture.mouse5 <- ownership
+
+let observe_hook_button_released (state: State) (button: SideButton) =
+    let ownership =
+        match button with
+        | Mouse4 -> state.side_button_hook_capture.mouse4
+        | Mouse5 -> state.side_button_hook_capture.mouse5
+
+    match ownership with
+    | NotOwned -> ()
+    | Owned ->
+        match button with
+        | Mouse4 -> state.side_button_hook_capture.mouse4 <- ReleaseObserved
+        | Mouse5 -> state.side_button_hook_capture.mouse5 <- ReleaseObserved
+    | ReleaseObserved -> set_hook_owns_button state button false
+
+let clear_pending_hook_events (state: State) =
     state.pending_side_button_events.Clear()
-    state.side_button_hook_capture.mouse4 <- false
-    state.side_button_hook_capture.mouse5 <- false
+
+let hook_owns_any_button (state: State) =
+    state.side_button_hook_capture.mouse4 <> NotOwned
+    || state.side_button_hook_capture.mouse5 <> NotOwned
 
 let mode_for (state: State) (button: SideButton) =
     match button with
@@ -138,7 +156,7 @@ let alt_down () =
 let view_modifier_down () = shift_down () || alt_down ()
 
 let keep_timer_running (state: State) =
-    if not state.poll_timer.Enabled then
+    if not state.poll_timer.Started then
         state.poll_timer.Start()
 
 let stop_timer_if_idle (state: State) =
@@ -188,7 +206,7 @@ let release_all (state: State) =
         | Ok() ->
             state.middle_mouse_modifiers_down <- false
             state.navigation_exit_requested <- false
-            clear_hook_events state
+            clear_pending_hook_events state
             state.poll_timer.Stop()
             complete_view_latch previousViewLatch
         | Error error ->
@@ -214,6 +232,6 @@ let release_all (state: State) =
             state.synthetic_shift <- ShiftReleased
             state.middle_mouse_modifiers_down <- false
             state.navigation_exit_requested <- false
-            clear_hook_events state
+            clear_pending_hook_events state
             state.poll_timer.Stop()
             complete_view_latch previousViewLatch

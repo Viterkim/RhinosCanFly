@@ -48,7 +48,7 @@ type SettingsControl() as self =
             SettingsFields.selected_mode modes.mouse5_pivot_mode <> MouseButtonPivotMode.Off
 
     let refresh_exit_target_controls () =
-        options.retarget_temporary_flights.Enabled <-
+        options.retarget_restored_flights.Enabled <-
             SettingsFields.selected_mode modes.auto_pivot_target_on_exit
             <> AutoPivotTargetMode.Off
 
@@ -147,7 +147,7 @@ type SettingsControl() as self =
         SettingsLayout.grid
             2
             [ SettingsLayout.item "Auto pivot target on exit" modes.auto_pivot_target_on_exit.control
-              options.retarget_temporary_flights ]
+              options.retarget_restored_flights ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 

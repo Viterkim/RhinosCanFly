@@ -60,6 +60,24 @@ let WH_MOUSE = 7
 let HC_ACTION = 0
 
 [<Literal>]
+let KEYBOARD_EXTENDED_KEY = 0x01000000L
+
+[<Literal>]
+let KEYBOARD_PREVIOUSLY_DOWN = 0x40000000L
+
+[<Literal>]
+let KEYBOARD_KEY_RELEASED = 0x80000000L
+
+[<Literal>]
+let KEYBOARD_SCAN_CODE_MASK = 0x00FF0000L
+
+[<Literal>]
+let KEYBOARD_SCAN_CODE_SHIFT = 16
+
+[<Literal>]
+let RIGHT_SHIFT_SCAN_CODE = 0x36
+
+[<Literal>]
 let WM_XBUTTONDOWN = 0x020B
 
 [<Literal>]
@@ -181,6 +199,9 @@ extern int16 GetAsyncKeyState(int virtual_key)
 [<DllImport("user32.dll", SetLastError = true)>]
 extern bool GetCursorPos(NativePoint& point)
 
+[<DllImport("user32.dll")>]
+extern nativeint WindowFromPoint(NativePoint point)
+
 [<DllImport("user32.dll", SetLastError = true)>]
 extern bool SetCursorPos(int x, int y)
 
@@ -194,7 +215,7 @@ extern bool ClipCursorClear(nativeint rectangle)
 extern int ShowCursor(bool show)
 
 [<DllImport("user32.dll")>]
-extern nativeint SetFocus(nativeint window)
+extern bool IsChild(nativeint parent, nativeint window)
 
 [<DllImport("user32.dll")>]
 extern nativeint GetForegroundWindow()

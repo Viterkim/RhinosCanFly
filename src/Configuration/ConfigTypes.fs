@@ -132,7 +132,7 @@ type FlyConfigFile =
       right_click_entry_mode: RightClickEntryMode
       default_flight_mode: DefaultFlightMode
       auto_pivot_target_on_exit: AutoPivotTargetMode
-      retarget_temporary_flights: bool
+      retarget_restored_flights: bool
       commands_do_not_repeat: bool
       mouse4_pivot_mode: MouseButtonPivotMode
       mouse5_pivot_mode: MouseButtonPivotMode

@@ -23,29 +23,31 @@ let try_geometry_target (viewport: RhinoViewport) =
 
     use capture = new ZBufferCapture(viewport)
 
-    let depth = capture.ZValueAt(x, y)
-
-    if Single.IsNaN depth || Single.IsInfinity depth || depth < 0.f || depth >= 1.f then
+    if capture.HitCount() = 0 then
         None
     else
-        let target = capture.WorldPointAt(x, y)
+        let depth = capture.ZValueAt(x, y)
 
-        if target_is_in_front viewport target then
-            Some target
-        else
+        if Single.IsNaN depth || Single.IsInfinity depth || depth <= 0.f || depth >= 1.f then
             None
+        else
+            let target = capture.WorldPointAt(x, y)
+
+            if target_is_in_front viewport target then
+                Some target
+            else
+                None
 
 let try_plane_target (viewport: RhinoViewport) (plane: Plane) =
     let struct (x, y) = viewport_center viewport
-    let mutable line = Line.Unset
+    let line = viewport.ClientToWorld(Point2d(float x, float y))
     let mutable lineParameter = 0.
 
     if
         plane.IsValid
-        && viewport.GetFrustumLine(float x, float y, &line)
+        && line.IsValid
         && Intersection.LinePlane(line, plane, &lineParameter)
         && RhinoMath.IsValidDouble lineParameter
-        && lineParameter >= 0.
     then
         let target = line.PointAt lineParameter
 
