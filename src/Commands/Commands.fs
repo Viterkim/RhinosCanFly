@@ -1,6 +1,7 @@
 module RhinosCanFly.Commands
 
 open System
+open System.IO
 open Rhino
 open Rhino.Commands
 open Rhino.Input
@@ -190,19 +191,31 @@ let pan (document: RhinoDoc) =
         document
 
 let show_input_diagnostics () =
-    RhinoApp.WriteLine "RhinosCanFly input diagnostics"
-    RhinoApp.WriteLine $"Flight state: {Runtime.state_name ()}"
-    RhinoApp.WriteLine $"Raw cleanup items: {PlatformInput.raw_input_recovery_count ()}"
-    RhinoApp.WriteLine $"Cursor clip cleanup items: {PlatformInput.cursor_clip_recovery_count ()}"
-    RhinoApp.WriteLine(RightClickEntry.diagnostic_line ())
+    let lines = ResizeArray<string>()
+    lines.Add "RhinosCanFly input diagnostics"
+    lines.Add $"Captured: {DateTimeOffset.Now:O}"
+    lines.Add $"Flight state: {Runtime.state_name ()}"
+    lines.Add $"Raw cleanup items: {PlatformInput.raw_input_recovery_count ()}"
+    lines.Add $"Cursor clip cleanup items: {PlatformInput.cursor_clip_recovery_count ()}"
+    lines.Add(RightClickEntry.diagnostic_line ())
 
     for line in PlatformInput.input_state_diagnostic_lines () do
-        RhinoApp.WriteLine line
+        lines.Add line
 
     for line in PlatformInput.input_diagnostic_lines () do
+        lines.Add line
+
+    for line in lines do
         RhinoApp.WriteLine line
 
-    Result.Success
+    try
+        let diagnosticsPath = ConfigStorage.input_diagnostics_path ()
+        File.WriteAllLines(diagnosticsPath, lines)
+        RhinoApp.WriteLine $"Saved to: {diagnosticsPath}"
+        Result.Success
+    with error ->
+        RhinoApp.WriteLine $"RhinosCanFly could not save input diagnostics: {error.Message}"
+        Result.Failure
 
 let recover_input () =
     let struct (remainingRawSessions, rawErrors) =

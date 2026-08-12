@@ -27,10 +27,16 @@ let initialize (directory: string) =
     settingsRoot <- Some directory
     saveBlocked <- None
 
-let path () =
+let settings_directory () =
     match settingsRoot with
-    | Some directory -> Path.Combine(directory, "rhinos-can-fly-config.json")
+    | Some directory -> directory
     | None -> failwith "The RhinosCanFly settings directory has not been initialized."
+
+let path () =
+    Path.Combine(settings_directory (), "rhinos-can-fly-config.json")
+
+let input_diagnostics_path () =
+    Path.Combine(settings_directory (), "rhinos-can-fly-input-diagnostics.txt")
 
 let to_object (value: FlyConfigFile) =
     JsonSerializer.SerializeToNode(ConfigSchema.normalize_numbers value, options).AsObject()

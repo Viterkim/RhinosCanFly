@@ -54,8 +54,8 @@ let mutable cameraApplications = 0L
 let mutable redraws = 0L
 let startedAt = Stopwatch.GetTimestamp()
 let mutable latestRawTimestamp = 0L
-let mutable lastInputToCameraTicks = 0L
-let mutable maximumInputToCameraTicks = 0L
+let mutable lastInputToDrainTicks = 0L
+let mutable maximumInputToDrainTicks = 0L
 let mutable lastRedrawTicks = 0L
 let mutable maximumRedrawTicks = 0L
 let mutable lastCameraSetterTicks = 0L
@@ -85,12 +85,6 @@ let record_camera_application (setterTicks: int64) =
     Interlocked.Increment(&cameraApplications) |> ignore
     Volatile.Write(&lastCameraSetterTicks, setterTicks)
     update_maximum &maximumCameraSetterTicks setterTicks
-    let rawTimestamp = Volatile.Read(&latestRawTimestamp)
-
-    if rawTimestamp <> 0L then
-        let elapsed = max 0L (Stopwatch.GetTimestamp() - rawTimestamp)
-        Volatile.Write(&lastInputToCameraTicks, elapsed)
-        update_maximum &maximumInputToCameraTicks elapsed
 
 let record_redraw (elapsedTicks: int64) =
     Interlocked.Increment(&redraws) |> ignore
@@ -103,6 +97,12 @@ let record_rhino_wait (elapsedTicks: int64) =
 
 let record_mouse_drain (dx: int64) (dy: int64) =
     update_maximum &maximumMouseCounts (max (abs dx) (abs dy))
+    let rawTimestamp = Volatile.Read(&latestRawTimestamp)
+
+    if rawTimestamp <> 0L then
+        let elapsed = max 0L (Stopwatch.GetTimestamp() - rawTimestamp)
+        Volatile.Write(&lastInputToDrainTicks, elapsed)
+        update_maximum &maximumInputToDrainTicks elapsed
 
 let record (kind: EventKind) (value1: int64) (value2: int64) =
     let next = Interlocked.Increment(&sequence)
@@ -150,7 +150,7 @@ let lines () =
 
     let counters =
         [| $"Counters: raw packets={Volatile.Read(&rawPackets)} ({float (Volatile.Read(&rawPackets)) / elapsedSeconds:F1}/s); wake signals={Volatile.Read(&wakeSignals)} ({float (Volatile.Read(&wakeSignals)) / elapsedSeconds:F1}/s); loop iterations={Volatile.Read(&loopIterations)}; camera applications={Volatile.Read(&cameraApplications)}; redraws={Volatile.Read(&redraws)}"
-           $"Timing: input to camera last={milliseconds (Volatile.Read(&lastInputToCameraTicks)):F3} ms; max={milliseconds (Volatile.Read(&maximumInputToCameraTicks)):F3} ms; camera setter last={milliseconds (Volatile.Read(&lastCameraSetterTicks)):F3} ms; max={milliseconds (Volatile.Read(&maximumCameraSetterTicks)):F3} ms"
+           $"Timing: raw packet to UI drain last={milliseconds (Volatile.Read(&lastInputToDrainTicks)):F3} ms; max={milliseconds (Volatile.Read(&maximumInputToDrainTicks)):F3} ms; camera setter last={milliseconds (Volatile.Read(&lastCameraSetterTicks)):F3} ms; max={milliseconds (Volatile.Read(&maximumCameraSetterTicks)):F3} ms"
            $"Timing: RhinoApp.Wait last={milliseconds (Volatile.Read(&lastRhinoWaitTicks)):F3} ms; max={milliseconds (Volatile.Read(&maximumRhinoWaitTicks)):F3} ms; redraw last={milliseconds (Volatile.Read(&lastRedrawTicks)):F3} ms; max={milliseconds (Volatile.Read(&maximumRedrawTicks)):F3} ms; max drained axis counts={Volatile.Read(&maximumMouseCounts)}" |]
 
     Array.append
