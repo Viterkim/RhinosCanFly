@@ -7,8 +7,13 @@ open System.Windows.Forms
 open RhinosCanFly
 
 type RawInputReceiver
-    (config: RawInputConfig, sessionMode: FlightSessionMode, input: InputAccumulator.State, inputAvailable: Action) as self
-    =
+    (
+        config: RawInputConfig,
+        sessionMode: FlightSessionMode,
+        input: InputAccumulator.State,
+        inputAvailable: Action,
+        registrationReady: Action<RawInputNative.MouseRegistrationLease>
+    ) as self =
     inherit NativeWindow()
 
     let bufferCapacity = int RawInputNative.mouseInputSize
@@ -16,9 +21,7 @@ type RawInputReceiver
     let buffer = Marshal.AllocHGlobal bufferCapacity
     let mutable handleCreated = false
     let mutable bufferFreed = false
-    let mutable rawRegistered = false
-    let mutable registrationRestored = false
-    let mutable previousMouse: RawInputNative.Device option = None
+    let mutable registrationLease: RawInputNative.MouseRegistrationLease option = None
 
     [<Literal>]
     let mouse4PivotBit = 1
@@ -75,21 +78,12 @@ type RawInputReceiver
             false
 
     let restore_registration () =
-        if rawRegistered && not registrationRestored then
-            match RawInputNative.restore_mouse previousMouse with
-            | Ok() -> registrationRestored <- true
-            | Error restoreError ->
-                match previousMouse with
-                | Some _ ->
-                    match RawInputNative.unregister_mouse () with
-                    | Ok() ->
-                        raise (
-                            InvalidOperationException(
-                                $"{restoreError}; the previous raw-mouse registration could not be restored"
-                            )
-                        )
-                    | Error removalError -> raise (InvalidOperationException($"{restoreError}; {removalError}"))
-                | None -> raise (InvalidOperationException restoreError)
+        match registrationLease with
+        | None -> ()
+        | Some lease ->
+            match RawInputNative.release_mouse_registration lease with
+            | Ok _ -> ()
+            | Error error -> raise (InvalidOperationException error)
 
     let release_resources () =
         let errors = ResizeArray<exn>()
@@ -100,7 +94,12 @@ type RawInputReceiver
             errors.Add error
 
         try
-            if handleCreated then
+            let registrationRelinquished =
+                match registrationLease with
+                | None -> true
+                | Some lease -> lease.relinquished
+
+            if handleCreated && registrationRelinquished then
                 self.DestroyHandle()
                 handleCreated <- false
         with error ->
@@ -221,17 +220,13 @@ type RawInputReceiver
             self.CreateHandle parameters
             handleCreated <- true
 
-            match RawInputNative.get_registered_mouse () with
+            match RawInputNative.acquire_mouse_registration self.Handle with
             | Error error -> failwith error
-            | Ok previous ->
-                previousMouse <- previous
-
-                match RawInputNative.register_mouse self.Handle with
-                | Ok() ->
-                    rawRegistered <- true
-                    heldPivotButtons <- current_held_pivot_buttons ()
-                    InputAccumulator.set_pivot_held (heldPivotButtons <> 0) input
-                | Error error -> failwith error
+            | Ok lease ->
+                registrationLease <- Some lease
+                registrationReady.Invoke lease
+                heldPivotButtons <- current_held_pivot_buttons ()
+                InputAccumulator.set_pivot_held (heldPivotButtons <> 0) input
         with error ->
             try
                 release_resources ()

@@ -136,21 +136,42 @@ type RhinosCanFlyOptionsPage() =
     override _.PageControl = control.Value
 
     override _.OnActivate(active: bool) =
-        if active then
-            Settings.load control.Value
+        try
+            if active then
+                Settings.load control.Value
+            elif control.IsValueCreated then
+                control.Value.CancelBindingCapture()
 
-        true
+            true
+        with error ->
+            RhinoApp.WriteLine $"RhinosCanFly Options activation failed: {error.Message}"
+            false
 
     override _.OnApply() =
-        if control.IsValueCreated then
-            Settings.save control.Value
-        else
-            true
+        try
+            if control.IsValueCreated then
+                control.Value.CancelBindingCapture()
+                Settings.stage control.Value
+            else
+                true
+        with error ->
+            RhinoApp.WriteLine $"RhinosCanFly Options apply failed: {error.Message}"
+            false
 
     override _.OnCancel() =
-        if control.IsValueCreated then
-            Settings.load control.Value
+        try
+            RuntimeSettings.discard_staged ()
+
+            if control.IsValueCreated then
+                control.Value.CancelBindingCapture()
+                Settings.load control.Value
+        with error ->
+            RhinoApp.WriteLine $"RhinosCanFly Options cancel failed: {error.Message}"
 
     override _.OnDefaults() =
-        control.Value.LoadConfig ConfigSchema.defaults
-        control.Value.ClearError()
+        try
+            control.Value.CancelBindingCapture()
+            control.Value.LoadConfig ConfigSchema.defaults
+            control.Value.ClearError()
+        with error ->
+            RhinoApp.WriteLine $"RhinosCanFly Options defaults failed: {error.Message}"

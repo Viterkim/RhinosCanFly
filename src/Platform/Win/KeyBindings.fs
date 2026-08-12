@@ -141,10 +141,14 @@ let parse_key (text: string) =
     elif text.StartsWith("0x", StringComparison.OrdinalIgnoreCase) then
         let mutable value = 0
 
-        if Int32.TryParse(text.Substring 2, NumberStyles.HexNumber, CultureInfo.InvariantCulture, &value) then
+        if
+            Int32.TryParse(text.Substring 2, NumberStyles.HexNumber, CultureInfo.InvariantCulture, &value)
+            && value >= 1
+            && value <= 0xFF
+        then
             Ok(VirtualKey value)
         else
-            Error $"'{text}' is not a valid hexadecimal virtual-key code"
+            Error $"'{text}' is not a hexadecimal virtual-key code between 0x01 and 0xFF"
     else
         Error $"unknown key '{text}'"
 

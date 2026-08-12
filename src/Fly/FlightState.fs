@@ -58,4 +58,5 @@ let create (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode
       slow_enabled = false
       slow_was_down = FlightControls.is_down bindings.slow
       speed_increase_was_down = FlightControls.is_optional_down bindings.speed_increase
-      speed_decrease_was_down = FlightControls.is_optional_down bindings.speed_decrease }
+      speed_decrease_was_down = FlightControls.is_optional_down bindings.speed_decrease
+      wheel_remainder = 0L }

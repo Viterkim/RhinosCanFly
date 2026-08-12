@@ -9,8 +9,10 @@ open Rhino.UI
 
 type QueuedFlyEntry =
     { view_serial_number: uint32
+      document_serial_number: uint32
       root_window: RootWindow
       session_mode: FlightSessionMode
+      started_at: int64
       handler: EventHandler }
 
 type RightClickGesture =
@@ -30,6 +32,10 @@ type RightClickCallback() =
     let mutable gesture = NoRightClickGesture
     let mutable flyEntryMode = RightClickEntryMode.Off
     let mutable defaultFlightMode = DefaultFlightMode.Normal
+    let mutable suspended = false
+
+    [<Literal>]
+    let queued_entry_timeout_seconds = 2.
 
     let fly_entry_enabled () =
         match flyEntryMode with
@@ -74,6 +80,10 @@ type RightClickCallback() =
         | NoRightClickGesture
         | ViewManipulationClick -> gesture <- NoRightClickGesture
 
+    let entry_timed_out (entry: QueuedFlyEntry) =
+        let elapsedTicks = Stopwatch.GetTimestamp() - entry.started_at
+        float elapsedTicks / float Stopwatch.Frequency >= queued_entry_timeout_seconds
+
     let recover_from_callback_error (context: string) (event: MouseCallbackEventArgs) (error: exn) =
         try
             clear_gesture ()
@@ -94,6 +104,16 @@ type RightClickCallback() =
         let queuedView = RhinoView.FromRuntimeSerialNumber entry.view_serial_number
 
         if isNull queuedView then
+            clear_gesture ()
+        elif
+            isNull queuedView.Document
+            || queuedView.Document.RuntimeSerialNumber <> entry.document_serial_number
+            || isNull RhinoDoc.ActiveDoc
+            || RhinoDoc.ActiveDoc.RuntimeSerialNumber <> entry.document_serial_number
+            || isNull queuedView.Document.Views.ActiveView
+            || queuedView.Document.Views.ActiveView.RuntimeSerialNumber
+               <> entry.view_serial_number
+        then
             clear_gesture ()
         elif not (Runtime.viewport_gesture_active queuedView) then
             clear_gesture ()
@@ -122,6 +142,8 @@ type RightClickCallback() =
                         clear_gesture ()
 
                     match gesture with
+                    | FlyButtonDown entry
+                    | FlyButtonReleased entry when entry_timed_out entry -> clear_gesture ()
                     | FlyButtonDown entry ->
                         if PlatformInput.foreground_root_window () <> entry.root_window then
                             clear_gesture ()
@@ -153,8 +175,10 @@ type RightClickCallback() =
         gesture <-
             FlyButtonDown
                 { view_serial_number = view.RuntimeSerialNumber
+                  document_serial_number = view.Document.RuntimeSerialNumber
                   root_window = PlatformInput.root_window view
                   session_mode = flight_session_mode ()
+                  started_at = Stopwatch.GetTimestamp()
                   handler = handler }
 
         try
@@ -225,13 +249,20 @@ type RightClickCallback() =
             recover_from_callback_error "right-click mouse-up callback" event error
 
     member this.Configure(config: Config) =
+        clear_gesture ()
         flyEntryMode <- config.fly_entry_mode
         defaultFlightMode <- config.default_flight_mode
 
-        if not (fly_entry_enabled ()) then
-            clear_gesture ()
+        this.Enabled <- not suspended && (fly_entry_enabled () || config.view_manipulation_enabled)
 
-        this.Enabled <- fly_entry_enabled () || config.view_manipulation_enabled
+    member this.Suspend() =
+        suspended <- true
+        clear_gesture ()
+        this.Enabled <- false
+
+    member this.Resume() =
+        suspended <- false
+        this.Enabled <- fly_entry_enabled () || PlatformInput.mouse_button_right_click_enabled ()
 
     member this.Shutdown() =
         this.Configure
@@ -242,5 +273,9 @@ type RightClickCallback() =
 let callback = RightClickCallback()
 
 let configure (config: Config) = callback.Configure config
+
+let suspend () = callback.Suspend()
+
+let resume () = callback.Resume()
 
 let shutdown () = callback.Shutdown()

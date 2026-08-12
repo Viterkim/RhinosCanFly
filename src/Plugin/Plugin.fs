@@ -25,6 +25,27 @@ type RhinosCanFlyPlugin() as self =
 
     override _.OnShutdown() =
         try
+            let struct (remaining, errors) = PlatformInput.retry_raw_input_cleanup ()
+
+            for error in errors do
+                RhinoApp.WriteLine $"RhinosCanFly raw-input recovery: {error}"
+
+            if remaining > 0 then
+                RhinoApp.WriteLine $"RhinosCanFly raw-input recovery still owns {remaining} cleanup item(s)."
+        with error ->
+            RhinoApp.WriteLine $"RhinosCanFly raw-input recovery failed: {error.Message}"
+
+        try
+            RuntimeSettings.shutdown ()
+        with error ->
+            RhinoApp.WriteLine $"RhinosCanFly settings lifecycle shutdown failed: {error.Message}"
+
+        try
+            FlightSpeed.shutdown ()
+        with error ->
+            RhinoApp.WriteLine $"RhinosCanFly speed lifecycle shutdown failed: {error.Message}"
+
+        try
             RightClickEntry.shutdown ()
         with error ->
             RhinoApp.WriteLine $"RhinosCanFly right-click shutdown failed: {error.Message}"

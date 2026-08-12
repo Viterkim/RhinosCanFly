@@ -102,7 +102,8 @@ let update_state (input: InputAccumulator.State) (state: FlyState) =
     let cancelAndRestore = is_down state.config.bindings.cancel_flight_and_restore
 
     if
-        PlatformInput.foreground_root_window () <> state.root_window
+        not (PlatformInput.root_window_valid state.root_window)
+        || PlatformInput.foreground_root_window () <> state.root_window
         || is_down state.config.bindings.exit_key
         || cancelAndRestore
         || InputAccumulator.exit_requested input
@@ -112,17 +113,22 @@ let update_state (input: InputAccumulator.State) (state: FlyState) =
 
         state.running <- false
     else
-        let wheel = InputAccumulator.drain_wheel input
+        let wheel = state.wheel_remainder + InputAccumulator.drain_wheel input
 
-        if wheel <> 0 then
+        if wheel <> 0L then
+            let wheelSteps = wheel / PlatformInput.wheel_delta
+            state.wheel_remainder <- wheel - wheelSteps * PlatformInput.wheel_delta
+
             let direction =
                 match state.config.movement.wheel_speed_mode with
-                | MouseWheelSpeedMode.Off -> 0.
-                | MouseWheelSpeedMode.Normal -> 1.
-                | MouseWheelSpeedMode.Reversed -> -1.
-                | _ -> 0.
+                | MouseWheelSpeedMode.Off -> 0L
+                | MouseWheelSpeedMode.Normal -> 1L
+                | MouseWheelSpeedMode.Reversed -> -1L
+                | _ -> 0L
 
-            if direction <> 0. then
-                speed_step state (SpeedStepCount(direction * float wheel / float PlatformInput.wheel_delta))
+            if direction = 0L then
+                state.wheel_remainder <- 0L
+            elif wheelSteps <> 0L then
+                speed_step state (SpeedStepCount(float (direction * wheelSteps)))
 
         update_toggles state

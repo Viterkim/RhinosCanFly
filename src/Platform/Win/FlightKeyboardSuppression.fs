@@ -3,8 +3,14 @@ module RhinosCanFly.Platform.Win.FlightKeyboardSuppression
 open System.Collections.Generic
 open RhinosCanFly
 
+type ConfiguredKeys =
+    { exact: HashSet<int>
+      mutable either_shift: bool
+      mutable either_control: bool
+      mutable either_alt: bool }
+
 type State =
-    { configured_keys: HashSet<int>
+    { configured: ConfiguredKeys
       passthrough_keys_down: HashSet<int>
       suppressed_keys_down: HashSet<int>
       release_observed_keys: HashSet<int>
@@ -12,29 +18,31 @@ type State =
       mutable active: bool }
 
 let create () =
-    { configured_keys = HashSet<int>()
+    { configured =
+        { exact = HashSet<int>()
+          either_shift = false
+          either_control = false
+          either_alt = false }
       passthrough_keys_down = HashSet<int>()
       suppressed_keys_down = HashSet<int>()
       release_observed_keys = HashSet<int>()
       released_keys = ResizeArray<int>()
       active = false }
 
-let canonical_key (virtualKey: int) =
-    match virtualKey with
-    | Win32Native.VK_SHIFT
-    | Win32Native.VK_LSHIFT
-    | Win32Native.VK_RSHIFT -> Win32Native.VK_SHIFT
-    | Win32Native.VK_CONTROL
-    | Win32Native.VK_LCONTROL
-    | Win32Native.VK_RCONTROL -> Win32Native.VK_CONTROL
-    | Win32Native.VK_MENU
-    | Win32Native.VK_LMENU
-    | Win32Native.VK_RMENU -> Win32Native.VK_MENU
-    | _ -> virtualKey
+let clear_configured (state: State) =
+    state.configured.exact.Clear()
+    state.configured.either_shift <- false
+    state.configured.either_control <- false
+    state.configured.either_alt <- false
 
 let add_key (state: State) (key: VirtualKey) =
     let (VirtualKey virtualKey) = key
-    state.configured_keys.Add(canonical_key virtualKey) |> ignore
+
+    match virtualKey with
+    | Win32Native.VK_SHIFT -> state.configured.either_shift <- true
+    | Win32Native.VK_CONTROL -> state.configured.either_control <- true
+    | Win32Native.VK_MENU -> state.configured.either_alt <- true
+    | _ -> state.configured.exact.Add virtualKey |> ignore
 
 let add_binding (state: State) (binding: KeyBinding) =
     binding.virtual_keys |> List.iter (add_key state)
@@ -42,28 +50,25 @@ let add_binding (state: State) (binding: KeyBinding) =
 let add_optional_binding (state: State) (binding: KeyBinding option) =
     binding |> Option.iter (add_binding state)
 
+let configured_key (state: State) (physicalKey: int) =
+    state.configured.exact.Contains physicalKey
+    || (state.configured.either_shift
+        && (physicalKey = Win32Native.VK_LSHIFT || physicalKey = Win32Native.VK_RSHIFT))
+    || (state.configured.either_control
+        && (physicalKey = Win32Native.VK_LCONTROL || physicalKey = Win32Native.VK_RCONTROL))
+    || (state.configured.either_alt
+        && (physicalKey = Win32Native.VK_LMENU || physicalKey = Win32Native.VK_RMENU))
+
 let add_passthrough_if_down (state: State) (physicalKey: int) =
     if
-        Win32Native.GetAsyncKeyState physicalKey < 0s
+        configured_key state physicalKey
+        && Win32Native.GetAsyncKeyState physicalKey < 0s
         && not (state.suppressed_keys_down.Contains physicalKey)
     then
         state.passthrough_keys_down.Add physicalKey |> ignore
 
-let add_configured_passthrough (state: State) (configuredKey: int) =
-    match configuredKey with
-    | Win32Native.VK_SHIFT ->
-        add_passthrough_if_down state Win32Native.VK_LSHIFT
-        add_passthrough_if_down state Win32Native.VK_RSHIFT
-    | Win32Native.VK_CONTROL ->
-        add_passthrough_if_down state Win32Native.VK_LCONTROL
-        add_passthrough_if_down state Win32Native.VK_RCONTROL
-    | Win32Native.VK_MENU ->
-        add_passthrough_if_down state Win32Native.VK_LMENU
-        add_passthrough_if_down state Win32Native.VK_RMENU
-    | _ -> add_passthrough_if_down state configuredKey
-
 let start (bindings: FlightBindings) (state: State) =
-    state.configured_keys.Clear()
+    clear_configured state
     state.release_observed_keys.Clear()
     state.active <- true
     add_binding state bindings.forward
@@ -87,12 +92,24 @@ let start (bindings: FlightBindings) (state: State) =
 
     state.passthrough_keys_down.Clear()
 
-    for configuredKey in state.configured_keys do
-        add_configured_passthrough state configuredKey
+    for physicalKey in state.configured.exact do
+        add_passthrough_if_down state physicalKey
+
+    if state.configured.either_shift then
+        add_passthrough_if_down state Win32Native.VK_LSHIFT
+        add_passthrough_if_down state Win32Native.VK_RSHIFT
+
+    if state.configured.either_control then
+        add_passthrough_if_down state Win32Native.VK_LCONTROL
+        add_passthrough_if_down state Win32Native.VK_RCONTROL
+
+    if state.configured.either_alt then
+        add_passthrough_if_down state Win32Native.VK_LMENU
+        add_passthrough_if_down state Win32Native.VK_RMENU
 
 let stop (state: State) =
     state.active <- false
-    state.configured_keys.Clear()
+    clear_configured state
     state.passthrough_keys_down.Clear()
 
 let reset (state: State) =
@@ -101,31 +118,46 @@ let reset (state: State) =
     state.release_observed_keys.Clear()
     state.released_keys.Clear()
 
-let suppress_key_down (physicalKey: int) (state: State) =
+let own_key_down (physicalKey: int) (state: State) =
     state.release_observed_keys.Remove physicalKey |> ignore
     state.suppressed_keys_down.Add physicalKey |> ignore
 
+let suppress_key_down (physicalKey: int) (state: State) = own_key_down physicalKey state
+
+let classify_fresh_key_down (physicalKey: int) (state: State) =
+    if state.active && configured_key state physicalKey then
+        own_key_down physicalKey state
+        true
+    else
+        false
+
 let handle_event (event: Win32.KeyboardHookEvent) (state: State) =
-    let configuredKey = canonical_key event.virtual_key
     let physicalKey = event.physical_key
 
     if event.released then
         state.release_observed_keys.Remove physicalKey |> ignore
-        state.passthrough_keys_down.Remove physicalKey |> ignore
-        let suppressed = state.suppressed_keys_down.Remove physicalKey
 
-        suppressed
-    elif state.passthrough_keys_down.Contains physicalKey then
-        if not event.was_down then
+        if state.suppressed_keys_down.Remove physicalKey then
             state.passthrough_keys_down.Remove physicalKey |> ignore
-            suppress_key_down physicalKey state
-
-        true
-    elif state.active && state.configured_keys.Contains configuredKey then
-        suppress_key_down physicalKey state
-        true
+            true
+        else
+            state.passthrough_keys_down.Remove physicalKey |> ignore
+            false
+    elif state.suppressed_keys_down.Contains physicalKey then
+        if event.was_down then
+            true
+        else
+            state.suppressed_keys_down.Remove physicalKey |> ignore
+            state.release_observed_keys.Remove physicalKey |> ignore
+            classify_fresh_key_down physicalKey state
+    elif state.passthrough_keys_down.Contains physicalKey then
+        if event.was_down then
+            true
+        else
+            state.passthrough_keys_down.Remove physicalKey |> ignore
+            classify_fresh_key_down physicalKey state
     else
-        false
+        classify_fresh_key_down physicalKey state
 
 let requires_hook (state: State) =
     state.active || state.suppressed_keys_down.Count > 0

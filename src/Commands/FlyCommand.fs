@@ -78,3 +78,11 @@ type RhinosCanFlyPanCommand() =
     override _.EnglishName = "RhinosCanFlyPan"
     override _.CommandContextHelpUrl = CommandHelp.blank_url
     override _.RunCommand(document: RhinoDoc, _mode: RunMode) = Commands.pan document
+
+[<Guid("6C944723-2787-41AD-9332-B68EBF068B26")>]
+[<CommandStyle(Style.DoNotRepeat)>]
+type RhinosCanFlyInputDiagnosticsCommand() =
+    inherit Command()
+    override _.EnglishName = "RhinosCanFlyInputDiagnostics"
+    override _.CommandContextHelpUrl = CommandHelp.blank_url
+    override _.RunCommand(_document: RhinoDoc, _mode: RunMode) = Commands.show_input_diagnostics ()

@@ -14,6 +14,14 @@ open RhinosCanFly.Platform.Win.ViewNavigationTypes
 let state = create_state ()
 let flightKeyboard = FlightKeyboardSuppression.create ()
 
+type HookState =
+    | HookAbsent
+    | HookInstalled of Win32Native.WindowsHook
+    | HookRemovalPending of hook: Win32Native.WindowsHook * error: string
+
+let mutable keyboard_hook_state = HookAbsent
+let mutable mouse_hook_state = HookAbsent
+
 type NavigationExitCallback() =
     inherit MouseCallback()
 
@@ -40,15 +48,22 @@ let refresh_callback_enabled () =
 
 let handle_keyboard_event (event: Win32.KeyboardHookEvent) =
     try
+        let hookActive =
+            match keyboard_hook_state with
+            | HookInstalled _ -> true
+            | HookAbsent
+            | HookRemovalPending _ -> false
+
         let navigationEngaged =
-            state.lifecycle = Available
+            hookActive
+            && state.lifecycle = Available
             && (ViewNavigationState.any_button_engaged state
                 || ViewNavigationState.view_latch_engaged state)
 
         if navigationEngaged then
             ViewNavigationState.keep_timer_running state
 
-        if FlightKeyboardSuppression.handle_event event flightKeyboard then
+        if hookActive && FlightKeyboardSuppression.handle_event event flightKeyboard then
             if event.released && not (FlightKeyboardSuppression.is_active flightKeyboard) then
                 ViewNavigationState.keep_timer_running state
 
@@ -70,12 +85,6 @@ let handle_keyboard_event (event: Win32.KeyboardHookEvent) =
         Debug.WriteLine $"RhinosCanFly mouse override keyboard hook: {error.Message}"
         false
 
-let mutable keyboard_hook: Win32Native.WindowsHook option = None
-let mutable keyboard_unhook_attempts = 0
-
-[<Literal>]
-let maximum_unhook_attempts = 3
-
 let keyboard_hook_needed () =
     state.lifecycle <> ShutDown
     && (FlightKeyboardSuppression.requires_hook flightKeyboard
@@ -85,43 +94,40 @@ let keyboard_hook_needed () =
                 || ViewNavigationState.view_latch_engaged state)))
 
 let install_keyboard_hook () =
-    match keyboard_hook with
-    | Some _ -> Ok()
-    | None ->
+    match keyboard_hook_state with
+    | HookInstalled _ -> Ok()
+    | HookRemovalPending(hook, _) ->
+        keyboard_hook_state <- HookInstalled hook
+        Ok()
+    | HookAbsent ->
         match Win32.install_keyboard_hook handle_keyboard_event with
         | Ok hook ->
-            keyboard_hook <- Some hook
+            keyboard_hook_state <- HookInstalled hook
+            InputDiagnostics.record InputDiagnostics.EventKind.HookInstalled 1L 0L
             Ok()
         | Error error -> Error error
 
 let remove_keyboard_hook () =
-    match keyboard_hook with
-    | None -> Ok()
-    | Some hook ->
+    match keyboard_hook_state with
+    | HookAbsent -> Ok()
+    | HookInstalled hook
+    | HookRemovalPending(hook, _) ->
         match Win32.remove_hook hook with
         | Ok() ->
-            keyboard_hook <- None
+            keyboard_hook_state <- HookAbsent
+            InputDiagnostics.record InputDiagnostics.EventKind.HookRemoved 1L 0L
             Ok()
-        | Error error -> Error error
+        | Error error ->
+            keyboard_hook_state <- HookRemovalPending(hook, error)
+            InputDiagnostics.record InputDiagnostics.EventKind.HookRemovalFailed 1L 0L
+            ViewNavigationState.keep_watchdog_running state
+            Error error
 
 let refresh_keyboard_hook () =
     if keyboard_hook_needed () then
-        keyboard_unhook_attempts <- 0
         install_keyboard_hook ()
     else
-        match remove_keyboard_hook () with
-        | Ok() ->
-            keyboard_unhook_attempts <- 0
-            Ok()
-        | Error error ->
-            Debug.WriteLine $"RhinosCanFly mouse override keyboard hook: {error}"
-
-            keyboard_unhook_attempts <- keyboard_unhook_attempts + 1
-
-            if keyboard_unhook_attempts < maximum_unhook_attempts then
-                ViewNavigationState.keep_timer_running state
-
-            Ok()
+        remove_keyboard_hook ()
 
 let refresh_keyboard_after (result: Result<'Value, string>) =
     match result, refresh_keyboard_hook () with
@@ -133,8 +139,7 @@ let refresh_keyboard_after (result: Result<'Value, string>) =
 [<Struct>]
 type ViewWindow =
     { serial_number: uint32
-      handle: nativeint
-      root: RootWindow }
+      handle: nativeint }
 
 let mutable view_windows: ViewWindow array = Array.empty
 let mutable view_events_subscribed = false
@@ -150,8 +155,7 @@ let refresh_view_windows () =
                 else
                     Some
                         { serial_number = view.RuntimeSerialNumber
-                          handle = view.Handle
-                          root = ViewNavigationState.root_window view.Handle })
+                          handle = view.Handle })
     with error ->
         view_windows <- Array.empty
         Debug.WriteLine $"RhinosCanFly viewport window refresh: {error.Message}"
@@ -164,8 +168,7 @@ let view_created =
             if not (isNull view) && view.Handle <> nativeint 0 then
                 let created =
                     { serial_number = view.RuntimeSerialNumber
-                      handle = view.Handle
-                      root = ViewNavigationState.root_window view.Handle }
+                      handle = view.Handle }
 
                 let remaining =
                     view_windows
@@ -216,8 +219,12 @@ let try_view_root (window: nativeint) =
     while index < view_windows.Length && ValueOption.isNone result do
         let candidate = view_windows[index]
 
-        if candidate.handle = window || Win32Native.IsChild(candidate.handle, window) then
-            result <- ValueSome candidate.root
+        if
+            Win32Native.IsWindow candidate.handle
+            && Win32Native.IsWindowEnabled candidate.handle
+            && (candidate.handle = window || Win32Native.IsChild(candidate.handle, window))
+        then
+            result <- ValueSome(ViewNavigationState.root_window candidate.handle)
 
         index <- index + 1
 
@@ -229,11 +236,17 @@ let side_button_from_data (mouseData: uint32) =
     | Win32Native.XBUTTON2 -> Some Mouse5
     | _ -> None
 
-let handle_mouse_event (message: int) (mouseData: uint32) (window: nativeint) =
+let handle_mouse_event (message: int) (mouseData: uint32) (hookWindow: nativeint) (pointWindow: nativeint) =
     try
         match side_button_from_data mouseData with
         | None -> false
         | Some button ->
+            let hookActive =
+                match mouse_hook_state with
+                | HookInstalled _ -> true
+                | HookAbsent
+                | HookRemovalPending _ -> false
+
             let isDown =
                 message = Win32Native.WM_XBUTTONDOWN || message = Win32Native.WM_XBUTTONDBLCLK
 
@@ -251,37 +264,41 @@ let handle_mouse_event (message: int) (mouseData: uint32) (window: nativeint) =
             elif isDown && hookOwnsButton then
                 true
             elif
-                state.lifecycle <> Available
+                not hookActive
+                || state.lifecycle <> Available
                 || ViewNavigationState.mode_for state button = Disabled
             then
                 false
             elif isDown then
-                match try_view_root window with
-                | ValueNone -> false
-                | ValueSome rootWindow ->
+                match try_view_root hookWindow, try_view_root pointWindow with
+                | ValueSome hookRoot, ValueSome pointRoot when
+                    hookRoot = pointRoot && hookRoot = ViewNavigationState.foreground_root_window ()
+                    ->
                     ViewNavigationState.set_hook_owns_button state button true
-                    state.pending_side_button_events.Enqueue(ButtonDown(button, rootWindow))
+                    state.pending_side_button_events.Enqueue(ButtonDown(button, hookRoot))
                     ViewNavigationState.keep_timer_running state
                     true
+                | _ -> false
             else
                 false
     with error ->
         Debug.WriteLine $"RhinosCanFly mouse override hook: {error.Message}"
         false
 
-let mutable mouse_hook: Win32Native.WindowsHook option = None
-let mutable mouse_unhook_attempts = 0
-
 let install_mouse_hook () =
-    match mouse_hook with
-    | Some _ -> Ok()
-    | None ->
+    match mouse_hook_state with
+    | HookInstalled _ -> Ok()
+    | HookRemovalPending(hook, _) ->
+        mouse_hook_state <- HookInstalled hook
+        Ok()
+    | HookAbsent ->
         try
             subscribe_view_events ()
 
             match Win32.install_mouse_hook handle_mouse_event with
             | Ok hook ->
-                mouse_hook <- Some hook
+                mouse_hook_state <- HookInstalled hook
+                InputDiagnostics.record InputDiagnostics.EventKind.HookInstalled 2L 0L
                 Ok()
             | Error error ->
                 unsubscribe_view_events ()
@@ -290,24 +307,30 @@ let install_mouse_hook () =
             Error $"Could not track Rhino viewport windows: {error.Message}"
 
 let remove_mouse_hook () =
-    match mouse_hook with
-    | None ->
+    match mouse_hook_state with
+    | HookAbsent ->
         try
             unsubscribe_view_events ()
             Ok()
         with error ->
             Error $"Could not stop tracking Rhino viewport windows: {error.Message}"
-    | Some hook ->
+    | HookInstalled hook
+    | HookRemovalPending(hook, _) ->
         match Win32.remove_hook hook with
         | Ok() ->
-            mouse_hook <- None
+            mouse_hook_state <- HookAbsent
+            InputDiagnostics.record InputDiagnostics.EventKind.HookRemoved 2L 0L
 
             try
                 unsubscribe_view_events ()
                 Ok()
             with error ->
                 Error $"Could not stop tracking Rhino viewport windows: {error.Message}"
-        | Error error -> Error error
+        | Error error ->
+            mouse_hook_state <- HookRemovalPending(hook, error)
+            InputDiagnostics.record InputDiagnostics.EventKind.HookRemovalFailed 2L 0L
+            ViewNavigationState.keep_watchdog_running state
+            Error error
 
 let refresh_mouse_hook () =
     if
@@ -315,21 +338,9 @@ let refresh_mouse_hook () =
          && ViewNavigationState.side_button_routing_enabled state)
         || ViewNavigationState.hook_owns_any_button state
     then
-        mouse_unhook_attempts <- 0
         install_mouse_hook ()
     else
-        match remove_mouse_hook () with
-        | Ok() ->
-            mouse_unhook_attempts <- 0
-            Ok()
-        | Error error ->
-            Debug.WriteLine $"RhinosCanFly mouse override hook: {error}"
-            mouse_unhook_attempts <- mouse_unhook_attempts + 1
-
-            if mouse_unhook_attempts < maximum_unhook_attempts then
-                ViewNavigationState.keep_timer_running state
-
-            Ok()
+        remove_mouse_hook ()
 
 let prune_released_side_buttons () =
     if ViewNavigationState.hook_owns_button state Mouse4 then
@@ -351,11 +362,55 @@ let release_after_timer_error (error: exn) =
     | Ok() -> ()
     | Error cleanupError -> Debug.WriteLine $"RhinosCanFly mouse override timer cleanup: {cleanupError}"
 
+let hook_removal_pending () =
+    match keyboard_hook_state with
+    | HookRemovalPending _ -> true
+    | HookAbsent
+    | HookInstalled _ ->
+        match mouse_hook_state with
+        | HookRemovalPending _ -> true
+        | HookAbsent
+        | HookInstalled _ -> false
+
+let poll_requirement () =
+    if ViewNavigationState.fast_poll_required state then
+        PollFast
+    elif
+        FlightKeyboardSuppression.waiting_for_releases flightKeyboard
+        || ViewNavigationState.hook_owns_any_button state
+        || ViewNavigationState.synthetic_input_owned state
+        || hook_removal_pending ()
+        || (state.lifecycle = Available
+            && (ViewNavigationState.any_button_engaged state
+                || ViewNavigationState.view_latch_engaged state))
+    then
+        PollWatchdog
+    else
+        PollStopped
+
+let apply_poll_requirement () =
+    match poll_requirement () with
+    | PollFast -> ViewNavigationState.keep_timer_running state
+    | PollWatchdog -> ViewNavigationState.keep_watchdog_running state
+    | PollStopped ->
+        if state.poll_timer.Started then
+            state.poll_timer.Stop()
+            InputDiagnostics.record InputDiagnostics.EventKind.TimerStopped 0L 0L
+
 let poll_timer_elapsed () =
     try
         try
             if FlightKeyboardSuppression.waiting_for_releases flightKeyboard then
                 FlightKeyboardSuppression.prune_released_keys flightKeyboard
+
+            if
+                not (ViewNavigationState.any_button_engaged state)
+                && not (ViewNavigationState.view_latch_engaged state)
+                && ViewNavigationState.synthetic_input_owned state
+            then
+                match ViewNavigationState.release_synthetic_input state with
+                | Ok() -> ()
+                | Error error -> Debug.WriteLine $"RhinosCanFly synthetic input cleanup: {error}"
 
             match refresh_keyboard_hook () with
             | Ok() -> ()
@@ -394,34 +449,25 @@ let poll_timer_elapsed () =
         | Ok() -> ()
         | Error error -> Debug.WriteLine $"RhinosCanFly mouse override hook: {error}"
 
-        let hookRemovalRetryPending =
-            (keyboard_unhook_attempts > 0
-             && keyboard_unhook_attempts < maximum_unhook_attempts)
-            || (mouse_unhook_attempts > 0 && mouse_unhook_attempts < maximum_unhook_attempts)
-
-        let timerRequired =
-            FlightKeyboardSuppression.waiting_for_releases flightKeyboard
-            || ViewNavigationState.hook_owns_any_button state
-            || hookRemovalRetryPending
-            || (state.lifecycle = Available
-                && (ViewNavigationState.any_button_engaged state
-                    || ViewNavigationState.view_latch_engaged state))
-
-        if ViewNavigationState.fast_poll_required state then
-            ViewNavigationState.keep_timer_running state
-        elif timerRequired then
-            ViewNavigationState.keep_watchdog_running state
-        else
-            state.poll_timer.Stop()
+        apply_poll_requirement ()
     with error ->
         release_after_timer_error error
 
         try
-            state.poll_timer.Stop()
+            apply_poll_requirement ()
         with stopError ->
-            Debug.WriteLine $"RhinosCanFly mouse override timer stop: {stopError}"
+            Debug.WriteLine $"RhinosCanFly mouse override timer scheduling: {stopError}"
 
-state.poll_timer.Elapsed.Add(fun (_: EventArgs) -> poll_timer_elapsed ())
+state.poll_timer.Elapsed.Add(fun (_: EventArgs) ->
+    let startedAt = Stopwatch.GetTimestamp()
+
+    try
+        poll_timer_elapsed ()
+    finally
+        let elapsed = Stopwatch.GetTimestamp() - startedAt
+        state.poll_callback_count <- state.poll_callback_count + 1L
+        state.last_poll_duration_ticks <- elapsed
+        state.maximum_poll_duration_ticks <- max state.maximum_poll_duration_ticks elapsed)
 
 let keeps_navigation_active (commandName: string) =
     String.Equals(commandName, "RhinosCanFlyPivot", StringComparison.Ordinal)
@@ -433,12 +479,21 @@ let command_began =
             if
                 not (keeps_navigation_active event.CommandEnglishName)
                 && state.lifecycle = Available
-                && (ViewNavigationState.any_button_engaged state
+                && (state.pending_side_button_events.Count > 0
+                    || ViewNavigationState.hook_owns_any_button state
+                    || ViewNavigationState.synthetic_input_owned state
+                    || ViewNavigationState.any_button_engaged state
                     || ViewNavigationState.view_latch_engaged state)
             then
+                let ownedSyntheticInput = ViewNavigationState.synthetic_input_owned state
+
                 match ViewNavigationState.release_all state with
                 | Ok() -> ()
                 | Error error -> Debug.WriteLine $"RhinosCanFly command navigation cleanup: {error}"
+
+                if ownedSyntheticInput then
+                    RhinoApp.ReleaseMouseCapture() |> ignore
+                    InputDiagnostics.record InputDiagnostics.EventKind.ViewCaptureReleased 0L 0L
 
                 match refresh_keyboard_hook () with
                 | Ok() -> ()
@@ -448,8 +503,7 @@ let command_began =
                 | Ok() -> ()
                 | Error error -> Debug.WriteLine $"RhinosCanFly command mouse hook cleanup: {error}"
 
-                if ViewNavigationState.hook_owns_any_button state then
-                    ViewNavigationState.keep_watchdog_running state
+                apply_poll_requirement ()
         with error ->
             Debug.WriteLine $"RhinosCanFly command navigation callback: {error}")
 
@@ -470,9 +524,7 @@ let release_flight_keyboard () =
     if FlightKeyboardSuppression.waiting_for_releases flightKeyboard then
         ViewNavigationState.keep_timer_running state
 
-    match refresh_keyboard_hook () with
-    | Ok() -> ()
-    | Error error -> Debug.WriteLine $"RhinosCanFly mouse override keyboard hook: {error}"
+    refresh_keyboard_hook ()
 
 let right_click_enabled () =
     ViewLatchTransitions.right_click_enabled state
@@ -541,17 +593,19 @@ let suspend () =
         | Ok() ->
             state.lifecycle <- Suspended
 
-            match refresh_mouse_hook () with
-            | Ok() ->
-                if ViewNavigationState.hook_owns_any_button state then
-                    ViewNavigationState.keep_timer_running state
-
-                match refresh_keyboard_hook () with
-                | Ok() -> Ok()
+            let suspensionResult =
+                match refresh_mouse_hook () with
                 | Error error -> Error error
+                | Ok() -> refresh_keyboard_hook ()
+
+            match suspensionResult with
+            | Ok() -> Ok()
             | Error error ->
                 state.lifecycle <- Available
                 refresh_callback_enabled ()
+
+                refresh_mouse_hook () |> ignore
+                refresh_keyboard_hook () |> ignore
                 Error error
 
 let resume () =
@@ -565,9 +619,41 @@ let resume () =
         | Error error -> Error error
         | Ok() -> refresh_keyboard_hook ()
 
+let hook_state_name (hookState: HookState) =
+    match hookState with
+    | HookAbsent -> "absent"
+    | HookInstalled _ -> "installed"
+    | HookRemovalPending _ -> "removal pending"
+
+let retry_hook_cleanup () =
+    let errors = ResizeArray<string>()
+
+    match refresh_keyboard_hook () with
+    | Ok() -> ()
+    | Error error -> errors.Add $"keyboard hook: {error}"
+
+    match refresh_mouse_hook () with
+    | Ok() -> ()
+    | Error error -> errors.Add $"mouse hook: {error}"
+
+    apply_poll_requirement ()
+    List.ofSeq errors
+
+let diagnostic_lines () =
+    let ticksToMilliseconds (ticks: int64) =
+        float ticks * 1000. / float Stopwatch.Frequency
+
+    [| $"Lifecycle: {state.lifecycle}"
+       $"Timer: started={state.poll_timer.Started}; interval={state.poll_timer.Interval:F3}s; requirement={poll_requirement ()}"
+       $"Timer callbacks: count={state.poll_callback_count}; last={ticksToMilliseconds state.last_poll_duration_ticks:F3} ms; max={ticksToMilliseconds state.maximum_poll_duration_ticks:F3} ms"
+       $"Keyboard hook: {hook_state_name keyboard_hook_state}; active={FlightKeyboardSuppression.is_active flightKeyboard}; pending releases={flightKeyboard.suppressed_keys_down.Count}"
+       $"Mouse hook: {hook_state_name mouse_hook_state}; owned buttons={ViewNavigationState.hook_owns_any_button state}; queued events={state.pending_side_button_events.Count}"
+       $"Navigation: buttons={ViewNavigationState.any_button_engaged state}; latch={ViewNavigationState.view_latch_engaged state}; synthetic={ViewNavigationState.synthetic_input_owned state}" |]
+
 let shutdown () =
     if state.lifecycle <> ShutDown then
         state.lifecycle <- ShutDown
+        let ownedSyntheticInput = ViewNavigationState.synthetic_input_owned state
 
         try
             Command.BeginCommand.RemoveHandler command_began
@@ -575,6 +661,14 @@ let shutdown () =
             Debug.WriteLine $"RhinosCanFly command navigation handler cleanup: {error}"
 
         callback.Enabled <- false
+
+        match ViewNavigationState.release_all state with
+        | Ok() -> ()
+        | Error error -> Debug.WriteLine $"RhinosCanFly mouse override shutdown: {error}"
+
+        if ownedSyntheticInput then
+            RhinoApp.ReleaseMouseCapture() |> ignore
+
         FlightKeyboardSuppression.reset flightKeyboard
         ViewNavigationState.set_hook_owns_button state Mouse4 false
         ViewNavigationState.set_hook_owns_button state Mouse5 false
@@ -586,9 +680,5 @@ let shutdown () =
         match remove_mouse_hook () with
         | Ok() -> ()
         | Error error -> Debug.WriteLine $"RhinosCanFly mouse override hook: {error}"
-
-        match ViewNavigationState.release_all state with
-        | Ok() -> ()
-        | Error error -> Debug.WriteLine $"RhinosCanFly mouse override shutdown: {error}"
 
         state.poll_timer.Dispose()

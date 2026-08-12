@@ -51,6 +51,7 @@ type SideButtonState =
 type ViewLatchSession =
     { window: RootWindow
       mode: ViewLatchMode
+      started_at: int64
       completion: Action option }
 
 type PivotViewLatch =
@@ -68,10 +69,19 @@ type SyntheticShiftState =
     | ShiftReleased
     | ShiftPressed
 
+type SyntheticMiddleState =
+    | MiddleReleased
+    | MiddlePressed
+
 type OverrideLifecycle =
     | Available
     | Suspended
     | ShutDown
+
+type PollRequirement =
+    | PollStopped
+    | PollWatchdog
+    | PollFast
 
 type State =
     { mutable routing: RoutingConfig
@@ -80,11 +90,15 @@ type State =
       mutable mouse5: SideButtonState
       mutable view_latch: ViewLatch
       mutable synthetic_shift: SyntheticShiftState
+      mutable synthetic_middle: SyntheticMiddleState
       mutable side_button_restart_pending: bool
       mutable middle_mouse_modifiers_down: bool
       pending_side_button_events: Queue<SideButtonHookEvent>
       side_button_hook_capture: SideButtonHookCapture
       mutable navigation_exit_requested: bool
+      mutable poll_callback_count: int64
+      mutable last_poll_duration_ticks: int64
+      mutable maximum_poll_duration_ticks: int64
       poll_timer: UITimer }
 
 [<Literal>]
@@ -92,6 +106,9 @@ let poll_timer_interval_seconds = 0.015
 
 [<Literal>]
 let poll_timer_watchdog_interval_seconds = 0.25
+
+[<Literal>]
+let transition_timeout_seconds = 2.
 
 let empty_routing =
     { mouse4 = Disabled
@@ -109,9 +126,13 @@ let create_state () =
       mouse5 = Released
       view_latch = NoViewLatch
       synthetic_shift = ShiftReleased
+      synthetic_middle = MiddleReleased
       side_button_restart_pending = false
       middle_mouse_modifiers_down = false
       pending_side_button_events = Queue<SideButtonHookEvent>()
       side_button_hook_capture = { mouse4 = NotOwned; mouse5 = NotOwned }
       navigation_exit_requested = false
+      poll_callback_count = 0L
+      last_poll_duration_ticks = 0L
+      maximum_poll_duration_ticks = 0L
       poll_timer = new UITimer(Interval = poll_timer_interval_seconds) }

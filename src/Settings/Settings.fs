@@ -21,7 +21,7 @@ let current_speed (config: FlyConfigFile) =
     FlightSpeed.current document config.load_speed_from_document range config.base_speed
 
 let load (control: SettingsControl) =
-    match RuntimeSettings.current () with
+    match RuntimeSettings.settings_current () with
     | Error error ->
         control.LoadConfig ConfigSchema.defaults
         control.ShowRuntimeState(current_speed ConfigSchema.defaults, current_lens ())
@@ -42,21 +42,41 @@ let load (control: SettingsControl) =
         | messages -> control.ShowError(String.concat "; " messages)
 
 let save (control: SettingsControl) =
+    try
+        match control.ReadConfig() with
+        | Error error ->
+            control.ShowError error
+            RhinoApp.WriteLine $"RhinosCanFly settings were not saved: {error}"
+            false
+        | Ok config ->
+            let result = RuntimeSettings.save_and_apply config
+            control.RefreshRawIfVisible()
+
+            match result with
+            | Ok _ ->
+                control.ShowRuntimeState(current_speed config, current_lens ())
+                control.ClearError()
+                true
+            | Error error ->
+                control.ShowError error
+                RhinoApp.WriteLine $"RhinosCanFly settings error: {error}"
+                false
+    with error ->
+        control.ShowError error.Message
+        RhinoApp.WriteLine $"RhinosCanFly settings error: {error.Message}"
+        false
+
+let stage (control: SettingsControl) =
     match control.ReadConfig() with
     | Error error ->
         control.ShowError error
-        RhinoApp.WriteLine $"RhinosCanFly settings were not saved: {error}"
         false
     | Ok config ->
-        let result = RuntimeSettings.save_and_apply config
-        control.RefreshRawIfVisible()
-
-        match result with
+        match RuntimeSettings.stage config with
         | Ok _ ->
             control.ShowRuntimeState(current_speed config, current_lens ())
             control.ClearError()
             true
         | Error error ->
             control.ShowError error
-            RhinoApp.WriteLine $"RhinosCanFly settings error: {error}"
             false

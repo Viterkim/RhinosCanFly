@@ -6,7 +6,6 @@ open System.Globalization
 open System.Reflection
 open Eto.Drawing
 open Eto.Forms
-open Rhino
 
 type SettingsControl() as self =
     inherit Panel()
@@ -317,15 +316,7 @@ type SettingsControl() as self =
 
         actions.reset_all.Click.Add(fun (_: EventArgs) ->
             self.LoadConfig defaults
-
-            match RuntimeSettings.save_apply_and_set_speed RhinoDoc.ActiveDoc defaults defaults.base_speed with
-            | Ok _ ->
-                speedText <- ConfigSchema.format_number defaults.base_speed
-                refresh_status ()
-                self.ClearError()
-            | Error error -> self.ShowError error
-
-            refresh_raw_if_visible ())
+            self.ClearError())
 
         BindingCapture.attach_mouse_behavior bindingCapture self
         SettingsUi.use_rhino_style self
@@ -358,6 +349,8 @@ type SettingsControl() as self =
         refresh_status ()
 
     member _.RefreshRawIfVisible() = refresh_raw_if_visible ()
+
+    member _.CancelBindingCapture() = BindingCapture.cancel bindingCapture
 
     member _.LoadConfig(config: FlyConfigFile) =
         SettingsConfig.load fields.config config

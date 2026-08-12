@@ -1,5 +1,6 @@
 namespace RhinosCanFly
 
+open System
 open Rhino.Geometry
 
 [<Struct>]
@@ -7,6 +8,13 @@ type CameraState =
     { position: Point3d
       yaw: float
       pitch: float }
+
+module CameraState =
+    let finite (value: float) =
+        not (Double.IsNaN value) && not (Double.IsInfinity value)
+
+    let valid (camera: CameraState) =
+        camera.position.IsValid && finite camera.yaw && finite camera.pitch
 
 [<Struct>]
 type CameraSnapshot =
@@ -46,10 +54,7 @@ type MouseNavigationMode =
 
 module MouseNavigationMode =
     let toggle (requested: MouseNavigationMode) (current: MouseNavigationMode) =
-        match requested, current with
-        | PivotNavigation, PivotNavigation
-        | PanNavigation, PanNavigation -> LookNavigation
-        | _ -> requested
+        if requested = current then LookNavigation else requested
 
 [<Struct>]
 type MousePanUnitsPerRadian = MousePanUnitsPerRadian of units_per_radian: float

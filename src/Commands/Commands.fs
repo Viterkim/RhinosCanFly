@@ -1,13 +1,9 @@
 module RhinosCanFly.Commands
 
 open System
-open System.Diagnostics
 open Rhino
 open Rhino.Commands
 open Rhino.Input
-
-let options_capture_release_timeout = TimeSpan.FromSeconds 2.0
-let options_capture_poll_interval = TimeSpan.FromMilliseconds 20.0
 
 let with_config (run: ConfigLoadResult -> Result) =
     match RuntimeSettings.current () with
@@ -65,7 +61,7 @@ let set_speed (document: RhinoDoc) =
                 Result.Failure)
 
 let show_options (document: RhinoDoc) =
-    match PlatformInput.suspend_mouse_button_overrides () with
+    match RuntimeSettings.suspend_input () with
     | Error error ->
         RhinoApp.WriteLine
             $"RhinosCanFly Options failed: {error} Use Tools > Options > Rhinos Can Fly to change settings."
@@ -76,26 +72,25 @@ let show_options (document: RhinoDoc) =
 
         try
             try
-                let view = document.Views.ActiveView
+                let view = if isNull document then null else document.Views.ActiveView
 
-                if not (isNull view) then
-                    let releaseClock = Stopwatch.StartNew()
-
-                    while Runtime.viewport_gesture_active view
-                          && releaseClock.Elapsed < options_capture_release_timeout do
-                        PlatformInput.wait_for_input_for options_capture_poll_interval
-                        RhinoApp.Wait()
-
-                    if Runtime.viewport_gesture_active view then
-                        failwith "The active viewport did not release its mouse capture."
-
-                use dialog = new RhinosCanFlySettingsDialog()
-                dialog.ShowForRhino document
+                match
+                    if isNull view then
+                        Ok()
+                    else
+                        Runtime.release_viewport_gesture view
+                with
+                | Error error ->
+                    RhinoApp.WriteLine $"RhinosCanFly Options failed: {error}"
+                    result <- Result.Failure
+                | Ok() ->
+                    use dialog = new RhinosCanFlySettingsDialog()
+                    dialog.ShowForRhino document
             with error ->
                 RhinoApp.WriteLine $"RhinosCanFly Options failed: {error.Message}"
                 result <- Result.Failure
         finally
-            match PlatformInput.resume_mouse_button_overrides () with
+            match RuntimeSettings.resume_input () with
             | Ok() -> ()
             | Error error ->
                 RhinoApp.WriteLine $"RhinosCanFly mouse button overrides could not resume: {error}"
@@ -177,3 +172,26 @@ let pan (document: RhinoDoc) =
         PlatformInput.stop_pan
         PlatformInput.stop_pivot
         document
+
+let show_input_diagnostics () =
+    let struct (remainingRawSessions, cleanupErrors) =
+        PlatformInput.retry_raw_input_cleanup ()
+
+    let hookCleanupErrors = PlatformInput.retry_input_hook_cleanup ()
+
+    RhinoApp.WriteLine "RhinosCanFly input diagnostics"
+    RhinoApp.WriteLine $"Raw cleanup items remaining: {remainingRawSessions}"
+
+    for error in cleanupErrors do
+        RhinoApp.WriteLine $"Raw cleanup: {error}"
+
+    for error in hookCleanupErrors do
+        RhinoApp.WriteLine $"Hook cleanup: {error}"
+
+    for line in PlatformInput.input_state_diagnostic_lines () do
+        RhinoApp.WriteLine line
+
+    for line in PlatformInput.input_diagnostic_lines () do
+        RhinoApp.WriteLine line
+
+    Result.Success

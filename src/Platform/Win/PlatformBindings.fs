@@ -25,15 +25,15 @@ let key_name (key: Keys) =
     | Keys.RightControl -> "RightControl"
     | Keys.Control -> "Control"
     | Keys.Escape -> "Escape"
-    | Keys.Minus
-    | Keys.Subtract -> "Minus"
-    | Keys.Equal
-    | Keys.Add -> "Equals"
+    | Keys.Minus -> "Minus"
+    | Keys.Subtract -> "Subtract"
+    | Keys.Equal -> "Equals"
+    | Keys.Add -> "Add"
     | Keys.Comma -> "Comma"
-    | Keys.Period
-    | Keys.Decimal -> "Period"
-    | Keys.Slash
-    | Keys.Divide -> "Slash"
+    | Keys.Period -> "Period"
+    | Keys.Decimal -> "Decimal"
+    | Keys.Slash -> "Slash"
+    | Keys.Divide -> "Divide"
     | Keys.Semicolon -> "Semicolon"
     | Keys.Quote -> "Quote"
     | Keys.LeftBracket -> "LeftBracket"

@@ -8,6 +8,7 @@ open System.Drawing
 open System.Runtime.InteropServices
 open System.Text
 open Microsoft.FSharp.NativeInterop
+open RhinosCanFly
 
 let nativeInputSize = Marshal.SizeOf<Win32Native.NativeInput>()
 
@@ -32,23 +33,74 @@ let set_cursor_position (point: Point) =
     else
         Error(last_error "SetCursorPos")
 
-let clip_cursor (rectangle: Rectangle) =
+let rectangle_from_native (native: Win32Native.NativeRect) =
+    Rectangle.FromLTRB(native.left, native.top, native.right, native.bottom)
+
+let native_rectangle (rectangle: Rectangle) =
     let mutable native = Unchecked.defaultof<Win32Native.NativeRect>
     native.left <- rectangle.Left
     native.top <- rectangle.Top
     native.right <- rectangle.Right
     native.bottom <- rectangle.Bottom
+    native
+
+let get_cursor_clip () =
+    let mutable native = Unchecked.defaultof<Win32Native.NativeRect>
+
+    if Win32Native.GetClipCursor(&native) then
+        Ok(rectangle_from_native native)
+    else
+        Error(last_error "GetClipCursor")
+
+let clip_cursor (rectangle: Rectangle) =
+    let mutable native = native_rectangle rectangle
 
     if Win32Native.ClipCursorRect(&native) then
         Ok()
     else
         Error(last_error "ClipCursor")
 
-let clear_cursor_clip () =
-    if Win32Native.ClipCursorClear(nativeint 0) then
+let rec acquire_cursor_clip (rectangle: Rectangle) =
+    match get_cursor_clip () with
+    | Error error -> Error error
+    | Ok previous ->
+        match clip_cursor rectangle with
+        | Error error -> Error error
+        | Ok() ->
+            let lease =
+                { previous = previous
+                  installed = rectangle
+                  relinquished = false }
+
+            let verification = get_cursor_clip ()
+
+            match verification with
+            | Ok current when current = rectangle -> Ok lease
+            | _ ->
+                let verificationError =
+                    match verification with
+                    | Ok _ -> "The cursor clip changed before it could be verified."
+                    | Error error -> $"The cursor clip could not be verified: {error}"
+
+                match release_cursor_clip lease with
+                | Ok() -> Error verificationError
+                | Error releaseError -> Error $"{verificationError}; cleanup failed: {releaseError}"
+
+and release_cursor_clip (lease: CursorClipLease) =
+    if lease.relinquished then
         Ok()
     else
-        Error(last_error "ClipCursor(null)")
+        match get_cursor_clip () with
+        | Error error -> Error error
+        | Ok current when current <> lease.installed ->
+            lease.relinquished <- true
+            Ok()
+        | Ok _ ->
+            match clip_cursor lease.previous with
+            | Ok() ->
+                lease.relinquished <- true
+                Ok()
+            | Error error -> Error error
 
 let clear_mouse_hover (window: nativeint) =
     Win32Native.SendMessage(window, Win32Native.WM_MOUSELEAVE, nativeint 0, nativeint 0)
@@ -102,10 +154,25 @@ let wait_for_input (timeoutMilliseconds: uint32) =
     if result = Win32Native.WAIT_FAILED then
         failwith (last_error "MsgWaitForMultipleObjectsEx")
 
+let wait_for_input_handle (handle: nativeint) (timeoutMilliseconds: uint32) =
+    let handles = NativePtr.stackalloc<nativeint> 1
+    NativePtr.write handles handle
+
+    let result =
+        Win32Native.MsgWaitForMultipleObjectsEx(
+            1u,
+            NativePtr.toNativeInt handles,
+            timeoutMilliseconds,
+            Win32Native.QS_ALLINPUT,
+            Win32Native.MWMO_INPUTAVAILABLE
+        )
+
+    if result = Win32Native.WAIT_FAILED then
+        failwith (last_error "MsgWaitForMultipleObjectsEx(raw input)")
+
 [<Struct>]
 type KeyboardHookEvent =
-    { virtual_key: int
-      physical_key: int
+    { physical_key: int
       released: bool
       was_down: bool }
 
@@ -151,8 +218,7 @@ let install_keyboard_hook (handleEvent: KeyboardHookEvent -> bool) =
             let virtualKey = int wparam
 
             let event: KeyboardHookEvent =
-                { virtual_key = virtualKey
-                  physical_key = keyboard_physical_key virtualKey eventData
+                { physical_key = keyboard_physical_key virtualKey eventData
                   released = eventData &&& Win32Native.KEYBOARD_KEY_RELEASED <> 0L
                   was_down = eventData &&& Win32Native.KEYBOARD_PREVIOUSLY_DOWN <> 0L }
 
@@ -171,7 +237,7 @@ let install_keyboard_hook (handleEvent: KeyboardHookEvent -> bool) =
 
         Ok keyboardHook
 
-let install_mouse_hook (handleEvent: int -> uint32 -> nativeint -> bool) =
+let install_mouse_hook (handleEvent: int -> uint32 -> nativeint -> nativeint -> bool) =
     let mutable hook = nativeint 0
 
     let procedure =
@@ -185,9 +251,9 @@ let install_mouse_hook (handleEvent: int -> uint32 -> nativeint -> bool) =
                     || message = Win32Native.WM_XBUTTONDBLCLK)
             then
                 let data = NativePtr.read (NativePtr.ofNativeInt<Win32Native.MouseHookData> lparam)
-                let targetWindow = Win32Native.WindowFromPoint data.point
+                let pointWindow = Win32Native.WindowFromPoint data.point
 
-                if handleEvent message data.mouse_data targetWindow then
+                if handleEvent message data.mouse_data data.window pointWindow then
                     nativeint 1
                 else
                     Win32Native.CallNextHookEx(hook, code, wparam, lparam)
@@ -263,31 +329,3 @@ let send_middle_mouse (down: bool) =
 let send_shift_key (down: bool) =
     let flags = if down then 0u else Win32Native.KEYEVENTF_KEYUP
     send_inputs "SendInput(shift)" [| keyboard_input Win32Native.VK_SHIFT flags |]
-
-let start_shift_middle_mouse () =
-    match
-        try_send_inputs
-            "SendInput(shift + middle mouse)"
-            [| keyboard_input Win32Native.VK_SHIFT 0u
-               mouse_input Win32Native.MOUSEEVENTF_MIDDLEDOWN |]
-    with
-    | Ok() -> Ok()
-    | Error(struct (1u, error)) ->
-        match send_shift_key false with
-        | Ok() -> Error error
-        | Error cleanupError -> Error $"{error}; {cleanupError}"
-    | Error(struct (_, error)) -> Error error
-
-let stop_shift_middle_mouse () =
-    match
-        try_send_inputs
-            "SendInput(middle mouse + shift)"
-            [| mouse_input Win32Native.MOUSEEVENTF_MIDDLEUP
-               keyboard_input Win32Native.VK_SHIFT Win32Native.KEYEVENTF_KEYUP |]
-    with
-    | Ok() -> Ok()
-    | Error(struct (1u, error)) ->
-        match send_shift_key false with
-        | Ok() -> Ok()
-        | Error cleanupError -> Error $"{error}; {cleanupError}"
-    | Error(struct (_, error)) -> Error error

@@ -1,26 +1,27 @@
 module RhinosCanFly.Platform.Win.RawInputWake
 
-open System.Diagnostics
+open System
 open System.Threading
-open RhinosCanFly
 
 type State =
-    { window: RootWindow
-      mutable pending: int }
+    { signal: AutoResetEvent
+      handle: nativeint }
 
-let create (window: RootWindow) = { window = window; pending = 0 }
+let create () =
+    let signal = new AutoResetEvent(false)
 
-let clear (state: State) =
-    Interlocked.Exchange(&state.pending, 0) |> ignore
+    { signal = signal
+      handle = signal.SafeWaitHandle.DangerousGetHandle() }
+
+let clear (state: State) = state.signal.WaitOne(0) |> ignore
 
 let signal (state: State) =
-    if
-        Volatile.Read(&state.pending) = 0
-        && Interlocked.CompareExchange(&state.pending, 1, 0) = 0
-    then
-        let (RootWindow window) = state.window
+    try
+        state.signal.Set() |> ignore
+    with :? ObjectDisposedException ->
+        ()
 
-        if not (Win32Native.PostMessage(window, Win32Native.WM_NULL, nativeint 0, nativeint 0)) then
-            let error = Win32.last_error "PostMessage(WM_NULL)"
-            clear state
-            Debug.WriteLine $"RhinosCanFly UI wake-up failed: {error}"
+let wait (state: State) (timeoutMilliseconds: uint32) =
+    Win32.wait_for_input_handle state.handle timeoutMilliseconds
+
+let dispose (state: State) = state.signal.Dispose()

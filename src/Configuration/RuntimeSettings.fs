@@ -1,16 +1,26 @@
 module RhinosCanFly.RuntimeSettings
 
+open System
 open System.Diagnostics
 open Rhino
+open Rhino.Commands
 
 let mutable loadedConfig: ConfigLoadResult option = None
+let mutable stagedConfig: ConfigLoadResult option = None
+let mutable inputSuspensionDepth = 0
+let mutable optionsCommandDepth = 0
 
 let current () =
     match loadedConfig with
     | Some loaded -> Ok loaded
     | None -> Error "The configuration has not been loaded. Restart Rhino and try again."
 
-let apply (loaded: ConfigLoadResult) =
+let settings_current () =
+    match stagedConfig with
+    | Some staged -> Ok staged
+    | None -> current ()
+
+let apply_live (loaded: ConfigLoadResult) =
     try
         let config = loaded.config_file
 
@@ -32,56 +42,154 @@ let apply (loaded: ConfigLoadResult) =
                   exit_on_left = false
                   exit_on_right = false }
 
-        let mouseButtonResult = PlatformInput.apply_mouse_button_overrides mouseOverrides
+        match PlatformInput.apply_mouse_button_overrides mouseOverrides with
+        | Error error -> Error error
+        | Ok() ->
+            let flyEntryMode =
+                if config.enabled then
+                    config.right_click_entry_mode
+                else
+                    RightClickEntryMode.Off
 
-        let flyEntryMode =
-            if config.enabled then
-                config.right_click_entry_mode
-            else
-                RightClickEntryMode.Off
+            RightClickEntry.configure
+                { fly_entry_mode = flyEntryMode
+                  default_flight_mode = config.default_flight_mode
+                  view_manipulation_enabled = PlatformInput.mouse_button_right_click_enabled () }
 
-        RightClickEntry.configure
-            { fly_entry_mode = flyEntryMode
-              default_flight_mode = config.default_flight_mode
-              view_manipulation_enabled = PlatformInput.mouse_button_right_click_enabled () }
-
-        RepeatBehavior.apply config.commands_do_not_repeat
-        mouseButtonResult
+            RepeatBehavior.apply config.commands_do_not_repeat
+            Ok()
     with error ->
         Debug.WriteLine $"RhinosCanFly live settings: {error}"
         Error $"Could not apply live settings: {error.Message}"
 
-let apply_speed_and_settings (document: RhinoDoc) (loaded: ConfigLoadResult) (requestedSpeed: float) =
-    let config = loaded.config_file
-    let movement = loaded.config.movement
+let apply (loaded: ConfigLoadResult) =
+    if inputSuspensionDepth > 0 then Ok() else apply_live loaded
 
-    let speedResult =
-        FlightSpeed.set document config.save_speed_to_document movement.speed_range requestedSpeed
+let suspend_input () =
+    if inputSuspensionDepth > 0 then
+        inputSuspensionDepth <- inputSuspensionDepth + 1
+        Ok()
+    else
+        RightClickEntry.suspend ()
 
-    let settingsResult = apply loaded
+        match PlatformInput.suspend_mouse_button_overrides () with
+        | Ok() ->
+            inputSuspensionDepth <- 1
+            PlatformInput.record_input_suspended ()
+            Ok()
+        | Error error ->
+            RightClickEntry.resume ()
+            Error error
 
-    match speedResult, settingsResult with
-    | Ok speed, Ok() -> Ok speed
-    | Error speedError, Ok() -> Error speedError
-    | Ok _, Error settingsError -> Error settingsError
-    | Error speedError, Error settingsError -> Error $"{speedError}; {settingsError}"
+let resume_input () =
+    if inputSuspensionDepth <= 0 then
+        Ok()
+    else
+        inputSuspensionDepth <- inputSuspensionDepth - 1
 
-let save (config: FlyConfigFile) =
-    match ConfigStorage.save config with
-    | Error error -> Error $"Could not save settings: {error}"
-    | Ok loaded ->
-        loadedConfig <- Some loaded
-        Ok loaded
+        if inputSuspensionDepth > 0 then
+            Ok()
+        else
+            let applyResult =
+                match loadedConfig with
+                | Some loaded -> apply_live loaded
+                | None -> Ok()
+
+            let resumeResult = PlatformInput.resume_mouse_button_overrides ()
+            RightClickEntry.resume ()
+            PlatformInput.record_input_resumed ()
+
+            match applyResult, resumeResult with
+            | Ok(), Ok() -> Ok()
+            | Error error, Ok()
+            | Ok(), Error error -> Error error
+            | Error applyError, Error resumeError -> Error $"{applyError}; {resumeError}"
+
+let candidate (config: FlyConfigFile) =
+    let source = ConfigSchema.normalize_numbers config
+
+    match ConfigSchema.compile source with
+    | Error error -> Error error
+    | Ok runtime ->
+        Ok
+            { config_file = source
+              config = runtime
+              messages = [] }
+
+let stage (config: FlyConfigFile) =
+    match candidate config with
+    | Error error -> Error error
+    | Ok requested ->
+        stagedConfig <- Some requested
+        Ok requested
+
+let discard_staged () = stagedConfig <- None
+
+let commit_staged () =
+    match stagedConfig with
+    | None -> Ok()
+    | Some requested ->
+        stagedConfig <- None
+        let previous = loadedConfig
+
+        match apply_live requested with
+        | Error error ->
+            let rollbackError =
+                match previous with
+                | Some loaded ->
+                    match apply_live loaded with
+                    | Ok() -> None
+                    | Error rollback -> Some rollback
+                | None -> None
+
+            match rollbackError with
+            | None -> Error error
+            | Some rollback -> Error $"{error}; rollback failed: {rollback}"
+        | Ok() ->
+            match ConfigStorage.save requested.config_file with
+            | Ok saved ->
+                loadedConfig <- Some saved
+                Ok()
+            | Error error ->
+                let rollbackError =
+                    match previous with
+                    | Some loaded ->
+                        match apply_live loaded with
+                        | Ok() -> None
+                        | Error rollback -> Some rollback
+                    | None -> None
+
+                match rollbackError with
+                | None -> Error $"Could not save settings: {error}"
+                | Some rollback -> Error $"Could not save settings: {error}; rollback failed: {rollback}"
+
+let rollback_live_settings (previous: ConfigLoadResult option) =
+    match previous with
+    | Some loaded -> apply_live loaded
+    | None -> Ok()
 
 let save_and_apply (config: FlyConfigFile) =
-    match save config with
+    match candidate config with
     | Error error -> Error error
-    | Ok loaded -> apply loaded
+    | Ok requested ->
+        let previous = loadedConfig
 
-let save_apply_and_set_speed (document: RhinoDoc) (config: FlyConfigFile) (requestedSpeed: float) =
-    match save config with
-    | Error error -> Error error
-    | Ok loaded -> apply_speed_and_settings document loaded requestedSpeed
+        let applyResult = apply_live requested
+
+        match applyResult with
+        | Error error ->
+            match rollback_live_settings previous with
+            | Ok() -> Error error
+            | Error rollbackError -> Error $"{error}; rollback failed: {rollbackError}"
+        | Ok() ->
+            match ConfigStorage.save requested.config_file with
+            | Ok saved ->
+                loadedConfig <- Some saved
+                Ok saved
+            | Error error ->
+                match rollback_live_settings previous with
+                | Ok() -> Error $"Could not save settings: {error}"
+                | Error rollbackError -> Error $"Could not save settings: {error}; rollback failed: {rollbackError}"
 
 let load_and_apply () =
     match ConfigStorage.load () with
@@ -89,3 +197,41 @@ let load_and_apply () =
         loadedConfig <- Some loaded
         apply loaded
     | Error error -> Error error
+
+let is_options_command (commandName: string) =
+    String.Equals(commandName, "Options", StringComparison.OrdinalIgnoreCase)
+    || String.Equals(commandName, "OptionsPage", StringComparison.OrdinalIgnoreCase)
+    || String.Equals(commandName, "DocumentProperties", StringComparison.OrdinalIgnoreCase)
+
+let command_began =
+    EventHandler<CommandEventArgs>(fun (_: obj) (event: CommandEventArgs) ->
+        if is_options_command event.CommandEnglishName then
+            optionsCommandDepth <- optionsCommandDepth + 1
+
+            match suspend_input () with
+            | Ok() -> ()
+            | Error error -> RhinoApp.WriteLine $"RhinosCanFly input suspension failed: {error}")
+
+let command_ended =
+    EventHandler<CommandEventArgs>(fun (_: obj) (event: CommandEventArgs) ->
+        if is_options_command event.CommandEnglishName then
+            if optionsCommandDepth = 1 then
+                match commit_staged () with
+                | Ok() -> ()
+                | Error error -> RhinoApp.WriteLine $"RhinosCanFly settings error: {error}"
+
+            match resume_input () with
+            | Ok() -> ()
+            | Error error -> RhinoApp.WriteLine $"RhinosCanFly input resume failed: {error}"
+
+            optionsCommandDepth <- max 0 (optionsCommandDepth - 1))
+
+do
+    Command.BeginCommand.AddHandler command_began
+    Command.EndCommand.AddHandler command_ended
+
+let shutdown () =
+    discard_staged ()
+    optionsCommandDepth <- 0
+    Command.BeginCommand.RemoveHandler command_began
+    Command.EndCommand.RemoveHandler command_ended

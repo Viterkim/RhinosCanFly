@@ -29,4 +29,5 @@ type FlyState =
       mutable slow_enabled: bool
       mutable slow_was_down: bool
       mutable speed_increase_was_down: bool
-      mutable speed_decrease_was_down: bool }
+      mutable speed_decrease_was_down: bool
+      mutable wheel_remainder: int64 }

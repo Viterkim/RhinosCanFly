@@ -18,18 +18,14 @@ let release (state: State) =
         else
             state.view_latch <- NoViewLatch
 
-            let releaseResult =
-                match active, state.synthetic_shift with
-                | PanActive _, ShiftPressed -> Win32.stop_shift_middle_mouse ()
-                | _ -> Win32.send_middle_mouse false
+            let releaseResult = ViewNavigationState.release_synthetic_input state
 
             match releaseResult with
             | Ok() ->
-                state.synthetic_shift <- ShiftReleased
                 ViewNavigationState.stop_timer_if_idle state
                 ViewNavigationState.complete_view_latch active
             | Error error ->
-                state.view_latch <- active
+                ViewNavigationState.keep_watchdog_running state
                 Error error
 
 let complete_or_log (latch: ViewLatch) =
@@ -96,6 +92,7 @@ let handle_right_click (state: State) (window: RootWindow) =
                         WaitingForRelease
                             { window = window
                               mode = mode
+                              started_at = Stopwatch.GetTimestamp()
                               completion = None }
 
                     ViewNavigationState.keep_timer_running state
@@ -114,16 +111,11 @@ let activate (state: State) (session: ViewLatchSession) =
     else
         let result =
             match session.mode with
-            | Pivot -> Win32.send_middle_mouse true
-            | Pan -> Win32.start_shift_middle_mouse ()
+            | Pivot -> ViewNavigationState.press_synthetic_middle state
+            | Pan -> ViewNavigationState.press_synthetic_shift_middle state
 
         match result with
         | Ok() ->
-            state.synthetic_shift <-
-                match session.mode with
-                | Pivot -> ShiftReleased
-                | Pan -> ShiftPressed
-
             state.view_latch <-
                 match session.mode with
                 | Pivot ->
@@ -143,7 +135,12 @@ let update (state: State) =
     match state.view_latch with
     | NoViewLatch -> ()
     | WaitingForRelease pending ->
-        if ViewNavigationState.foreground_root_window () <> pending.window then
+        let timedOut = ViewNavigationState.transition_timed_out pending
+
+        if ViewNavigationState.foreground_root_window () <> pending.window || timedOut then
+            if timedOut then
+                InputDiagnostics.record InputDiagnostics.EventKind.NavigationTransitionTimedOut 1L 0L
+
             state.view_latch <- NoViewLatch
             ViewNavigationState.stop_timer_if_idle state
             complete_or_log (WaitingForRelease pending)
@@ -154,8 +151,14 @@ let update (state: State) =
                 complete_or_log (WaitingForRelease pending)
                 Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
     | RetryingPivot session ->
-        if ViewNavigationState.foreground_root_window () <> session.window then
+        let timedOut = ViewNavigationState.transition_timed_out session
+
+        if ViewNavigationState.foreground_root_window () <> session.window || timedOut then
+            if timedOut then
+                InputDiagnostics.record InputDiagnostics.EventKind.NavigationTransitionTimedOut 2L 0L
+
             state.view_latch <- NoViewLatch
+            ViewNavigationState.release_synthetic_input state |> ignore
             ViewNavigationState.stop_timer_if_idle state
             complete_or_log (RetryingPivot session)
         elif ViewNavigationState.any_button_holds_middle state then
@@ -165,7 +168,7 @@ let update (state: State) =
         else
             let modifiersDown = ViewNavigationState.view_modifier_down ()
 
-            match Win32.send_middle_mouse true with
+            match ViewNavigationState.press_synthetic_middle state with
             | Ok() ->
                 state.view_latch <-
                     PivotActive
@@ -188,9 +191,13 @@ let update (state: State) =
                 modifiersDown <> active.modifiers_down
                 && not (ViewNavigationState.any_button_holds_middle state)
             then
-                match Win32.send_middle_mouse false with
+                match ViewNavigationState.release_synthetic_middle state with
                 | Error error -> Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
-                | Ok() -> state.view_latch <- RetryingPivot active.session
+                | Ok() ->
+                    state.view_latch <-
+                        RetryingPivot
+                            { active.session with
+                                started_at = Stopwatch.GetTimestamp() }
     | PanActive session ->
         if ViewNavigationState.foreground_root_window () <> session.window then
             match release state with
@@ -219,6 +226,7 @@ let start (state: State) (window: RootWindow) (mode: ViewLatchMode) (completion:
         WaitingForRelease
             { window = window
               mode = mode
+              started_at = Stopwatch.GetTimestamp()
               completion = completion }
 
     ViewNavigationState.keep_timer_running state

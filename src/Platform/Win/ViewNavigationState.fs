@@ -1,5 +1,6 @@
 module RhinosCanFly.Platform.Win.ViewNavigationState
 
+open System.Diagnostics
 open RhinosCanFly
 open RhinosCanFly.Platform.Win.ViewNavigationTypes
 
@@ -87,6 +88,9 @@ let view_latch_engaged (state: State) =
 let middle_mouse_down (state: State) =
     any_button_holds_middle state || view_latch_active state
 
+let synthetic_input_owned (state: State) =
+    state.synthetic_middle = MiddlePressed || state.synthetic_shift = ShiftPressed
+
 let exit_key_down (state: State) =
     match state.routing.exit with
     | Some binding -> PlatformBindings.is_down binding
@@ -140,6 +144,49 @@ let release_synthetic_shift (state: State) =
         match Win32.send_shift_key false with
         | Ok() ->
             state.synthetic_shift <- ShiftReleased
+            InputDiagnostics.record InputDiagnostics.EventKind.SyntheticShiftUp 0L 0L
+            Ok()
+        | Error error -> Error error
+
+let release_synthetic_middle (state: State) =
+    match state.synthetic_middle with
+    | MiddleReleased -> Ok()
+    | MiddlePressed ->
+        match Win32.send_middle_mouse false with
+        | Ok() ->
+            state.synthetic_middle <- MiddleReleased
+            InputDiagnostics.record InputDiagnostics.EventKind.SyntheticMiddleUp 0L 0L
+            Ok()
+        | Error error -> Error error
+
+let release_synthetic_input (state: State) =
+    let errors = ResizeArray<string>()
+
+    match release_synthetic_middle state with
+    | Ok() -> ()
+    | Error error -> errors.Add error
+
+    match release_synthetic_shift state with
+    | Ok() -> ()
+    | Error error -> errors.Add error
+
+    if errors.Count = 0 then
+        Ok()
+    else
+        Error(String.concat "; " errors)
+
+let press_synthetic_middle (state: State) =
+    if state.synthetic_middle = MiddlePressed then
+        Ok()
+    elif state.synthetic_shift = ShiftPressed then
+        Error "Another mouse override already owns synthetic Shift."
+    elif Win32Native.GetAsyncKeyState Win32Native.VK_MBUTTON < 0s then
+        Error "The physical middle mouse button is already down."
+    else
+        match Win32.send_middle_mouse true with
+        | Ok() ->
+            state.synthetic_middle <- MiddlePressed
+            InputDiagnostics.record InputDiagnostics.EventKind.SyntheticMiddleDown 0L 0L
             Ok()
         | Error error -> Error error
 
@@ -155,17 +202,66 @@ let alt_down () =
 
 let view_modifier_down () = shift_down () || alt_down ()
 
+let transition_timed_out (session: ViewLatchSession) =
+    let elapsedTicks = Stopwatch.GetTimestamp() - session.started_at
+    float elapsedTicks / float Stopwatch.Frequency >= transition_timeout_seconds
+
+let press_synthetic_shift_middle (state: State) =
+    if synthetic_input_owned state then
+        Error "Another mouse override already owns synthetic input."
+    elif Win32Native.GetAsyncKeyState Win32Native.VK_MBUTTON < 0s then
+        Error "The physical middle mouse button is already down."
+    elif view_modifier_down () then
+        Error "Release Shift and Alt before starting pan."
+    else
+        match
+            Win32.try_send_inputs
+                "SendInput(shift + middle mouse)"
+                [| Win32.keyboard_input Win32Native.VK_SHIFT 0u
+                   Win32.mouse_input Win32Native.MOUSEEVENTF_MIDDLEDOWN |]
+        with
+        | Ok() ->
+            state.synthetic_shift <- ShiftPressed
+            state.synthetic_middle <- MiddlePressed
+            InputDiagnostics.record InputDiagnostics.EventKind.SyntheticShiftDown 0L 0L
+            InputDiagnostics.record InputDiagnostics.EventKind.SyntheticMiddleDown 0L 0L
+            Ok()
+        | Error(struct (sent, error)) ->
+            if sent >= 1u then
+                state.synthetic_shift <- ShiftPressed
+
+            if sent >= 2u then
+                state.synthetic_middle <- MiddlePressed
+
+            match release_synthetic_input state with
+            | Ok() -> Error error
+            | Error cleanupError -> Error $"{error}; cleanup failed: {cleanupError}"
+
 let keep_timer_running (state: State) =
+    let changed =
+        not state.poll_timer.Started
+        || state.poll_timer.Interval <> poll_timer_interval_seconds
+
     state.poll_timer.Interval <- poll_timer_interval_seconds
 
     if not state.poll_timer.Started then
         state.poll_timer.Start()
 
+    if changed then
+        InputDiagnostics.record InputDiagnostics.EventKind.TimerFast 0L 0L
+
 let keep_watchdog_running (state: State) =
+    let changed =
+        not state.poll_timer.Started
+        || state.poll_timer.Interval <> poll_timer_watchdog_interval_seconds
+
     state.poll_timer.Interval <- poll_timer_watchdog_interval_seconds
 
     if not state.poll_timer.Started then
         state.poll_timer.Start()
+
+    if changed then
+        InputDiagnostics.record InputDiagnostics.EventKind.TimerWatchdog 0L 0L
 
 let fast_poll_required (state: State) =
     state.pending_side_button_events.Count > 0
@@ -179,7 +275,11 @@ let fast_poll_required (state: State) =
        | PanActive _ -> false
 
 let stop_timer_if_idle (state: State) =
-    if not (any_button_engaged state) && not (view_latch_engaged state) then
+    if
+        not (any_button_engaged state)
+        && not (view_latch_engaged state)
+        && not (synthetic_input_owned state)
+    then
         state.poll_timer.Stop()
 
 let root_window (window: nativeint) =
@@ -209,48 +309,26 @@ let complete_view_latch (latch: ViewLatch) =
             Error $"Could not restore the original view: {error.Message}"
 
 let release_all (state: State) =
-    let previousMouse4 = state.mouse4
-    let previousMouse5 = state.mouse5
     let previousViewLatch = state.view_latch
-    let hadMiddleMouseDown = middle_mouse_down state
-    let restartPending = state.side_button_restart_pending
 
     state.mouse4 <- Released
     state.mouse5 <- Released
     state.view_latch <- NoViewLatch
     state.side_button_restart_pending <- false
+    state.middle_mouse_modifiers_down <- false
+    state.navigation_exit_requested <- false
+    clear_pending_hook_events state
 
-    if not hadMiddleMouseDown || restartPending then
-        match release_synthetic_shift state with
-        | Ok() ->
-            state.middle_mouse_modifiers_down <- false
-            state.navigation_exit_requested <- false
-            clear_pending_hook_events state
-            state.poll_timer.Stop()
-            complete_view_latch previousViewLatch
-        | Error error ->
-            state.mouse4 <- previousMouse4
-            state.mouse5 <- previousMouse5
-            state.view_latch <- previousViewLatch
-            state.side_button_restart_pending <- restartPending
-            Error error
+    let releaseResult = release_synthetic_input state
+    let completionResult = complete_view_latch previousViewLatch
+
+    if synthetic_input_owned state then
+        keep_watchdog_running state
     else
-        let releaseResult =
-            match state.synthetic_shift with
-            | ShiftPressed -> Win32.stop_shift_middle_mouse ()
-            | ShiftReleased -> Win32.send_middle_mouse false
+        state.poll_timer.Stop()
 
-        match releaseResult with
-        | Error error ->
-            state.mouse4 <- previousMouse4
-            state.mouse5 <- previousMouse5
-            state.view_latch <- previousViewLatch
-            state.side_button_restart_pending <- restartPending
-            Error error
-        | Ok() ->
-            state.synthetic_shift <- ShiftReleased
-            state.middle_mouse_modifiers_down <- false
-            state.navigation_exit_requested <- false
-            clear_pending_hook_events state
-            state.poll_timer.Stop()
-            complete_view_latch previousViewLatch
+    match releaseResult, completionResult with
+    | Ok(), Ok() -> Ok()
+    | Error error, Ok()
+    | Ok(), Error error -> Error error
+    | Error releaseError, Error completionError -> Error $"{releaseError}; {completionError}"

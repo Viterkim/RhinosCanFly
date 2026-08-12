@@ -6,9 +6,6 @@ open System.Runtime.InteropServices
 open System.Text
 
 [<Literal>]
-let WM_NULL = 0x0000
-
-[<Literal>]
 let WM_MOUSELEAVE = 0x02A3
 
 [<Literal>]
@@ -46,9 +43,6 @@ let MWMO_INPUTAVAILABLE = 0x0004u
 
 [<Literal>]
 let WAIT_FAILED = 0xFFFFFFFFu
-
-[<Literal>]
-let INFINITE = 0xFFFFFFFFu
 
 [<Literal>]
 let WH_KEYBOARD = 2
@@ -208,14 +202,20 @@ extern bool SetCursorPos(int x, int y)
 [<DllImport("user32.dll", EntryPoint = "ClipCursor", SetLastError = true)>]
 extern bool ClipCursorRect(NativeRect& rectangle)
 
-[<DllImport("user32.dll", EntryPoint = "ClipCursor", SetLastError = true)>]
-extern bool ClipCursorClear(nativeint rectangle)
+[<DllImport("user32.dll", SetLastError = true)>]
+extern bool GetClipCursor(NativeRect& rectangle)
 
 [<DllImport("user32.dll")>]
 extern int ShowCursor(bool show)
 
 [<DllImport("user32.dll")>]
 extern bool IsChild(nativeint parent, nativeint window)
+
+[<DllImport("user32.dll")>]
+extern bool IsWindow(nativeint window)
+
+[<DllImport("user32.dll")>]
+extern bool IsWindowEnabled(nativeint window)
 
 [<DllImport("user32.dll")>]
 extern nativeint GetForegroundWindow()

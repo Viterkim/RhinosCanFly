@@ -20,7 +20,7 @@ module Speed =
             else
                 requestedSpeed
 
-        finiteSpeed |> Math.Ceiling |> max range.minimum |> min range.maximum
+        finiteSpeed |> max range.minimum |> min range.maximum
 
     let try_parse (text: string) =
         if String.IsNullOrWhiteSpace text then

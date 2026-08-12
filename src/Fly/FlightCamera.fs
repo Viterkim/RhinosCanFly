@@ -5,10 +5,23 @@ open Rhino.Display
 open Rhino.Geometry
 
 let navigation_target (view: RhinoView) (gumballTarget: Point3d option) =
+    let viewport = view.ActiveViewport
+
+    let valid_target (target: Point3d) =
+        let mutable direction = viewport.CameraDirection
+        let offset = target - viewport.CameraLocation
+        let distance = offset.Length
+
+        target.IsValid
+        && direction.Unitize()
+        && RhinoMath.IsValidDouble distance
+        && distance > RhinoMath.ZeroTolerance
+        && Vector3d.Multiply(offset, direction) > RhinoMath.ZeroTolerance
+
     match gumballTarget with
-    | Some target -> target
+    | Some target when valid_target target -> target
+    | Some _
     | None ->
-        let viewport = view.ActiveViewport
         let cameraLocation = viewport.CameraLocation
         let cameraTarget = viewport.CameraTarget
         let mutable cameraDirection = viewport.CameraDirection
@@ -22,6 +35,7 @@ let navigation_target (view: RhinoView) (gumballTarget: Point3d option) =
             && viewport.GetDepth(visibleBounds, &nearDistance, &farDistance)
             && RhinoMath.IsValidDouble nearDistance
             && RhinoMath.IsValidDouble farDistance
+            && nearDistance > RhinoMath.ZeroTolerance
             && farDistance > RhinoMath.ZeroTolerance
         then
             let targetDepth = Vector3d.Multiply(cameraTarget - cameraLocation, cameraDirection)
@@ -82,16 +96,47 @@ let apply_mouse_input (input: InputAccumulator.State) (state: FlyState) =
     if dx = 0L && dy = 0L then
         NoCameraChange
     else
-        match state.active_mouse_navigation with
-        | MouseLook ->
-            state.camera <- Movement.look state.config.mouse dx dy state.camera
-            DirectionChanged
-        | MousePivot target ->
-            state.camera <- Movement.mouse_pivot state.config.mouse target dx dy state.camera
-            PositionAndDirectionChanged
-        | MousePan unitsPerRadian ->
-            state.camera <- Movement.mouse_pan state.config.mouse unitsPerRadian dx dy state.camera
-            PositionChanged
+        let previous = state.camera
+
+        let change =
+            match state.active_mouse_navigation with
+            | MouseLook ->
+                state.camera <- Movement.look state.config.mouse dx dy state.camera
+
+                if state.camera.yaw <> previous.yaw || state.camera.pitch <> previous.pitch then
+                    DirectionChanged
+                else
+                    NoCameraChange
+            | MousePivot target ->
+                state.camera <- Movement.mouse_pivot state.config.mouse target dx dy state.camera
+
+                let positionChanged = state.camera.position <> previous.position
+
+                let directionChanged =
+                    state.camera.yaw <> previous.yaw || state.camera.pitch <> previous.pitch
+
+                if positionChanged then
+                    if directionChanged then
+                        PositionAndDirectionChanged
+                    else
+                        PositionChanged
+                elif directionChanged then
+                    DirectionChanged
+                else
+                    NoCameraChange
+            | MousePan unitsPerRadian ->
+                state.camera <- Movement.mouse_pan state.config.mouse unitsPerRadian dx dy state.camera
+
+                if state.camera.position <> previous.position then
+                    PositionChanged
+                else
+                    NoCameraChange
+
+        if CameraState.valid state.camera then
+            change
+        else
+            state.restore_camera_on_exit <- true
+            failwith "Mouse input produced an invalid camera state."
 
 let apply (state: FlyState) (change: CameraChange) =
     let changed =

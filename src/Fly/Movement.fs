@@ -22,6 +22,8 @@ let maximum_orbit_angle_per_frame = Math.PI / 2.
 let keyboard_pivot_radians_per_second = Math.PI / 6.
 let maximum_pitch_radians = RhinoMath.ToRadians 89.
 
+let wrap_yaw (yaw: float) = Math.IEEERemainder(yaw, Math.PI * 2.)
+
 [<Struct>]
 type MouseAngleDeltas =
     { yaw_delta: float; pitch_delta: float }
@@ -58,7 +60,7 @@ let look (config: FlyingMouseConfig) (mouseDx: int64) (mouseDy: int64) (camera: 
     let rotation = clamped_mouse_angle_deltas config 1. mouseDx mouseDy camera
 
     { camera with
-        yaw = camera.yaw + rotation.yaw_delta
+        yaw = wrap_yaw (camera.yaw + rotation.yaw_delta)
         pitch = camera.pitch + rotation.pitch_delta }
 
 let rotate_vector (axis: Vector3d) (angle: float) (vector: Vector3d) =
@@ -152,27 +154,17 @@ let step (config: MovementConfig) (input: InputSnapshot) (keyPivotTarget: Point3
     let amount (positive: bool) (negative: bool) =
         (if positive then 1. else 0.) - if negative then 1. else 0.
 
-    let mutable forward_amount = amount input.forward input.backward
-    let mutable right_amount = amount input.right input.left
-    let mutable vertical_amount = amount input.up input.down
+    let forwardAmount = amount input.forward input.backward
+    let rightAmount = amount input.right input.left
+    let verticalAmount = amount input.up input.down
 
-    if config.normalize_diagonal_movement then
-        let length =
-            Math.Sqrt(
-                forward_amount * forward_amount
-                + right_amount * right_amount
-                + vertical_amount * vertical_amount
-            )
+    let mutable movement =
+        forward * forwardAmount
+        + right * rightAmount
+        + Vector3d.ZAxis * verticalAmount * config.vertical_speed_multiplier
 
-        if length > 0. then
-            forward_amount <- forward_amount / length
-            right_amount <- right_amount / length
-            vertical_amount <- vertical_amount / length
-
-    let movement =
-        forward * forward_amount
-        + right * right_amount
-        + Vector3d.ZAxis * vertical_amount * config.vertical_speed_multiplier
+    if config.normalize_diagonal_movement && movement.SquareLength > 1. then
+        movement.Unitize() |> ignore
 
     let translated =
         { position = camera.position + movement * input.move_speed * dt

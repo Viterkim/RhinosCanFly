@@ -5,7 +5,7 @@ open System.Threading
 type State =
     { mutable mouse_dx: int64
       mutable mouse_dy: int64
-      mutable wheel_delta: int
+      mutable wheel_delta: int64
       mutable pivot_toggle_requests: int
       mutable pivot_held: int
       mutable exit_requested: int }
@@ -13,7 +13,7 @@ type State =
 let create () =
     { mouse_dx = 0L
       mouse_dy = 0L
-      wheel_delta = 0
+      wheel_delta = 0L
       pivot_toggle_requests = 0
       pivot_held = 0
       exit_requested = 0 }
@@ -26,7 +26,7 @@ let add_mouse (dx: int) (dy: int) (state: State) =
         Interlocked.Add(&state.mouse_dy, int64 dy) |> ignore
 
 let add_wheel (delta: int) (state: State) =
-    Interlocked.Add(&state.wheel_delta, delta) |> ignore
+    Interlocked.Add(&state.wheel_delta, int64 delta) |> ignore
 
 let request_exit (state: State) =
     Interlocked.Exchange(&state.exit_requested, 1) |> ignore
@@ -41,7 +41,7 @@ let drain_mouse (state: State) =
     struct (Interlocked.Exchange(&state.mouse_dx, 0L), Interlocked.Exchange(&state.mouse_dy, 0L))
 
 let drain_wheel (state: State) =
-    Interlocked.Exchange(&state.wheel_delta, 0)
+    Interlocked.Exchange(&state.wheel_delta, 0L)
 
 let drain_pivot_toggles (state: State) =
     Interlocked.Exchange(&state.pivot_toggle_requests, 0)
@@ -50,3 +50,9 @@ let pivot_held (state: State) = Volatile.Read(&state.pivot_held) <> 0
 
 let exit_requested (state: State) =
     Volatile.Read(&state.exit_requested) <> 0
+
+let discard_transient_input (state: State) =
+    Interlocked.Exchange(&state.mouse_dx, 0L) |> ignore
+    Interlocked.Exchange(&state.mouse_dy, 0L) |> ignore
+    Interlocked.Exchange(&state.wheel_delta, 0L) |> ignore
+    Interlocked.Exchange(&state.pivot_toggle_requests, 0) |> ignore

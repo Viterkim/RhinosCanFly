@@ -8,6 +8,11 @@ type RootWindow = RootWindow of nativeint
 [<Struct>]
 type CursorPosition = CursorPosition of Point
 
+type CursorClipLease =
+    { previous: Rectangle
+      installed: Rectangle
+      mutable relinquished: bool }
+
 type RawInputConfig =
     { exit_on_mouse_left: bool
       exit_on_mouse_right: bool

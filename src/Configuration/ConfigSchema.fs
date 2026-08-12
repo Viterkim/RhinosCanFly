@@ -160,6 +160,26 @@ let compile (source: FlyConfigFile) =
         then
             errors.Add "forced_lens_length_mm plus lens_length_delta_mm must be a positive finite number"
 
+    let derivedValues =
+        let combinedMovementMultiplier = source.boost_multiplier * source.slow_multiplier
+
+        let maximumMovementMultiplier =
+            max 1. (max source.boost_multiplier (max source.slow_multiplier combinedMovementMultiplier))
+
+        [ "combined boost and slow multiplier", combinedMovementMultiplier
+          "maximum movement speed", source.maximum_speed * maximumMovementMultiplier
+          "maximum vertical movement speed",
+          source.maximum_speed
+          * maximumMovementMultiplier
+          * source.vertical_speed_multiplier
+          "key pivot angular speed", source.key_pivot_speed_multiplier * Math.PI / 6.
+          "mouse pivot sensitivity", source.mouse_sensitivity * source.mouse_pivot_multiplier
+          "mouse pan sensitivity", source.mouse_sensitivity * source.mouse_pan_multiplier ]
+
+    for name, value in derivedValues do
+        if Double.IsNaN value || Double.IsInfinity value then
+            errors.Add $"{name} is too large"
+
     let config: FlyConfig =
         { bindings =
             { forward = required "forward" source.forward

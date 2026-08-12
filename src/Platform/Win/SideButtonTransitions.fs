@@ -18,7 +18,7 @@ let begin_hold (state: State) (button: SideButton) (window: RootWindow) =
         ViewNavigationState.set_button_state state button (HoldActive window)
         ViewNavigationState.keep_timer_running state
     else
-        match Win32.send_middle_mouse true with
+        match ViewNavigationState.press_synthetic_middle state with
         | Ok() ->
             ViewNavigationState.set_button_state state button (HoldActive window)
             state.side_button_restart_pending <- false
@@ -41,7 +41,7 @@ let finish (state: State) (button: SideButton) =
                     state.side_button_restart_pending <- false
                     Ok()
                 else
-                    Win32.send_middle_mouse false
+                    ViewNavigationState.release_synthetic_middle state
 
             match releaseResult with
             | Ok() ->
@@ -64,7 +64,7 @@ let update_middle_mouse_modifiers (state: State) =
         let modifiersDown = ViewNavigationState.view_modifier_down ()
 
         if state.side_button_restart_pending then
-            match Win32.send_middle_mouse true with
+            match ViewNavigationState.press_synthetic_middle state with
             | Ok() ->
                 state.side_button_restart_pending <- false
                 state.middle_mouse_modifiers_down <- modifiersDown
@@ -75,7 +75,7 @@ let update_middle_mouse_modifiers (state: State) =
                 | Ok() -> ()
                 | Error cleanupError -> Debug.WriteLine $"RhinosCanFly mouse override cleanup: {cleanupError}"
         elif modifiersDown <> state.middle_mouse_modifiers_down then
-            match Win32.send_middle_mouse false with
+            match ViewNavigationState.release_synthetic_middle state with
             | Ok() -> state.side_button_restart_pending <- true
             | Error error -> Debug.WriteLine $"RhinosCanFly mouse override: {error}"
 
@@ -91,7 +91,7 @@ let stop_toggle (state: State) (button: SideButton) (nextState: SideButtonState)
                 state.side_button_restart_pending <- false
                 Ok()
             else
-                Win32.send_middle_mouse false
+                ViewNavigationState.release_synthetic_middle state
 
         match releaseResult with
         | Ok() ->
@@ -116,7 +116,7 @@ let toggle (state: State) (button: SideButton) (window: RootWindow) =
         if ViewNavigationState.middle_mouse_down state then
             start ()
         else
-            match Win32.send_middle_mouse true with
+            match ViewNavigationState.press_synthetic_middle state with
             | Ok() ->
                 state.side_button_restart_pending <- false
                 state.middle_mouse_modifiers_down <- ViewNavigationState.view_modifier_down ()
