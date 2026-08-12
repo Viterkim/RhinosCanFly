@@ -13,26 +13,32 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
     let clock = Stopwatch.StartNew()
     let mutable previousFrame = clock.Elapsed.TotalSeconds
     let mutable movementActive = false
+    let mutable rawInputReady = false
 
-    while state.running do
+    while FlyState.is_running state do
         PlatformInput.record_flight_loop_iteration ()
 
-        if not movementActive then
+        if not movementActive && not rawInputReady then
             PlatformInput.wait_for_raw_input inputWake stationary_input_watchdog
 
         let waitStarted = Stopwatch.GetTimestamp()
         RhinoApp.Wait()
         PlatformInput.record_rhino_wait (Stopwatch.GetTimestamp() - waitStarted)
-        PlatformInput.clear_raw_input_wake inputWake
+        let observedRevision = InputAccumulator.work_revision rawInput
         FlightControls.update_state rawInput state
+        let mutable mouseChange = NoCameraChange
 
-        if not state.running then
+        if not (FlyState.is_running state) then
             InputAccumulator.discard_transient_input rawInput
         else
             FlightControls.update_keyboard_navigation_input state
             FlightCamera.update_navigation_mode rawInput state
-            let mouseChange = FlightCamera.apply_mouse_input rawInput state
+            mouseChange <- FlightCamera.apply_mouse_input rawInput state
 
+        PlatformInput.acknowledge_raw_input_wake inputWake
+        rawInputReady <- InputAccumulator.work_pending_since observedRevision rawInput
+
+        if FlyState.is_running state then
             let mutable movementChanged =
                 match mouseChange with
                 | PositionChanged
@@ -92,8 +98,8 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
             previousFrame <- now
             movementActive <- currentlyMoving
 
-            // keep this boring without 'match movementChanged, directionChanged'
-            // because it fucking spits out a 'newobj System.Tuple<bool, bool>' on every iter (so heap gg)
+            // Keep this boring instead of matching a tuple. The F# tuple form
+            // allocates System.Tuple<bool, bool> in this hot path.
             if movementChanged then
                 if directionChanged then
                     FlightCamera.apply state PositionAndDirectionChanged

@@ -62,7 +62,14 @@ let set_speed (document: RhinoDoc) =
                 Result.Failure)
 
 let show_options (document: RhinoDoc) =
-    match RuntimeSettings.suspend_input InputSuspensionReason.CustomOptions with
+    let suspensionResult =
+        try
+            RuntimeSettings.suspend_input InputSuspensionReason.CustomOptions
+        with error ->
+            PlatformInput.record_runtime_exception "RhinosCanFly custom Options suspension failed" error
+            Error error.Message
+
+    match suspensionResult with
     | Error error ->
         RhinoApp.WriteLine
             $"RhinosCanFly Options failed: {error} Use Tools > Options > Rhinos Can Fly to change settings."
@@ -90,23 +97,33 @@ let show_options (document: RhinoDoc) =
                         RhinoApp.WriteLine $"RhinosCanFly Options failed: {error}"
                         result <- Result.Failure
                     | Ok() ->
-                        use dialog = new RhinosCanFlySettingsDialog()
-                        dialog.ShowForRhino document
+                        let dialogStarted = PlatformInput.record_custom_dialog_show_begin ()
+                        let mutable closedRecorded = false
 
-                        if dialog.Saved then
-                            match RuntimeSettings.commit_staged () with
-                            | Ok() -> ()
-                            | Error error ->
-                                RhinoApp.WriteLine $"RhinosCanFly settings error: {error}"
-                                result <- Result.Failure
-                        else
-                            RuntimeSettings.discard_staged ()
+                        try
+                            use dialog = new RhinosCanFlySettingsDialog()
+                            let mutable shownRecorded = false
+
+                            dialog.Shown.Add(fun (_: EventArgs) ->
+                                if not shownRecorded then
+                                    shownRecorded <- true
+                                    PlatformInput.record_custom_dialog_shown dialogStarted)
+
+                            dialog.Closed.Add(fun (_: EventArgs) ->
+                                if not closedRecorded then
+                                    closedRecorded <- true
+                                    PlatformInput.record_custom_dialog_closed dialogStarted)
+
+                            dialog.ShowForRhino document
+                        finally
+                            if not closedRecorded then
+                                closedRecorded <- true
+                                PlatformInput.record_custom_dialog_closed dialogStarted
             with error ->
+                PlatformInput.record_runtime_exception "RhinosCanFly custom Options command failed" error
                 RhinoApp.WriteLine $"RhinosCanFly Options failed: {error.Message}"
                 result <- Result.Failure
         finally
-            RuntimeSettings.discard_staged ()
-
             match RuntimeSettings.resume_input suspension with
             | Ok() -> ()
             | Error error ->
@@ -157,11 +174,13 @@ let toggle_view_manipulation
                             if DefaultFlightMode.restores_solo_commands loaded.config_file.default_flight_mode then
                                 let viewport = view.ActiveViewport
                                 let snapshot = CameraSnapshot.capture viewport
+                                let host = PlatformInput.capture_flight_host view
 
                                 Some(
                                     Action(fun () ->
-                                        CameraSnapshot.restore viewport snapshot
-                                        FlightRedraw.redraw loaded.config.behavior.viewport_redraw_mode view)
+                                        if PlatformInput.flight_host_is_foreground host view then
+                                            CameraSnapshot.restore viewport snapshot
+                                            FlightRedraw.redraw loaded.config.behavior.viewport_redraw_mode view)
                                 )
                             else
                                 None
@@ -198,6 +217,9 @@ let show_input_diagnostics () =
     lines.Add $"Raw cleanup items: {PlatformInput.raw_input_recovery_count ()}"
     lines.Add $"Cursor clip cleanup items: {PlatformInput.cursor_clip_recovery_count ()}"
     lines.Add(RightClickEntry.diagnostic_line ())
+
+    for line in RuntimeSettings.diagnostic_lines () do
+        lines.Add line
 
     for line in PlatformInput.input_state_diagnostic_lines () do
         lines.Add line
@@ -239,10 +261,20 @@ let recover_input () =
     for error in cursorErrors do
         RhinoApp.WriteLine $"Cursor clip cleanup: {error}"
 
-    if remainingRawSessions = 0 && remainingCursorClips = 0 && List.isEmpty hookErrors then
+    let nativeRecoveryComplete =
+        remainingRawSessions = 0 && remainingCursorClips = 0 && List.isEmpty hookErrors
+
+    let settingsRecovery =
+        if nativeRecoveryComplete then
+            RuntimeSettings.complete_input_recovery ()
+        else
+            Error "Native input cleanup is incomplete."
+
+    match settingsRecovery with
+    | Ok() ->
         Runtime.recovery_completed ()
         RhinoApp.WriteLine "Input recovery completed."
         Result.Success
-    else
-        RhinoApp.WriteLine "Input recovery is incomplete. Restart Rhino before flying again."
+    | Error error ->
+        RhinoApp.WriteLine $"Input recovery is incomplete: {error} Restart Rhino before flying again."
         Result.Failure

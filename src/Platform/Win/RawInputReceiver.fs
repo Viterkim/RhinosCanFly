@@ -150,6 +150,7 @@ type RawInputReceiver
             && (mouse.last_x <> 0 || mouse.last_y <> 0)
 
         if mouseMoved then
+            InputDiagnostics.record_raw_mouse_movement ()
             InputAccumulator.add_mouse mouse.last_x mouse.last_y input
 
         let flags = RawInputNative.button_flags mouse
@@ -220,14 +221,17 @@ type RawInputReceiver
             config.middle_mouse_while_flying = FlyingMiddleMouseMode.ExitFlying
             && flags &&& RawInputNative.middle_button_up <> 0us
 
-        let exitRequested =
-            heldEntryReleased
-            || leftExitRequested
-            || rightExitRequested
-            || middleExitRequested
+        let exitReason =
+            if heldEntryReleased then
+                Some RightMouseReleased
+            elif leftExitRequested || rightExitRequested || middleExitRequested then
+                Some ExplicitKeepCamera
+            else
+                None
 
-        if exitRequested then
-            InputAccumulator.request_exit input
+        match exitReason with
+        | Some reason -> InputAccumulator.request_exit reason input
+        | None -> ()
 
         if
             mouseMoved
@@ -235,7 +239,7 @@ type RawInputReceiver
             || mouse4HeldChanged
             || mouse5HeldChanged
             || pivotToggleRequested
-            || exitRequested
+            || Option.isSome exitReason
         then
             inputAvailable.Invoke()
 

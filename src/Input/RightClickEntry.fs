@@ -160,6 +160,8 @@ type RightClickCallback() =
         let handler =
             EventHandler(fun (_: obj) (_: EventArgs) ->
                 try
+                    retry_handler_cleanup ()
+
                     if not (fly_entry_enabled ()) then
                         clear_gesture ()
 
@@ -278,13 +280,13 @@ type RightClickCallback() =
         this.Enabled <- not suspended && (fly_entry_enabled () || config.view_manipulation_enabled)
 
     member this.Suspend() =
-        suspended <- true
         clear_gesture ()
         this.Enabled <- false
+        suspended <- true
 
     member this.Resume() =
-        suspended <- false
         this.Enabled <- fly_entry_enabled () || PlatformInput.mouse_button_right_click_enabled ()
+        suspended <- false
 
     member this.DiagnosticLine() =
         let description =
@@ -298,15 +300,16 @@ type RightClickCallback() =
 
                 $"fly entry age={age:F3}s; document={entry.document_serial_number}; view={entry.view_serial_number}"
 
-        $"Right click: enabled={this.Enabled}; suspended={suspended}; gesture={description}"
+        $"Right click: enabled={this.Enabled}; suspended={suspended}; gesture={description}; retained handlers={handlerCleanup.Count}"
 
     member this.Shutdown() =
-        this.Configure
-            { fly_entry_mode = RightClickEntryMode.Off
-              default_flight_mode = DefaultFlightMode.Normal
-              view_manipulation_enabled = false }
-
-        retry_handler_cleanup ()
+        try
+            this.Configure
+                { fly_entry_mode = RightClickEntryMode.Off
+                  default_flight_mode = DefaultFlightMode.Normal
+                  view_manipulation_enabled = false }
+        finally
+            retry_handler_cleanup ()
 
 let callback = RightClickCallback()
 

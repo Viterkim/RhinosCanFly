@@ -13,8 +13,6 @@ type State =
     { configured: ConfiguredKeys
       passthrough_keys_down: HashSet<int>
       suppressed_keys_down: HashSet<int>
-      release_observed_keys: HashSet<int>
-      released_keys: ResizeArray<int>
       mutable active: bool }
 
 let create () =
@@ -25,8 +23,6 @@ let create () =
           either_alt = false }
       passthrough_keys_down = HashSet<int>()
       suppressed_keys_down = HashSet<int>()
-      release_observed_keys = HashSet<int>()
-      released_keys = ResizeArray<int>()
       active = false }
 
 let clear_configured (state: State) =
@@ -69,7 +65,6 @@ let add_passthrough_if_down (state: State) (physicalKey: int) =
 
 let start (bindings: FlightBindings) (state: State) =
     clear_configured state
-    state.release_observed_keys.Clear()
     state.active <- true
     add_binding state bindings.forward
     add_binding state bindings.backward
@@ -115,11 +110,8 @@ let stop (state: State) =
 let reset (state: State) =
     stop state
     state.suppressed_keys_down.Clear()
-    state.release_observed_keys.Clear()
-    state.released_keys.Clear()
 
 let own_key_down (physicalKey: int) (state: State) =
-    state.release_observed_keys.Remove physicalKey |> ignore
     state.suppressed_keys_down.Add physicalKey |> ignore
 
 let suppress_key_down (physicalKey: int) (state: State) = own_key_down physicalKey state
@@ -135,8 +127,6 @@ let handle_event (event: Win32.KeyboardHookEvent) (state: State) =
     let physicalKey = event.physical_key
 
     if event.released then
-        state.release_observed_keys.Remove physicalKey |> ignore
-
         if state.suppressed_keys_down.Remove physicalKey then
             state.passthrough_keys_down.Remove physicalKey |> ignore
             true
@@ -148,7 +138,6 @@ let handle_event (event: Win32.KeyboardHookEvent) (state: State) =
             true
         else
             state.suppressed_keys_down.Remove physicalKey |> ignore
-            state.release_observed_keys.Remove physicalKey |> ignore
             classify_fresh_key_down physicalKey state
     elif state.passthrough_keys_down.Contains physicalKey then
         if event.was_down then
@@ -159,25 +148,4 @@ let handle_event (event: Win32.KeyboardHookEvent) (state: State) =
     else
         classify_fresh_key_down physicalKey state
 
-let requires_hook (state: State) =
-    state.active || state.suppressed_keys_down.Count > 0
-
 let is_active (state: State) = state.active
-
-let prune_released_keys (state: State) =
-    state.released_keys.Clear()
-
-    for virtualKey in state.suppressed_keys_down do
-        if Win32Native.GetAsyncKeyState virtualKey < 0s then
-            state.release_observed_keys.Remove virtualKey |> ignore
-        elif state.release_observed_keys.Contains virtualKey then
-            state.released_keys.Add virtualKey
-        else
-            state.release_observed_keys.Add virtualKey |> ignore
-
-    for virtualKey in state.released_keys do
-        state.release_observed_keys.Remove virtualKey |> ignore
-        state.suppressed_keys_down.Remove virtualKey |> ignore
-
-let waiting_for_releases (state: State) =
-    not state.active && state.suppressed_keys_down.Count > 0

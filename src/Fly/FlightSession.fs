@@ -64,34 +64,10 @@ let attempt_cleanup (errors: ResizeArray<string>) (name: string) (action: unit -
         errors.Add $"{name}: {error_message error}"
         false
 
-let defer_to_main_loop (action: Action) =
-    let mutable handler: EventHandler = null
-    let mutable completed = false
-
-    handler <-
-        EventHandler(fun (_: obj) (_: EventArgs) ->
-            try
-                RhinoApp.MainLoop.RemoveHandler handler
-            with error ->
-                Debug.WriteLine $"RhinosCanFly deferred cleanup handler: {error.Message}"
-
-            if not completed then
-                completed <- true
-
-                try
-                    action.Invoke()
-                with error ->
-                    RhinoApp.WriteLine $"RhinosCanFly deferred cleanup failed: {error_message error}")
-
-    try
-        RhinoApp.MainLoop.AddHandler handler
-    with error ->
-        Debug.WriteLine $"RhinosCanFly deferred cleanup scheduling: {error.Message}"
-
 let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
     match sessionState with
     | Flying -> Error "Fly mode is already running."
-    | RestartRequired -> Error "Raw input did not shut down cleanly. Restart Rhino before using fly mode again."
+    | RestartRequired -> Error "Input cleanup did not finish safely. Run RhinosCanFlyInputRecover or restart Rhino."
     | Ready ->
         sessionState <- Flying
 
@@ -100,7 +76,6 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
         let mutable inputSafe = true
         let mutable overrideSuspension: InputSuspensionLease option = None
         let mutable keyboardSuppressed = false
-        let mutable deferredExitTarget: Action option = None
 
         let flightResult =
             try
@@ -139,7 +114,9 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                 let mutable tooltipsChanged = false
                 let mutable gumballChanged = false
                 let mutable cameraMutated = false
+                let mutable lensChanged = false
                 let mutable flightEntered = false
+                let mutable rawInputFailed = false
 
                 let activeResult =
                     try
@@ -156,6 +133,8 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                             try
                                 PlatformInput.open_raw_input rawInputConfig sessionMode rawInput inputAvailable
                             with error ->
+                                FlightExit.request (SessionFailure(error.ToString())) state
+
                                 if PlatformInput.raw_input_start_requires_restart error then
                                     rawInputClean <- false
 
@@ -169,25 +148,43 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                             && not (PlatformInput.right_mouse_button_down ())
 
                         if heldEntryReleased then
-                            state.running <- false
+                            FlightExit.request RightMouseReleased state
                         else
-                            CursorTooltipSettings.TooltipsEnabled <- false
+                            let invalidHost =
+                                if not (PlatformInput.flight_host_is_active state.host_identity state.view) then
+                                    Some HostInvalid
+                                elif PlatformInput.foreground_root_window () <> state.root_window then
+                                    Some FocusLost
+                                else
+                                    None
+
+                            match invalidHost with
+                            | Some reason ->
+                                state.restore_camera_on_exit <- true
+                                FlightExit.request reason state
+                                failwith "The active Rhino document, viewport, or window changed before flight began."
+                            | None -> ()
+
                             tooltipsChanged <- true
+                            CursorTooltipSettings.TooltipsEnabled <- false
                             PlatformInput.clear_mouse_hover view
                             PlatformInput.dismiss_native_tooltips state.root_window
 
                             if state.config.behavior.hide_gumball && originalGumballEnabled then
-                                ModelAidSettings.AutoGumballEnabled <- false
                                 gumballChanged <- true
+                                ModelAidSettings.AutoGumballEnabled <- false
 
                             match PlatformInput.acquire_cursor_clip view with
                             | Ok lease -> cursorClip <- Some lease
                             | Error error -> failwith error
 
-                            state.viewport.CameraUp <- Vector3d.ZAxis
                             cameraMutated <- true
-                            PlatformInput.hide_cursor ()
+                            state.viewport.CameraUp <- Vector3d.ZAxis
                             cursorHidden <- true
+                            PlatformInput.hide_cursor ()
+
+                            let adjustment = state.config.behavior.lens_adjustment
+                            lensChanged <- Option.isSome adjustment.forced_length_mm || adjustment.delta_mm <> 0.
                             FlightCamera.apply_entry_lens state
                             FlightRedraw.redraw state.config.behavior.viewport_redraw_mode view
                             flightEntered <- true
@@ -198,14 +195,35 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                         if flightEntered then
                             state.restore_camera_on_exit <- true
 
+                        FlightExit.request (SessionFailure(error.ToString())) state
+
                         Error(error_message error)
 
                 match raw with
                 | Some session ->
-                    PlatformInput.request_raw_input_stop session |> ignore
+                    let stopRequested =
+                        attempt_cleanup cleanupErrors "raw input stop request" (fun () ->
+                            match PlatformInput.request_raw_input_stop session with
+                            | Ok() -> ()
+                            | Error error -> failwith error)
 
-                    if PlatformInput.raw_input_runtime_failed session then
+                    if not stopRequested then
+                        rawInputFailed <- true
+                        rawInputClean <- false
                         state.restore_camera_on_exit <- true
+                        FlightExit.request (SessionFailure "Could not request raw-input shutdown.") state
+
+                    let runtimeFailed =
+                        try
+                            PlatformInput.raw_input_runtime_failed session
+                        with error ->
+                            cleanupErrors.Add $"raw input status: {error_message error}"
+                            true
+
+                    if runtimeFailed then
+                        rawInputFailed <- true
+                        state.restore_camera_on_exit <- true
+                        FlightExit.request (SessionFailure "The raw-input worker failed during flight.") state
                 | None -> ()
 
                 if keyboardSuppressed then
@@ -233,16 +251,71 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                 | None -> ()
 
                 if cursorHidden then
-                    attempt_cleanup cleanupErrors "cursor visibility" (fun () -> PlatformInput.show_cursor ())
-                    |> ignore
+                    let restored =
+                        attempt_cleanup cleanupErrors "cursor visibility" (fun () -> PlatformInput.show_cursor ())
 
-                attempt_cleanup cleanupErrors "cursor position" (fun () ->
-                    match
-                        PlatformInput.restore_cursor_position_if_foreground state.root_window state.original_cursor
-                    with
-                    | Ok() -> ()
-                    | Error error -> failwith error)
+                    if not restored then
+                        inputSafe <- false
+
+                match raw with
+                | None -> ()
+                | Some session ->
+                    try
+                        try
+                            let outcome = PlatformInput.close_raw_input session
+                            rawInputClean <- outcome.terminated && outcome.registration_relinquished
+
+                            if not (List.isEmpty outcome.errors) then
+                                rawInputFailed <- true
+
+                            for error in outcome.errors do
+                                cleanupErrors.Add $"raw input shutdown: {error}"
+                        with error ->
+                            rawInputFailed <- true
+                            rawInputClean <- false
+                            cleanupErrors.Add $"raw input shutdown: {error_message error}"
+                            FlightExit.request (SessionFailure(error.ToString())) state
+                    finally
+                        raw <- None
+
+                attempt_cleanup cleanupErrors "raw input wake" (fun () ->
+                    PlatformInput.dispose_raw_input_wake inputWake)
                 |> ignore
+
+                let recordedExitReason =
+                    FlyState.exit_reason state
+                    |> Option.defaultValue (
+                        if state.restore_camera_on_exit then
+                            ExplicitRestoreCamera
+                        else
+                            ExplicitKeepCamera
+                    )
+
+                let exitReason =
+                    match activeResult with
+                    | Error _ when not (FlightExitReason.is_explicit recordedExitReason) -> recordedExitReason
+                    | Error error -> SessionFailure error
+                    | Ok() when rawInputFailed -> SessionFailure "The raw-input worker failed during flight."
+                    | Ok() -> recordedExitReason
+
+                if exitReason <> recordedExitReason then
+                    PlatformInput.record_flight_exit
+                        (FlightExit.reason_code exitReason)
+                        state.root_window
+                        (PlatformInput.foreground_root_window ())
+
+                let skipBackgroundDisplay = FlightExitReason.skips_background_display exitReason
+
+                if skipBackgroundDisplay then
+                    InputAccumulator.discard_transient_input rawInput
+                else
+                    attempt_cleanup cleanupErrors "cursor position" (fun () ->
+                        match
+                            PlatformInput.restore_cursor_position_if_foreground state.root_window state.original_cursor
+                        with
+                        | Ok() -> ()
+                        | Error error -> failwith error)
+                    |> ignore
 
                 let restoreCamera =
                     state.restore_camera_on_exit || (cameraMutated && not flightEntered)
@@ -258,27 +331,36 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                     else
                         true
 
-                if hostExists then
+                if lensChanged && hostExists then
                     attempt_cleanup cleanupErrors "lens" (fun () ->
                         state.viewport.Camera35mmLensLength <- state.original_lens_length)
                     |> ignore
 
-                if
+                let targetRequested =
                     flightEntered
+                    && FlightExitReason.is_explicit exitReason
                     && state.config.behavior.auto_pivot_target_on_exit <> AutoPivotTargetMode.Off
                     && (not restoreCamera
                         || (cameraRestored && state.config.behavior.retarget_restored_flights))
-                then
-                    deferredExitTarget <-
-                        Some(
-                            Action(fun () ->
-                                if PlatformInput.flight_host_exists state.host_identity state.view then
-                                    ExitPivotTarget.apply
-                                        state.config.behavior.auto_pivot_target_on_exit
-                                        state.viewport
 
-                                    FlightRedraw.redraw state.config.behavior.viewport_redraw_mode state.view)
-                        )
+                let display_is_safe () =
+                    rawInputClean
+                    && inputSafe
+                    && not skipBackgroundDisplay
+                    && PlatformInput.flight_host_is_foreground state.host_identity state.view
+
+                if targetRequested then
+                    if display_is_safe () then
+                        let started = PlatformInput.record_exit_target_begin ()
+
+                        try
+                            attempt_cleanup cleanupErrors "pivot target" (fun () ->
+                                ExitPivotTarget.apply state.config.behavior.auto_pivot_target_on_exit state.viewport)
+                            |> ignore
+                        finally
+                            PlatformInput.record_exit_target_end started
+                    else
+                        PlatformInput.record_exit_target_skipped ()
 
                 if tooltipsChanged then
                     attempt_cleanup cleanupErrors "tooltips" (fun () ->
@@ -303,24 +385,10 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                         | Error error -> failwith error)
                     |> ignore
 
-                if hostExists then
+                if flightEntered && display_is_safe () then
                     attempt_cleanup cleanupErrors "redraw" (fun () ->
                         FlightRedraw.redraw state.config.behavior.viewport_redraw_mode view)
                     |> ignore
-
-                match raw with
-                | None -> ()
-                | Some session ->
-                    let outcome = PlatformInput.close_raw_input session
-                    raw <- None
-                    rawInputClean <- outcome.terminated && outcome.registration_relinquished
-
-                    for error in outcome.errors do
-                        cleanupErrors.Add $"raw input shutdown: {error}"
-
-                attempt_cleanup cleanupErrors "raw input wake" (fun () ->
-                    PlatformInput.dispose_raw_input_wake inputWake)
-                |> ignore
 
                 activeResult
             with error ->
@@ -362,9 +430,6 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                 Ready
             else
                 RestartRequired
-
-        if sessionState = Ready then
-            deferredExitTarget |> Option.iter defer_to_main_loop
 
         let cleanupMessage = String.concat "; " cleanupErrors
 

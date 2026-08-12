@@ -3,9 +3,16 @@ namespace RhinosCanFly
 open System.Diagnostics
 open System.Reflection
 open Eto.Forms
+open Rhino
 open Rhino.UI
 
 module SettingsUi =
+    let report_error (message: string) =
+        try
+            RhinoApp.WriteLine message
+        with error ->
+            Debug.WriteLine $"{message}; output failed: {error.Message}"
+
     let useRhinoStyleMethod =
         typeof<EtoExtensions>
             .GetMethod("UseRhinoStyle", BindingFlags.Public ||| BindingFlags.Static, null, [| typeof<Control> |], null)

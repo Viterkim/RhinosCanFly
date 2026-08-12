@@ -43,17 +43,26 @@ let flight_host_exists (identity: FlightHostIdentity) (view: RhinoView) =
         && view.RuntimeSerialNumber = identity.view_serial_number
         && not (isNull view.Document)
         && view.Document.RuntimeSerialNumber = identity.document_serial_number
+        && not (isNull (RhinoView.FromRuntimeSerialNumber identity.view_serial_number))
+        && expectedHandle <> nativeint 0
+        && Win32Native.IsWindow expectedHandle
+        && view.Handle = expectedHandle
+    with _ ->
+        false
+
+let flight_host_is_active (identity: FlightHostIdentity) (view: RhinoView) =
+    try
+        flight_host_exists identity view
         && not (isNull Rhino.RhinoDoc.ActiveDoc)
         && Rhino.RhinoDoc.ActiveDoc.RuntimeSerialNumber = identity.document_serial_number
         && not (isNull view.Document.Views.ActiveView)
         && view.Document.Views.ActiveView.RuntimeSerialNumber = identity.view_serial_number
-        && view.Handle = expectedHandle
         && root_window view = identity.root_window
     with _ ->
         false
 
-let flight_host_valid (identity: FlightHostIdentity) (view: RhinoView) =
-    flight_host_exists identity view
+let flight_host_is_foreground (identity: FlightHostIdentity) (view: RhinoView) =
+    flight_host_is_active identity view
     && foreground_root_window () = identity.root_window
 
 let get_cursor_position () =
@@ -126,8 +135,8 @@ let create_raw_input_wake () =
 let raw_input_wake_action (wake: RawInputWake) =
     Action(fun () -> RhinosCanFly.Platform.Win.RawInputWake.signal wake)
 
-let clear_raw_input_wake (wake: RawInputWake) =
-    RhinosCanFly.Platform.Win.RawInputWake.clear wake
+let acknowledge_raw_input_wake (wake: RawInputWake) =
+    RhinosCanFly.Platform.Win.RawInputWake.acknowledge wake
 
 let wait_for_raw_input (wake: RawInputWake) (timeout: TimeSpan) =
     let milliseconds =
@@ -242,3 +251,29 @@ let retry_input_hook_cleanup () =
 
 let input_state_diagnostic_lines () =
     MouseButtonOverrides.diagnostic_lines ()
+
+let record_runtime_exception (context: string) (error: exn) =
+    InputDiagnostics.record_exception context error
+
+let record_custom_dialog_show_begin () =
+    InputDiagnostics.record_custom_dialog_show_begin ()
+
+let record_custom_dialog_shown (started: int64) =
+    InputDiagnostics.record_custom_dialog_shown started
+
+let record_custom_dialog_closed (started: int64) =
+    InputDiagnostics.record_custom_dialog_closed started
+
+let record_flight_exit (reasonCode: int64) (expectedRoot: RootWindow) (foregroundRoot: RootWindow) =
+    let (RootWindow expected) = expectedRoot
+    let (RootWindow foreground) = foregroundRoot
+    InputDiagnostics.record_flight_exit reasonCode (expected.ToInt64()) (foreground.ToInt64())
+
+let record_exit_target_begin () =
+    InputDiagnostics.record_exit_target_begin ()
+
+let record_exit_target_end (started: int64) =
+    InputDiagnostics.record_exit_target_end started
+
+let record_exit_target_skipped () =
+    InputDiagnostics.record_exit_target_skipped ()

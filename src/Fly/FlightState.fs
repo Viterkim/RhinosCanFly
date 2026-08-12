@@ -46,7 +46,7 @@ let create (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode
       keyboard_held_mouse_navigation = LookNavigation
       keyboard_pivot_toggle_was_down = FlightControls.is_optional_down mouseNavigationBindings.pivot.toggle
       keyboard_pan_toggle_was_down = FlightControls.is_optional_down mouseNavigationBindings.pan.toggle
-      running = true
+      exit_reason = None
       restore_camera_on_exit = sessionMode.flight_mode = FlightMode.Temporary
       camera =
         { position = viewport.CameraLocation

@@ -156,14 +156,6 @@ let process_hook_events (state: State) =
 
     ViewNavigationState.stop_timer_if_idle state
 
-let lost_focus (foreground: RootWindow) (buttonState: SideButtonState) =
-    match buttonState with
-    | HoldActive window
-    | TogglePressed window
-    | ToggleLatched window -> foreground <> window
-    | Released
-    | ToggleReleasePressed -> false
-
 let poll (state: State) (button: SideButton) =
     match ViewNavigationState.get_button_state state button with
     | Released -> ()

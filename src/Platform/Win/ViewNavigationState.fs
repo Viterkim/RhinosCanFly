@@ -14,10 +14,13 @@ let set_button_state (state: State) (button: SideButton) (buttonState: SideButto
     | Mouse4 -> state.mouse4 <- buttonState
     | Mouse5 -> state.mouse5 <- buttonState
 
-let hook_owns_button (state: State) (button: SideButton) =
+let hook_button_ownership (state: State) (button: SideButton) =
     match button with
-    | Mouse4 -> state.side_button_hook_capture.mouse4 <> NotOwned
-    | Mouse5 -> state.side_button_hook_capture.mouse5 <> NotOwned
+    | Mouse4 -> state.side_button_hook_capture.mouse4
+    | Mouse5 -> state.side_button_hook_capture.mouse5
+
+let hook_owns_button (state: State) (button: SideButton) =
+    hook_button_ownership state button <> NotOwned
 
 let set_hook_owns_button (state: State) (button: SideButton) (owned: bool) =
     let ownership = if owned then Owned else NotOwned
@@ -92,8 +95,6 @@ let synthetic_input_owned (state: State) =
     state.synthetic_middle <> MiddleReleased
     || state.synthetic_shift <> ShiftReleased
 
-let synthetic_shift_owned (state: State) = state.synthetic_shift <> ShiftReleased
-
 [<Literal>]
 let left_shift_bit = 1
 
@@ -116,33 +117,43 @@ let observe_physical_shift (state: State) (virtualKey: int) (released: bool) =
 
 let observe_physical_middle (state: State) (down: bool) = state.physical_middle_down <- down
 
-let reconcile_release_pending_physical_input (state: State) =
-    if state.synthetic_shift = ShiftReleasePending then
-        let mutable physicalShiftKeys = 0
+let exit_key_is_down (state: State) (virtualKey: int) =
+    if virtualKey = Win32Native.VK_MBUTTON && state.synthetic_middle <> MiddleReleased then
+        state.physical_middle_down
+    elif virtualKey = Win32Native.VK_SHIFT && state.synthetic_shift <> ShiftReleased then
+        state.physical_shift_keys_down <> 0
+    elif virtualKey = Win32Native.VK_LSHIFT && state.synthetic_shift <> ShiftReleased then
+        state.physical_shift_keys_down &&& left_shift_bit <> 0
+    elif virtualKey = Win32Native.VK_RSHIFT && state.synthetic_shift <> ShiftReleased then
+        state.physical_shift_keys_down &&& right_shift_bit <> 0
+    elif virtualKey = Win32Native.VK_RBUTTON then
+        match state.view_latch with
+        | WaitingForRelease _ -> false
+        | NoViewLatch
+        | RetryingPivot _
+        | PivotActive _
+        | PanActive _ -> Win32Native.GetAsyncKeyState virtualKey < 0s
+    else
+        Win32Native.GetAsyncKeyState virtualKey < 0s
 
-        if Win32Native.GetAsyncKeyState Win32Native.VK_LSHIFT < 0s then
-            physicalShiftKeys <- physicalShiftKeys ||| left_shift_bit
-
-        if Win32Native.GetAsyncKeyState Win32Native.VK_RSHIFT < 0s then
-            physicalShiftKeys <- physicalShiftKeys ||| right_shift_bit
-
-        state.physical_shift_keys_down <- physicalShiftKeys
-
-    if state.synthetic_middle = MiddleReleasePending then
-        state.physical_middle_down <- Win32Native.GetAsyncKeyState Win32Native.VK_MBUTTON < 0s
+let rec exit_keys_down (state: State) (keys: VirtualKey list) =
+    match keys with
+    | [] -> true
+    | VirtualKey key :: remaining -> exit_key_is_down state key && exit_keys_down state remaining
 
 let exit_key_down (state: State) =
     match state.routing.exit with
-    | Some binding -> PlatformBindings.is_down binding
+    | Some binding -> exit_keys_down state binding.virtual_keys
     | None -> false
+
+let rec binding_contains_key (virtualKey: int) (keys: VirtualKey list) =
+    match keys with
+    | [] -> false
+    | VirtualKey key :: remaining -> key = virtualKey || binding_contains_key virtualKey remaining
 
 let exit_binding_contains (state: State) (virtualKey: int) =
     match state.routing.exit with
-    | Some binding ->
-        binding.virtual_keys
-        |> List.exists (fun (configuredKey: VirtualKey) ->
-            let (VirtualKey key) = configuredKey
-            key = virtualKey)
+    | Some binding -> binding_contains_key virtualKey binding.virtual_keys
     | None -> false
 
 let key_matches_event (key: VirtualKey) (eventKey: int) =
@@ -156,17 +167,23 @@ let key_matches_event (key: VirtualKey) (eventKey: int) =
     || (requiredKey = Win32Native.VK_MENU
         && (eventKey = Win32Native.VK_LMENU || eventKey = Win32Native.VK_RMENU))
 
+let rec binding_contains_event_key (eventKey: int) (keys: VirtualKey list) =
+    match keys with
+    | [] -> false
+    | key :: remaining -> key_matches_event key eventKey || binding_contains_event_key eventKey remaining
+
+let rec exit_binding_keys_down_for_event (state: State) (eventKey: int) (keys: VirtualKey list) =
+    match keys with
+    | [] -> true
+    | (VirtualKey key as requiredKey) :: remaining ->
+        (key_matches_event requiredKey eventKey || exit_key_is_down state key)
+        && exit_binding_keys_down_for_event state eventKey remaining
+
 let exit_binding_down_for_event (state: State) (eventKey: int) =
     match state.routing.exit with
-    | Some binding when
-        binding.virtual_keys
-        |> List.exists (fun (key: VirtualKey) -> key_matches_event key eventKey)
-        ->
-        binding.virtual_keys
-        |> List.forall (fun (requiredKey: VirtualKey) ->
-            let (VirtualKey key) = requiredKey
-            key_matches_event requiredKey eventKey || Win32Native.GetAsyncKeyState key < 0s)
-    | Some _
+    | Some binding ->
+        binding_contains_event_key eventKey binding.virtual_keys
+        && exit_binding_keys_down_for_event state eventKey binding.virtual_keys
     | None -> false
 
 let left_mouse_exit_enabled (state: State) =
@@ -219,6 +236,34 @@ let release_synthetic_input (state: State) =
     match release_synthetic_shift state with
     | Ok() -> ()
     | Error error -> errors.Add error
+
+    if not (synthetic_input_owned state) then
+        state.pending_synthetic_release_root <- ValueNone
+
+    if errors.Count = 0 then
+        Ok()
+    else
+        Error(String.concat "; " errors)
+
+let force_release_synthetic_input (state: State) =
+    let errors = ResizeArray<string>()
+
+    if state.synthetic_middle <> MiddleReleased then
+        match Win32.send_middle_mouse false with
+        | Ok() ->
+            state.synthetic_middle <- MiddleReleased
+            InputDiagnostics.record InputDiagnostics.EventKind.SyntheticMiddleUp 0L 0L
+        | Error error -> errors.Add error
+
+    if state.synthetic_shift <> ShiftReleased then
+        match Win32.send_shift_key false with
+        | Ok() ->
+            state.synthetic_shift <- ShiftReleased
+            InputDiagnostics.record InputDiagnostics.EventKind.SyntheticShiftUp 0L 0L
+        | Error error -> errors.Add error
+
+    if not (synthetic_input_owned state) then
+        state.pending_synthetic_release_root <- ValueNone
 
     if errors.Count = 0 then
         Ok()
@@ -294,12 +339,12 @@ let press_synthetic_shift_middle (state: State) =
 
 let keep_timer_running (state: State) =
     let changed =
-        not state.poll_timer.Started
-        || state.poll_timer.Interval <> poll_timer_interval_seconds
+        not state.poll_timer.Enabled
+        || state.poll_timer.Interval <> poll_timer_interval_milliseconds
 
-    state.poll_timer.Interval <- poll_timer_interval_seconds
+    state.poll_timer.Interval <- poll_timer_interval_milliseconds
 
-    if not state.poll_timer.Started then
+    if not state.poll_timer.Enabled then
         state.poll_timer.Start()
 
     if changed then
@@ -307,12 +352,12 @@ let keep_timer_running (state: State) =
 
 let keep_watchdog_running (state: State) =
     let changed =
-        not state.poll_timer.Started
-        || state.poll_timer.Interval <> poll_timer_watchdog_interval_seconds
+        not state.poll_timer.Enabled
+        || state.poll_timer.Interval <> poll_timer_watchdog_interval_milliseconds
 
-    state.poll_timer.Interval <- poll_timer_watchdog_interval_seconds
+    state.poll_timer.Interval <- poll_timer_watchdog_interval_milliseconds
 
-    if not state.poll_timer.Started then
+    if not state.poll_timer.Enabled then
         state.poll_timer.Start()
 
     if changed then
@@ -322,12 +367,8 @@ let fast_poll_required (state: State) =
     state.pending_side_button_events.Count > 0
     || state.navigation_exit_requested
     || state.side_button_restart_pending
-    || match state.view_latch with
-       | WaitingForRelease _
-       | RetryingPivot _ -> true
-       | NoViewLatch
-       | PivotActive _
-       | PanActive _ -> false
+    || (state.lifecycle = Available
+        && (any_button_engaged state || view_latch_engaged state))
 
 let stop_timer_if_idle (state: State) =
     if
@@ -344,6 +385,39 @@ let root_window (window: nativeint) =
 
 let foreground_root_window () =
     RootWindow(Win32Native.GetForegroundWindow())
+
+let active_navigation_root (state: State) =
+    match state.view_latch with
+    | WaitingForRelease session
+    | RetryingPivot session
+    | PanActive session -> ValueSome session.window
+    | PivotActive active -> ValueSome active.session.window
+    | NoViewLatch ->
+        // Keep this boring instead of matching a tuple. This runs on the
+        // navigation timer, and the tuple form allocates every time.
+        match state.mouse4 with
+        | HoldActive window
+        | TogglePressed window
+        | ToggleLatched window -> ValueSome window
+        | Released
+        | ToggleReleasePressed ->
+            match state.mouse5 with
+            | HoldActive window
+            | TogglePressed window
+            | ToggleLatched window -> ValueSome window
+            | Released
+            | ToggleReleasePressed -> ValueNone
+
+let navigation_root (state: State) =
+    match active_navigation_root state with
+    | ValueSome window -> ValueSome window
+    | ValueNone -> state.pending_synthetic_release_root
+
+let remember_pending_synthetic_release (state: State) (root: RootWindow voption) =
+    if synthetic_input_owned state then
+        state.pending_synthetic_release_root <- root
+    else
+        state.pending_synthetic_release_root <- ValueNone
 
 let view_latch_completion (latch: ViewLatch) =
     match latch with
@@ -389,7 +463,7 @@ let complete_view_latch_after_input_release (state: State) (latch: ViewLatch) =
     else
         complete_view_latch latch
 
-let release_all (state: State) =
+let clear_navigation (state: State) =
     let previousViewLatch = state.view_latch
 
     state.mouse4 <- Released
@@ -399,9 +473,9 @@ let release_all (state: State) =
     state.middle_mouse_modifiers_down <- false
     state.navigation_exit_requested <- false
     clear_pending_hook_events state
+    previousViewLatch
 
-    let releaseResult = release_synthetic_input state
-
+let finish_navigation_release (state: State) (previousViewLatch: ViewLatch) (releaseResult: Result<unit, string>) =
     let completionResult =
         complete_view_latch_after_input_release state previousViewLatch
 
@@ -434,3 +508,17 @@ let release_all (state: State) =
         Ok()
     else
         Error(String.concat "; " errors)
+
+let release_all (state: State) =
+    let previousRoot = navigation_root state
+    let previousViewLatch = clear_navigation state
+    let releaseResult = release_synthetic_input state
+    remember_pending_synthetic_release state previousRoot
+    finish_navigation_release state previousViewLatch releaseResult
+
+let release_all_after_focus_loss (state: State) =
+    let previousRoot = navigation_root state
+    let previousViewLatch = clear_navigation state
+    let releaseResult = force_release_synthetic_input state
+    remember_pending_synthetic_release state previousRoot
+    finish_navigation_release state previousViewLatch releaseResult

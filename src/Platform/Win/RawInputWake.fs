@@ -15,9 +15,8 @@ let create () =
       handle = signal.SafeWaitHandle.DangerousGetHandle()
       pending = 0 }
 
-let clear (state: State) =
+let acknowledge (state: State) =
     Interlocked.Exchange(&state.pending, 0) |> ignore
-    state.signal.WaitOne(0) |> ignore
 
 let signal (state: State) =
     if Interlocked.CompareExchange(&state.pending, 1, 0) = 0 then

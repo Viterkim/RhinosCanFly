@@ -6,6 +6,8 @@ open RhinosCanFly
 open RhinosCanFly.Platform.Win.ViewNavigationTypes
 
 let release (state: State) =
+    let navigationRoot = ViewNavigationState.navigation_root state
+
     match state.view_latch with
     | NoViewLatch -> Ok()
     | (WaitingForRelease _ | RetryingPivot _) as inactive ->
@@ -19,6 +21,7 @@ let release (state: State) =
             state.view_latch <- NoViewLatch
 
             let releaseResult = ViewNavigationState.release_synthetic_input state
+            ViewNavigationState.remember_pending_synthetic_release state navigationRoot
 
             match releaseResult with
             | Ok() ->
@@ -134,6 +137,7 @@ let activate (state: State) (session: ViewLatchSession) =
             Ok()
         | Error error ->
             state.view_latch <- NoViewLatch
+            ViewNavigationState.remember_pending_synthetic_release state (ValueSome session.window)
             ViewNavigationState.stop_timer_if_idle state
             Error error
 
@@ -165,6 +169,7 @@ let update (state: State) =
 
             state.view_latch <- NoViewLatch
             let releaseResult = ViewNavigationState.release_synthetic_input state
+            ViewNavigationState.remember_pending_synthetic_release state (ValueSome session.window)
 
             match ViewNavigationState.complete_view_latch_after_input_release state (RetryingPivot session) with
             | Ok() -> ()

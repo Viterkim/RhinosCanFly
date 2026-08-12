@@ -129,6 +129,7 @@ let run_thread
     (startup: StartupState)
     =
     let mutable receiver: RawInputReceiver option = None
+    let mutable readyPublished = false
 
     try
         try
@@ -143,7 +144,7 @@ let run_thread
                     if Option.isNone startup.result.runtime_error then
                         startup.result.runtime_error <- Some error
 
-                    InputAccumulator.request_exit input
+                    InputAccumulator.request_exit (SessionFailure(error.ToString())) input
                     inputAvailable.Invoke())
 
             let created =
@@ -156,6 +157,9 @@ let run_thread
             | Some error -> startup.result.startup_error <- Some error
             | None -> ()
 
+            // Publish before Set so a waiting thread cannot dispose the event
+            // while this thread still classifies failures as startup failures.
+            readyPublished <- true
             startup.ready.Set()
 
             if
@@ -171,16 +175,16 @@ let run_thread
                 created.RequestStop()
                 Application.Run()
         with error ->
-            if
-                Option.isNone startup.result.startup_error
-                && Option.isNone startup.result.runtime_error
-            then
+            if not readyPublished then
                 startup.result.startup_error <- Some error
+                readyPublished <- true
                 startup.ready.Set()
-            elif Option.isNone startup.result.runtime_error then
-                Debug.WriteLine $"RhinosCanFly raw-input thread failed: {error.Message}"
-                startup.result.runtime_error <- Some error
-                InputAccumulator.request_exit input
+            else
+                if Option.isNone startup.result.runtime_error then
+                    Debug.WriteLine $"RhinosCanFly raw-input thread failed: {error.Message}"
+                    startup.result.runtime_error <- Some error
+
+                InputAccumulator.request_exit (SessionFailure(error.ToString())) input
                 inputAvailable.Invoke()
 
             match receiver with

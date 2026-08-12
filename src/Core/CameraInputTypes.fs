@@ -3,6 +3,35 @@ namespace RhinosCanFly
 open System
 open Rhino.Geometry
 
+type FlightExitReason =
+    | ExplicitKeepCamera
+    | ExplicitRestoreCamera
+    | RightMouseReleased
+    | FocusLost
+    | HostInvalid
+    | SessionFailure of error: string
+
+module FlightExitReason =
+    let is_explicit (reason: FlightExitReason) =
+        match reason with
+        | ExplicitKeepCamera
+        | ExplicitRestoreCamera
+        | RightMouseReleased -> true
+        | FocusLost
+        | HostInvalid
+        | SessionFailure _ -> false
+
+    let skips_background_display (reason: FlightExitReason) =
+        match reason with
+        | FocusLost
+        | HostInvalid
+        | SessionFailure _ -> true
+        | ExplicitKeepCamera
+        | ExplicitRestoreCamera
+        | RightMouseReleased -> false
+
+    let restores_camera (reason: FlightExitReason) = reason = ExplicitRestoreCamera
+
 [<Struct>]
 type CameraState =
     { position: Point3d

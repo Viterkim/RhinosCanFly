@@ -21,7 +21,7 @@ type FlyState =
       mutable keyboard_held_mouse_navigation: MouseNavigationMode
       mutable keyboard_pivot_toggle_was_down: bool
       mutable keyboard_pan_toggle_was_down: bool
-      mutable running: bool
+      mutable exit_reason: FlightExitReason option
       mutable restore_camera_on_exit: bool
       mutable camera: CameraState
       mutable speed: float
@@ -32,3 +32,19 @@ type FlyState =
       mutable speed_increase_was_down: bool
       mutable speed_decrease_was_down: bool
       mutable wheel_remainder: int64 }
+
+module FlyState =
+    let is_running (state: FlyState) = Option.isNone state.exit_reason
+
+    let request_exit (reason: FlightExitReason) (state: FlyState) =
+        if Option.isNone state.exit_reason then
+            state.exit_reason <- Some reason
+
+            if FlightExitReason.restores_camera reason then
+                state.restore_camera_on_exit <- true
+
+            true
+        else
+            false
+
+    let exit_reason (state: FlyState) = state.exit_reason

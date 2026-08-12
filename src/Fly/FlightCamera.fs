@@ -148,9 +148,20 @@ let apply (state: FlyState) (change: CameraChange) =
     | PositionChanged
     | DirectionChanged
     | PositionAndDirectionChanged ->
-        if not (PlatformInput.flight_host_valid state.host_identity state.view) then
+        let invalidExit =
+            if not (PlatformInput.flight_host_is_active state.host_identity state.view) then
+                Some HostInvalid
+            elif PlatformInput.foreground_root_window () <> state.root_window then
+                Some FocusLost
+            else
+                None
+
+        match invalidExit with
+        | Some reason ->
             state.restore_camera_on_exit <- true
+            FlightExit.request reason state
             failwith "The active Rhino document or viewport changed during flight."
+        | None -> ()
 
         let setterStarted = Stopwatch.GetTimestamp()
         state.viewport.SetCameraLocations(state.camera.target, state.camera.position)

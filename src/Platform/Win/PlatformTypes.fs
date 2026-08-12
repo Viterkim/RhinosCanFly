@@ -25,10 +25,7 @@ type CursorClipLease =
 
 type InputSuspensionReason =
     | Flight
-    | RhinoOptions
     | CustomOptions
-    | Shutdown
-    | Recovery
 
 [<Struct>]
 type InputSuspensionLease =

@@ -2,7 +2,7 @@ module RhinosCanFly.Platform.Win.ViewNavigationTypes
 
 open System
 open System.Collections.Generic
-open Eto.Forms
+open System.Windows.Forms
 open RhinosCanFly
 
 type ViewLatchMode =
@@ -78,6 +78,8 @@ type SyntheticMiddleState =
 type OverrideLifecycle =
     | Available
     | Suspended
+    | Resuming
+    | Degraded of error: string
     | ShutDown
 
 type PollRequirement =
@@ -97,6 +99,7 @@ type State =
       mutable middle_mouse_modifiers_down: bool
       mutable physical_shift_keys_down: int
       mutable physical_middle_down: bool
+      mutable pending_synthetic_release_root: RootWindow voption
       mutable pending_view_completion: Action option
       pending_side_button_events: Queue<SideButtonHookEvent>
       side_button_hook_capture: SideButtonHookCapture
@@ -107,13 +110,13 @@ type State =
       suspensions: Dictionary<int64, InputSuspensionReason>
       mutable next_suspension_id: int64
       mutable suspension_cleanup_error: string option
-      poll_timer: UITimer }
+      poll_timer: Timer }
 
 [<Literal>]
-let poll_timer_interval_seconds = 0.015
+let poll_timer_interval_milliseconds = 15
 
 [<Literal>]
-let poll_timer_watchdog_interval_seconds = 0.25
+let poll_timer_watchdog_interval_milliseconds = 250
 
 [<Literal>]
 let transition_timeout_seconds = 2.
@@ -129,7 +132,7 @@ let empty_routing =
 
 let create_state () =
     { routing = empty_routing
-      lifecycle = Available
+      lifecycle = Resuming
       mouse4 = Released
       mouse5 = Released
       view_latch = NoViewLatch
@@ -139,8 +142,9 @@ let create_state () =
       middle_mouse_modifiers_down = false
       physical_shift_keys_down = 0
       physical_middle_down = false
+      pending_synthetic_release_root = ValueNone
       pending_view_completion = None
-      pending_side_button_events = Queue<SideButtonHookEvent>()
+      pending_side_button_events = Queue<SideButtonHookEvent>(16)
       side_button_hook_capture = { mouse4 = NotOwned; mouse5 = NotOwned }
       navigation_exit_requested = false
       poll_callback_count = 0L
@@ -149,4 +153,4 @@ let create_state () =
       suspensions = Dictionary<int64, InputSuspensionReason>()
       next_suspension_id = 0L
       suspension_cleanup_error = None
-      poll_timer = new UITimer(Interval = poll_timer_interval_seconds) }
+      poll_timer = new Timer(Interval = poll_timer_interval_milliseconds) }

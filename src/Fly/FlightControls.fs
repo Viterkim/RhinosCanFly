@@ -101,18 +101,30 @@ let read_movement (state: FlyState) =
 let update_state (input: InputAccumulator.State) (state: FlyState) =
     let cancelAndRestore = is_down state.config.bindings.cancel_flight_and_restore
 
-    if
-        not (PlatformInput.root_window_valid state.root_window)
-        || PlatformInput.foreground_root_window () <> state.root_window
-        || is_down state.config.bindings.exit_key
-        || cancelAndRestore
-        || InputAccumulator.exit_requested input
-    then
-        if cancelAndRestore then
-            state.restore_camera_on_exit <- true
+    let exitReason =
+        match InputAccumulator.exit_reason input with
+        | Some reason ->
+            match reason with
+            | ExplicitKeepCamera when state.restore_camera_on_exit -> Some ExplicitRestoreCamera
+            | _ -> Some reason
+        | None ->
+            if not (PlatformInput.root_window_valid state.root_window) then
+                Some HostInvalid
+            elif PlatformInput.foreground_root_window () <> state.root_window then
+                Some FocusLost
+            elif cancelAndRestore then
+                Some ExplicitRestoreCamera
+            elif is_down state.config.bindings.exit_key then
+                if state.restore_camera_on_exit then
+                    Some ExplicitRestoreCamera
+                else
+                    Some ExplicitKeepCamera
+            else
+                None
 
-        state.running <- false
-    else
+    match exitReason with
+    | Some reason -> FlightExit.request reason state
+    | None ->
         let wheel = state.wheel_remainder + InputAccumulator.drain_wheel input
 
         if wheel <> 0L then
