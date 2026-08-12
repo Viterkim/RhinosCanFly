@@ -29,6 +29,33 @@ let root_window (view: RhinoView) =
     else
         RootWindow ancestor
 
+let capture_flight_host (view: RhinoView) =
+    { document_serial_number = view.Document.RuntimeSerialNumber
+      view_serial_number = view.RuntimeSerialNumber
+      view_window = ViewWindowHandle view.Handle
+      root_window = root_window view }
+
+let flight_host_exists (identity: FlightHostIdentity) (view: RhinoView) =
+    let (ViewWindowHandle expectedHandle) = identity.view_window
+
+    try
+        not (isNull view)
+        && view.RuntimeSerialNumber = identity.view_serial_number
+        && not (isNull view.Document)
+        && view.Document.RuntimeSerialNumber = identity.document_serial_number
+        && not (isNull Rhino.RhinoDoc.ActiveDoc)
+        && Rhino.RhinoDoc.ActiveDoc.RuntimeSerialNumber = identity.document_serial_number
+        && not (isNull view.Document.Views.ActiveView)
+        && view.Document.Views.ActiveView.RuntimeSerialNumber = identity.view_serial_number
+        && view.Handle = expectedHandle
+        && root_window view = identity.root_window
+    with _ ->
+        false
+
+let flight_host_valid (identity: FlightHostIdentity) (view: RhinoView) =
+    flight_host_exists identity view
+    && foreground_root_window () = identity.root_window
+
 let get_cursor_position () =
     Win32.get_cursor_position () |> Result.map CursorPosition
 
@@ -74,13 +101,21 @@ let acquire_cursor_clip (view: RhinoView) =
 
 let release_cursor_clip (lease: CursorClipLease) = Win32.release_cursor_clip lease
 
+let retry_cursor_clip_cleanup () = Win32.retry_cursor_clip_cleanup ()
+
+let cursor_clip_recovery_count () = Win32.cursor_clip_recovery_count ()
+
 let root_window_valid (rootWindow: RootWindow) =
     let (RootWindow window) = rootWindow
     Win32Native.IsWindow window
 
-let hide_cursor () = Win32Native.ShowCursor false |> ignore
+let hide_cursor () =
+    let count = Win32Native.ShowCursor false
+    InputDiagnostics.record InputDiagnostics.EventKind.CursorVisibilityChanged -1L (int64 count)
 
-let show_cursor () = Win32Native.ShowCursor true |> ignore
+let show_cursor () =
+    let count = Win32Native.ShowCursor true
+    InputDiagnostics.record InputDiagnostics.EventKind.CursorVisibilityChanged 1L (int64 count)
 
 type RawInputSession = RawInputThread.Session
 type RawInputWake = RhinosCanFly.Platform.Win.RawInputWake.State
@@ -125,6 +160,8 @@ let close_raw_input (session: RawInputSession) = RawInputThread.stop session
 
 let raw_input_runtime_failed (session: RawInputSession) = RawInputThread.runtime_failed session
 
+let raw_input_recovery_count () = RawInputThread.recovery_count ()
+
 let retry_raw_input_cleanup () = RawInputThread.retry_recovery ()
 
 let suppress_flight_keyboard (bindings: FlightBindings) =
@@ -165,9 +202,9 @@ let pivot_active () =
 let pan_active () =
     MouseButtonOverrides.view_latch_is ViewNavigationTypes.ViewLatchMode.Pan
 
-let suspend_mouse_button_overrides () = MouseButtonOverrides.suspend ()
+let suspend_mouse_button_overrides (reason: InputSuspensionReason) = MouseButtonOverrides.suspend reason
 
-let resume_mouse_button_overrides () = MouseButtonOverrides.resume ()
+let resume_mouse_button_overrides (lease: InputSuspensionLease) = MouseButtonOverrides.resume lease
 
 let shutdown_mouse_button_overrides () = MouseButtonOverrides.shutdown ()
 
@@ -180,7 +217,25 @@ let record_input_resumed () =
 let record_view_capture_timed_out () =
     InputDiagnostics.record InputDiagnostics.EventKind.ViewCaptureTimedOut 0L 0L
 
+let record_view_capture_released () =
+    InputDiagnostics.record InputDiagnostics.EventKind.ViewCaptureReleased 0L 0L
+
 let input_diagnostic_lines () = InputDiagnostics.lines ()
+
+let record_flight_loop_iteration () =
+    InputDiagnostics.record_loop_iteration ()
+
+let record_camera_application (setterTicks: int64) =
+    InputDiagnostics.record_camera_application setterTicks
+
+let record_redraw (elapsedTicks: int64) =
+    InputDiagnostics.record_redraw elapsedTicks
+
+let record_rhino_wait (elapsedTicks: int64) =
+    InputDiagnostics.record_rhino_wait elapsedTicks
+
+let record_mouse_drain (dx: int64) (dy: int64) =
+    InputDiagnostics.record_mouse_drain dx dy
 
 let retry_input_hook_cleanup () =
     MouseButtonOverrides.retry_hook_cleanup ()

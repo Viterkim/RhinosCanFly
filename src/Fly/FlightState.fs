@@ -32,6 +32,7 @@ let create (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode
     { view = view
       viewport = viewport
       config = config
+      host_identity = PlatformInput.capture_flight_host view
       root_window = PlatformInput.root_window view
       original_cursor = originalCursor
       original_camera = CameraSnapshot.capture viewport
@@ -49,6 +50,7 @@ let create (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode
       restore_camera_on_exit = sessionMode.flight_mode = FlightMode.Temporary
       camera =
         { position = viewport.CameraLocation
+          target = viewport.CameraTarget
           yaw = yaw
           pitch = pitch }
       speed =

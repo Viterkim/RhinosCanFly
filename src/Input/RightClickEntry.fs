@@ -33,6 +33,7 @@ type RightClickCallback() =
     let mutable flyEntryMode = RightClickEntryMode.Off
     let mutable defaultFlightMode = DefaultFlightMode.Normal
     let mutable suspended = false
+    let handlerCleanup = ResizeArray<EventHandler>()
 
     [<Literal>]
     let queued_entry_timeout_seconds = 2.
@@ -71,12 +72,33 @@ type RightClickCallback() =
     let log_error (context: string) (error: exn) =
         Debug.WriteLine $"RhinosCanFly {context}: {error.Message}"
 
+    let remove_handler (handler: EventHandler) =
+        try
+            RhinoApp.MainLoop.RemoveHandler handler
+            true
+        with error ->
+            log_error "right-click main-loop cleanup" error
+            false
+
+    let retry_handler_cleanup () =
+        let mutable index = handlerCleanup.Count - 1
+
+        while index >= 0 do
+            if remove_handler handlerCleanup[index] then
+                handlerCleanup.RemoveAt index
+
+            index <- index - 1
+
     let clear_gesture () =
+        retry_handler_cleanup ()
+
         match gesture with
         | FlyButtonDown entry
         | FlyButtonReleased entry ->
-            RhinoApp.MainLoop.RemoveHandler entry.handler
             gesture <- NoRightClickGesture
+
+            if not (remove_handler entry.handler) then
+                handlerCleanup.Add entry.handler
         | NoRightClickGesture
         | ViewManipulationClick -> gesture <- NoRightClickGesture
 
@@ -264,11 +286,27 @@ type RightClickCallback() =
         suspended <- false
         this.Enabled <- fly_entry_enabled () || PlatformInput.mouse_button_right_click_enabled ()
 
+    member this.DiagnosticLine() =
+        let description =
+            match gesture with
+            | NoRightClickGesture -> "none"
+            | ViewManipulationClick -> "view manipulation"
+            | FlyButtonDown entry
+            | FlyButtonReleased entry ->
+                let age =
+                    float (Stopwatch.GetTimestamp() - entry.started_at) / float Stopwatch.Frequency
+
+                $"fly entry age={age:F3}s; document={entry.document_serial_number}; view={entry.view_serial_number}"
+
+        $"Right click: enabled={this.Enabled}; suspended={suspended}; gesture={description}"
+
     member this.Shutdown() =
         this.Configure
             { fly_entry_mode = RightClickEntryMode.Off
               default_flight_mode = DefaultFlightMode.Normal
               view_manipulation_enabled = false }
+
+        retry_handler_cleanup ()
 
 let callback = RightClickCallback()
 
@@ -277,5 +315,7 @@ let configure (config: Config) = callback.Configure config
 let suspend () = callback.Suspend()
 
 let resume () = callback.Resume()
+
+let diagnostic_line () = callback.DiagnosticLine()
 
 let shutdown () = callback.Shutdown()

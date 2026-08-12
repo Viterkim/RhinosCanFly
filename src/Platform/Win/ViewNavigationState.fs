@@ -89,7 +89,47 @@ let middle_mouse_down (state: State) =
     any_button_holds_middle state || view_latch_active state
 
 let synthetic_input_owned (state: State) =
-    state.synthetic_middle = MiddlePressed || state.synthetic_shift = ShiftPressed
+    state.synthetic_middle <> MiddleReleased
+    || state.synthetic_shift <> ShiftReleased
+
+let synthetic_shift_owned (state: State) = state.synthetic_shift <> ShiftReleased
+
+[<Literal>]
+let left_shift_bit = 1
+
+[<Literal>]
+let right_shift_bit = 2
+
+let shift_bit (virtualKey: int) =
+    if virtualKey = Win32Native.VK_RSHIFT then
+        right_shift_bit
+    else
+        left_shift_bit
+
+let observe_physical_shift (state: State) (virtualKey: int) (released: bool) =
+    let bit = shift_bit virtualKey
+
+    if released then
+        state.physical_shift_keys_down <- state.physical_shift_keys_down &&& (~~~bit)
+    else
+        state.physical_shift_keys_down <- state.physical_shift_keys_down ||| bit
+
+let observe_physical_middle (state: State) (down: bool) = state.physical_middle_down <- down
+
+let reconcile_release_pending_physical_input (state: State) =
+    if state.synthetic_shift = ShiftReleasePending then
+        let mutable physicalShiftKeys = 0
+
+        if Win32Native.GetAsyncKeyState Win32Native.VK_LSHIFT < 0s then
+            physicalShiftKeys <- physicalShiftKeys ||| left_shift_bit
+
+        if Win32Native.GetAsyncKeyState Win32Native.VK_RSHIFT < 0s then
+            physicalShiftKeys <- physicalShiftKeys ||| right_shift_bit
+
+        state.physical_shift_keys_down <- physicalShiftKeys
+
+    if state.synthetic_middle = MiddleReleasePending then
+        state.physical_middle_down <- Win32Native.GetAsyncKeyState Win32Native.VK_MBUTTON < 0s
 
 let exit_key_down (state: State) =
     match state.routing.exit with
@@ -140,7 +180,12 @@ let right_mouse_exit_enabled (state: State) =
 let release_synthetic_shift (state: State) =
     match state.synthetic_shift with
     | ShiftReleased -> Ok()
-    | ShiftPressed ->
+    | ShiftPressed
+    | ShiftReleasePending when state.physical_shift_keys_down <> 0 ->
+        state.synthetic_shift <- ShiftReleasePending
+        Error "Synthetic Shift is waiting for the physical Shift key to be released."
+    | ShiftPressed
+    | ShiftReleasePending ->
         match Win32.send_shift_key false with
         | Ok() ->
             state.synthetic_shift <- ShiftReleased
@@ -151,7 +196,12 @@ let release_synthetic_shift (state: State) =
 let release_synthetic_middle (state: State) =
     match state.synthetic_middle with
     | MiddleReleased -> Ok()
-    | MiddlePressed ->
+    | MiddlePressed
+    | MiddleReleasePending when state.physical_middle_down ->
+        state.synthetic_middle <- MiddleReleasePending
+        Error "Synthetic middle mouse is waiting for the physical middle button to be released."
+    | MiddlePressed
+    | MiddleReleasePending ->
         match Win32.send_middle_mouse false with
         | Ok() ->
             state.synthetic_middle <- MiddleReleased
@@ -176,13 +226,15 @@ let release_synthetic_input (state: State) =
         Error(String.concat "; " errors)
 
 let press_synthetic_middle (state: State) =
-    if state.synthetic_middle = MiddlePressed then
+    if state.synthetic_middle <> MiddleReleased then
         Ok()
-    elif state.synthetic_shift = ShiftPressed then
+    elif state.synthetic_shift <> ShiftReleased then
         Error "Another mouse override already owns synthetic Shift."
     elif Win32Native.GetAsyncKeyState Win32Native.VK_MBUTTON < 0s then
         Error "The physical middle mouse button is already down."
     else
+        state.physical_middle_down <- false
+
         match Win32.send_middle_mouse true with
         | Ok() ->
             state.synthetic_middle <- MiddlePressed
@@ -214,6 +266,9 @@ let press_synthetic_shift_middle (state: State) =
     elif view_modifier_down () then
         Error "Release Shift and Alt before starting pan."
     else
+        state.physical_shift_keys_down <- 0
+        state.physical_middle_down <- false
+
         match
             Win32.try_send_inputs
                 "SendInput(shift + middle mouse)"
@@ -308,6 +363,32 @@ let complete_view_latch (latch: ViewLatch) =
         with error ->
             Error $"Could not restore the original view: {error.Message}"
 
+let defer_view_latch_completion (state: State) (latch: ViewLatch) =
+    match view_latch_completion latch with
+    | Some completion when Option.isNone state.pending_view_completion ->
+        state.pending_view_completion <- Some completion
+    | Some _
+    | None -> ()
+
+let complete_pending_view_latch (state: State) =
+    match state.pending_view_completion with
+    | None -> Ok()
+    | Some completion ->
+        state.pending_view_completion <- None
+
+        try
+            completion.Invoke()
+            Ok()
+        with error ->
+            Error $"Could not restore the original view: {error.Message}"
+
+let complete_view_latch_after_input_release (state: State) (latch: ViewLatch) =
+    if synthetic_input_owned state then
+        defer_view_latch_completion state latch
+        Ok()
+    else
+        complete_view_latch latch
+
 let release_all (state: State) =
     let previousViewLatch = state.view_latch
 
@@ -320,15 +401,36 @@ let release_all (state: State) =
     clear_pending_hook_events state
 
     let releaseResult = release_synthetic_input state
-    let completionResult = complete_view_latch previousViewLatch
+
+    let completionResult =
+        complete_view_latch_after_input_release state previousViewLatch
+
+    let pendingCompletionResult =
+        if synthetic_input_owned state then
+            Ok()
+        else
+            complete_pending_view_latch state
 
     if synthetic_input_owned state then
         keep_watchdog_running state
     else
         state.poll_timer.Stop()
 
-    match releaseResult, completionResult with
-    | Ok(), Ok() -> Ok()
-    | Error error, Ok()
-    | Ok(), Error error -> Error error
-    | Error releaseError, Error completionError -> Error $"{releaseError}; {completionError}"
+    let errors = ResizeArray<string>()
+
+    match releaseResult with
+    | Ok() -> ()
+    | Error error -> errors.Add error
+
+    match completionResult with
+    | Ok() -> ()
+    | Error error -> errors.Add error
+
+    match pendingCompletionResult with
+    | Ok() -> ()
+    | Error error -> errors.Add error
+
+    if errors.Count = 0 then
+        Ok()
+    else
+        Error(String.concat "; " errors)

@@ -61,36 +61,52 @@ let set_speed (document: RhinoDoc) =
                 Result.Failure)
 
 let show_options (document: RhinoDoc) =
-    match RuntimeSettings.suspend_input () with
+    match RuntimeSettings.suspend_input InputSuspensionReason.CustomOptions with
     | Error error ->
         RhinoApp.WriteLine
             $"RhinosCanFly Options failed: {error} Use Tools > Options > Rhinos Can Fly to change settings."
 
         Result.Failure
-    | Ok() ->
+    | Ok suspension ->
         let mutable result = Result.Success
 
         try
             try
-                let view = if isNull document then null else document.Views.ActiveView
-
-                match
-                    if isNull view then
-                        Ok()
-                    else
-                        Runtime.release_viewport_gesture view
-                with
-                | Error error ->
+                match suspension.cleanup_error with
+                | Some error ->
                     RhinoApp.WriteLine $"RhinosCanFly Options failed: {error}"
                     result <- Result.Failure
-                | Ok() ->
-                    use dialog = new RhinosCanFlySettingsDialog()
-                    dialog.ShowForRhino document
+                | None ->
+                    let view = if isNull document then null else document.Views.ActiveView
+
+                    match
+                        if isNull view then
+                            Ok()
+                        else
+                            Runtime.release_viewport_gesture suspension.released_viewport_input view
+                    with
+                    | Error error ->
+                        RhinoApp.WriteLine $"RhinosCanFly Options failed: {error}"
+                        result <- Result.Failure
+                    | Ok() ->
+                        use dialog = new RhinosCanFlySettingsDialog()
+                        dialog.ShowForRhino document
+
+                        if dialog.Saved then
+                            match RuntimeSettings.commit_staged () with
+                            | Ok() -> ()
+                            | Error error ->
+                                RhinoApp.WriteLine $"RhinosCanFly settings error: {error}"
+                                result <- Result.Failure
+                        else
+                            RuntimeSettings.discard_staged ()
             with error ->
                 RhinoApp.WriteLine $"RhinosCanFly Options failed: {error.Message}"
                 result <- Result.Failure
         finally
-            match RuntimeSettings.resume_input () with
+            RuntimeSettings.discard_staged ()
+
+            match RuntimeSettings.resume_input suspension with
             | Ok() -> ()
             | Error error ->
                 RhinoApp.WriteLine $"RhinosCanFly mouse button overrides could not resume: {error}"
@@ -174,19 +190,11 @@ let pan (document: RhinoDoc) =
         document
 
 let show_input_diagnostics () =
-    let struct (remainingRawSessions, cleanupErrors) =
-        PlatformInput.retry_raw_input_cleanup ()
-
-    let hookCleanupErrors = PlatformInput.retry_input_hook_cleanup ()
-
     RhinoApp.WriteLine "RhinosCanFly input diagnostics"
-    RhinoApp.WriteLine $"Raw cleanup items remaining: {remainingRawSessions}"
-
-    for error in cleanupErrors do
-        RhinoApp.WriteLine $"Raw cleanup: {error}"
-
-    for error in hookCleanupErrors do
-        RhinoApp.WriteLine $"Hook cleanup: {error}"
+    RhinoApp.WriteLine $"Flight state: {Runtime.state_name ()}"
+    RhinoApp.WriteLine $"Raw cleanup items: {PlatformInput.raw_input_recovery_count ()}"
+    RhinoApp.WriteLine $"Cursor clip cleanup items: {PlatformInput.cursor_clip_recovery_count ()}"
+    RhinoApp.WriteLine(RightClickEntry.diagnostic_line ())
 
     for line in PlatformInput.input_state_diagnostic_lines () do
         RhinoApp.WriteLine line
@@ -195,3 +203,33 @@ let show_input_diagnostics () =
         RhinoApp.WriteLine line
 
     Result.Success
+
+let recover_input () =
+    let struct (remainingRawSessions, rawErrors) =
+        PlatformInput.retry_raw_input_cleanup ()
+
+    let hookErrors = PlatformInput.retry_input_hook_cleanup ()
+
+    let struct (remainingCursorClips, cursorErrors) =
+        PlatformInput.retry_cursor_clip_cleanup ()
+
+    RhinoApp.WriteLine "RhinosCanFly input recovery"
+    RhinoApp.WriteLine $"Raw cleanup items remaining: {remainingRawSessions}"
+    RhinoApp.WriteLine $"Cursor clips remaining: {remainingCursorClips}"
+
+    for error in rawErrors do
+        RhinoApp.WriteLine $"Raw cleanup: {error}"
+
+    for error in hookErrors do
+        RhinoApp.WriteLine $"Hook cleanup: {error}"
+
+    for error in cursorErrors do
+        RhinoApp.WriteLine $"Cursor clip cleanup: {error}"
+
+    if remainingRawSessions = 0 && remainingCursorClips = 0 && List.isEmpty hookErrors then
+        Runtime.recovery_completed ()
+        RhinoApp.WriteLine "Input recovery completed."
+        Result.Success
+    else
+        RhinoApp.WriteLine "Input recovery is incomplete. Restart Rhino before flying again."
+        Result.Failure

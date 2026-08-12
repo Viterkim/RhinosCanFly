@@ -128,6 +128,12 @@ let VK_LMENU = 0xA4
 [<Literal>]
 let VK_RMENU = 0xA5
 
+[<Literal>]
+let WM_MBUTTONDOWN = 0x0207
+
+[<Literal>]
+let WM_MBUTTONUP = 0x0208
+
 [<Struct; StructLayout(LayoutKind.Sequential)>]
 type NativePoint =
     val mutable x: int
@@ -189,6 +195,9 @@ type WindowsHook =
 
 [<DllImport("user32.dll")>]
 extern int16 GetAsyncKeyState(int virtual_key)
+
+[<DllImport("user32.dll")>]
+extern nativeint GetMessageExtraInfo()
 
 [<DllImport("user32.dll", SetLastError = true)>]
 extern bool GetCursorPos(NativePoint& point)

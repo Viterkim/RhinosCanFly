@@ -7,6 +7,7 @@ type FlyState =
     { view: RhinoView
       viewport: RhinoViewport
       config: FlyConfig
+      host_identity: FlightHostIdentity
       root_window: RootWindow
       original_cursor: CursorPosition
       original_camera: CameraSnapshot

@@ -41,6 +41,25 @@ let json_content (json: JsonObject) =
 let documentOptions =
     JsonDocumentOptions(AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip)
 
+let current_file_version (configPath: string) =
+    if not (File.Exists configPath) then
+        None
+    else
+        try
+            let content = File.ReadAllText configPath
+
+            match JsonNode.Parse(content, Nullable<JsonNodeOptions>(), documentOptions) with
+            | :? JsonObject as json ->
+                match json["config_version"] with
+                | null -> None
+                | value -> Some(value.GetValue<int>())
+            | _ -> None
+        with _ ->
+            None
+
+let future_version_error (version: int) =
+    $"The config version {version} is newer than this RhinosCanFly build supports ({ConfigSchema.current_version}). The file was left unchanged."
+
 let write_atomic (configPath: string) (content: string) =
     let directory = Path.GetDirectoryName configPath
 
@@ -109,8 +128,7 @@ let load () =
 
         match futureVersion with
         | Some version when version > ConfigSchema.current_version ->
-            let error =
-                $"The config version {version} is newer than this RhinosCanFly build supports ({ConfigSchema.current_version}). The file was left unchanged."
+            let error = future_version_error version
 
             saveBlocked <- Some error
             failwith error
@@ -225,7 +243,18 @@ let load () =
             changed <- true
 
         if changed then
-            write_atomic configPath (json_content json)
+            let lockPath = configPath + ".lock"
+
+            use _saveLock =
+                new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)
+
+            match current_file_version configPath with
+            | Some version when version > ConfigSchema.current_version ->
+                let error = future_version_error version
+                saveBlocked <- Some error
+                failwith error
+            | Some _
+            | None -> write_atomic configPath (json_content json)
 
         saveBlocked <- None
 
@@ -247,6 +276,18 @@ let save (source: FlyConfigFile) =
         | Ok config ->
             try
                 let configPath = path ()
+                let lockPath = configPath + ".lock"
+
+                use _saveLock =
+                    new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)
+
+                match current_file_version configPath with
+                | Some version when version > ConfigSchema.current_version ->
+                    let error = future_version_error version
+                    saveBlocked <- Some error
+                    failwith error
+                | Some _
+                | None -> saveBlocked <- None
 
                 let configFile =
                     { normalizedSource with

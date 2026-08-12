@@ -15,10 +15,14 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
     let mutable movementActive = false
 
     while state.running do
+        PlatformInput.record_flight_loop_iteration ()
+
         if not movementActive then
             PlatformInput.wait_for_raw_input inputWake stationary_input_watchdog
 
+        let waitStarted = Stopwatch.GetTimestamp()
         RhinoApp.Wait()
+        PlatformInput.record_rhino_wait (Stopwatch.GetTimestamp() - waitStarted)
         PlatformInput.clear_raw_input_wake inputWake
         FlightControls.update_state rawInput state
 

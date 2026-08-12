@@ -11,6 +11,24 @@ open Microsoft.FSharp.NativeInterop
 open RhinosCanFly
 
 let nativeInputSize = Marshal.SizeOf<Win32Native.NativeInput>()
+let cursorClipRecoveries = ResizeArray<CursorClipLease>()
+
+let retain_cursor_clip_recovery (lease: CursorClipLease) =
+    let exists =
+        cursorClipRecoveries
+        |> Seq.exists (fun (candidate: CursorClipLease) -> Object.ReferenceEquals(candidate, lease))
+
+    if not exists then
+        cursorClipRecoveries.Add lease
+
+let forget_cursor_clip_recovery (lease: CursorClipLease) =
+    let mutable index = cursorClipRecoveries.Count - 1
+
+    while index >= 0 do
+        if Object.ReferenceEquals(cursorClipRecoveries[index], lease) then
+            cursorClipRecoveries.RemoveAt index
+
+        index <- index - 1
 
 let win32_error (operation: string) (errorCode: int) =
     Win32Exception(errorCode)
@@ -88,19 +106,37 @@ let rec acquire_cursor_clip (rectangle: Rectangle) =
 
 and release_cursor_clip (lease: CursorClipLease) =
     if lease.relinquished then
+        forget_cursor_clip_recovery lease
         Ok()
     else
         match get_cursor_clip () with
         | Error error -> Error error
         | Ok current when current <> lease.installed ->
             lease.relinquished <- true
+            forget_cursor_clip_recovery lease
             Ok()
         | Ok _ ->
             match clip_cursor lease.previous with
             | Ok() ->
                 lease.relinquished <- true
+                forget_cursor_clip_recovery lease
                 Ok()
-            | Error error -> Error error
+            | Error error ->
+                retain_cursor_clip_recovery lease
+                Error error
+
+let retry_cursor_clip_cleanup () =
+    let pending = cursorClipRecoveries.ToArray()
+    let errors = ResizeArray<string>()
+
+    for lease in pending do
+        match release_cursor_clip lease with
+        | Ok() -> ()
+        | Error error -> errors.Add error
+
+    struct (cursorClipRecoveries.Count, List.ofSeq errors)
+
+let cursor_clip_recovery_count () = cursorClipRecoveries.Count
 
 let clear_mouse_hover (window: nativeint) =
     Win32Native.SendMessage(window, Win32Native.WM_MOUSELEAVE, nativeint 0, nativeint 0)
@@ -174,7 +210,20 @@ let wait_for_input_handle (handle: nativeint) (timeoutMilliseconds: uint32) =
 type KeyboardHookEvent =
     { physical_key: int
       released: bool
-      was_down: bool }
+      was_down: bool
+      extra_info: unativeint }
+
+[<Struct>]
+type MouseHookEvent =
+    { message: int
+      mouse_data: uint32
+      hook_window: nativeint
+      point_window: nativeint
+      extra_info: unativeint }
+
+let injected_input_marker = unativeint 0x52434657u
+
+let injected_input (extraInfo: unativeint) = extraInfo = injected_input_marker
 
 let keyboard_physical_key (virtualKey: int) (eventData: int64) =
     let extended = eventData &&& Win32Native.KEYBOARD_EXTENDED_KEY <> 0L
@@ -220,7 +269,8 @@ let install_keyboard_hook (handleEvent: KeyboardHookEvent -> bool) =
             let event: KeyboardHookEvent =
                 { physical_key = keyboard_physical_key virtualKey eventData
                   released = eventData &&& Win32Native.KEYBOARD_KEY_RELEASED <> 0L
-                  was_down = eventData &&& Win32Native.KEYBOARD_PREVIOUSLY_DOWN <> 0L }
+                  was_down = eventData &&& Win32Native.KEYBOARD_PREVIOUSLY_DOWN <> 0L
+                  extra_info = unativeint (Win32Native.GetMessageExtraInfo()) }
 
             if code = Win32Native.HC_ACTION && handleEvent event then
                 nativeint 1
@@ -237,7 +287,7 @@ let install_keyboard_hook (handleEvent: KeyboardHookEvent -> bool) =
 
         Ok keyboardHook
 
-let install_mouse_hook (handleEvent: int -> uint32 -> nativeint -> nativeint -> bool) =
+let install_mouse_hook (handleEvent: MouseHookEvent -> bool) =
     let mutable hook = nativeint 0
 
     let procedure =
@@ -248,12 +298,21 @@ let install_mouse_hook (handleEvent: int -> uint32 -> nativeint -> nativeint -> 
                 code = Win32Native.HC_ACTION
                 && (message = Win32Native.WM_XBUTTONDOWN
                     || message = Win32Native.WM_XBUTTONUP
-                    || message = Win32Native.WM_XBUTTONDBLCLK)
+                    || message = Win32Native.WM_XBUTTONDBLCLK
+                    || message = Win32Native.WM_MBUTTONDOWN
+                    || message = Win32Native.WM_MBUTTONUP)
             then
                 let data = NativePtr.read (NativePtr.ofNativeInt<Win32Native.MouseHookData> lparam)
                 let pointWindow = Win32Native.WindowFromPoint data.point
 
-                if handleEvent message data.mouse_data data.window pointWindow then
+                let event: MouseHookEvent =
+                    { message = message
+                      mouse_data = data.mouse_data
+                      hook_window = data.window
+                      point_window = pointWindow
+                      extra_info = data.extra_info }
+
+                if handleEvent event then
                     nativeint 1
                 else
                     Win32Native.CallNextHookEx(hook, code, wparam, lparam)
@@ -281,6 +340,7 @@ let remove_hook (hook: Win32Native.WindowsHook) =
 let mouse_input (flags: uint32) =
     let mutable mouse = Unchecked.defaultof<Win32Native.MouseInput>
     mouse.flags <- flags
+    mouse.extra_info <- injected_input_marker
 
     let mutable input = Unchecked.defaultof<Win32Native.NativeInput>
     input.input_type <- Win32Native.INPUT_MOUSE
@@ -294,6 +354,7 @@ let keyboard_input (virtualKey: int) (flags: uint32) =
     let mutable keyboard = Unchecked.defaultof<Win32Native.KeyboardInput>
     keyboard.virtual_key <- uint16 virtualKey
     keyboard.flags <- flags
+    keyboard.extra_info <- injected_input_marker
 
     let mutable input = Unchecked.defaultof<Win32Native.NativeInput>
     input.input_type <- Win32Native.INPUT_KEYBOARD

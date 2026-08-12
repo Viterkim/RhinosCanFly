@@ -8,10 +8,34 @@ type RootWindow = RootWindow of nativeint
 [<Struct>]
 type CursorPosition = CursorPosition of Point
 
+[<Struct>]
+type ViewWindowHandle = ViewWindowHandle of nativeint
+
+[<Struct>]
+type FlightHostIdentity =
+    { document_serial_number: uint32
+      view_serial_number: uint32
+      view_window: ViewWindowHandle
+      root_window: RootWindow }
+
 type CursorClipLease =
     { previous: Rectangle
       installed: Rectangle
       mutable relinquished: bool }
+
+type InputSuspensionReason =
+    | Flight
+    | RhinoOptions
+    | CustomOptions
+    | Shutdown
+    | Recovery
+
+[<Struct>]
+type InputSuspensionLease =
+    { id: int64
+      reason: InputSuspensionReason
+      released_viewport_input: bool
+      cleanup_error: string option }
 
 type RawInputConfig =
     { exit_on_mouse_left: bool

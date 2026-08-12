@@ -86,3 +86,11 @@ type RhinosCanFlyInputDiagnosticsCommand() =
     override _.EnglishName = "RhinosCanFlyInputDiagnostics"
     override _.CommandContextHelpUrl = CommandHelp.blank_url
     override _.RunCommand(_document: RhinoDoc, _mode: RunMode) = Commands.show_input_diagnostics ()
+
+[<Guid("E598A986-3A77-4C16-B35A-67FDDB9EF79C")>]
+[<CommandStyle(Style.DoNotRepeat)>]
+type RhinosCanFlyInputRecoverCommand() =
+    inherit Command()
+    override _.EnglishName = "RhinosCanFlyInputRecover"
+    override _.CommandContextHelpUrl = CommandHelp.blank_url
+    override _.RunCommand(_document: RhinoDoc, _mode: RunMode) = Commands.recover_input ()

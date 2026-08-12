@@ -1,5 +1,6 @@
 module RhinosCanFly.FlightCamera
 
+open System.Diagnostics
 open Rhino
 open Rhino.Display
 open Rhino.Geometry
@@ -93,6 +94,9 @@ let update_navigation_mode (input: InputAccumulator.State) (state: FlyState) =
 let apply_mouse_input (input: InputAccumulator.State) (state: FlyState) =
     let struct (dx, dy) = InputAccumulator.drain_mouse input
 
+    if dx <> 0L || dy <> 0L then
+        PlatformInput.record_mouse_drain dx dy
+
     if dx = 0L && dy = 0L then
         NoCameraChange
     else
@@ -139,24 +143,18 @@ let apply_mouse_input (input: InputAccumulator.State) (state: FlyState) =
             failwith "Mouse input produced an invalid camera state."
 
 let apply (state: FlyState) (change: CameraChange) =
-    let changed =
-        match change with
-        | NoCameraChange -> false
-        | PositionChanged ->
-            state.viewport.SetCameraLocation(state.camera.position, true)
-            true
-        | DirectionChanged ->
-            let direction = Movement.direction_from_angles state.camera.yaw state.camera.pitch
-            state.viewport.SetCameraDirection(direction, true)
-            true
-        | PositionAndDirectionChanged ->
-            state.viewport.SetCameraLocation(state.camera.position, true)
+    match change with
+    | NoCameraChange -> ()
+    | PositionChanged
+    | DirectionChanged
+    | PositionAndDirectionChanged ->
+        if not (PlatformInput.flight_host_valid state.host_identity state.view) then
+            state.restore_camera_on_exit <- true
+            failwith "The active Rhino document or viewport changed during flight."
 
-            let direction = Movement.direction_from_angles state.camera.yaw state.camera.pitch
-            state.viewport.SetCameraDirection(direction, true)
-            true
-
-    if changed then
+        let setterStarted = Stopwatch.GetTimestamp()
+        state.viewport.SetCameraLocations(state.camera.target, state.camera.position)
+        PlatformInput.record_camera_application (Stopwatch.GetTimestamp() - setterStarted)
         FlightRedraw.redraw state.config.behavior.viewport_redraw_mode state.view
 
 let apply_entry_lens (state: FlyState) =

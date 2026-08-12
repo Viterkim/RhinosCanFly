@@ -68,10 +68,12 @@ type ViewLatch =
 type SyntheticShiftState =
     | ShiftReleased
     | ShiftPressed
+    | ShiftReleasePending
 
 type SyntheticMiddleState =
     | MiddleReleased
     | MiddlePressed
+    | MiddleReleasePending
 
 type OverrideLifecycle =
     | Available
@@ -93,12 +95,18 @@ type State =
       mutable synthetic_middle: SyntheticMiddleState
       mutable side_button_restart_pending: bool
       mutable middle_mouse_modifiers_down: bool
+      mutable physical_shift_keys_down: int
+      mutable physical_middle_down: bool
+      mutable pending_view_completion: Action option
       pending_side_button_events: Queue<SideButtonHookEvent>
       side_button_hook_capture: SideButtonHookCapture
       mutable navigation_exit_requested: bool
       mutable poll_callback_count: int64
       mutable last_poll_duration_ticks: int64
       mutable maximum_poll_duration_ticks: int64
+      suspensions: Dictionary<int64, InputSuspensionReason>
+      mutable next_suspension_id: int64
+      mutable suspension_cleanup_error: string option
       poll_timer: UITimer }
 
 [<Literal>]
@@ -129,10 +137,16 @@ let create_state () =
       synthetic_middle = MiddleReleased
       side_button_restart_pending = false
       middle_mouse_modifiers_down = false
+      physical_shift_keys_down = 0
+      physical_middle_down = false
+      pending_view_completion = None
       pending_side_button_events = Queue<SideButtonHookEvent>()
       side_button_hook_capture = { mouse4 = NotOwned; mouse5 = NotOwned }
       navigation_exit_requested = false
       poll_callback_count = 0L
       last_poll_duration_ticks = 0L
       maximum_poll_duration_ticks = 0L
+      suspensions = Dictionary<int64, InputSuspensionReason>()
+      next_suspension_id = 0L
+      suspension_cleanup_error = None
       poll_timer = new UITimer(Interval = poll_timer_interval_seconds) }

@@ -12,16 +12,20 @@ type RawInputReceiver
         sessionMode: FlightSessionMode,
         input: InputAccumulator.State,
         inputAvailable: Action,
-        registrationReady: Action<RawInputNative.MouseRegistrationLease>
+        registrationReady: Action<RawInputNative.MouseRegistrationLease>,
+        runtimeFailed: Action<exn>
     ) as self =
     inherit NativeWindow()
 
     let bufferCapacity = int RawInputNative.mouseInputSize
-
     let buffer = Marshal.AllocHGlobal bufferCapacity
+    let releaseTimer = new Timer(Interval = 250)
     let mutable handleCreated = false
     let mutable bufferFreed = false
     let mutable registrationLease: RawInputNative.MouseRegistrationLease option = None
+    let mutable startupError: exn option = None
+    let mutable stopRequested = false
+    let mutable releaseTimerDisposed = false
 
     [<Literal>]
     let mouse4PivotBit = 1
@@ -77,29 +81,43 @@ type RawInputReceiver
         else
             false
 
-    let restore_registration () =
+    let registration_relinquished () =
         match registrationLease with
-        | None -> ()
+        | None -> true
+        | Some lease -> lease.relinquished
+
+    let finish_message_loop () =
+        releaseTimer.Stop()
+        Application.ExitThread()
+
+    let try_release_registration () =
+        match registrationLease with
+        | None ->
+            finish_message_loop ()
+            Ok()
         | Some lease ->
             match RawInputNative.release_mouse_registration lease with
-            | Ok _ -> ()
-            | Error error -> raise (InvalidOperationException error)
+            | Ok _ ->
+                finish_message_loop ()
+                Ok()
+            | Error error ->
+                if not releaseTimer.Enabled then
+                    releaseTimer.Start()
+
+                Error error
+
+    let request_stop () =
+        stopRequested <- true
+        try_release_registration () |> ignore
 
     let release_resources () =
+        if not (registration_relinquished ()) then
+            invalidOp "The raw-input worker cannot release its window while mouse registration still belongs to it."
+
         let errors = ResizeArray<exn>()
 
         try
-            restore_registration ()
-        with error ->
-            errors.Add error
-
-        try
-            let registrationRelinquished =
-                match registrationLease with
-                | None -> true
-                | Some lease -> lease.relinquished
-
-            if handleCreated && registrationRelinquished then
+            if handleCreated then
                 self.DestroyHandle()
                 handleCreated <- false
         with error ->
@@ -112,12 +130,21 @@ type RawInputReceiver
         with error ->
             errors.Add error
 
+        try
+            if not releaseTimerDisposed then
+                releaseTimer.Dispose()
+                releaseTimerDisposed <- true
+        with error ->
+            errors.Add error
+
         match errors.Count with
         | 0 -> ()
         | 1 -> raise errors[0]
         | _ -> raise (AggregateException errors)
 
     let process_mouse (mouse: RawInputNative.Mouse) =
+        InputDiagnostics.record_raw_packet ()
+
         let mouseMoved =
             mouse.flags &&& RawInputNative.mouse_move_absolute = 0us
             && (mouse.last_x <> 0 || mouse.last_y <> 0)
@@ -212,7 +239,16 @@ type RawInputReceiver
         then
             inputAvailable.Invoke()
 
+    let fail_runtime (error: exn) =
+        Debug.WriteLine $"RhinosCanFly raw-input receiver failed: {error.Message}"
+        runtimeFailed.Invoke error
+        request_stop ()
+
     do
+        releaseTimer.Tick.Add(fun (_event: EventArgs) ->
+            if stopRequested then
+                try_release_registration () |> ignore)
+
         try
             let parameters = CreateParams()
             parameters.Caption <- "RhinosCanFly raw input"
@@ -221,34 +257,46 @@ type RawInputReceiver
             handleCreated <- true
 
             match RawInputNative.acquire_mouse_registration self.Handle with
-            | Error error -> failwith error
-            | Ok lease ->
+            | RawInputNative.Acquired lease ->
                 registrationLease <- Some lease
                 registrationReady.Invoke lease
                 heldPivotButtons <- current_held_pivot_buttons ()
                 InputAccumulator.set_pivot_held (heldPivotButtons <> 0) input
+            | RawInputNative.Failed error -> startupError <- Some(InvalidOperationException error)
+            | RawInputNative.CleanupPending(error, lease) ->
+                registrationLease <- Some lease
+                registrationReady.Invoke lease
+                startupError <- Some(InvalidOperationException error)
         with error ->
-            try
-                release_resources ()
-            with cleanupError ->
-                raise (AggregateException(error, cleanupError))
-
-            raise error
+            startupError <- Some error
 
     member _.WindowHandle = self.Handle
+
+    member _.StartupError = startupError
+
+    member _.RegistrationRelinquished = registration_relinquished ()
+
+    member _.RequestStop() = request_stop ()
 
     member _.ReleaseResources() = release_resources ()
 
     override _.WndProc(message: byref<Message>) =
-        if message.Msg = RawInputNative.stop_message then
+        try
+            if message.Msg = RawInputNative.stop_message then
+                message.Result <- nativeint 0
+                request_stop ()
+            elif message.Msg = RawInputNative.message then
+                let mutable mouse = Unchecked.defaultof<RawInputNative.Mouse>
+
+                if
+                    not stopRequested
+                    && RawInputNative.try_read_mouse message.LParam buffer bufferCapacity &mouse
+                then
+                    process_mouse mouse
+
+                base.WndProc(&message)
+            else
+                base.WndProc(&message)
+        with error ->
+            fail_runtime error
             message.Result <- nativeint 0
-            Application.ExitThread()
-        elif message.Msg = RawInputNative.message then
-            let mutable mouse = Unchecked.defaultof<RawInputNative.Mouse>
-
-            if RawInputNative.try_read_mouse message.LParam buffer bufferCapacity &mouse then
-                process_mouse mouse
-
-            base.WndProc(&message)
-        else
-            base.WndProc(&message)

@@ -36,6 +36,17 @@ type RhinosCanFlyPlugin() as self =
             RhinoApp.WriteLine $"RhinosCanFly raw-input recovery failed: {error.Message}"
 
         try
+            let struct (remaining, errors) = PlatformInput.retry_cursor_clip_cleanup ()
+
+            for error in errors do
+                RhinoApp.WriteLine $"RhinosCanFly cursor-clip recovery: {error}"
+
+            if remaining > 0 then
+                RhinoApp.WriteLine $"RhinosCanFly cursor-clip recovery still owns {remaining} cleanup item(s)."
+        with error ->
+            RhinoApp.WriteLine $"RhinosCanFly cursor-clip recovery failed: {error.Message}"
+
+        try
             RuntimeSettings.shutdown ()
         with error ->
             RhinoApp.WriteLine $"RhinosCanFly settings lifecycle shutdown failed: {error.Message}"

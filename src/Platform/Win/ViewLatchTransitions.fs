@@ -11,7 +11,7 @@ let release (state: State) =
     | (WaitingForRelease _ | RetryingPivot _) as inactive ->
         state.view_latch <- NoViewLatch
         ViewNavigationState.stop_timer_if_idle state
-        ViewNavigationState.complete_view_latch inactive
+        ViewNavigationState.complete_view_latch_after_input_release state inactive
     | (PivotActive _ | PanActive _) as active ->
         if ViewNavigationState.any_button_holds_middle state then
             ViewNavigationState.release_all state
@@ -23,13 +23,14 @@ let release (state: State) =
             match releaseResult with
             | Ok() ->
                 ViewNavigationState.stop_timer_if_idle state
-                ViewNavigationState.complete_view_latch active
+                ViewNavigationState.complete_view_latch_after_input_release state active
             | Error error ->
+                ViewNavigationState.defer_view_latch_completion state active
                 ViewNavigationState.keep_watchdog_running state
                 Error error
 
-let complete_or_log (latch: ViewLatch) =
-    match ViewNavigationState.complete_view_latch latch with
+let complete_or_log (state: State) (latch: ViewLatch) =
+    match ViewNavigationState.complete_view_latch_after_input_release state latch with
     | Ok() -> ()
     | Error error -> Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
 
@@ -78,6 +79,11 @@ let handle_right_click (state: State) (window: RootWindow) =
             Ok true
         | NoViewLatch ->
             match requested_mode state with
+            | Some _ when
+                ViewNavigationState.synthetic_input_owned state
+                || Option.isSome state.pending_view_completion
+                ->
+                Error "The previous viewport input is still cleaning up."
             | Some mode when state.lifecycle = Available ->
                 let released =
                     if ViewNavigationState.any_button_engaged state then
@@ -143,12 +149,12 @@ let update (state: State) =
 
             state.view_latch <- NoViewLatch
             ViewNavigationState.stop_timer_if_idle state
-            complete_or_log (WaitingForRelease pending)
+            complete_or_log state (WaitingForRelease pending)
         elif input_released () then
             match activate state pending with
             | Ok() -> ()
             | Error error ->
-                complete_or_log (WaitingForRelease pending)
+                complete_or_log state (WaitingForRelease pending)
                 Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
     | RetryingPivot session ->
         let timedOut = ViewNavigationState.transition_timed_out session
@@ -158,9 +164,17 @@ let update (state: State) =
                 InputDiagnostics.record InputDiagnostics.EventKind.NavigationTransitionTimedOut 2L 0L
 
             state.view_latch <- NoViewLatch
-            ViewNavigationState.release_synthetic_input state |> ignore
+            let releaseResult = ViewNavigationState.release_synthetic_input state
+
+            match ViewNavigationState.complete_view_latch_after_input_release state (RetryingPivot session) with
+            | Ok() -> ()
+            | Error error -> Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
+
+            match releaseResult with
+            | Ok() -> ()
+            | Error error -> Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
+
             ViewNavigationState.stop_timer_if_idle state
-            complete_or_log (RetryingPivot session)
         elif ViewNavigationState.any_button_holds_middle state then
             match ViewNavigationState.release_all state with
             | Ok() -> ()
@@ -177,7 +191,7 @@ let update (state: State) =
             | Error error ->
                 state.view_latch <- NoViewLatch
                 ViewNavigationState.stop_timer_if_idle state
-                complete_or_log (RetryingPivot session)
+                complete_or_log state (RetryingPivot session)
                 Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
     | PivotActive active ->
         if ViewNavigationState.foreground_root_window () <> active.session.window then
@@ -235,6 +249,11 @@ let start (state: State) (window: RootWindow) (mode: ViewLatchMode) (completion:
 let start_or_switch (state: State) (window: RootWindow) (mode: ViewLatchMode) (completion: Action option) =
     if state.lifecycle <> Available then
         Error "Mouse button overrides are unavailable."
+    elif
+        ViewNavigationState.synthetic_input_owned state
+        || Option.isSome state.pending_view_completion
+    then
+        Error "The previous viewport input is still cleaning up."
     else
         match current_mode state with
         | Some current when current = mode -> Ok()

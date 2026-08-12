@@ -30,46 +30,47 @@ type Session =
       registration: RawInputNative.MouseRegistrationLease
       stop_gate: obj
       mutable stop_requested: int
-      mutable stop_signalled: int
-      mutable stop_signal_errors: string list
       mutable stopped_disposed: bool
       mutable stop_outcome: StopOutcome option }
 
 type StartupState =
     { ready: ManualResetEventSlim
       stopped: ManualResetEventSlim
+      mutable ready_disposed: bool
       mutable window_handle: nativeint
       mutable native_thread_id: uint32
       mutable registration: RawInputNative.MouseRegistrationLease option
       mutable cancel_requested: int
       result: ThreadResult }
 
-[<Literal>]
-let startup_timeout_ms = 5000
+type StartupRecovery =
+    { thread: Thread
+      startup: StartupState
+      mutable stopped_disposed: bool }
 
 [<Literal>]
-let shutdown_timeout_ms = 1000
+let startup_timeout_ms = 250
 
 [<Literal>]
-let shutdown_escalation_timeout_ms = 1000
+let stop_observation_ms = 250
 
 [<Literal>]
-let join_timeout_ms = 250
+let join_timeout_ms = 50
 
 let recoveryGate = obj ()
 let recoverySessions = ResizeArray<Session>()
-let recoveryRegistrations = ResizeArray<RawInputNative.MouseRegistrationLease>()
+let recoveryStartups = ResizeArray<StartupRecovery>()
 
-let retain_for_recovery (session: Session) =
+let retain_session (session: Session) =
     lock recoveryGate (fun () ->
-        let alreadyRetained =
+        let exists =
             recoverySessions
             |> Seq.exists (fun (candidate: Session) -> Object.ReferenceEquals(candidate, session))
 
-        if not alreadyRetained then
+        if not exists then
             recoverySessions.Add session)
 
-let forget_recovery (session: Session) =
+let forget_session (session: Session) =
     lock recoveryGate (fun () ->
         let mutable index = recoverySessions.Count - 1
 
@@ -79,23 +80,25 @@ let forget_recovery (session: Session) =
 
             index <- index - 1)
 
-let retain_registration_recovery (lease: RawInputNative.MouseRegistrationLease) =
+let retain_startup (thread: Thread) (startup: StartupState) =
     lock recoveryGate (fun () ->
-        let alreadyRetained =
-            recoveryRegistrations
-            |> Seq.exists (fun (candidate: RawInputNative.MouseRegistrationLease) ->
-                Object.ReferenceEquals(candidate, lease))
+        let exists =
+            recoveryStartups
+            |> Seq.exists (fun (candidate: StartupRecovery) -> Object.ReferenceEquals(candidate.thread, thread))
 
-        if not alreadyRetained then
-            recoveryRegistrations.Add lease)
+        if not exists then
+            recoveryStartups.Add
+                { thread = thread
+                  startup = startup
+                  stopped_disposed = false })
 
-let forget_registration_recovery (lease: RawInputNative.MouseRegistrationLease) =
+let forget_startup (recovery: StartupRecovery) =
     lock recoveryGate (fun () ->
-        let mutable index = recoveryRegistrations.Count - 1
+        let mutable index = recoveryStartups.Count - 1
 
         while index >= 0 do
-            if Object.ReferenceEquals(recoveryRegistrations[index], lease) then
-                recoveryRegistrations.RemoveAt index
+            if Object.ReferenceEquals(recoveryStartups[index], recovery) then
+                recoveryStartups.RemoveAt index
 
             index <- index - 1)
 
@@ -107,10 +110,16 @@ let exception_messages (error: exn) =
         |> List.ofSeq
     | _ -> [ error.Message ]
 
-let release_registration (lease: RawInputNative.MouseRegistrationLease) =
-    match RawInputNative.release_mouse_registration lease with
-    | Ok _ -> []
-    | Error error -> [ error ]
+let registration_relinquished (registration: RawInputNative.MouseRegistrationLease option) =
+    match registration with
+    | Some lease -> lease.relinquished
+    | None -> true
+
+let post_stop (window: nativeint) =
+    if window = nativeint 0 then
+        Error "The raw-input window is not ready yet."
+    else
+        RawInputNative.post_stop window
 
 let run_thread
     (config: RawInputConfig)
@@ -120,7 +129,6 @@ let run_thread
     (startup: StartupState)
     =
     let mutable receiver: RawInputReceiver option = None
-    let mutable startupComplete = false
 
     try
         try
@@ -130,83 +138,96 @@ let run_thread
                 Action<RawInputNative.MouseRegistrationLease>(fun (lease: RawInputNative.MouseRegistrationLease) ->
                     startup.registration <- Some lease)
 
+            let runtimeFailed =
+                Action<exn>(fun (error: exn) ->
+                    if Option.isNone startup.result.runtime_error then
+                        startup.result.runtime_error <- Some error
+
+                    InputAccumulator.request_exit input
+                    inputAvailable.Invoke())
+
             let created =
-                new RawInputReceiver(config, sessionMode, input, inputAvailable, registrationReady)
+                new RawInputReceiver(config, sessionMode, input, inputAvailable, registrationReady, runtimeFailed)
 
             receiver <- Some created
             startup.window_handle <- created.WindowHandle
 
-            if Volatile.Read(&startup.cancel_requested) = 0 then
-                startupComplete <- true
-                startup.ready.Set()
+            match created.StartupError with
+            | Some error -> startup.result.startup_error <- Some error
+            | None -> ()
+
+            startup.ready.Set()
+
+            if
+                Volatile.Read(&startup.cancel_requested) <> 0
+                || Option.isSome created.StartupError
+            then
+                created.RequestStop()
+
+            if not created.RegistrationRelinquished then
+                Application.Run()
+
+            while not created.RegistrationRelinquished do
+                created.RequestStop()
                 Application.Run()
         with error ->
-            if startupComplete then
+            if
+                Option.isNone startup.result.startup_error
+                && Option.isNone startup.result.runtime_error
+            then
+                startup.result.startup_error <- Some error
+                startup.ready.Set()
+            elif Option.isNone startup.result.runtime_error then
                 Debug.WriteLine $"RhinosCanFly raw-input thread failed: {error.Message}"
                 startup.result.runtime_error <- Some error
                 InputAccumulator.request_exit input
                 inputAvailable.Invoke()
-            else
-                startup.result.startup_error <- Some error
-                startup.ready.Set()
+
+            match receiver with
+            | Some created ->
+                while not created.RegistrationRelinquished do
+                    created.RequestStop()
+
+                    if not created.RegistrationRelinquished then
+                        Thread.Sleep 250
+            | None -> ()
     finally
         try
-            try
-                match receiver with
-                | Some created -> created.ReleaseResources()
-                | None ->
-                    match startup.registration with
-                    | Some lease ->
-                        match RawInputNative.release_mouse_registration lease with
-                        | Ok _ -> ()
-                        | Error error -> raise (InvalidOperationException error)
-                    | None -> ()
-            with error ->
-                startup.result.shutdown_error <- Some error
+            match receiver with
+            | Some created -> created.ReleaseResources()
+            | None -> ()
+        with error ->
+            startup.result.shutdown_error <- Some error
 
-                match startup.registration with
-                | Some lease when not lease.relinquished -> retain_registration_recovery lease
-                | Some _
-                | None -> ()
-        finally
-            startup.stopped.Set()
+        startup.stopped.Set()
 
-let abandon_startup (startup: StartupState) (thread: Thread) =
-    let errors = ResizeArray<string>()
+let observe_termination (thread: Thread) (stopped: ManualResetEventSlim) =
+    let signalled = stopped.Wait stop_observation_ms
+
+    if signalled && thread.IsAlive then
+        thread.Join join_timeout_ms
+    else
+        signalled || not thread.IsAlive
+
+let cancel_startup (startup: StartupState) (thread: Thread) =
     Interlocked.Exchange(&startup.cancel_requested, 1) |> ignore
 
-    match startup.registration with
-    | Some lease -> release_registration lease |> Seq.iter errors.Add
-    | None -> ()
+    if startup.window_handle <> nativeint 0 then
+        post_stop startup.window_handle |> ignore
 
-    let registrationRelinquished =
-        match startup.registration with
-        | Some lease -> lease.relinquished
-        | None -> true
+    let terminated = observe_termination thread startup.stopped
 
-    if registrationRelinquished && startup.window_handle <> nativeint 0 then
-        match RawInputNative.post_stop startup.window_handle with
-        | Ok() -> ()
-        | Error error -> errors.Add error
+    if not terminated then
+        retain_startup thread startup
 
-    if registrationRelinquished && startup.native_thread_id <> 0u then
-        match RawInputNative.post_quit startup.native_thread_id with
-        | Ok() -> ()
-        | Error error -> errors.Add error
+    terminated
 
-    let stopped = startup.stopped.Wait shutdown_escalation_timeout_ms
+let dispose_startup_events (startup: StartupState) =
+    if not startup.ready_disposed then
+        startup.ready.Dispose()
+        startup.ready_disposed <- true
 
-    let terminated =
-        if stopped then
-            if thread.Join join_timeout_ms then
-                true
-            else
-                errors.Add "The raw-input thread signalled completion but did not terminate."
-                false
-        else
-            false
-
-    struct (terminated, List.ofSeq errors)
+    startup.stopped.Dispose()
 
 let start
     (config: RawInputConfig)
@@ -222,6 +243,7 @@ let start
     let startup =
         { ready = new ManualResetEventSlim(false)
           stopped = new ManualResetEventSlim(false)
+          ready_disposed = false
           window_handle = nativeint 0
           native_thread_id = 0u
           registration = None
@@ -239,86 +261,59 @@ let start
 
     if not (startup.ready.Wait startup_timeout_ms) then
         InputDiagnostics.record InputDiagnostics.EventKind.RawStartFailed 1L 0L
-        let struct (terminated, cleanupErrors) = abandon_startup startup thread
+        let terminated = cancel_startup startup thread
 
         if terminated then
-            startup.ready.Dispose()
-            startup.stopped.Dispose()
+            dispose_startup_events startup
 
-        let cleanupMessage = String.concat "; " cleanupErrors
+        let message =
+            "The raw-input worker did not become ready within 250 ms. Cleanup is continuing on that worker."
 
-        let suffix =
-            if String.IsNullOrEmpty cleanupMessage then
-                ""
-            else
-                $" Cleanup: {cleanupMessage}"
-
-        let registrationRelinquished =
-            match startup.registration with
-            | None -> true
-            | Some lease -> lease.relinquished
-
-        let message = $"The raw-input thread did not start within five seconds.{suffix}"
-        raise (StartFailureException(message, not terminated || not registrationRelinquished, TimeoutException message))
+        raise (StartFailureException(message, not terminated, TimeoutException message))
 
     startup.ready.Dispose()
+    startup.ready_disposed <- true
 
     match result.startup_error, startup.registration with
     | Some error, _ ->
         InputDiagnostics.record InputDiagnostics.EventKind.RawStartFailed 2L 0L
-        let mutable terminated = startup.stopped.Wait shutdown_timeout_ms
-
-        let cleanupErrors =
-            if terminated then
-                if not (thread.Join join_timeout_ms) then
-                    terminated <- false
-                    [ "The failed raw-input thread did not terminate." ]
-                else
-                    []
-            else
-                let struct (stoppedAfterEscalation, errors) = abandon_startup startup thread
-                terminated <- stoppedAfterEscalation
-                errors
+        let terminated = cancel_startup startup thread
 
         if terminated then
             startup.stopped.Dispose()
 
-        let errors = exception_messages error @ cleanupErrors
+        let errors =
+            exception_messages error
+            @ (result.shutdown_error |> Option.map exception_messages |> Option.defaultValue [])
+
         let message = String.concat "; " errors
 
-        let registrationRelinquished =
-            match startup.registration with
-            | None -> true
-            | Some lease -> lease.relinquished
-
-        raise (StartFailureException(message, not terminated || not registrationRelinquished, error))
+        raise (
+            StartFailureException(
+                message,
+                not terminated || not (registration_relinquished startup.registration),
+                error
+            )
+        )
     | None, None ->
         InputDiagnostics.record InputDiagnostics.EventKind.RawStartFailed 3L 0L
-        let struct (terminated, cleanupErrors) = abandon_startup startup thread
+        let terminated = cancel_startup startup thread
 
         if terminated then
             startup.stopped.Dispose()
 
-        let cleanupMessage = String.concat "; " cleanupErrors
-
-        let suffix =
-            if String.IsNullOrEmpty cleanupMessage then
-                ""
-            else
-                $" Cleanup: {cleanupMessage}"
-
-        let message =
-            $"The raw-input thread started without owning a mouse registration.{suffix}"
-
+        let message = "The raw-input worker started without a mouse registration."
         raise (StartFailureException(message, not terminated, InvalidOperationException message))
     | None, Some registration when startup.stopped.IsSet ->
         InputDiagnostics.record InputDiagnostics.EventKind.RawStartFailed 4L 0L
-        let terminated = thread.Join join_timeout_ms
+        let terminated = not thread.IsAlive || thread.Join join_timeout_ms
 
         if terminated then
             startup.stopped.Dispose()
+        else
+            retain_startup thread startup
 
-        let message = "The raw-input thread stopped before startup completed."
+        let message = "The raw-input worker stopped before startup completed."
 
         raise (
             StartFailureException(
@@ -341,73 +336,34 @@ let start
           registration = registration
           stop_gate = obj ()
           stop_requested = 0
-          stop_signalled = 0
-          stop_signal_errors = []
           stopped_disposed = false
           stop_outcome = None }
 
-let signal_stop (session: Session) =
-    if
-        session.registration.relinquished
-        && Interlocked.CompareExchange(&session.stop_signalled, 1, 0) = 0
-    then
-        let errors = ResizeArray<string>()
-
-        if not session.stopped.IsSet then
-            match RawInputNative.post_stop session.window_handle with
-            | Ok() -> ()
-            | Error windowError ->
-                errors.Add windowError
-
-                match RawInputNative.post_quit session.native_thread_id with
-                | Ok() -> ()
-                | Error threadError -> errors.Add threadError
-
-        session.stop_signal_errors <- List.ofSeq errors
-
 let request_stop (session: Session) =
-    lock session.stop_gate (fun () ->
-        if Interlocked.CompareExchange(&session.stop_requested, 1, 0) = 0 then
-            InputDiagnostics.record
-                InputDiagnostics.EventKind.RawStopRequested
-                (session.window_handle.ToInt64())
-                (int64 session.native_thread_id)
+    if Interlocked.CompareExchange(&session.stop_requested, 1, 0) = 0 then
+        InputDiagnostics.record
+            InputDiagnostics.EventKind.RawStopRequested
+            (session.window_handle.ToInt64())
+            (int64 session.native_thread_id)
 
-            release_registration session.registration |> ignore
-            signal_stop session)
+    if not session.stopped.IsSet then
+        post_stop session.window_handle
+    else
+        Ok()
 
 let stop_internal (retry: bool) (session: Session) =
     lock session.stop_gate (fun () ->
         match session.stop_outcome with
-        | Some outcome when not retry -> outcome
+        | Some outcome when not retry && outcome.terminated && outcome.registration_relinquished -> outcome
         | Some _
         | None ->
-            request_stop session
-
             let errors = ResizeArray<string>()
-            release_registration session.registration |> Seq.iter errors.Add
-            signal_stop session
 
-            for error in session.stop_signal_errors do
-                errors.Add error
+            match request_stop session with
+            | Ok() -> ()
+            | Error error -> errors.Add error
 
-            let mutable terminated = not session.thread.IsAlive
-
-            if not terminated then
-                terminated <- session.stopped.Wait shutdown_timeout_ms
-
-            if not terminated then
-                if session.registration.relinquished then
-                    match RawInputNative.post_quit session.native_thread_id with
-                    | Ok() -> ()
-                    | Error error -> errors.Add error
-
-                terminated <- session.stopped.Wait shutdown_escalation_timeout_ms
-
-            if terminated && session.thread.IsAlive then
-                if not (session.thread.Join join_timeout_ms) then
-                    terminated <- false
-                    errors.Add "The raw-input thread signalled completion but did not terminate."
+            let terminated = observe_termination session.thread session.stopped
 
             if terminated && not session.stopped_disposed then
                 session.stopped.Dispose()
@@ -422,7 +378,7 @@ let stop_internal (retry: bool) (session: Session) =
             | None -> ()
 
             if not terminated then
-                errors.Add "The raw-input thread did not stop within two seconds."
+                errors.Add "The raw-input worker is still cleaning up in the background."
 
             let outcome =
                 { terminated = terminated
@@ -430,7 +386,7 @@ let stop_internal (retry: bool) (session: Session) =
                   errors = List.ofSeq errors }
 
             InputDiagnostics.record
-                (if terminated then
+                (if outcome.terminated && outcome.registration_relinquished then
                      InputDiagnostics.EventKind.RawStopped
                  else
                      InputDiagnostics.EventKind.RawStopTimedOut)
@@ -440,9 +396,9 @@ let stop_internal (retry: bool) (session: Session) =
             session.stop_outcome <- Some outcome
 
             if outcome.terminated && outcome.registration_relinquished then
-                forget_recovery session
+                forget_session session
             else
-                retain_for_recovery session
+                retain_session session
 
             outcome)
 
@@ -451,9 +407,39 @@ let stop (session: Session) = stop_internal false session
 let runtime_failed (session: Session) =
     Option.isSome session.result.runtime_error
 
+let recovery_count () =
+    lock recoveryGate (fun () -> recoverySessions.Count + recoveryStartups.Count)
+
+let recover_startup (recovery: StartupRecovery) =
+    let errors = ResizeArray<string>()
+    Interlocked.Exchange(&recovery.startup.cancel_requested, 1) |> ignore
+
+    if
+        recovery.startup.window_handle <> nativeint 0
+        && not recovery.startup.stopped.IsSet
+    then
+        match post_stop recovery.startup.window_handle with
+        | Ok() -> ()
+        | Error error -> errors.Add error
+
+    let terminated = observe_termination recovery.thread recovery.startup.stopped
+
+    if terminated then
+        if not recovery.startup.ready_disposed then
+            recovery.startup.ready.Dispose()
+            recovery.startup.ready_disposed <- true
+
+        if not recovery.stopped_disposed then
+            recovery.startup.stopped.Dispose()
+            recovery.stopped_disposed <- true
+
+        forget_startup recovery
+
+    struct (terminated, List.ofSeq errors)
+
 let retry_recovery () =
     let sessions = lock recoveryGate (fun () -> recoverySessions.ToArray())
-    let registrations = lock recoveryGate (fun () -> recoveryRegistrations.ToArray())
+    let startups = lock recoveryGate (fun () -> recoveryStartups.ToArray())
     let errors = ResizeArray<string>()
 
     for session in sessions do
@@ -462,12 +448,13 @@ let retry_recovery () =
         for error in outcome.errors do
             errors.Add error
 
-    for registration in registrations do
-        match RawInputNative.release_mouse_registration registration with
-        | Ok _ -> forget_registration_recovery registration
-        | Error error -> errors.Add error
+    for startup in startups do
+        let struct (_terminated, startupErrors) = recover_startup startup
+
+        for error in startupErrors do
+            errors.Add error
 
     let remaining =
-        lock recoveryGate (fun () -> recoverySessions.Count + recoveryRegistrations.Count)
+        lock recoveryGate (fun () -> recoverySessions.Count + recoveryStartups.Count)
 
     struct (remaining, List.ofSeq errors)

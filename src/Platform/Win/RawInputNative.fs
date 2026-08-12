@@ -17,9 +17,6 @@ let wm_app = 0x8000
 let stop_message = wm_app + 1
 
 [<Literal>]
-let quit_message = 0x0012
-
-[<Literal>]
 let message_only_window = -3
 
 [<Literal>]
@@ -93,8 +90,7 @@ type Device =
     val mutable target: nativeint
 
 type MouseRegistrationLease =
-    { gate: obj
-      previous: Device option
+    { previous: Device option
       installed: Device
       mutable relinquished: bool }
 
@@ -102,6 +98,11 @@ type RegistrationRelease =
     | Relinquished
     | AlreadyRelinquished
     | ReplacedByAnotherOwner
+
+type RegistrationAcquisition =
+    | Acquired of MouseRegistrationLease
+    | Failed of string
+    | CleanupPending of string * MouseRegistrationLease
 
 [<Struct; StructLayout(LayoutKind.Sequential)>]
 type Header =
@@ -127,9 +128,6 @@ extern uint32 GetRegisteredRawInputDevices(nativeint devices, uint32& device_cou
 
 [<DllImport("user32.dll", SetLastError = true)>]
 extern uint32 GetRawInputData(nativeint raw_input, uint32 command, nativeint data, uint32& size, uint32 header_size)
-
-[<DllImport("user32.dll", SetLastError = true)>]
-extern bool PostThreadMessage(uint32 thread_id, int message, nativeint wparam, nativeint lparam)
 
 [<DllImport("kernel32.dll")>]
 extern uint32 GetCurrentThreadId()
@@ -242,16 +240,15 @@ let restore_mouse (previous: Device option) =
 
 let rec acquire_mouse_registration (target: nativeint) =
     match get_registered_mouse () with
-    | Error error -> Error error
+    | Error error -> Failed error
     | Ok previous ->
         let installed = mouse_device target
 
         match register_mouse target with
-        | Error error -> Error error
+        | Error error -> Failed error
         | Ok() ->
             let lease =
-                { gate = obj ()
-                  previous = previous
+                { previous = previous
                   installed = installed
                   relinquished = false }
 
@@ -260,7 +257,7 @@ let rec acquire_mouse_registration (target: nativeint) =
             match verification with
             | Ok current when same_registration current (Some installed) ->
                 InputDiagnostics.record InputDiagnostics.EventKind.RegistrationAcquired (target.ToInt64()) 0L
-                Ok lease
+                Acquired lease
             | _ ->
                 let verificationError =
                     match verification with
@@ -268,64 +265,77 @@ let rec acquire_mouse_registration (target: nativeint) =
                     | Error error -> $"The raw-mouse registration could not be verified: {error}"
 
                 match release_mouse_registration lease with
-                | Ok _ -> Error verificationError
-                | Error releaseError -> Error $"{verificationError}; cleanup failed: {releaseError}"
+                | Ok _ -> Failed verificationError
+                | Error releaseError -> CleanupPending($"{verificationError}; cleanup failed: {releaseError}", lease)
 
 and release_mouse_registration (lease: MouseRegistrationLease) =
-    lock lease.gate (fun () ->
-        if lease.relinquished then
-            Ok AlreadyRelinquished
-        else
-            match get_registered_mouse () with
-            | Error error -> Error error
-            | Ok current when not (same_registration current (Some lease.installed)) ->
-                lease.relinquished <- true
+    if lease.relinquished then
+        Ok AlreadyRelinquished
+    else
+        match get_registered_mouse () with
+        | Error error -> Error error
+        | Ok current when not (same_registration current (Some lease.installed)) ->
+            lease.relinquished <- true
 
+            InputDiagnostics.record
+                InputDiagnostics.EventKind.RegistrationReplaced
+                (lease.installed.target.ToInt64())
+                0L
+
+            Ok ReplacedByAnotherOwner
+        | Ok _ ->
+            let mutable attempt = 1
+            let mutable releaseError = None
+
+            while attempt <= registration_query_attempts && not lease.relinquished do
+                match restore_mouse lease.previous with
+                | Ok() ->
+                    match get_registered_mouse () with
+                    | Ok current when same_registration current lease.previous -> lease.relinquished <- true
+                    | Ok current when not (same_registration current (Some lease.installed)) ->
+                        lease.relinquished <- true
+                    | Ok _ -> releaseError <- Some "The raw-mouse registration still belongs to RhinosCanFly."
+                    | Error error -> releaseError <- Some error
+                | Error error ->
+                    releaseError <- Some error
+
+                    match get_registered_mouse () with
+                    | Ok current when not (same_registration current (Some lease.installed)) ->
+                        lease.relinquished <- true
+                    | Ok _ -> ()
+                    | Error queryError -> releaseError <- Some $"{error}; {queryError}"
+
+                attempt <- attempt + 1
+
+                if not lease.relinquished && attempt <= registration_query_attempts then
+                    Thread.Yield() |> ignore
+
+            if not lease.relinquished then
+                match get_registered_mouse () with
+                | Ok current when not (same_registration current (Some lease.installed)) -> lease.relinquished <- true
+                | Ok _ ->
+                    match unregister_mouse () with
+                    | Error error -> releaseError <- Some $"{releaseError |> Option.defaultValue error}; {error}"
+                    | Ok() ->
+                        match get_registered_mouse () with
+                        | Ok current when not (same_registration current (Some lease.installed)) ->
+                            lease.relinquished <- true
+                        | Ok _ -> releaseError <- Some "Emergency raw-mouse removal did not relinquish ownership."
+                        | Error error -> releaseError <- Some error
+                | Error error -> releaseError <- Some error
+
+            if lease.relinquished then
                 InputDiagnostics.record
-                    InputDiagnostics.EventKind.RegistrationReplaced
+                    InputDiagnostics.EventKind.RegistrationReleased
                     (lease.installed.target.ToInt64())
                     0L
 
-                Ok ReplacedByAnotherOwner
-            | Ok _ ->
-                let mutable attempt = 1
-                let mutable releaseError = None
-
-                while attempt <= registration_query_attempts && not lease.relinquished do
-                    match restore_mouse lease.previous with
-                    | Ok() ->
-                        match get_registered_mouse () with
-                        | Ok current when same_registration current lease.previous -> lease.relinquished <- true
-                        | Ok current when not (same_registration current (Some lease.installed)) ->
-                            lease.relinquished <- true
-                        | Ok _ -> releaseError <- Some "The raw-mouse registration still belongs to RhinosCanFly."
-                        | Error error -> releaseError <- Some error
-                    | Error error ->
-                        releaseError <- Some error
-
-                        match get_registered_mouse () with
-                        | Ok current when not (same_registration current (Some lease.installed)) ->
-                            lease.relinquished <- true
-                        | Ok _ -> ()
-                        | Error queryError -> releaseError <- Some $"{error}; {queryError}"
-
-                    attempt <- attempt + 1
-
-                    if not lease.relinquished && attempt <= registration_query_attempts then
-                        Thread.Yield() |> ignore
-
-                if lease.relinquished then
-                    InputDiagnostics.record
-                        InputDiagnostics.EventKind.RegistrationReleased
-                        (lease.installed.target.ToInt64())
-                        0L
-
-                    Ok Relinquished
-                else
-                    Error(
-                        releaseError
-                        |> Option.defaultValue "The raw-mouse registration could not be relinquished."
-                    ))
+                Ok Relinquished
+            else
+                Error(
+                    releaseError
+                    |> Option.defaultValue "The raw-mouse registration could not be relinquished."
+                )
 
 let button_flags (mouse: Mouse) =
     uint16 (mouse.buttons &&& button_word_mask)
@@ -366,9 +376,3 @@ let post_stop (window: nativeint) =
         Ok()
     else
         Error(Win32.last_error "PostMessage")
-
-let post_quit (threadId: uint32) =
-    if PostThreadMessage(threadId, quit_message, nativeint 0, nativeint 0) then
-        Ok()
-    else
-        Error(Win32.last_error "PostThreadMessage")

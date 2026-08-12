@@ -51,6 +51,7 @@ type RhinosCanFlySettingsDialog() as self =
     let cancelButton = new Button(Text = "Cancel")
     let windowIcon = SettingsUi.load_icon ()
     let mutable resourcesDisposed = false
+    let mutable saved = false
 
     do
         windowIcon |> Option.iter (fun (icon: Icon) -> self.Icon <- icon)
@@ -75,10 +76,13 @@ type RhinosCanFlySettingsDialog() as self =
         SettingsUi.use_rhino_style self
 
         saveButton.Click.Add(fun (_: EventArgs) ->
-            if Settings.save control then
+            if Settings.stage control then
+                saved <- true
                 self.Close())
 
-        cancelButton.Click.Add(fun (_: EventArgs) -> self.Close())
+        cancelButton.Click.Add(fun (_: EventArgs) ->
+            RuntimeSettings.discard_staged ()
+            self.Close())
 
         self.Closed.Add(fun (_: EventArgs) -> SettingsDialogPlacement.last_location <- Some self.Location)
 
@@ -126,6 +130,8 @@ type RhinosCanFlySettingsDialog() as self =
             self.ShowModal()
         else
             self.ShowModal parent
+
+    member _.Saved = saved
 
 type RhinosCanFlyOptionsPage() =
     inherit OptionsDialogPage "RhinosCanFly"

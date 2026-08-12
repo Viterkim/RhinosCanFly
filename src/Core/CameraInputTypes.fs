@@ -6,6 +6,7 @@ open Rhino.Geometry
 [<Struct>]
 type CameraState =
     { position: Point3d
+      target: Point3d
       yaw: float
       pitch: float }
 
@@ -14,7 +15,10 @@ module CameraState =
         not (Double.IsNaN value) && not (Double.IsInfinity value)
 
     let valid (camera: CameraState) =
-        camera.position.IsValid && finite camera.yaw && finite camera.pitch
+        camera.position.IsValid
+        && camera.target.IsValid
+        && finite camera.yaw
+        && finite camera.pitch
 
 [<Struct>]
 type CameraSnapshot =

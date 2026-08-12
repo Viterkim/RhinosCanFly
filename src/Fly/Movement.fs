@@ -24,6 +24,14 @@ let maximum_pitch_radians = RhinoMath.ToRadians 89.
 
 let wrap_yaw (yaw: float) = Math.IEEERemainder(yaw, Math.PI * 2.)
 
+let target_distance (camera: CameraState) =
+    let distance = camera.position.DistanceTo camera.target
+
+    if RhinoMath.IsValidDouble distance && distance > RhinoMath.ZeroTolerance then
+        distance
+    else
+        1.
+
 [<Struct>]
 type MouseAngleDeltas =
     { yaw_delta: float; pitch_delta: float }
@@ -59,9 +67,14 @@ let clamped_mouse_angle_deltas
 let look (config: FlyingMouseConfig) (mouseDx: int64) (mouseDy: int64) (camera: CameraState) =
     let rotation = clamped_mouse_angle_deltas config 1. mouseDx mouseDy camera
 
+    let yaw = wrap_yaw (camera.yaw + rotation.yaw_delta)
+    let pitch = camera.pitch + rotation.pitch_delta
+    let direction = direction_from_angles yaw pitch
+
     { camera with
-        yaw = wrap_yaw (camera.yaw + rotation.yaw_delta)
-        pitch = camera.pitch + rotation.pitch_delta }
+        target = camera.position + direction * target_distance camera
+        yaw = yaw
+        pitch = pitch }
 
 let rotate_vector (axis: Vector3d) (angle: float) (vector: Vector3d) =
     let mutable rotated = vector
@@ -79,16 +92,18 @@ let mouse_pivot (config: FlyingMouseConfig) (target: Point3d) (mouseDx: int64) (
     let yawDirection = rotate_vector Vector3d.ZAxis rotation.yaw_delta direction
     let mutable right = Vector3d.CrossProduct(yawDirection, Vector3d.ZAxis)
 
-    let struct (rotatedOffset, rotatedDirection) =
+    let rotatedOffset =
         if right.Unitize() then
-            struct (rotate_vector right rotation.pitch_delta yawOffset,
-                    rotate_vector right rotation.pitch_delta yawDirection)
+            rotate_vector right rotation.pitch_delta yawOffset
         else
-            struct (yawOffset, yawDirection)
+            yawOffset
 
-    let struct (yaw, pitch) = angles_from_direction rotatedDirection
+    let position = target + rotatedOffset
+    let directionToTarget = target - position
+    let struct (yaw, pitch) = angles_from_direction directionToTarget
 
-    { position = target + rotatedOffset
+    { position = position
+      target = target
       yaw = yaw
       pitch = pitch }
 
@@ -109,10 +124,13 @@ let mouse_pan
         if up.Unitize() then
             let deltas = scaled_mouse_angle_deltas config multiplier mouseDx mouseDy
 
+            let translation =
+                right * deltas.yaw_delta * unitsPerRadian
+                - up * deltas.pitch_delta * unitsPerRadian
+
             { camera with
-                position =
-                    camera.position + right * deltas.yaw_delta * unitsPerRadian
-                    - up * deltas.pitch_delta * unitsPerRadian }
+                position = camera.position + translation
+                target = camera.target + translation }
         else
             camera
     else
@@ -133,14 +151,11 @@ let orbit (target: Point3d) (requestedAngle: float) (camera: CameraState) =
             Vector3d(offset.X * cosine - offset.Y * sine, offset.X * sine + offset.Y * cosine, offset.Z)
 
         let position = target + rotatedOffset
-        let direction = direction_from_angles camera.yaw camera.pitch
-
-        let rotatedDirection =
-            Vector3d(direction.X * cosine - direction.Y * sine, direction.X * sine + direction.Y * cosine, direction.Z)
-
-        let struct (yaw, pitch) = angles_from_direction rotatedDirection
+        let directionToTarget = target - position
+        let struct (yaw, pitch) = angles_from_direction directionToTarget
 
         { position = position
+          target = target
           yaw = yaw
           pitch = pitch }
 
@@ -159,15 +174,18 @@ let step (config: MovementConfig) (input: InputSnapshot) (keyPivotTarget: Point3
     let verticalAmount = amount input.up input.down
 
     let mutable movement =
-        forward * forwardAmount
-        + right * rightAmount
-        + Vector3d.ZAxis * verticalAmount * config.vertical_speed_multiplier
+        forward * forwardAmount + right * rightAmount + Vector3d.ZAxis * verticalAmount
 
     if config.normalize_diagonal_movement && movement.SquareLength > 1. then
         movement.Unitize() |> ignore
 
+    movement.Z <- movement.Z * config.vertical_speed_multiplier
+
+    let translation = movement * input.move_speed * dt
+
     let translated =
-        { position = camera.position + movement * input.move_speed * dt
+        { position = camera.position + translation
+          target = camera.target + translation
           yaw = yaw
           pitch = pitch }
 

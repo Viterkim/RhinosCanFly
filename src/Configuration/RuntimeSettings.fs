@@ -1,14 +1,15 @@
 module RhinosCanFly.RuntimeSettings
 
 open System
+open System.Collections.Generic
 open System.Diagnostics
 open Rhino
 open Rhino.Commands
 
 let mutable loadedConfig: ConfigLoadResult option = None
 let mutable stagedConfig: ConfigLoadResult option = None
-let mutable inputSuspensionDepth = 0
-let mutable optionsCommandDepth = 0
+let inputSuspensions = Dictionary<int64, InputSuspensionLease>()
+let optionsSuspensions = ResizeArray<InputSuspensionLease>()
 
 let current () =
     match loadedConfig with
@@ -63,47 +64,61 @@ let apply_live (loaded: ConfigLoadResult) =
         Error $"Could not apply live settings: {error.Message}"
 
 let apply (loaded: ConfigLoadResult) =
-    if inputSuspensionDepth > 0 then Ok() else apply_live loaded
-
-let suspend_input () =
-    if inputSuspensionDepth > 0 then
-        inputSuspensionDepth <- inputSuspensionDepth + 1
+    if inputSuspensions.Count > 0 then
         Ok()
     else
+        apply_live loaded
+
+let suspend_input (reason: InputSuspensionReason) =
+    let firstSuspension = inputSuspensions.Count = 0
+
+    if firstSuspension then
         RightClickEntry.suspend ()
 
-        match PlatformInput.suspend_mouse_button_overrides () with
-        | Ok() ->
-            inputSuspensionDepth <- 1
-            PlatformInput.record_input_suspended ()
-            Ok()
-        | Error error ->
-            RightClickEntry.resume ()
-            Error error
+    match PlatformInput.suspend_mouse_button_overrides reason with
+    | Ok lease ->
+        inputSuspensions.Add(lease.id, lease)
 
-let resume_input () =
-    if inputSuspensionDepth <= 0 then
+        if firstSuspension then
+            PlatformInput.record_input_suspended ()
+
+        match lease.cleanup_error with
+        | Some error -> RhinoApp.WriteLine $"RhinosCanFly input cleanup is incomplete: {error}"
+        | None -> ()
+
+        Ok lease
+    | Error error ->
+        if firstSuspension then
+            RightClickEntry.resume ()
+
+        Error error
+
+let resume_input (lease: InputSuspensionLease) =
+    if not (inputSuspensions.ContainsKey lease.id) then
         Ok()
     else
-        inputSuspensionDepth <- inputSuspensionDepth - 1
+        let lastSuspension = inputSuspensions.Count = 1
 
-        if inputSuspensionDepth > 0 then
-            Ok()
-        else
-            let applyResult =
+        let applyResult =
+            if lastSuspension then
                 match loadedConfig with
                 | Some loaded -> apply_live loaded
                 | None -> Ok()
+            else
+                Ok()
 
-            let resumeResult = PlatformInput.resume_mouse_button_overrides ()
+        let resumeResult = PlatformInput.resume_mouse_button_overrides lease
+        inputSuspensions.Remove lease.id |> ignore
+
+        if lastSuspension then
             RightClickEntry.resume ()
             PlatformInput.record_input_resumed ()
 
-            match applyResult, resumeResult with
-            | Ok(), Ok() -> Ok()
-            | Error error, Ok()
-            | Ok(), Error error -> Error error
-            | Error applyError, Error resumeError -> Error $"{applyError}; {resumeError}"
+        match applyResult, resumeResult with
+        | Ok(), Ok() -> Ok()
+        | Error error, Ok()
+        | Ok(), Error error -> Error error
+        | Error applyError, Error resumeError -> Error $"{applyError}; {resumeError}"
 
 let candidate (config: FlyConfigFile) =
     let source = ConfigSchema.normalize_numbers config
@@ -206,25 +221,51 @@ let is_options_command (commandName: string) =
 let command_began =
     EventHandler<CommandEventArgs>(fun (_: obj) (event: CommandEventArgs) ->
         if is_options_command event.CommandEnglishName then
-            optionsCommandDepth <- optionsCommandDepth + 1
-
-            match suspend_input () with
-            | Ok() -> ()
+            match suspend_input InputSuspensionReason.RhinoOptions with
+            | Ok lease -> optionsSuspensions.Add lease
             | Error error -> RhinoApp.WriteLine $"RhinosCanFly input suspension failed: {error}")
 
 let command_ended =
     EventHandler<CommandEventArgs>(fun (_: obj) (event: CommandEventArgs) ->
         if is_options_command event.CommandEnglishName then
-            if optionsCommandDepth = 1 then
-                match commit_staged () with
-                | Ok() -> ()
-                | Error error -> RhinoApp.WriteLine $"RhinosCanFly settings error: {error}"
+            if optionsSuspensions.Count > 0 then
+                let index = optionsSuspensions.Count - 1
+                let lease = optionsSuspensions[index]
+                let commitSettings = optionsSuspensions.Count = 1
+                optionsSuspensions.RemoveAt index
 
-            match resume_input () with
-            | Ok() -> ()
-            | Error error -> RhinoApp.WriteLine $"RhinosCanFly input resume failed: {error}"
+                let finish () =
+                    if commitSettings then
+                        match commit_staged () with
+                        | Ok() -> ()
+                        | Error error -> RhinoApp.WriteLine $"RhinosCanFly settings error: {error}"
 
-            optionsCommandDepth <- max 0 (optionsCommandDepth - 1))
+                    match resume_input lease with
+                    | Ok() -> ()
+                    | Error error -> RhinoApp.WriteLine $"RhinosCanFly input resume failed: {error}"
+
+                let mutable handler: EventHandler = null
+                let mutable completed = false
+
+                handler <-
+                    EventHandler(fun (_: obj) (_: EventArgs) ->
+                        try
+                            RhinoApp.MainLoop.RemoveHandler handler
+                        with error ->
+                            Debug.WriteLine $"RhinosCanFly options continuation cleanup: {error.Message}"
+
+                        if not completed then
+                            completed <- true
+                            finish ())
+
+                try
+                    RhinoApp.MainLoop.AddHandler handler
+                with error ->
+                    Debug.WriteLine $"RhinosCanFly options continuation: {error.Message}"
+
+                    if not completed then
+                        completed <- true
+                        finish ())
 
 do
     Command.BeginCommand.AddHandler command_began
@@ -232,6 +273,7 @@ do
 
 let shutdown () =
     discard_staged ()
-    optionsCommandDepth <- 0
+    optionsSuspensions.Clear()
+    inputSuspensions.Clear()
     Command.BeginCommand.RemoveHandler command_began
     Command.EndCommand.RemoveHandler command_ended
