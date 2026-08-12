@@ -156,8 +156,27 @@ let alt_down () =
 let view_modifier_down () = shift_down () || alt_down ()
 
 let keep_timer_running (state: State) =
+    state.poll_timer.Interval <- poll_timer_interval_seconds
+
     if not state.poll_timer.Started then
         state.poll_timer.Start()
+
+let keep_watchdog_running (state: State) =
+    state.poll_timer.Interval <- poll_timer_watchdog_interval_seconds
+
+    if not state.poll_timer.Started then
+        state.poll_timer.Start()
+
+let fast_poll_required (state: State) =
+    state.pending_side_button_events.Count > 0
+    || state.navigation_exit_requested
+    || state.side_button_restart_pending
+    || match state.view_latch with
+       | WaitingForRelease _
+       | RetryingPivot _ -> true
+       | NoViewLatch
+       | PivotActive _
+       | PanActive _ -> false
 
 let stop_timer_if_idle (state: State) =
     if not (any_button_engaged state) && not (view_latch_engaged state) then

@@ -90,6 +90,9 @@ type State =
 [<Literal>]
 let poll_timer_interval_seconds = 0.015
 
+[<Literal>]
+let poll_timer_watchdog_interval_seconds = 0.25
+
 let empty_routing =
     { mouse4 = Disabled
       mouse5 = Disabled

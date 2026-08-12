@@ -111,10 +111,10 @@ let handle_event (event: Win32.KeyboardHookEvent) (state: State) =
 
     if event.released then
         state.release_observed_keys.Remove physicalKey |> ignore
-        let passthrough = state.passthrough_keys_down.Remove physicalKey
+        state.passthrough_keys_down.Remove physicalKey |> ignore
         let suppressed = state.suppressed_keys_down.Remove physicalKey
 
-        if suppressed then true else not passthrough && false
+        suppressed
     elif state.passthrough_keys_down.Contains physicalKey then
         if not event.was_down then
             state.passthrough_keys_down.Remove physicalKey |> ignore

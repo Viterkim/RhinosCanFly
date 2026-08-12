@@ -71,6 +71,7 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                 let mutable cursorHidden = false
                 let mutable tooltipsChanged = false
                 let mutable gumballChanged = false
+                let mutable flightEntered = false
                 let inputWake = PlatformInput.create_raw_input_wake state.root_window
                 let inputAvailable = PlatformInput.raw_input_wake_action inputWake
 
@@ -116,6 +117,7 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                         cursorHidden <- true
                         FlightCamera.apply_entry_lens state
                         FlightRedraw.redraw state.config.behavior.viewport_redraw_mode view
+                        flightEntered <- true
                         FlightLoop.run inputWake rawInput state
 
                         Ok()
@@ -159,7 +161,8 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                     state.viewport.Camera35mmLensLength <- state.original_lens_length)
 
                 if
-                    state.config.behavior.auto_pivot_target_on_exit <> AutoPivotTargetMode.Off
+                    flightEntered
+                    && state.config.behavior.auto_pivot_target_on_exit <> AutoPivotTargetMode.Off
                     && (not state.restore_camera_on_exit
                         || state.config.behavior.retarget_restored_flights)
                 then

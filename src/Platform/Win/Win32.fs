@@ -111,8 +111,12 @@ type KeyboardHookEvent =
 
 let keyboard_physical_key (virtualKey: int) (eventData: int64) =
     let extended = eventData &&& Win32Native.KEYBOARD_EXTENDED_KEY <> 0L
+
     let scanCode =
-        int ((eventData &&& Win32Native.KEYBOARD_SCAN_CODE_MASK) >>> Win32Native.KEYBOARD_SCAN_CODE_SHIFT)
+        int (
+            (eventData &&& Win32Native.KEYBOARD_SCAN_CODE_MASK)
+            >>> Win32Native.KEYBOARD_SCAN_CODE_SHIFT
+        )
 
     match virtualKey with
     | Win32Native.VK_LSHIFT -> Win32Native.VK_LSHIFT
