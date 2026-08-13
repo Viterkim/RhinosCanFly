@@ -21,7 +21,7 @@ let current_speed (config: FlyConfigFile) =
     FlightSpeed.current document config.load_speed_from_document range config.base_speed
 
 let load (control: SettingsControl) =
-    match RuntimeSettings.current () with
+    match RuntimeSettings.settings_current () with
     | Error error ->
         control.LoadConfig ConfigSchema.defaults
         control.ShowRuntimeState(current_speed ConfigSchema.defaults, current_lens ())
@@ -41,35 +41,29 @@ let load (control: SettingsControl) =
         | [] -> control.ClearError()
         | messages -> control.ShowError(String.concat "; " messages)
 
-let save (control: SettingsControl) =
+let stage (control: SettingsControl) =
     try
         match control.ReadConfig() with
         | Error error ->
             control.ShowError error
-            RhinoApp.WriteLine $"RhinosCanFly settings were not saved: {error}"
+            SettingsUi.report_error $"RhinosCanFly settings were not saved: {error}"
             false
         | Ok config ->
-            let result = RuntimeSettings.save_and_apply config
-            control.RefreshRawIfVisible()
-
-            match result with
-            | Ok loaded ->
-                control.ShowRuntimeState(current_speed loaded.config_file, current_lens ())
+            match RuntimeSettings.stage config with
+            | Ok staged ->
+                control.ShowRuntimeState(current_speed staged.config_file, current_lens ())
                 control.ClearError()
                 true
             | Error error ->
                 control.ShowError error
-                RhinoApp.WriteLine $"RhinosCanFly settings error: {error}"
+                SettingsUi.report_error $"RhinosCanFly settings error: {error}"
                 false
     with error ->
         try
-            control.ShowError $"Could not save settings: {error.Message}"
+            control.ShowError $"Could not stage settings: {error.Message}"
         with _ ->
             ()
 
-        try
-            RhinoApp.WriteLine $"RhinosCanFly settings error: {error.Message}"
-        with _ ->
-            ()
+        SettingsUi.report_error $"RhinosCanFly settings error: {error.Message}"
 
         false

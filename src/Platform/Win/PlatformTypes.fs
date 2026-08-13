@@ -23,9 +23,7 @@ type CursorClipLease =
       installed: Rectangle
       mutable relinquished: bool }
 
-type InputSuspensionReason =
-    | Flight
-    | CustomOptions
+type InputSuspensionReason = | Flight
 
 [<Struct>]
 type InputSuspensionLease =

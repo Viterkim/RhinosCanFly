@@ -4,9 +4,12 @@ open System
 open System.Collections.Generic
 open System.Diagnostics
 open Rhino
+open Rhino.Commands
 
 let mutable loadedConfig: ConfigLoadResult option = None
+let mutable stagedConfig: ConfigLoadResult option = None
 let inputSuspensions = Dictionary<int64, InputSuspensionLease>()
+let mutable optionsDepth = 0
 
 let mutable lastRuntimeSettingsException: string option = None
 
@@ -29,6 +32,11 @@ let current () =
     match loadedConfig with
     | Some loaded -> Ok loaded
     | None -> Error "The configuration has not been loaded. Restart Rhino and try again."
+
+let settings_current () =
+    match stagedConfig with
+    | Some staged -> Ok staged
+    | None -> current ()
 
 let apply_live (loaded: ConfigLoadResult) =
     try
@@ -172,20 +180,35 @@ let complete_input_recovery () =
                     record_exception "RhinosCanFly right-click recovery failed" error
                     Error error.Message
 
-let save_and_apply (config: FlyConfigFile) =
+let candidate (config: FlyConfigFile) =
     let source = ConfigSchema.normalize_numbers config
 
-    match loadedConfig with
-    | None -> Error "The current configuration is unavailable. Restart Rhino before changing settings."
-    | Some previous ->
-        match ConfigSchema.compile source with
-        | Error error -> Error error
-        | Ok runtime ->
-            let requested =
-                { config_file = source
-                  config = runtime
-                  messages = [] }
+    match ConfigSchema.compile source with
+    | Error error -> Error error
+    | Ok runtime ->
+        Ok
+            { config_file = source
+              config = runtime
+              messages = [] }
 
+let stage (config: FlyConfigFile) =
+    match candidate config with
+    | Error error -> Error error
+    | Ok requested ->
+        stagedConfig <- Some requested
+        Ok requested
+
+let discard_staged () = stagedConfig <- None
+
+let commit_staged () =
+    match stagedConfig with
+    | None -> Ok()
+    | Some requested ->
+        stagedConfig <- None
+
+        match loadedConfig with
+        | None -> Error "The current configuration is unavailable. Restart Rhino before changing settings."
+        | Some previous ->
             let rollback (error: string) =
                 match apply_live previous with
                 | Ok() -> Error error
@@ -197,12 +220,13 @@ let save_and_apply (config: FlyConfigFile) =
                 match ConfigStorage.save requested.config_file with
                 | Ok saved ->
                     loadedConfig <- Some saved
-                    Ok saved
+                    Ok()
                 | Error error -> rollback $"Could not save settings: {error}"
 
 let load_and_apply () =
     match ConfigStorage.load () with
     | Ok loaded ->
+        stagedConfig <- None
         loadedConfig <- Some loaded
 
         if inputSuspensions.Count > 0 then
@@ -210,6 +234,57 @@ let load_and_apply () =
         else
             apply_live loaded
     | Error error -> Error error
+
+let is_options_command (commandName: string) =
+    String.Equals(commandName, "Options", StringComparison.OrdinalIgnoreCase)
+    || String.Equals(commandName, "OptionsPage", StringComparison.OrdinalIgnoreCase)
+    || String.Equals(commandName, "DocumentProperties", StringComparison.OrdinalIgnoreCase)
+
+let report_lifecycle_error (context: string) (error: string) =
+    try
+        RhinoApp.WriteLine $"{context}: {error}"
+    with outputError ->
+        record_exception $"{context} output failed" outputError
+
+let command_began =
+    EventHandler<CommandEventArgs>(fun (_: obj) (event: CommandEventArgs) ->
+        if is_options_command event.CommandEnglishName then
+            optionsDepth <- optionsDepth + 1)
+
+let command_ended =
+    EventHandler<CommandEventArgs>(fun (_: obj) (event: CommandEventArgs) ->
+        if is_options_command event.CommandEnglishName then
+            try
+                if optionsDepth = 0 then
+                    discard_staged ()
+                else
+                    optionsDepth <- optionsDepth - 1
+
+                    if optionsDepth = 0 then
+                        match commit_staged () with
+                        | Ok() -> ()
+                        | Error error -> report_lifecycle_error "RhinosCanFly settings error" error
+            with error ->
+                record_exception "RhinosCanFly Options command completion failed" error)
+
+do
+    Command.BeginCommand.AddHandler command_began
+    Command.EndCommand.AddHandler command_ended
+
+let shutdown () =
+    discard_staged ()
+    optionsDepth <- 0
+    inputSuspensions.Clear()
+
+    try
+        Command.BeginCommand.RemoveHandler command_began
+    with error ->
+        record_exception "RhinosCanFly Options BeginCommand shutdown failed" error
+
+    try
+        Command.EndCommand.RemoveHandler command_ended
+    with error ->
+        record_exception "RhinosCanFly Options EndCommand shutdown failed" error
 
 let diagnostic_lines () =
     let lastException =
@@ -225,6 +300,6 @@ let diagnostic_lines () =
             $"Settings config: enabled={config.enabled}; default flight={config.default_flight_mode}; auto target={config.auto_pivot_target_on_exit}; redraw={config.viewport_redraw_mode}; mouse4={config.mouse4_pivot_mode}; mouse5={config.mouse5_pivot_mode}"
         | None -> "Settings config: unavailable"
 
-    [| $"Settings transactions: input suspensions={inputSuspensions.Count}"
+    [| $"Settings transactions: input suspensions={inputSuspensions.Count}; options depth={optionsDepth}; staged={Option.isSome stagedConfig}"
        activeConfig
        $"Settings last exception: {lastException}" |]

@@ -59,6 +59,11 @@ type RhinosCanFlyPlugin() as self =
             report $"RhinosCanFly speed lifecycle shutdown failed: {error.Message}"
 
         try
+            RuntimeSettings.shutdown ()
+        with error ->
+            report $"RhinosCanFly settings lifecycle shutdown failed: {error.Message}"
+
+        try
             RightClickEntry.shutdown ()
         with error ->
             report $"RhinosCanFly right-click shutdown failed: {error.Message}"

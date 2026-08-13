@@ -25,7 +25,7 @@ let maximum_hook_removal_attempts = 8
 
 let mutable keyboard_hook_state = HookAbsent
 let mutable mouse_hook_state = HookAbsent
-let mutable standalone_latch_hook_used = false
+let mutable mouse_hook_lifetime_started = false
 
 let record_exception (context: string) (error: exn) =
     InputDiagnostics.record_exception context error
@@ -486,6 +486,7 @@ let install_mouse_hook (reason: InputDiagnostics.HookOperationReason) =
             match result with
             | Ok hook ->
                 mouse_hook_state <- HookInstalled hook
+                mouse_hook_lifetime_started <- true
                 InputDiagnostics.record InputDiagnostics.EventKind.HookInstalled 2L 0L
                 Ok()
             | Error error ->
@@ -569,7 +570,7 @@ let remove_mouse_hook (reason: InputDiagnostics.HookOperationReason) =
 
 let mouse_hook_needed () =
     state.lifecycle <> ShutDown
-    && (standalone_latch_hook_used
+    && (mouse_hook_lifetime_started
         || ViewNavigationState.side_button_routing_enabled state
         || Option.isSome state.routing.shift_right_click
         || Option.isSome state.routing.alt_right_click
@@ -847,9 +848,7 @@ let start_view_latch (window: RootWindow) (mode: ViewLatchMode) (completion: Act
     | Ok() ->
         match install_mouse_hook InputDiagnostics.HookOperationReason.Navigation with
         | Error error -> Error error
-        | Ok() ->
-            standalone_latch_hook_used <- true
-            ViewLatchTransitions.start_or_switch state window mode completion
+        | Ok() -> ViewLatchTransitions.start_or_switch state window mode completion
 
 let stop_view_latch (mode: ViewLatchMode) = ViewLatchTransitions.stop state mode
 

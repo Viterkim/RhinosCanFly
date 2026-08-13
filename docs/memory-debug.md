@@ -39,3 +39,5 @@ For a white or frozen Rhino window, start this before testing:
 It waits with ProcDump and writes the dump plus the exact plug-in, PDB, config and source state to `obj\diagnostics\hangs`.
 
 If Rhino is white but ProcDump does not call it hung, use the manual command printed by the script.
+
+If Rhino still accepts commands, run `'_RhinosCanFlyInputDiagnostics`. It writes beside the plug-in config before trying to print anything to the command line.
