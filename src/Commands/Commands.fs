@@ -15,7 +15,10 @@ let with_config (run: ConfigLoadResult -> Result) =
 let run (sessionMode: FlightSessionMode) (document: RhinoDoc) =
     let view = document.Views.ActiveView
 
-    if
+    if RuntimeSettings.input_suspended () then
+        RhinoApp.WriteLine "RhinosCanFly is unavailable while an Options dialog is open."
+        Result.Cancel
+    elif
         sessionMode.lifetime = FlightLifetime.WhileRightMouseHeld
         && not (PlatformInput.right_mouse_button_down ())
     then
@@ -170,10 +173,18 @@ let toggle_view_manipulation (mode: SoloViewManipulation) (document: RhinoDoc) =
                             Result.Failure)
 
 let pivot (document: RhinoDoc) =
-    toggle_view_manipulation SoloPivot document
+    if RuntimeSettings.input_suspended () then
+        RhinoApp.WriteLine "RhinosCanFlyPivot is unavailable while an Options dialog is open."
+        Result.Cancel
+    else
+        toggle_view_manipulation SoloPivot document
 
 let pan (document: RhinoDoc) =
-    toggle_view_manipulation SoloPan document
+    if RuntimeSettings.input_suspended () then
+        RhinoApp.WriteLine "RhinosCanFlyPan is unavailable while an Options dialog is open."
+        Result.Cancel
+    else
+        toggle_view_manipulation SoloPan document
 
 let recover_input () =
     let struct (remainingRawSessions, rawErrors) =

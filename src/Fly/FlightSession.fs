@@ -47,6 +47,7 @@ type SessionState =
 let mutable sessionState = Ready
 let mutable mainLoopHandlerInstalled = false
 let mutable processingMainLoop = false
+let mutable mainLoopHandler: EventHandler = null
 
 let viewport_gesture_timeout = TimeSpan.FromMilliseconds 250.
 
@@ -65,6 +66,14 @@ let error_message (error: exn) =
         |> Seq.map (fun (inner: exn) -> inner.Message)
         |> String.concat "; "
     | _ -> error.Message
+
+let remove_main_loop_handler () =
+    if mainLoopHandlerInstalled then
+        try
+            RhinoApp.MainLoop.RemoveHandler mainLoopHandler
+            mainLoopHandlerInstalled <- false
+        with error ->
+            report $"RhinosCanFly main-loop cleanup failed: {error_message error}"
 
 let attempt_cleanup (errors: ResizeArray<string>) (name: string) (action: unit -> unit) =
     try
@@ -512,6 +521,7 @@ let process_starting (starting: StartingSession) =
         cleanup_starting starting "The Rhino window lost focus before flight began."
         |> finish_and_report
     elif not (starting.view.MouseCaptured false) then
+        remove_main_loop_handler ()
         begin_active starting |> finish_and_report
     elif starting.capture_wait.Elapsed >= viewport_gesture_timeout then
         cleanup_starting starting "The active viewport did not release its mouse capture within 250 ms."
@@ -546,8 +556,14 @@ let process_main_loop () =
         finally
             processingMainLoop <- false
 
-let mainLoopHandler =
-    EventHandler(fun (_: obj) (_: EventArgs) -> process_main_loop ())
+            match sessionState with
+            | Starting _ -> ()
+            | Ready
+            | Flying _
+            | Finishing
+            | RestartRequired -> remove_main_loop_handler ()
+
+do mainLoopHandler <- EventHandler(fun (_: obj) (_: EventArgs) -> process_main_loop ())
 
 let ensure_main_loop_handler () =
     if not mainLoopHandlerInstalled then
@@ -562,8 +578,6 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
     | RestartRequired -> Error "Input cleanup did not finish safely. Run RhinosCanFlyInputRecover or restart Rhino."
     | Ready ->
         try
-            ensure_main_loop_handler ()
-
             match PlatformInput.suspend_mouse_button_overrides () with
             | Error error -> Error $"Could not suspend mouse button overrides: {error}"
             | Ok suspension ->
@@ -600,6 +614,7 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                                 RhinoApp.ReleaseMouseCapture() |> ignore
 
                             if view.MouseCaptured false then
+                                ensure_main_loop_handler ()
                                 PlatformInput.wake_flight_loop wake
                                 Ok()
                             else
@@ -639,9 +654,4 @@ let shutdown () =
     with error ->
         report $"RhinosCanFly flight shutdown failed: {error_message error}"
 
-    if mainLoopHandlerInstalled then
-        try
-            RhinoApp.MainLoop.RemoveHandler mainLoopHandler
-            mainLoopHandlerInstalled <- false
-        with error ->
-            report $"RhinosCanFly main-loop shutdown failed: {error_message error}"
+    remove_main_loop_handler ()

@@ -81,6 +81,11 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
                     state.restore_camera_on_exit <- true
                     failwith "Movement produced an invalid camera state."
 
+                match state.active_mouse_navigation with
+                | MousePivot _ -> state.active_mouse_navigation <- MousePivot nextCamera.target
+                | MouseLook
+                | MousePan _ -> ()
+
                 if nextCamera.position <> previousCamera.position then
                     movementChanged <- true
 

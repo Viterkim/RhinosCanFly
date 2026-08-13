@@ -128,30 +128,72 @@ type RhinosCanFlyOptionsPage() =
     inherit OptionsDialogPage "RhinosCanFly"
 
     let control = lazy (new SettingsControl())
+    let mutable inputSuspension: InputSuspensionLease option = None
+
+    let suspend_input () =
+        match inputSuspension with
+        | Some _ -> Ok()
+        | None ->
+            match RuntimeSettings.suspend_input () with
+            | Ok lease ->
+                inputSuspension <- Some lease
+                Ok()
+            | Error error -> Error error
+
+    let resume_input () =
+        let suspension = inputSuspension
+        inputSuspension <- None
+
+        match suspension with
+        | Some lease -> RuntimeSettings.resume_input lease
+        | None -> Ok()
+
+    let resume_input_after_options () =
+        match resume_input () with
+        | Ok() -> true
+        | Error error ->
+            SettingsUi.report_error $"RhinosCanFly could not resume input after Options: {error}"
+            false
 
     override _.LocalPageTitle = "Rhinos Can Fly"
     override _.PageControl = control.Value
 
     override _.OnActivate(active: bool) =
-        try
-            if active then
-                Settings.load control.Value
-            elif control.IsValueCreated then
-                control.Value.CancelBindingCapture()
+        if active then
+            match suspend_input () with
+            | Error error ->
+                SettingsUi.report_error $"RhinosCanFly could not suspend input for Options: {error}"
+                false
+            | Ok() ->
+                try
+                    Settings.load control.Value
+                    true
+                with error ->
+                    resume_input_after_options () |> ignore
+                    SettingsUi.report_error $"RhinosCanFly Options activation failed: {error.Message}"
+                    false
+        else
+            let mutable deactivated = true
 
-            true
-        with error ->
-            SettingsUi.report_error $"RhinosCanFly Options activation failed: {error.Message}"
-            false
+            try
+                if control.IsValueCreated then
+                    control.Value.CancelBindingCapture()
+            with error ->
+                SettingsUi.report_error $"RhinosCanFly Options deactivation failed: {error.Message}"
+                deactivated <- false
+
+            resume_input_after_options () && deactivated
 
     override _.OnApply() =
         try
             if control.IsValueCreated then
                 control.Value.CancelBindingCapture()
 
-                Settings.save control.Value
+                let saved = Settings.save control.Value
+
+                if saved then resume_input_after_options () else false
             else
-                true
+                resume_input_after_options ()
         with error ->
             SettingsUi.report_error $"RhinosCanFly Options apply failed: {error.Message}"
             false
@@ -163,6 +205,8 @@ type RhinosCanFlyOptionsPage() =
                 Settings.load control.Value
         with error ->
             SettingsUi.report_error $"RhinosCanFly Options cancel failed: {error.Message}"
+
+        resume_input_after_options () |> ignore
 
     override _.OnDefaults() =
         try

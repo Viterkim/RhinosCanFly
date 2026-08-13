@@ -22,6 +22,8 @@ let current () =
     | Some loaded -> Ok loaded
     | None -> Error "The configuration has not been loaded. Restart Rhino and try again."
 
+let input_suspended () = inputSuspensionIds.Count > 0
+
 let apply_live (loaded: ConfigLoadResult) =
     try
         let config = loaded.config_file

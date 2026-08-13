@@ -92,6 +92,7 @@ module MouseNavigationMode =
 [<Struct>]
 type MousePanUnitsPerRadian = MousePanUnitsPerRadian of units_per_radian: float
 
+[<Struct>]
 type ActiveMouseNavigation =
     | MouseLook
     | MousePivot of target: Point3d
