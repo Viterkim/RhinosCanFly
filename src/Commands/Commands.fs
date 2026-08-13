@@ -1,7 +1,6 @@
 module RhinosCanFly.Commands
 
 open System
-open System.IO
 open Rhino
 open Rhino.Commands
 open Rhino.Input
@@ -33,7 +32,7 @@ let run (sessionMode: FlightSessionMode) (document: RhinoDoc) =
                 RhinoApp.WriteLine "RhinosCanFly is disabled in Options."
                 Result.Cancel
             else
-                match Runtime.run view loaded.config sessionMode with
+                match FlightSession.run view loaded.config sessionMode with
                 | Ok() -> Result.Success
                 | Error error ->
                     RhinoApp.WriteLine $"RhinosCanFly failed: {error}"
@@ -62,74 +61,55 @@ let set_speed (document: RhinoDoc) =
                 Result.Failure)
 
 let show_options (document: RhinoDoc) =
-    let mutable result = Result.Success
-    let dialogStarted = PlatformInput.record_custom_dialog_show_begin ()
-    let mutable closedRecorded = false
-    let mutable suspension = None
-
-    try
-        match RuntimeSettings.suspend_input InputSuspensionReason.CustomOptions with
+    if FlightSession.is_running () then
+        RhinoApp.WriteLine "Exit flight before opening RhinosCanFly Options."
+        Result.Cancel
+    else
+        match RuntimeSettings.suspend_input () with
         | Error error ->
             SettingsUi.report_error $"RhinosCanFly could not suspend input for Options: {error}"
-            result <- Result.Failure
-        | Ok lease ->
-            suspension <- Some lease
+            Result.Failure
+        | Ok suspension ->
+            let mutable result = Result.Success
 
             try
-                use dialog = new RhinosCanFlySettingsDialog()
-                let mutable shownRecorded = false
+                try
+                    use dialog = new RhinosCanFlySettingsDialog()
+                    dialog.ShowForRhino document
+                with error ->
+                    SettingsUi.report_error $"RhinosCanFly Options failed: {error.Message}"
+                    result <- Result.Failure
+            finally
+                match RuntimeSettings.resume_input suspension with
+                | Ok() -> ()
+                | Error error ->
+                    SettingsUi.report_error $"RhinosCanFly could not resume input after Options: {error}"
+                    result <- Result.Failure
 
-                dialog.Shown.Add(fun (_: EventArgs) ->
-                    if not shownRecorded then
-                        shownRecorded <- true
-                        PlatformInput.record_custom_dialog_shown dialogStarted)
+            result
 
-                dialog.Closed.Add(fun (_: EventArgs) ->
-                    if not closedRecorded then
-                        closedRecorded <- true
-                        PlatformInput.record_custom_dialog_closed dialogStarted)
+type SoloViewManipulation =
+    | SoloPivot
+    | SoloPan
 
-                dialog.ShowForRhino document
+let toggle_view_manipulation (mode: SoloViewManipulation) (document: RhinoDoc) =
+    let name =
+        match mode with
+        | SoloPivot -> "RhinosCanFlyPivot"
+        | SoloPan -> "RhinosCanFlyPan"
 
-                if dialog.Saved then
-                    match RuntimeSettings.commit_staged () with
-                    | Ok() -> ()
-                    | Error error ->
-                        SettingsUi.report_error $"RhinosCanFly settings error: {error}"
-                        result <- Result.Failure
-                else
-                    RuntimeSettings.discard_staged ()
-            with error ->
-                PlatformInput.record_runtime_exception "RhinosCanFly custom Options command failed" error
-                SettingsUi.report_error $"RhinosCanFly Options failed: {error.Message}"
-                result <- Result.Failure
-    finally
-        RuntimeSettings.discard_staged ()
+    let active =
+        match mode with
+        | SoloPivot -> PlatformInput.pivot_active ()
+        | SoloPan -> PlatformInput.pan_active ()
 
-        match suspension with
-        | None -> ()
-        | Some lease ->
-            match RuntimeSettings.resume_input lease with
-            | Ok() -> ()
-            | Error error ->
-                SettingsUi.report_error $"RhinosCanFly could not resume input after Options: {error}"
-                result <- Result.Failure
+    if active then
+        let stopped =
+            match mode with
+            | SoloPivot -> PlatformInput.stop_pivot ()
+            | SoloPan -> PlatformInput.stop_pan ()
 
-        if not closedRecorded then
-            PlatformInput.record_custom_dialog_closed dialogStarted
-
-    result
-
-let toggle_view_manipulation
-    (name: string)
-    (isActive: unit -> bool)
-    (start: Rhino.Display.RhinoView -> Action option -> Result<unit, string>)
-    (stop: unit -> Result<unit, string>)
-    (stopConflictingMode: unit -> Result<unit, string>)
-    (document: RhinoDoc)
-    =
-    if isActive () then
-        match stop () with
+        match stopped with
         | Ok() -> Result.Success
         | Error error ->
             RhinoApp.WriteLine $"{name} failed: {error}"
@@ -153,7 +133,12 @@ let toggle_view_manipulation
                     RhinoApp.WriteLine $"{name}: move the cursor over the active viewport."
                     Result.Cancel
                 | Ok true ->
-                    match stopConflictingMode () with
+                    let conflictingModeStopped =
+                        match mode with
+                        | SoloPivot -> PlatformInput.stop_pan ()
+                        | SoloPan -> PlatformInput.stop_pivot ()
+
+                    match conflictingModeStopped with
                     | Error error ->
                         RhinoApp.WriteLine $"{name} failed: {error}"
                         Result.Failure
@@ -173,60 +158,22 @@ let toggle_view_manipulation
                             else
                                 None
 
-                        match start view completion with
+                        let started =
+                            match mode with
+                            | SoloPivot -> PlatformInput.start_pivot view completion
+                            | SoloPan -> PlatformInput.start_pan view completion
+
+                        match started with
                         | Ok() -> Result.Success
                         | Error error ->
                             RhinoApp.WriteLine $"{name} failed: {error}"
                             Result.Failure)
 
 let pivot (document: RhinoDoc) =
-    toggle_view_manipulation
-        "RhinosCanFlyPivot"
-        PlatformInput.pivot_active
-        PlatformInput.start_pivot
-        PlatformInput.stop_pivot
-        PlatformInput.stop_pan
-        document
+    toggle_view_manipulation SoloPivot document
 
 let pan (document: RhinoDoc) =
-    toggle_view_manipulation
-        "RhinosCanFlyPan"
-        PlatformInput.pan_active
-        PlatformInput.start_pan
-        PlatformInput.stop_pan
-        PlatformInput.stop_pivot
-        document
-
-let show_input_diagnostics () =
-    let lines = ResizeArray<string>()
-    lines.Add "RhinosCanFly input diagnostics"
-    lines.Add $"Captured: {DateTimeOffset.Now:O}"
-    lines.Add $"Flight state: {Runtime.state_name ()}"
-    lines.Add $"Raw cleanup items: {PlatformInput.raw_input_recovery_count ()}"
-    lines.Add $"Cursor clip cleanup items: {PlatformInput.cursor_clip_recovery_count ()}"
-    lines.Add(RightClickEntry.diagnostic_line ())
-
-    for line in RuntimeSettings.diagnostic_lines () do
-        lines.Add line
-
-    for line in PlatformInput.input_state_diagnostic_lines () do
-        lines.Add line
-
-    for line in PlatformInput.input_diagnostic_lines () do
-        lines.Add line
-
-    try
-        let diagnosticsPath = ConfigStorage.input_diagnostics_path ()
-        File.WriteAllLines(diagnosticsPath, lines)
-
-        for line in lines do
-            SettingsUi.report_error line
-
-        SettingsUi.report_error $"Saved to: {diagnosticsPath}"
-        Result.Success
-    with error ->
-        SettingsUi.report_error $"RhinosCanFly could not save input diagnostics: {error.Message}"
-        Result.Failure
+    toggle_view_manipulation SoloPan document
 
 let recover_input () =
     let struct (remainingRawSessions, rawErrors) =
@@ -261,7 +208,7 @@ let recover_input () =
 
     match settingsRecovery with
     | Ok() ->
-        Runtime.recovery_completed ()
+        FlightSession.recovery_completed ()
         RhinoApp.WriteLine "Input recovery completed."
         Result.Success
     | Error error ->

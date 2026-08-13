@@ -6,6 +6,9 @@ open System.Runtime.InteropServices
 open System.Text
 
 [<Literal>]
+let WM_NULL = 0x0000
+
+[<Literal>]
 let WM_MOUSELEAVE = 0x02A3
 
 [<Literal>]
@@ -43,6 +46,9 @@ let MWMO_INPUTAVAILABLE = 0x0004u
 
 [<Literal>]
 let WAIT_FAILED = 0xFFFFFFFFu
+
+[<Literal>]
+let INFINITE = 0xFFFFFFFFu
 
 [<Literal>]
 let WH_KEYBOARD = 2
@@ -238,6 +244,15 @@ extern nativeint SendMessage(nativeint window, int message, nativeint wparam, na
 [<DllImport("user32.dll", SetLastError = true)>]
 extern bool PostMessage(nativeint window, int message, nativeint wparam, nativeint lparam)
 
+[<DllImport("user32.dll", SetLastError = true)>]
+extern uint32 MsgWaitForMultipleObjectsEx(
+    uint32 object_count,
+    nativeint handles,
+    uint32 milliseconds,
+    uint32 wake_mask,
+    uint32 flags
+)
+
 [<DllImport("user32.dll")>]
 extern uint32 GetWindowThreadProcessId(nativeint window, uint32& process_id)
 
@@ -270,12 +285,3 @@ extern bool InvalidateRect(nativeint window, nativeint rectangle, bool erase)
 
 [<DllImport("user32.dll", SetLastError = true)>]
 extern bool UpdateWindow(nativeint window)
-
-[<DllImport("user32.dll", SetLastError = true)>]
-extern uint32 MsgWaitForMultipleObjectsEx(
-    uint32 object_count,
-    nativeint handles,
-    uint32 milliseconds,
-    uint32 wake_mask,
-    uint32 flags
-)

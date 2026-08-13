@@ -32,6 +32,11 @@ type RhinosCanFlyPlugin() as self =
 
     override _.OnShutdown() =
         try
+            FlightSession.shutdown ()
+        with error ->
+            report $"RhinosCanFly flight shutdown failed: {error.Message}"
+
+        try
             let struct (remaining, errors) = PlatformInput.retry_raw_input_cleanup ()
 
             for error in errors do

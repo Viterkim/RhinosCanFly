@@ -148,9 +148,6 @@ let update (state: State) =
         let timedOut = ViewNavigationState.transition_timed_out pending
 
         if ViewNavigationState.foreground_root_window () <> pending.window || timedOut then
-            if timedOut then
-                InputDiagnostics.record InputDiagnostics.EventKind.NavigationTransitionTimedOut 1L 0L
-
             state.view_latch <- NoViewLatch
             ViewNavigationState.stop_timer_if_idle state
             complete_or_log state (WaitingForRelease pending)
@@ -164,9 +161,6 @@ let update (state: State) =
         let timedOut = ViewNavigationState.transition_timed_out session
 
         if ViewNavigationState.foreground_root_window () <> session.window || timedOut then
-            if timedOut then
-                InputDiagnostics.record InputDiagnostics.EventKind.NavigationTransitionTimedOut 2L 0L
-
             state.view_latch <- NoViewLatch
             let releaseResult = ViewNavigationState.release_synthetic_input state
             ViewNavigationState.remember_pending_synthetic_release state (ValueSome session.window)

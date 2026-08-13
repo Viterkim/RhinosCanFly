@@ -109,7 +109,7 @@ let try_capture_mouse (state: State) (source: Control) (event: MouseEventArgs) =
         true
     | _ -> false
 
-let rec attach_mouse_behavior (state: State) (control: Control) =
+let attach_mouse_handler (state: State) (control: Control) =
     control.MouseDown.Add(fun (event: MouseEventArgs) ->
         if try_capture_mouse state control event then
             event.Handled <- true
@@ -117,10 +117,13 @@ let rec attach_mouse_behavior (state: State) (control: Control) =
             stop state
             state.focus_sink.Focus())
 
+let attach_mouse_behavior (state: State) (control: Control) =
+    attach_mouse_handler state control
+
     match control with
     | :? Container as container ->
         for child in container.Children do
-            attach_mouse_behavior state child
+            attach_mouse_handler state child
     | _ -> ()
 
 let create () =

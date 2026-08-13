@@ -6,20 +6,13 @@ open RhinosCanFly.Platform.Win
 
 let wheel_delta = int64 Win32Native.WHEEL_DELTA
 
-let wait_for_input_for (timeout: TimeSpan) =
-    let milliseconds =
-        timeout.TotalMilliseconds
-        |> max 0.0
-        |> min (float (UInt32.MaxValue - 1u))
-        |> uint32
-
-    Win32.wait_for_input milliseconds
-
 let foreground_root_window () =
     RootWindow(Win32Native.GetForegroundWindow())
 
 let right_mouse_button_down () =
     Win32Native.GetAsyncKeyState Win32Native.VK_RBUTTON < 0s
+
+let wait_for_input () = Win32.wait_for_input ()
 
 let root_window (view: RhinoView) =
     let ancestor = Win32Native.GetAncestor(view.Handle, Win32Native.GA_ROOT)
@@ -118,19 +111,15 @@ let root_window_valid (rootWindow: RootWindow) =
     let (RootWindow window) = rootWindow
     Win32Native.IsWindow window
 
-let hide_cursor () =
-    let count = Win32Native.ShowCursor false
-    InputDiagnostics.record InputDiagnostics.EventKind.CursorVisibilityChanged -1L (int64 count)
+let hide_cursor () = Win32Native.ShowCursor false |> ignore
 
-let show_cursor () =
-    let count = Win32Native.ShowCursor true
-    InputDiagnostics.record InputDiagnostics.EventKind.CursorVisibilityChanged 1L (int64 count)
+let show_cursor () = Win32Native.ShowCursor true |> ignore
 
 type RawInputSession = RawInputThread.Session
 type RawInputWake = RhinosCanFly.Platform.Win.RawInputWake.State
 
-let create_raw_input_wake () =
-    RhinosCanFly.Platform.Win.RawInputWake.create ()
+let create_raw_input_wake (window: RootWindow) =
+    RhinosCanFly.Platform.Win.RawInputWake.create window
 
 let raw_input_wake_action (wake: RawInputWake) =
     Action(fun () -> RhinosCanFly.Platform.Win.RawInputWake.signal wake)
@@ -138,14 +127,8 @@ let raw_input_wake_action (wake: RawInputWake) =
 let acknowledge_raw_input_wake (wake: RawInputWake) =
     RhinosCanFly.Platform.Win.RawInputWake.acknowledge wake
 
-let wait_for_raw_input (wake: RawInputWake) (timeout: TimeSpan) =
-    let milliseconds =
-        timeout.TotalMilliseconds
-        |> max 0.0
-        |> min (float (UInt32.MaxValue - 1u))
-        |> uint32
-
-    RhinosCanFly.Platform.Win.RawInputWake.wait wake milliseconds
+let wake_flight_loop (wake: RawInputWake) =
+    RhinosCanFly.Platform.Win.RawInputWake.signal wake
 
 let dispose_raw_input_wake (wake: RawInputWake) =
     RhinosCanFly.Platform.Win.RawInputWake.dispose wake
@@ -168,8 +151,6 @@ let request_raw_input_stop (session: RawInputSession) = RawInputThread.request_s
 let close_raw_input (session: RawInputSession) = RawInputThread.stop session
 
 let raw_input_runtime_failed (session: RawInputSession) = RawInputThread.runtime_failed session
-
-let raw_input_recovery_count () = RawInputThread.recovery_count ()
 
 let retry_raw_input_cleanup () = RawInputThread.retry_recovery ()
 
@@ -211,69 +192,11 @@ let pivot_active () =
 let pan_active () =
     MouseButtonOverrides.view_latch_is ViewNavigationTypes.ViewLatchMode.Pan
 
-let suspend_mouse_button_overrides (reason: InputSuspensionReason) = MouseButtonOverrides.suspend reason
+let suspend_mouse_button_overrides () = MouseButtonOverrides.suspend ()
 
 let resume_mouse_button_overrides (lease: InputSuspensionLease) = MouseButtonOverrides.resume lease
 
 let shutdown_mouse_button_overrides () = MouseButtonOverrides.shutdown ()
 
-let record_input_suspended () =
-    InputDiagnostics.record InputDiagnostics.EventKind.InputSuspended 0L 0L
-
-let record_input_resumed () =
-    InputDiagnostics.record InputDiagnostics.EventKind.InputResumed 0L 0L
-
-let record_view_capture_timed_out () =
-    InputDiagnostics.record InputDiagnostics.EventKind.ViewCaptureTimedOut 0L 0L
-
-let record_view_capture_released () =
-    InputDiagnostics.record InputDiagnostics.EventKind.ViewCaptureReleased 0L 0L
-
-let input_diagnostic_lines () = InputDiagnostics.lines ()
-
-let record_flight_loop_iteration () =
-    InputDiagnostics.record_loop_iteration ()
-
-let record_camera_application (setterTicks: int64) =
-    InputDiagnostics.record_camera_application setterTicks
-
-let record_redraw (elapsedTicks: int64) =
-    InputDiagnostics.record_redraw elapsedTicks
-
-let record_rhino_wait (elapsedTicks: int64) =
-    InputDiagnostics.record_rhino_wait elapsedTicks
-
-let record_mouse_drain (dx: int64) (dy: int64) =
-    InputDiagnostics.record_mouse_drain dx dy
-
 let retry_input_hook_cleanup () =
     MouseButtonOverrides.retry_hook_cleanup ()
-
-let input_state_diagnostic_lines () =
-    MouseButtonOverrides.diagnostic_lines ()
-
-let record_runtime_exception (context: string) (error: exn) =
-    InputDiagnostics.record_exception context error
-
-let record_custom_dialog_show_begin () =
-    InputDiagnostics.record_custom_dialog_show_begin ()
-
-let record_custom_dialog_shown (started: int64) =
-    InputDiagnostics.record_custom_dialog_shown started
-
-let record_custom_dialog_closed (started: int64) =
-    InputDiagnostics.record_custom_dialog_closed started
-
-let record_flight_exit (reasonCode: int64) (expectedRoot: RootWindow) (foregroundRoot: RootWindow) =
-    let (RootWindow expected) = expectedRoot
-    let (RootWindow foreground) = foregroundRoot
-    InputDiagnostics.record_flight_exit reasonCode (expected.ToInt64()) (foreground.ToInt64())
-
-let record_exit_target_begin () =
-    InputDiagnostics.record_exit_target_begin ()
-
-let record_exit_target_end (started: int64) =
-    InputDiagnostics.record_exit_target_end started
-
-let record_exit_target_skipped () =
-    InputDiagnostics.record_exit_target_skipped ()

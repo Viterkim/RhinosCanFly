@@ -35,9 +35,6 @@ let settings_directory () =
 let path () =
     Path.Combine(settings_directory (), "rhinos-can-fly-config.json")
 
-let input_diagnostics_path () =
-    Path.Combine(settings_directory (), "rhinos-can-fly-input-diagnostics.txt")
-
 let to_object (value: FlyConfigFile) =
     JsonSerializer.SerializeToNode(ConfigSchema.normalize_numbers value, options).AsObject()
 
@@ -47,6 +44,26 @@ let json_content (json: JsonObject) =
 let documentOptions =
     JsonDocumentOptions(AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip)
 
+let config_version (json: JsonObject) =
+    let mutable maximum = None
+
+    for property: Collections.Generic.KeyValuePair<string, JsonNode> in json do
+        if
+            String.Equals(property.Key, "config_version", StringComparison.OrdinalIgnoreCase)
+            && not (isNull property.Value)
+        then
+            try
+                let version = property.Value.GetValue<int>()
+
+                maximum <-
+                    match maximum with
+                    | Some current -> Some(max current version)
+                    | None -> Some version
+            with _ ->
+                ()
+
+    maximum
+
 let current_file_version (configPath: string) =
     if not (File.Exists configPath) then
         None
@@ -55,10 +72,7 @@ let current_file_version (configPath: string) =
             let content = File.ReadAllText configPath
 
             match JsonNode.Parse(content, Nullable<JsonNodeOptions>(), documentOptions) with
-            | :? JsonObject as json ->
-                match json["config_version"] with
-                | null -> None
-                | value -> Some(value.GetValue<int>())
+            | :? JsonObject as json -> config_version json
             | _ -> None
         with _ ->
             None
@@ -123,14 +137,7 @@ let load () =
                     malformed <- true
                     to_object ConfigSchema.defaults
 
-        let futureVersion =
-            match json["config_version"] with
-            | null -> None
-            | versionNode ->
-                try
-                    Some(versionNode.GetValue<int>())
-                with _ ->
-                    None
+        let futureVersion = config_version json
 
         match futureVersion with
         | Some version when version > ConfigSchema.current_version ->

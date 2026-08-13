@@ -21,7 +21,7 @@ let current_speed (config: FlyConfigFile) =
     FlightSpeed.current document config.load_speed_from_document range config.base_speed
 
 let load (control: SettingsControl) =
-    match RuntimeSettings.settings_current () with
+    match RuntimeSettings.current () with
     | Error error ->
         control.LoadConfig ConfigSchema.defaults
         control.ShowRuntimeState(current_speed ConfigSchema.defaults, current_lens ())
@@ -41,7 +41,7 @@ let load (control: SettingsControl) =
         | [] -> control.ClearError()
         | messages -> control.ShowError(String.concat "; " messages)
 
-let stage (control: SettingsControl) =
+let save (control: SettingsControl) =
     try
         match control.ReadConfig() with
         | Error error ->
@@ -49,9 +49,10 @@ let stage (control: SettingsControl) =
             SettingsUi.report_error $"RhinosCanFly settings were not saved: {error}"
             false
         | Ok config ->
-            match RuntimeSettings.stage config with
-            | Ok staged ->
-                control.ShowRuntimeState(current_speed staged.config_file, current_lens ())
+            match RuntimeSettings.save_and_apply config with
+            | Ok saved ->
+                control.RefreshRawIfVisible()
+                control.ShowRuntimeState(current_speed saved.config_file, current_lens ())
                 control.ClearError()
                 true
             | Error error ->
@@ -60,7 +61,7 @@ let stage (control: SettingsControl) =
                 false
     with error ->
         try
-            control.ShowError $"Could not stage settings: {error.Message}"
+            control.ShowError $"Could not save settings: {error.Message}"
         with _ ->
             ()
 

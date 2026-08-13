@@ -4,7 +4,7 @@ Install Rhino.
 
 Get the newest .NET SDK.
 
-[.Net Sdk 10](https://dotnet.microsoft.com/en-us/download/dotnet/10.0)
+[.NET SDK 10](https://dotnet.microsoft.com/en-us/download/dotnet/10.0)
 
 Run (set your version)
 
@@ -12,7 +12,7 @@ Run (set your version)
 .\build.ps1 -RhinoVersion 8
 ```
 
-Or for debugging / installing the build locally. `build-and-install.ps1` builds and registers the dev build as the current Windows user. Close rhino then the script builds, installs the addon and runs Rhino.
+Or for debugging / installing the build locally. `build-and-install.ps1` builds and registers a copy in `bin\RhinosCanFlyDev` as the current Windows user. Close Rhino, then the script builds, installs the addon and runs Rhino.
 
 ```powershell
 .\build-and-install.ps1 -RhinoVersion 8

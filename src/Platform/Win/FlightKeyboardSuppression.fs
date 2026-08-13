@@ -147,5 +147,3 @@ let handle_event (event: Win32.KeyboardHookEvent) (state: State) =
             classify_fresh_key_down physicalKey state
     else
         classify_fresh_key_down physicalKey state
-
-let is_active (state: State) = state.active

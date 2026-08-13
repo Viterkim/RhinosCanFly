@@ -23,14 +23,9 @@ type CursorClipLease =
       installed: Rectangle
       mutable relinquished: bool }
 
-type InputSuspensionReason =
-    | Flight
-    | CustomOptions
-
 [<Struct>]
 type InputSuspensionLease =
     { id: int64
-      reason: InputSuspensionReason
       released_viewport_input: bool
       cleanup_error: string option }
 

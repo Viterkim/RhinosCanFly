@@ -54,7 +54,7 @@ We might have to use cardboard wings, but it works. Credit to Peter for the arti
 
 ## If you care about file meta data
 
-If you enable "save speed to file" it will write the current speed to your document/file. Just disable it if you don't want any persisted state.
+If you enable "save current speed to document" it will write the current speed to your Rhino document. Just disable it if you don't want any persisted state.
 
 It only saves "RhinosCanFly\FlyingSpeed"
 

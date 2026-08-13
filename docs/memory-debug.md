@@ -29,5 +29,3 @@ $gcdump = ".\obj\diagnostics\tools\dotnet-gcdump.exe"
 ```
 
 `gcdump collect` pauses Rhino and forces a full GC. Compare the two reports. If private memory grows but handles, USER and GDI return near baseline, it is probably managed objects being kept alive.
-
-If Rhino still accepts commands, run `'_RhinosCanFlyInputDiagnostics`. It writes beside the plug-in config before trying to print anything to the command line.

@@ -177,34 +177,18 @@ let redraw_window (window: nativeint) =
 
     update_window window
 
-let wait_for_input (timeoutMilliseconds: uint32) =
+let wait_for_input () =
     let result =
         Win32Native.MsgWaitForMultipleObjectsEx(
             0u,
             nativeint 0,
-            timeoutMilliseconds,
+            Win32Native.INFINITE,
             Win32Native.QS_ALLINPUT,
             Win32Native.MWMO_INPUTAVAILABLE
         )
 
     if result = Win32Native.WAIT_FAILED then
         failwith (last_error "MsgWaitForMultipleObjectsEx")
-
-let wait_for_input_handle (handle: nativeint) (timeoutMilliseconds: uint32) =
-    let handles = NativePtr.stackalloc<nativeint> 1
-    NativePtr.write handles handle
-
-    let result =
-        Win32Native.MsgWaitForMultipleObjectsEx(
-            1u,
-            NativePtr.toNativeInt handles,
-            timeoutMilliseconds,
-            Win32Native.QS_ALLINPUT,
-            Win32Native.MWMO_INPUTAVAILABLE
-        )
-
-    if result = Win32Native.WAIT_FAILED then
-        failwith (last_error "MsgWaitForMultipleObjectsEx(raw input)")
 
 [<Struct>]
 type KeyboardHookEvent =

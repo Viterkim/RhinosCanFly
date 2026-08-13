@@ -24,7 +24,6 @@ type StartFailureException(message: string, restartRequired: bool, innerError: e
 type Session =
     { thread: Thread
       window_handle: nativeint
-      native_thread_id: uint32
       stopped: ManualResetEventSlim
       result: ThreadResult
       registration: RawInputNative.MouseRegistrationLease
@@ -38,7 +37,6 @@ type StartupState =
       stopped: ManualResetEventSlim
       mutable ready_disposed: bool
       mutable window_handle: nativeint
-      mutable native_thread_id: uint32
       mutable registration: RawInputNative.MouseRegistrationLease option
       mutable cancel_requested: int
       result: ThreadResult }
@@ -133,8 +131,6 @@ let run_thread
 
     try
         try
-            startup.native_thread_id <- RawInputNative.GetCurrentThreadId()
-
             let registrationReady =
                 Action<RawInputNative.MouseRegistrationLease>(fun (lease: RawInputNative.MouseRegistrationLease) ->
                     startup.registration <- Some lease)
@@ -249,7 +245,6 @@ let start
           stopped = new ManualResetEventSlim(false)
           ready_disposed = false
           window_handle = nativeint 0
-          native_thread_id = 0u
           registration = None
           cancel_requested = 0
           result = result }
@@ -260,11 +255,9 @@ let start
     thread.IsBackground <- true
     thread.Name <- "RhinosCanFly raw input"
     thread.SetApartmentState(ApartmentState.STA)
-    InputDiagnostics.record InputDiagnostics.EventKind.RawStart 0L 0L
     thread.Start()
 
     if not (startup.ready.Wait startup_timeout_ms) then
-        InputDiagnostics.record InputDiagnostics.EventKind.RawStartFailed 1L 0L
         let terminated = cancel_startup startup thread
 
         if terminated then
@@ -280,7 +273,6 @@ let start
 
     match result.startup_error, startup.registration with
     | Some error, _ ->
-        InputDiagnostics.record InputDiagnostics.EventKind.RawStartFailed 2L 0L
         let terminated = cancel_startup startup thread
 
         if terminated then
@@ -300,7 +292,6 @@ let start
             )
         )
     | None, None ->
-        InputDiagnostics.record InputDiagnostics.EventKind.RawStartFailed 3L 0L
         let terminated = cancel_startup startup thread
 
         if terminated then
@@ -309,7 +300,6 @@ let start
         let message = "The raw-input worker started without a mouse registration."
         raise (StartFailureException(message, not terminated, InvalidOperationException message))
     | None, Some registration when startup.stopped.IsSet ->
-        InputDiagnostics.record InputDiagnostics.EventKind.RawStartFailed 4L 0L
         let terminated = not thread.IsAlive || thread.Join join_timeout_ms
 
         if terminated then
@@ -327,14 +317,8 @@ let start
             )
         )
     | None, Some registration ->
-        InputDiagnostics.record
-            InputDiagnostics.EventKind.RawReady
-            (startup.window_handle.ToInt64())
-            (int64 startup.native_thread_id)
-
         { thread = thread
           window_handle = startup.window_handle
-          native_thread_id = startup.native_thread_id
           stopped = startup.stopped
           result = result
           registration = registration
@@ -344,11 +328,7 @@ let start
           stop_outcome = None }
 
 let request_stop (session: Session) =
-    if Interlocked.CompareExchange(&session.stop_requested, 1, 0) = 0 then
-        InputDiagnostics.record
-            InputDiagnostics.EventKind.RawStopRequested
-            (session.window_handle.ToInt64())
-            (int64 session.native_thread_id)
+    Interlocked.CompareExchange(&session.stop_requested, 1, 0) |> ignore
 
     if not session.stopped.IsSet then
         post_stop session.window_handle
@@ -389,14 +369,6 @@ let stop_internal (retry: bool) (session: Session) =
                   registration_relinquished = session.registration.relinquished
                   errors = List.ofSeq errors }
 
-            InputDiagnostics.record
-                (if outcome.terminated && outcome.registration_relinquished then
-                     InputDiagnostics.EventKind.RawStopped
-                 else
-                     InputDiagnostics.EventKind.RawStopTimedOut)
-                (if outcome.registration_relinquished then 1L else 0L)
-                (int64 outcome.errors.Length)
-
             session.stop_outcome <- Some outcome
 
             if outcome.terminated && outcome.registration_relinquished then
@@ -410,9 +382,6 @@ let stop (session: Session) = stop_internal false session
 
 let runtime_failed (session: Session) =
     Option.isSome session.result.runtime_error
-
-let recovery_count () =
-    lock recoveryGate (fun () -> recoverySessions.Count + recoveryStartups.Count)
 
 let recover_startup (recovery: StartupRecovery) =
     let errors = ResizeArray<string>()

@@ -1,10 +1,8 @@
 module RhinosCanFly.FlightControls
 
-let is_down (key: KeyBinding) = PlatformBindings.is_down key
-
 let is_optional_down (key: KeyBinding option) =
     match key with
-    | Some binding -> is_down binding
+    | Some binding -> PlatformBindings.is_down binding
     | None -> false
 
 let speed_step (state: FlyState) (steps: SpeedStepCount) =
@@ -37,7 +35,7 @@ let update_keyboard_navigation_input (state: FlyState) =
 let update_toggles (state: FlyState) =
     let bindings = state.config.bindings
     let movement = state.config.movement
-    let boost = is_down bindings.boost
+    let boost = PlatformBindings.is_down bindings.boost
 
     if
         movement.boost_mode = KeyActivationMode.Toggle
@@ -48,7 +46,7 @@ let update_toggles (state: FlyState) =
 
     state.boost_was_down <- boost
 
-    let slow = is_down bindings.slow
+    let slow = PlatformBindings.is_down bindings.slow
 
     if movement.slow_mode = KeyActivationMode.Toggle && slow && not state.slow_was_down then
         state.slow_enabled <- not state.slow_enabled
@@ -88,18 +86,19 @@ let read_movement (state: FlyState) =
     let slow = if slowActive then movement.slow_multiplier else 1.
     let boost = if boostActive then movement.boost_multiplier else 1.
 
-    { forward = is_down bindings.forward
-      backward = is_down bindings.backward
-      left = is_down bindings.left
-      right = is_down bindings.right
-      up = is_down bindings.up
-      down = is_down bindings.down
-      key_pivot_left = is_down bindings.key_pivot_left
-      key_pivot_right = is_down bindings.key_pivot_right
+    { forward = PlatformBindings.is_down bindings.forward
+      backward = PlatformBindings.is_down bindings.backward
+      left = PlatformBindings.is_down bindings.left
+      right = PlatformBindings.is_down bindings.right
+      up = PlatformBindings.is_down bindings.up
+      down = PlatformBindings.is_down bindings.down
+      key_pivot_left = PlatformBindings.is_down bindings.key_pivot_left
+      key_pivot_right = PlatformBindings.is_down bindings.key_pivot_right
       move_speed = state.speed * slow * boost }
 
 let update_state (input: InputAccumulator.State) (state: FlyState) =
-    let cancelAndRestore = is_down state.config.bindings.cancel_flight_and_restore
+    let cancelAndRestore =
+        PlatformBindings.is_down state.config.bindings.cancel_flight_and_restore
 
     let exitReason =
         match InputAccumulator.exit_reason input with
@@ -108,13 +107,13 @@ let update_state (input: InputAccumulator.State) (state: FlyState) =
             | ExplicitKeepCamera when state.restore_camera_on_exit -> Some ExplicitRestoreCamera
             | _ -> Some reason
         | None ->
-            if not (PlatformInput.root_window_valid state.root_window) then
+            if not (PlatformInput.root_window_valid state.host_identity.root_window) then
                 Some HostInvalid
-            elif PlatformInput.foreground_root_window () <> state.root_window then
+            elif PlatformInput.foreground_root_window () <> state.host_identity.root_window then
                 Some FocusLost
             elif cancelAndRestore then
                 Some ExplicitRestoreCamera
-            elif is_down state.config.bindings.exit_key then
+            elif PlatformBindings.is_down state.config.bindings.exit_key then
                 if state.restore_camera_on_exit then
                     Some ExplicitRestoreCamera
                 else
@@ -123,7 +122,7 @@ let update_state (input: InputAccumulator.State) (state: FlyState) =
                 None
 
     match exitReason with
-    | Some reason -> FlightExit.request reason state
+    | Some reason -> FlyState.request_exit reason state
     | None ->
         let wheel = state.wheel_remainder + InputAccumulator.drain_wheel input
 

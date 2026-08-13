@@ -129,9 +129,6 @@ extern uint32 GetRegisteredRawInputDevices(nativeint devices, uint32& device_cou
 [<DllImport("user32.dll", SetLastError = true)>]
 extern uint32 GetRawInputData(nativeint raw_input, uint32 command, nativeint data, uint32& size, uint32 header_size)
 
-[<DllImport("kernel32.dll")>]
-extern uint32 GetCurrentThreadId()
-
 let deviceSize = uint32 (Marshal.SizeOf<Device>())
 let headerSize = uint32 (Marshal.SizeOf<Header>())
 let mouseInputSize = headerSize + uint32 (Marshal.SizeOf<Mouse>())
@@ -255,9 +252,7 @@ let rec acquire_mouse_registration (target: nativeint) =
             let verification = get_registered_mouse ()
 
             match verification with
-            | Ok current when same_registration current (Some installed) ->
-                InputDiagnostics.record InputDiagnostics.EventKind.RegistrationAcquired (target.ToInt64()) 0L
-                Acquired lease
+            | Ok current when same_registration current (Some installed) -> Acquired lease
             | _ ->
                 let verificationError =
                     match verification with
@@ -276,12 +271,6 @@ and release_mouse_registration (lease: MouseRegistrationLease) =
         | Error error -> Error error
         | Ok current when not (same_registration current (Some lease.installed)) ->
             lease.relinquished <- true
-
-            InputDiagnostics.record
-                InputDiagnostics.EventKind.RegistrationReplaced
-                (lease.installed.target.ToInt64())
-                0L
-
             Ok ReplacedByAnotherOwner
         | Ok _ ->
             let mutable attempt = 1
@@ -325,11 +314,6 @@ and release_mouse_registration (lease: MouseRegistrationLease) =
                 | Error error -> releaseError <- Some error
 
             if lease.relinquished then
-                InputDiagnostics.record
-                    InputDiagnostics.EventKind.RegistrationReleased
-                    (lease.installed.target.ToInt64())
-                    0L
-
                 Ok Relinquished
             else
                 Error(

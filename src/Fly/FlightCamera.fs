@@ -1,6 +1,5 @@
 module RhinosCanFly.FlightCamera
 
-open System.Diagnostics
 open Rhino
 open Rhino.Display
 open Rhino.Geometry
@@ -94,9 +93,6 @@ let update_navigation_mode (input: InputAccumulator.State) (state: FlyState) =
 let apply_mouse_input (input: InputAccumulator.State) (state: FlyState) =
     let struct (dx, dy) = InputAccumulator.drain_mouse input
 
-    if dx <> 0L || dy <> 0L then
-        PlatformInput.record_mouse_drain dx dy
-
     if dx = 0L && dy = 0L then
         NoCameraChange
     else
@@ -151,7 +147,7 @@ let apply (state: FlyState) (change: CameraChange) =
         let invalidExit =
             if not (PlatformInput.flight_host_is_active state.host_identity state.view) then
                 Some HostInvalid
-            elif PlatformInput.foreground_root_window () <> state.root_window then
+            elif PlatformInput.foreground_root_window () <> state.host_identity.root_window then
                 Some FocusLost
             else
                 None
@@ -159,13 +155,11 @@ let apply (state: FlyState) (change: CameraChange) =
         match invalidExit with
         | Some reason ->
             state.restore_camera_on_exit <- true
-            FlightExit.request reason state
+            FlyState.request_exit reason state
             failwith "The active Rhino document or viewport changed during flight."
         | None -> ()
 
-        let setterStarted = Stopwatch.GetTimestamp()
         state.viewport.SetCameraLocations(state.camera.target, state.camera.position)
-        PlatformInput.record_camera_application (Stopwatch.GetTimestamp() - setterStarted)
         FlightRedraw.redraw state.config.behavior.viewport_redraw_mode state.view
 
 let apply_entry_lens (state: FlyState) =

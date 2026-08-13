@@ -19,13 +19,13 @@ type RawInputReceiver
 
     let bufferCapacity = int RawInputNative.mouseInputSize
     let buffer = Marshal.AllocHGlobal bufferCapacity
-    let releaseTimer = new Timer(Interval = 250)
+    let registrationRetryTimer = new Timer(Interval = 250)
     let mutable handleCreated = false
     let mutable bufferFreed = false
     let mutable registrationLease: RawInputNative.MouseRegistrationLease option = None
     let mutable startupError: exn option = None
     let mutable stopRequested = false
-    let mutable releaseTimerDisposed = false
+    let mutable registrationRetryTimerDisposed = false
 
     [<Literal>]
     let mouse4PivotBit = 1
@@ -87,7 +87,7 @@ type RawInputReceiver
         | Some lease -> lease.relinquished
 
     let finish_message_loop () =
-        releaseTimer.Stop()
+        registrationRetryTimer.Stop()
         Application.ExitThread()
 
     let try_release_registration () =
@@ -101,8 +101,8 @@ type RawInputReceiver
                 finish_message_loop ()
                 Ok()
             | Error error ->
-                if not releaseTimer.Enabled then
-                    releaseTimer.Start()
+                if not registrationRetryTimer.Enabled then
+                    registrationRetryTimer.Start()
 
                 Error error
 
@@ -131,9 +131,9 @@ type RawInputReceiver
             errors.Add error
 
         try
-            if not releaseTimerDisposed then
-                releaseTimer.Dispose()
-                releaseTimerDisposed <- true
+            if not registrationRetryTimerDisposed then
+                registrationRetryTimer.Dispose()
+                registrationRetryTimerDisposed <- true
         with error ->
             errors.Add error
 
@@ -143,14 +143,11 @@ type RawInputReceiver
         | _ -> raise (AggregateException errors)
 
     let process_mouse (mouse: RawInputNative.Mouse) =
-        InputDiagnostics.record_raw_packet ()
-
         let mouseMoved =
             mouse.flags &&& RawInputNative.mouse_move_absolute = 0us
             && (mouse.last_x <> 0 || mouse.last_y <> 0)
 
         if mouseMoved then
-            InputDiagnostics.record_raw_mouse_movement ()
             InputAccumulator.add_mouse mouse.last_x mouse.last_y input
 
         let flags = RawInputNative.button_flags mouse
@@ -249,7 +246,7 @@ type RawInputReceiver
         request_stop ()
 
     do
-        releaseTimer.Tick.Add(fun (_event: EventArgs) ->
+        registrationRetryTimer.Tick.Add(fun (_event: EventArgs) ->
             if stopRequested then
                 try_release_registration () |> ignore)
 

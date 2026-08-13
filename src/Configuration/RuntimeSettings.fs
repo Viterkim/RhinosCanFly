@@ -4,24 +4,13 @@ open System
 open System.Collections.Generic
 open System.Diagnostics
 open Rhino
-open Rhino.Commands
 
 let mutable loadedConfig: ConfigLoadResult option = None
-let mutable stagedConfig: ConfigLoadResult option = None
-let inputSuspensions = Dictionary<int64, InputSuspensionLease>()
-let mutable optionsDepth = 0
-
-let mutable lastRuntimeSettingsException: string option = None
+let inputSuspensionIds = HashSet<int64>()
 
 let record_exception (context: string) (error: exn) =
     let details = $"{DateTimeOffset.Now:O} {context}{Environment.NewLine}{error}"
-    lastRuntimeSettingsException <- Some details
     Debug.WriteLine details
-
-    try
-        PlatformInput.record_runtime_exception context error
-    with diagnosticError ->
-        Debug.WriteLine $"RhinosCanFly exception diagnostics failed: {diagnosticError}"
 
     try
         RhinoApp.WriteLine $"{context}: {error.Message}"
@@ -32,11 +21,6 @@ let current () =
     match loadedConfig with
     | Some loaded -> Ok loaded
     | None -> Error "The configuration has not been loaded. Restart Rhino and try again."
-
-let settings_current () =
-    match stagedConfig with
-    | Some staged -> Ok staged
-    | None -> current ()
 
 let apply_live (loaded: ConfigLoadResult) =
     try
@@ -80,8 +64,8 @@ let apply_live (loaded: ConfigLoadResult) =
         Debug.WriteLine $"RhinosCanFly live settings: {error}"
         Error $"Could not apply live settings: {error.Message}"
 
-let suspend_input (reason: InputSuspensionReason) =
-    let firstSuspension = inputSuspensions.Count = 0
+let suspend_input () =
+    let firstSuspension = inputSuspensionIds.Count = 0
 
     let rightClickSuspended =
         if firstSuspension then
@@ -99,17 +83,14 @@ let suspend_input (reason: InputSuspensionReason) =
     | Ok() ->
         let platformResult =
             try
-                PlatformInput.suspend_mouse_button_overrides reason
+                PlatformInput.suspend_mouse_button_overrides ()
             with error ->
                 record_exception "RhinosCanFly mouse override suspension failed" error
                 Error error.Message
 
         match platformResult with
         | Ok lease ->
-            inputSuspensions.Add(lease.id, lease)
-
-            if firstSuspension then
-                PlatformInput.record_input_suspended ()
+            inputSuspensionIds.Add lease.id |> ignore
 
             match lease.cleanup_error with
             | Some error ->
@@ -130,10 +111,10 @@ let suspend_input (reason: InputSuspensionReason) =
             Error error
 
 let resume_input (lease: InputSuspensionLease) =
-    if not (inputSuspensions.ContainsKey lease.id) then
+    if not (inputSuspensionIds.Contains lease.id) then
         Ok()
     else
-        let lastSuspension = inputSuspensions.Count = 1
+        let lastSuspension = inputSuspensionIds.Count = 1
 
         let platformResult =
             try
@@ -142,13 +123,12 @@ let resume_input (lease: InputSuspensionLease) =
                 record_exception "RhinosCanFly mouse override resume failed" error
                 Error error.Message
 
-        inputSuspensions.Remove lease.id |> ignore
+        inputSuspensionIds.Remove lease.id |> ignore
 
         let rightClickResult =
             if lastSuspension && Result.isOk platformResult then
                 try
                     RightClickEntry.resume ()
-                    PlatformInput.record_input_resumed ()
                     Ok()
                 with error ->
                     record_exception "RhinosCanFly right-click resume failed" error
@@ -163,7 +143,7 @@ let resume_input (lease: InputSuspensionLease) =
         | Error platformError, Error rightClickError -> Error $"{platformError}; {rightClickError}"
 
 let complete_input_recovery () =
-    if inputSuspensions.Count > 0 then
+    if inputSuspensionIds.Count > 0 then
         Error "Input is still suspended by an active command."
     else
         match current () with
@@ -174,7 +154,6 @@ let complete_input_recovery () =
             | Ok() ->
                 try
                     RightClickEntry.resume ()
-                    PlatformInput.record_input_resumed ()
                     Ok()
                 with error ->
                     record_exception "RhinosCanFly right-click recovery failed" error
@@ -191,23 +170,20 @@ let candidate (config: FlyConfigFile) =
               config = runtime
               messages = [] }
 
-let stage (config: FlyConfigFile) =
+let save_and_apply (config: FlyConfigFile) =
     match candidate config with
     | Error error -> Error error
     | Ok requested ->
-        stagedConfig <- Some requested
-        Ok requested
-
-let discard_staged () = stagedConfig <- None
-
-let commit_staged () =
-    match stagedConfig with
-    | None -> Ok()
-    | Some requested ->
-        stagedConfig <- None
-
         match loadedConfig with
-        | None -> Error "The current configuration is unavailable. Restart Rhino before changing settings."
+        | None ->
+            match ConfigStorage.save requested.config_file with
+            | Error error -> Error $"Could not save settings: {error}"
+            | Ok saved ->
+                match apply_live saved with
+                | Ok() ->
+                    loadedConfig <- Some saved
+                    Ok saved
+                | Error error -> Error error
         | Some previous ->
             let rollback (error: string) =
                 match apply_live previous with
@@ -220,86 +196,18 @@ let commit_staged () =
                 match ConfigStorage.save requested.config_file with
                 | Ok saved ->
                     loadedConfig <- Some saved
-                    Ok()
+                    Ok saved
                 | Error error -> rollback $"Could not save settings: {error}"
 
 let load_and_apply () =
     match ConfigStorage.load () with
     | Ok loaded ->
-        stagedConfig <- None
         loadedConfig <- Some loaded
 
-        if inputSuspensions.Count > 0 then
+        if inputSuspensionIds.Count > 0 then
             Ok()
         else
             apply_live loaded
     | Error error -> Error error
 
-let is_options_command (commandName: string) =
-    String.Equals(commandName, "Options", StringComparison.OrdinalIgnoreCase)
-    || String.Equals(commandName, "OptionsPage", StringComparison.OrdinalIgnoreCase)
-    || String.Equals(commandName, "DocumentProperties", StringComparison.OrdinalIgnoreCase)
-
-let report_lifecycle_error (context: string) (error: string) =
-    try
-        RhinoApp.WriteLine $"{context}: {error}"
-    with outputError ->
-        record_exception $"{context} output failed" outputError
-
-let command_began =
-    EventHandler<CommandEventArgs>(fun (_: obj) (event: CommandEventArgs) ->
-        if is_options_command event.CommandEnglishName then
-            optionsDepth <- optionsDepth + 1)
-
-let command_ended =
-    EventHandler<CommandEventArgs>(fun (_: obj) (event: CommandEventArgs) ->
-        if is_options_command event.CommandEnglishName then
-            try
-                if optionsDepth = 0 then
-                    discard_staged ()
-                else
-                    optionsDepth <- optionsDepth - 1
-
-                    if optionsDepth = 0 then
-                        match commit_staged () with
-                        | Ok() -> ()
-                        | Error error -> report_lifecycle_error "RhinosCanFly settings error" error
-            with error ->
-                record_exception "RhinosCanFly Options command completion failed" error)
-
-do
-    Command.BeginCommand.AddHandler command_began
-    Command.EndCommand.AddHandler command_ended
-
-let shutdown () =
-    discard_staged ()
-    optionsDepth <- 0
-    inputSuspensions.Clear()
-
-    try
-        Command.BeginCommand.RemoveHandler command_began
-    with error ->
-        record_exception "RhinosCanFly Options BeginCommand shutdown failed" error
-
-    try
-        Command.EndCommand.RemoveHandler command_ended
-    with error ->
-        record_exception "RhinosCanFly Options EndCommand shutdown failed" error
-
-let diagnostic_lines () =
-    let lastException =
-        match lastRuntimeSettingsException with
-        | Some details -> details
-        | None -> "none"
-
-    let activeConfig =
-        match loadedConfig with
-        | Some loaded ->
-            let config = loaded.config_file
-
-            $"Settings config: enabled={config.enabled}; default flight={config.default_flight_mode}; auto target={config.auto_pivot_target_on_exit}; redraw={config.viewport_redraw_mode}; mouse4={config.mouse4_pivot_mode}; mouse5={config.mouse5_pivot_mode}"
-        | None -> "Settings config: unavailable"
-
-    [| $"Settings transactions: input suspensions={inputSuspensions.Count}; options depth={optionsDepth}; staged={Option.isSome stagedConfig}"
-       activeConfig
-       $"Settings last exception: {lastException}" |]
+let shutdown () = inputSuspensionIds.Clear()

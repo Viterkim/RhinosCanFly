@@ -1,29 +1,23 @@
 module RhinosCanFly.FlightLoop
 
-open System
 open System.Diagnostics
 open Rhino
 
 [<Literal>]
 let maximum_frame_delta_seconds = 0.05
 
-let stationary_input_watchdog = TimeSpan.FromMilliseconds 75.
-
 let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.State) (state: FlyState) =
     let clock = Stopwatch.StartNew()
-    let mutable previousFrame = clock.Elapsed.TotalSeconds
+    let mutable previousFrameSeconds = clock.Elapsed.TotalSeconds
     let mutable movementActive = false
     let mutable rawInputReady = false
 
     while FlyState.is_running state do
-        PlatformInput.record_flight_loop_iteration ()
-
         if not movementActive && not rawInputReady then
-            PlatformInput.wait_for_raw_input inputWake stationary_input_watchdog
+            PlatformInput.wait_for_input ()
 
-        let waitStarted = Stopwatch.GetTimestamp()
         RhinoApp.Wait()
-        PlatformInput.record_rhino_wait (Stopwatch.GetTimestamp() - waitStarted)
+
         let observedRevision = InputAccumulator.work_revision rawInput
         FlightControls.update_state rawInput state
         let mutable mouseChange = NoCameraChange
@@ -77,7 +71,7 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
             state.key_pivot_direction <- pivotDirection
 
             if movementActive && currentlyMoving then
-                let dt = min (now - previousFrame) maximum_frame_delta_seconds
+                let dt = min (now - previousFrameSeconds) maximum_frame_delta_seconds
                 let previousCamera = state.camera
 
                 let nextCamera =
@@ -95,7 +89,7 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
 
                 state.camera <- nextCamera
 
-            previousFrame <- now
+            previousFrameSeconds <- now
             movementActive <- currentlyMoving
 
             // Keep this boring instead of matching a tuple. The F# tuple form

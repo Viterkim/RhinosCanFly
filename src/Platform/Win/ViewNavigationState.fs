@@ -206,7 +206,6 @@ let release_synthetic_shift (state: State) =
         match Win32.send_shift_key false with
         | Ok() ->
             state.synthetic_shift <- ShiftReleased
-            InputDiagnostics.record InputDiagnostics.EventKind.SyntheticShiftUp 0L 0L
             Ok()
         | Error error -> Error error
 
@@ -222,7 +221,6 @@ let release_synthetic_middle (state: State) =
         match Win32.send_middle_mouse false with
         | Ok() ->
             state.synthetic_middle <- MiddleReleased
-            InputDiagnostics.record InputDiagnostics.EventKind.SyntheticMiddleUp 0L 0L
             Ok()
         | Error error -> Error error
 
@@ -250,16 +248,12 @@ let force_release_synthetic_input (state: State) =
 
     if state.synthetic_middle <> MiddleReleased then
         match Win32.send_middle_mouse false with
-        | Ok() ->
-            state.synthetic_middle <- MiddleReleased
-            InputDiagnostics.record InputDiagnostics.EventKind.SyntheticMiddleUp 0L 0L
+        | Ok() -> state.synthetic_middle <- MiddleReleased
         | Error error -> errors.Add error
 
     if state.synthetic_shift <> ShiftReleased then
         match Win32.send_shift_key false with
-        | Ok() ->
-            state.synthetic_shift <- ShiftReleased
-            InputDiagnostics.record InputDiagnostics.EventKind.SyntheticShiftUp 0L 0L
+        | Ok() -> state.synthetic_shift <- ShiftReleased
         | Error error -> errors.Add error
 
     if not (synthetic_input_owned state) then
@@ -283,7 +277,6 @@ let press_synthetic_middle (state: State) =
         match Win32.send_middle_mouse true with
         | Ok() ->
             state.synthetic_middle <- MiddlePressed
-            InputDiagnostics.record InputDiagnostics.EventKind.SyntheticMiddleDown 0L 0L
             Ok()
         | Error error -> Error error
 
@@ -323,8 +316,6 @@ let press_synthetic_shift_middle (state: State) =
         | Ok() ->
             state.synthetic_shift <- ShiftPressed
             state.synthetic_middle <- MiddlePressed
-            InputDiagnostics.record InputDiagnostics.EventKind.SyntheticShiftDown 0L 0L
-            InputDiagnostics.record InputDiagnostics.EventKind.SyntheticMiddleDown 0L 0L
             Ok()
         | Error(struct (sent, error)) ->
             if sent >= 1u then
@@ -338,30 +329,16 @@ let press_synthetic_shift_middle (state: State) =
             | Error cleanupError -> Error $"{error}; cleanup failed: {cleanupError}"
 
 let keep_timer_running (state: State) =
-    let changed =
-        not state.poll_timer.Enabled
-        || state.poll_timer.Interval <> poll_timer_interval_milliseconds
-
     state.poll_timer.Interval <- poll_timer_interval_milliseconds
 
     if not state.poll_timer.Enabled then
         state.poll_timer.Start()
 
-    if changed then
-        InputDiagnostics.record InputDiagnostics.EventKind.TimerFast 0L 0L
-
 let keep_watchdog_running (state: State) =
-    let changed =
-        not state.poll_timer.Enabled
-        || state.poll_timer.Interval <> poll_timer_watchdog_interval_milliseconds
-
     state.poll_timer.Interval <- poll_timer_watchdog_interval_milliseconds
 
     if not state.poll_timer.Enabled then
         state.poll_timer.Start()
-
-    if changed then
-        InputDiagnostics.record InputDiagnostics.EventKind.TimerWatchdog 0L 0L
 
 let fast_poll_required (state: State) =
     state.pending_side_button_events.Count > 0

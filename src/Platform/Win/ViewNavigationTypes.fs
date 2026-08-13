@@ -104,10 +104,7 @@ type State =
       pending_side_button_events: Queue<SideButtonHookEvent>
       side_button_hook_capture: SideButtonHookCapture
       mutable navigation_exit_requested: bool
-      mutable poll_callback_count: int64
-      mutable last_poll_duration_ticks: int64
-      mutable maximum_poll_duration_ticks: int64
-      suspensions: Dictionary<int64, InputSuspensionReason>
+      suspension_ids: HashSet<int64>
       mutable next_suspension_id: int64
       mutable suspension_cleanup_error: string option
       poll_timer: Timer }
@@ -147,10 +144,7 @@ let create_state () =
       pending_side_button_events = Queue<SideButtonHookEvent>(16)
       side_button_hook_capture = { mouse4 = NotOwned; mouse5 = NotOwned }
       navigation_exit_requested = false
-      poll_callback_count = 0L
-      last_poll_duration_ticks = 0L
-      maximum_poll_duration_ticks = 0L
-      suspensions = Dictionary<int64, InputSuspensionReason>()
+      suspension_ids = HashSet<int64>()
       next_suspension_id = 0L
       suspension_cleanup_error = None
       poll_timer = new Timer(Interval = poll_timer_interval_milliseconds) }

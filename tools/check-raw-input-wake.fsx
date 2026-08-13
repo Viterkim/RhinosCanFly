@@ -3,8 +3,8 @@ open System.IO
 open System.Threading
 
 type State =
-    { signal: AutoResetEvent
-      mutable pending: int
+    { mutable pending: int
+      mutable messages: int
       mutable work: int
       mutable revision: int64 }
 
@@ -13,17 +13,15 @@ let produce (state: State) =
     Interlocked.Increment(&state.revision) |> ignore
 
     if Interlocked.CompareExchange(&state.pending, 1, 0) = 0 then
-        state.signal.Set() |> ignore
+        Interlocked.Increment(&state.messages) |> ignore
 
 let acknowledge (state: State) =
     Interlocked.Exchange(&state.pending, 0) |> ignore
 
 let reset (state: State) =
     Interlocked.Exchange(&state.pending, 0) |> ignore
+    Interlocked.Exchange(&state.messages, 0) |> ignore
     Interlocked.Exchange(&state.work, 0) |> ignore
-
-    while state.signal.WaitOne(0) do
-        ()
 
 let work_pending_since (observed: int64) (state: State) =
     Volatile.Read(&state.revision) <> observed
@@ -40,8 +38,20 @@ let wakeSource =
 let loopSource =
     File.ReadAllText(Path.Combine(sourceRoot, "src", "Fly", "FlightLoop.fs"))
 
-if wakeSource.Contains("WaitOne(0)", StringComparison.Ordinal) then
-    fail "RawInputWake must not consume the event while acknowledging pending work."
+let sessionSource =
+    File.ReadAllText(Path.Combine(sourceRoot, "src", "Fly", "FlightSession.fs"))
+
+if not (wakeSource.Contains("PostMessage", StringComparison.Ordinal)) then
+    fail "RawInputWake must wake Rhino through its native message loop."
+
+if wakeSource.Contains("AutoResetEvent", StringComparison.Ordinal) then
+    fail "RawInputWake must not own a private wait handle."
+
+if
+    not (loopSource.Contains("PlatformInput.wait_for_input", StringComparison.Ordinal))
+    || not (loopSource.Contains("RhinoApp.Wait", StringComparison.Ordinal))
+then
+    fail "FlightLoop must sleep while idle and pump Rhino before applying the next frame."
 
 let revisionIndex =
     loopSource.IndexOf("InputAccumulator.work_revision", StringComparison.Ordinal)
@@ -71,57 +81,53 @@ if
 then
     fail "FlightLoop must observe work, drain it, acknowledge the wake, then recheck work."
 
-let signal = new AutoResetEvent(false)
+let startingIndex =
+    sessionSource.IndexOf("let process_starting", StringComparison.Ordinal)
+
+if startingIndex < 0 then
+    fail "FlightSession.process_starting was not found."
+
+let startingAcknowledgeIndex =
+    sessionSource.IndexOf("PlatformInput.acknowledge_raw_input_wake", startingIndex, StringComparison.Ordinal)
+
+let startingWakeIndex =
+    sessionSource.IndexOf("PlatformInput.wake_flight_loop", startingIndex, StringComparison.Ordinal)
+
+if
+    startingAcknowledgeIndex < startingIndex
+    || startingWakeIndex < startingAcknowledgeIndex
+then
+    fail "The viewport-capture wait must acknowledge each coalesced wake before scheduling another check."
 
 let model =
-    { signal = signal
-      pending = 0
+    { pending = 0
+      messages = 0
       work = 0
       revision = 0L }
 
-for _iteration in 1..100_000 do
-    reset model
-    produce model
-    model.signal.WaitOne(0) |> ignore
+produce model
+produce model
 
-    let observed = Volatile.Read(&model.revision)
-    Interlocked.Exchange(&model.work, 0) |> ignore
+if model.messages <> 1 then
+    fail "Coalesced work posted more than one wake message."
 
-    // Producer arrives after the drain but before acknowledgement. It cannot
-    // signal because pending is still one, so only the revision recheck saves it.
-    produce model
-    acknowledge model
+let observed = Volatile.Read(&model.revision)
+Interlocked.Exchange(&model.work, 0) |> ignore
 
-    if not (work_pending_since observed model) then
-        fail "Work arriving before acknowledgement would wait for the watchdog."
+// Work arriving before acknowledgement cannot post another message, so the
+// revision check must keep the consumer running.
+produce model
+acknowledge model
 
-    Interlocked.Exchange(&model.work, 0) |> ignore
-    let observedAfterDrain = Volatile.Read(&model.revision)
-    acknowledge model
+if not (work_pending_since observed model) then
+    fail "Work arriving before acknowledgement was lost."
 
-    // Producer arrives after acknowledgement but before the revision recheck.
-    // The consumer continues immediately and leaves one harmless stale event.
-    produce model
+reset model
+let observedAfterDrain = Volatile.Read(&model.revision)
+acknowledge model
+produce model
 
-    if not (work_pending_since observedAfterDrain model) then
-        fail "Work arriving after acknowledgement would wait for the watchdog."
+if not (work_pending_since observedAfterDrain model) || model.messages <> 1 then
+    fail "Work arriving after acknowledgement was not observed and posted."
 
-    if not (model.signal.WaitOne(0)) then
-        fail "Work arriving after acknowledgement did not leave a wake signal."
-
-    reset model
-    let observedBeforeWait = Volatile.Read(&model.revision)
-    acknowledge model
-
-    if work_pending_since observedBeforeWait model then
-        fail "The idle model unexpectedly reported work."
-
-    // Producer arrives after the final recheck. The event must make the next
-    // wait immediate instead of relying on the 75 ms watchdog.
-    produce model
-
-    if not (model.signal.WaitOne(0)) then
-        fail "Work arriving before sleep would wait for the watchdog."
-
-signal.Dispose()
-printfn "RawInputWake interleaving check passed (100000 iterations)."
+printfn "RawInputWake ordering check passed."

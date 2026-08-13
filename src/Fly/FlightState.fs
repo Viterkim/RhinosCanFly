@@ -3,7 +3,7 @@ module RhinosCanFly.FlightState
 open Rhino.Display
 open Rhino.Geometry
 
-let create (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
+let create (view: RhinoView) (hostIdentity: FlightHostIdentity) (config: FlyConfig) (sessionMode: FlightSessionMode) =
     let viewport = view.ActiveViewport
     let bindings = config.bindings
     let mouseNavigationBindings = bindings.mouse_navigation
@@ -32,8 +32,7 @@ let create (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode
     { view = view
       viewport = viewport
       config = config
-      host_identity = PlatformInput.capture_flight_host view
-      root_window = PlatformInput.root_window view
+      host_identity = hostIdentity
       original_cursor = originalCursor
       original_camera = CameraSnapshot.capture viewport
       original_lens_length = viewport.Camera35mmLensLength
@@ -56,9 +55,9 @@ let create (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode
       speed =
         FlightSpeed.current view.Document behavior.load_speed_from_document movement.speed_range movement.base_speed
       boost_enabled = false
-      boost_was_down = FlightControls.is_down bindings.boost
+      boost_was_down = PlatformBindings.is_down bindings.boost
       slow_enabled = false
-      slow_was_down = FlightControls.is_down bindings.slow
+      slow_was_down = PlatformBindings.is_down bindings.slow
       speed_increase_was_down = FlightControls.is_optional_down bindings.speed_increase
       speed_decrease_was_down = FlightControls.is_optional_down bindings.speed_decrease
       wheel_remainder = 0L }

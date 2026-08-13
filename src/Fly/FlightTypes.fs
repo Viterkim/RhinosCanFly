@@ -8,7 +8,6 @@ type FlyState =
       viewport: RhinoViewport
       config: FlyConfig
       host_identity: FlightHostIdentity
-      root_window: RootWindow
       original_cursor: CursorPosition
       original_camera: CameraSnapshot
       original_lens_length: float
@@ -42,9 +41,5 @@ module FlyState =
 
             if FlightExitReason.restores_camera reason then
                 state.restore_camera_on_exit <- true
-
-            true
-        else
-            false
 
     let exit_reason (state: FlyState) = state.exit_reason
