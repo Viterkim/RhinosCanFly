@@ -126,10 +126,7 @@ type RhinosCanFlySettingsDialog() as self =
 
         self.Location <- SettingsDialogPlacement.clamped_location workingArea self.Size location
 
-        if isNull parent then
-            self.ShowModal()
-        else
-            self.ShowModal parent
+        self.ShowSemiModal(document, parent)
 
     member _.Saved = saved
 
