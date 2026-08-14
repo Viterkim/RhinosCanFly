@@ -35,8 +35,16 @@ let apply_live (loaded: ConfigLoadResult) =
         let config = loaded.config_file
 
         let mouseOverrides: MouseOverrideConfig =
-            { mouse4 = MouseButtonPivotMode.Off
-              mouse5 = MouseButtonPivotMode.Off
+            { mouse4 =
+                if config.enabled then
+                    config.mouse4_pivot_mode
+                else
+                    MouseButtonPivotMode.Off
+              mouse5 =
+                if config.enabled then
+                    config.mouse5_pivot_mode
+                else
+                    MouseButtonPivotMode.Off
               shift_right_click =
                 if config.enabled then
                     config.shift_right_click_mode
