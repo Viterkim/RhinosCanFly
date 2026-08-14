@@ -32,6 +32,17 @@ let input_suspended () = inputSuspensionIds.Count > 0
 
 let apply_live (loaded: ConfigLoadResult) =
     if input_bypass_experiment then
+        let config = loaded.config_file
+
+        RightClickEntry.configure
+            { fly_entry_mode =
+                if config.enabled then
+                    config.right_click_entry_mode
+                else
+                    RightClickEntryMode.Off
+              default_flight_mode = config.default_flight_mode
+              view_manipulation_enabled = false }
+
         Ok()
     else
         try
