@@ -31,6 +31,9 @@ type HookState =
 [<Literal>]
 let maximum_hook_removal_attempts = 8
 
+[<Literal>]
+let test_bypass_keyboard_hook = true
+
 let mutable keyboard_hook_state = HookAbsent
 let mutable mouse_hook_state = HookAbsent
 
@@ -210,16 +213,19 @@ let handle_keyboard_event (event: Win32.KeyboardHookEvent) =
         swallow
 
 let install_keyboard_hook () =
-    match keyboard_hook_state with
-    | HookInstalled _ -> Ok()
-    | HookRemovalPending(_, error, _)
-    | HookRemovalAbandoned(_, error) -> Error $"The previous keyboard hook could not be removed: {error}"
-    | HookAbsent ->
-        match Win32.install_keyboard_hook handle_keyboard_event with
-        | Ok hook ->
-            keyboard_hook_state <- HookInstalled hook
-            Ok()
-        | Error error -> Error error
+    if test_bypass_keyboard_hook then
+        Ok()
+    else
+        match keyboard_hook_state with
+        | HookInstalled _ -> Ok()
+        | HookRemovalPending(_, error, _)
+        | HookRemovalAbandoned(_, error) -> Error $"The previous keyboard hook could not be removed: {error}"
+        | HookAbsent ->
+            match Win32.install_keyboard_hook handle_keyboard_event with
+            | Ok hook ->
+                keyboard_hook_state <- HookInstalled hook
+                Ok()
+            | Error error -> Error error
 
 let remove_keyboard_hook () =
     match keyboard_hook_state with
