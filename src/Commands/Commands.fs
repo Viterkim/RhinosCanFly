@@ -76,12 +76,19 @@ let show_options (document: RhinoDoc) =
             let mutable result = Result.Success
 
             try
-                try
-                    use dialog = new RhinosCanFlySettingsDialog()
-                    dialog.ShowForRhino document
-                with error ->
-                    SettingsUi.report_error $"RhinosCanFly Options failed: {error.Message}"
+                match suspension.cleanup_error with
+                | Some error ->
+                    SettingsUi.report_error
+                        $"RhinosCanFly Options cannot open because input cleanup is incomplete: {error}"
+
                     result <- Result.Failure
+                | None ->
+                    try
+                        use dialog = new RhinosCanFlySettingsDialog()
+                        dialog.ShowForRhino document
+                    with error ->
+                        SettingsUi.report_error $"RhinosCanFly Options failed: {error.Message}"
+                        result <- Result.Failure
             finally
                 match RuntimeSettings.resume_input suspension with
                 | Ok() -> ()

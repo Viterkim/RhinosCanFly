@@ -207,12 +207,12 @@ type RawInputReceiver
             && flags &&& RawInputNative.right_button_up <> 0us
 
         let leftExitRequested =
-            config.exit_on_mouse_left && flags &&& RawInputNative.left_button_down <> 0us
+            config.exit_on_mouse_left && flags &&& RawInputNative.left_button_up <> 0us
 
         let rightExitRequested =
             sessionMode.lifetime = FlightLifetime.UntilExit
             && config.exit_on_mouse_right
-            && flags &&& RawInputNative.right_button_down <> 0us
+            && flags &&& RawInputNative.right_button_up <> 0us
 
         let middleExitRequested =
             config.middle_mouse_while_flying = FlyingMiddleMouseMode.ExitFlying

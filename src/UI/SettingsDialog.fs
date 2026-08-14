@@ -137,7 +137,16 @@ type RhinosCanFlyOptionsPage() =
             match RuntimeSettings.suspend_input () with
             | Ok lease ->
                 inputSuspension <- Some lease
-                Ok()
+
+                match lease.cleanup_error with
+                | None -> Ok()
+                | Some cleanupError ->
+                    inputSuspension <- None
+
+                    match RuntimeSettings.resume_input lease with
+                    | Ok() -> Error $"Input cleanup is incomplete: {cleanupError}"
+                    | Error resumeError ->
+                        Error $"Input cleanup is incomplete: {cleanupError}; resume failed: {resumeError}"
             | Error error -> Error error
 
     let resume_input () =
@@ -182,7 +191,7 @@ type RhinosCanFlyOptionsPage() =
                 SettingsUi.report_error $"RhinosCanFly Options deactivation failed: {error.Message}"
                 deactivated <- false
 
-            resume_input_after_options () && deactivated
+            deactivated
 
     override _.OnApply() =
         try

@@ -38,10 +38,7 @@ let error_insufficient_buffer = 122
 let mouse_move_absolute = 0x0001us
 
 [<Literal>]
-let left_button_down = 0x0001us
-
-[<Literal>]
-let right_button_down = 0x0004us
+let left_button_up = 0x0002us
 
 [<Literal>]
 let right_button_up = 0x0008us
