@@ -10,7 +10,7 @@ let inputSuspensionIds = HashSet<int64>()
 let mutable nextBypassSuspensionId = 0L
 
 [<Literal>]
-let input_bypass_experiment = true
+let input_bypass_experiment = false
 
 let input_bypass_active () = input_bypass_experiment
 
