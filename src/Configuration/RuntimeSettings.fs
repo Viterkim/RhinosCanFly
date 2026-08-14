@@ -7,6 +7,12 @@ open Rhino
 
 let mutable loadedConfig: ConfigLoadResult option = None
 let inputSuspensionIds = HashSet<int64>()
+let mutable nextBypassSuspensionId = 0L
+
+[<Literal>]
+let input_bypass_experiment = true
+
+let input_bypass_active () = input_bypass_experiment
 
 let record_exception (context: string) (error: exn) =
     let details = $"{DateTimeOffset.Now:O} {context}{Environment.NewLine}{error}"
@@ -25,95 +31,111 @@ let current () =
 let input_suspended () = inputSuspensionIds.Count > 0
 
 let apply_live (loaded: ConfigLoadResult) =
-    try
-        let config = loaded.config_file
+    if input_bypass_experiment then
+        Ok()
+    else
+        try
+            let config = loaded.config_file
 
-        let mouseOverrides: MouseOverrideConfig =
-            if config.enabled then
-                { mouse4 = config.mouse4_pivot_mode
-                  mouse5 = config.mouse5_pivot_mode
-                  shift_right_click = config.shift_right_click_mode
-                  alt_right_click = config.alt_right_click_mode
-                  exit_binding = Some loaded.config.bindings.exit_key
-                  exit_on_left = config.exit_on_mouse_left
-                  exit_on_right = config.exit_on_mouse_right }
-            else
-                { mouse4 = MouseButtonPivotMode.Off
-                  mouse5 = MouseButtonPivotMode.Off
-                  shift_right_click = ModifiedRightClickMode.Off
-                  alt_right_click = ModifiedRightClickMode.Off
-                  exit_binding = None
-                  exit_on_left = false
-                  exit_on_right = false }
-
-        match PlatformInput.apply_mouse_button_overrides mouseOverrides with
-        | Error error -> Error error
-        | Ok() ->
-            let flyEntryMode =
+            let mouseOverrides: MouseOverrideConfig =
                 if config.enabled then
-                    config.right_click_entry_mode
+                    { mouse4 = config.mouse4_pivot_mode
+                      mouse5 = config.mouse5_pivot_mode
+                      shift_right_click = config.shift_right_click_mode
+                      alt_right_click = config.alt_right_click_mode
+                      exit_binding = Some loaded.config.bindings.exit_key
+                      exit_on_left = config.exit_on_mouse_left
+                      exit_on_right = config.exit_on_mouse_right }
                 else
-                    RightClickEntryMode.Off
+                    { mouse4 = MouseButtonPivotMode.Off
+                      mouse5 = MouseButtonPivotMode.Off
+                      shift_right_click = ModifiedRightClickMode.Off
+                      alt_right_click = ModifiedRightClickMode.Off
+                      exit_binding = None
+                      exit_on_left = false
+                      exit_on_right = false }
 
-            RightClickEntry.configure
-                { fly_entry_mode = flyEntryMode
-                  default_flight_mode = config.default_flight_mode
-                  view_manipulation_enabled = PlatformInput.mouse_button_right_click_enabled () }
+            match PlatformInput.apply_mouse_button_overrides mouseOverrides with
+            | Error error -> Error error
+            | Ok() ->
+                let flyEntryMode =
+                    if config.enabled then
+                        config.right_click_entry_mode
+                    else
+                        RightClickEntryMode.Off
 
-            RepeatBehavior.apply config.commands_do_not_repeat
-            Ok()
-    with error ->
-        Debug.WriteLine $"RhinosCanFly live settings: {error}"
-        Error $"Could not apply live settings: {error.Message}"
+                RightClickEntry.configure
+                    { fly_entry_mode = flyEntryMode
+                      default_flight_mode = config.default_flight_mode
+                      view_manipulation_enabled = PlatformInput.mouse_button_right_click_enabled () }
+
+                RepeatBehavior.apply config.commands_do_not_repeat
+                Ok()
+        with error ->
+            Debug.WriteLine $"RhinosCanFly live settings: {error}"
+            Error $"Could not apply live settings: {error.Message}"
 
 let suspend_input () =
-    let firstSuspension = inputSuspensionIds.Count = 0
+    if input_bypass_experiment then
+        nextBypassSuspensionId <- nextBypassSuspensionId + 1L
 
-    let rightClickSuspended =
-        if firstSuspension then
-            try
-                RightClickEntry.suspend ()
-                Ok()
-            with error ->
-                record_exception "RhinosCanFly right-click suspension failed" error
-                Error error.Message
-        else
-            Ok()
+        let lease =
+            { id = nextBypassSuspensionId
+              cleanup_error = None }
 
-    match rightClickSuspended with
-    | Error error -> Error error
-    | Ok() ->
-        let platformResult =
-            try
-                PlatformInput.suspend_mouse_button_overrides ()
-            with error ->
-                record_exception "RhinosCanFly mouse override suspension failed" error
-                Error error.Message
+        inputSuspensionIds.Add lease.id |> ignore
+        Ok lease
+    else
+        let firstSuspension = inputSuspensionIds.Count = 0
 
-        match platformResult with
-        | Ok lease ->
-            inputSuspensionIds.Add lease.id |> ignore
-
-            match lease.cleanup_error with
-            | Some error ->
-                try
-                    RhinoApp.WriteLine $"RhinosCanFly input cleanup is incomplete: {error}"
-                with outputError ->
-                    record_exception "RhinosCanFly input cleanup warning failed" outputError
-            | None -> ()
-
-            Ok lease
-        | Error error ->
+        let rightClickSuspended =
             if firstSuspension then
                 try
-                    RightClickEntry.resume ()
-                with resumeError ->
-                    record_exception "RhinosCanFly right-click suspension rollback failed" resumeError
+                    RightClickEntry.suspend ()
+                    Ok()
+                with error ->
+                    record_exception "RhinosCanFly right-click suspension failed" error
+                    Error error.Message
+            else
+                Ok()
 
-            Error error
+        match rightClickSuspended with
+        | Error error -> Error error
+        | Ok() ->
+            let platformResult =
+                try
+                    PlatformInput.suspend_mouse_button_overrides ()
+                with error ->
+                    record_exception "RhinosCanFly mouse override suspension failed" error
+                    Error error.Message
+
+            match platformResult with
+            | Ok lease ->
+                inputSuspensionIds.Add lease.id |> ignore
+
+                match lease.cleanup_error with
+                | Some error ->
+                    try
+                        RhinoApp.WriteLine $"RhinosCanFly input cleanup is incomplete: {error}"
+                    with outputError ->
+                        record_exception "RhinosCanFly input cleanup warning failed" outputError
+                | None -> ()
+
+                Ok lease
+            | Error error ->
+                if firstSuspension then
+                    try
+                        RightClickEntry.resume ()
+                    with resumeError ->
+                        record_exception "RhinosCanFly right-click suspension rollback failed" resumeError
+
+                Error error
 
 let resume_input (lease: InputSuspensionLease) =
-    if not (inputSuspensionIds.Contains lease.id) then
+    if input_bypass_experiment then
+        inputSuspensionIds.Remove lease.id |> ignore
+        Ok()
+    elif not (inputSuspensionIds.Contains lease.id) then
         Ok()
     else
         let lastSuspension = inputSuspensionIds.Count = 1
@@ -139,13 +161,19 @@ let resume_input (lease: InputSuspensionLease) =
                 Ok()
 
         match platformResult, rightClickResult with
-        | Ok(), Ok() -> Ok()
+        | Ok(), Ok() ->
+            if lastSuspension then
+                PlatformInput.request_application_redraw ()
+
+            Ok()
         | Error error, Ok()
         | Ok(), Error error -> Error error
         | Error platformError, Error rightClickError -> Error $"{platformError}; {rightClickError}"
 
 let complete_input_recovery () =
-    if inputSuspensionIds.Count > 0 then
+    if input_bypass_experiment then
+        Ok()
+    elif inputSuspensionIds.Count > 0 then
         Error "Input is still suspended by an active command."
     else
         match current () with

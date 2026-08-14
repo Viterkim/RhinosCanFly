@@ -98,6 +98,12 @@ let update_window (view: RhinoView) = Win32.update_window view.Handle
 
 let redraw_window (view: RhinoView) = Win32.redraw_window view.Handle
 
+let request_application_redraw () =
+    try
+        Win32.request_application_redraw (Rhino.RhinoApp.MainWindowHandle())
+    with _ ->
+        ()
+
 let acquire_cursor_clip (view: RhinoView) =
     Win32.acquire_cursor_clip view.ScreenRectangle
 
@@ -171,26 +177,26 @@ let handle_view_manipulation_right_click (view: RhinoView) =
 let start_pivot (view: RhinoView) (completion: Action option) =
     MouseButtonOverrides.start_view_latch
         (ViewNavigationState.root_window view.Handle)
-        ViewNavigationTypes.ViewLatchMode.Pivot
+        ViewNavigationTypes.ViewNavigationMode.Pivot
         completion
 
 let stop_pivot () =
-    MouseButtonOverrides.stop_view_latch ViewNavigationTypes.ViewLatchMode.Pivot
+    MouseButtonOverrides.stop_view_latch ViewNavigationTypes.ViewNavigationMode.Pivot
 
 let start_pan (view: RhinoView) (completion: Action option) =
     MouseButtonOverrides.start_view_latch
         (ViewNavigationState.root_window view.Handle)
-        ViewNavigationTypes.ViewLatchMode.Pan
+        ViewNavigationTypes.ViewNavigationMode.Pan
         completion
 
 let stop_pan () =
-    MouseButtonOverrides.stop_view_latch ViewNavigationTypes.ViewLatchMode.Pan
+    MouseButtonOverrides.stop_view_latch ViewNavigationTypes.ViewNavigationMode.Pan
 
 let pivot_active () =
-    MouseButtonOverrides.view_latch_is ViewNavigationTypes.ViewLatchMode.Pivot
+    MouseButtonOverrides.view_latch_is ViewNavigationTypes.ViewNavigationMode.Pivot
 
 let pan_active () =
-    MouseButtonOverrides.view_latch_is ViewNavigationTypes.ViewLatchMode.Pan
+    MouseButtonOverrides.view_latch_is ViewNavigationTypes.ViewNavigationMode.Pan
 
 let suspend_mouse_button_overrides () = MouseButtonOverrides.suspend ()
 

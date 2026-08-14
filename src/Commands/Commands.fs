@@ -6,11 +6,15 @@ open Rhino.Commands
 open Rhino.Input
 
 let with_config (run: ConfigLoadResult -> Result) =
-    match RuntimeSettings.current () with
-    | Error error ->
-        RhinoApp.WriteLine $"RhinosCanFly config error:{Environment.NewLine}{error}"
-        Result.Failure
-    | Ok loaded -> run loaded
+    if RuntimeSettings.input_bypass_active () then
+        RhinoApp.WriteLine "RhinosCanFly input is disabled in this diagnostic build."
+        Result.Cancel
+    else
+        match RuntimeSettings.current () with
+        | Error error ->
+            RhinoApp.WriteLine $"RhinosCanFly config error:{Environment.NewLine}{error}"
+            Result.Failure
+        | Ok loaded -> run loaded
 
 let run (sessionMode: FlightSessionMode) (document: RhinoDoc) =
     let view = document.Views.ActiveView

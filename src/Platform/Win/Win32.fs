@@ -10,7 +10,6 @@ open System.Text
 open Microsoft.FSharp.NativeInterop
 open RhinosCanFly
 
-let nativeInputSize = Marshal.SizeOf<Win32Native.NativeInput>()
 let cursorClipRecoveries = ResizeArray<CursorClipLease>()
 
 let retain_cursor_clip_recovery (lease: CursorClipLease) =
@@ -177,6 +176,36 @@ let redraw_window (window: nativeint) =
 
     update_window window
 
+let request_window_tree_redraw (window: nativeint) =
+    if window <> nativeint 0 && Win32Native.IsWindow window then
+        Win32Native.RedrawWindow(
+            window,
+            nativeint 0,
+            nativeint 0,
+            Win32Native.RDW_INVALIDATE
+            ||| Win32Native.RDW_ALLCHILDREN
+            ||| Win32Native.RDW_FRAME
+        )
+        |> ignore
+
+let request_application_redraw (mainWindow: nativeint) =
+    try
+        let foregroundWindow = Win32Native.GetForegroundWindow()
+        request_window_tree_redraw mainWindow
+
+        if foregroundWindow <> nativeint 0 && foregroundWindow <> mainWindow then
+            let mutable mainProcess = 0u
+            let mutable foregroundProcess = 0u
+            Win32Native.GetWindowThreadProcessId(mainWindow, &mainProcess) |> ignore
+
+            Win32Native.GetWindowThreadProcessId(foregroundWindow, &foregroundProcess)
+            |> ignore
+
+            if mainProcess <> 0u && foregroundProcess = mainProcess then
+                request_window_tree_redraw foregroundWindow
+    with _ ->
+        ()
+
 let wait_for_input () =
     let result =
         Win32Native.MsgWaitForMultipleObjectsEx(
@@ -194,20 +223,14 @@ let wait_for_input () =
 type KeyboardHookEvent =
     { physical_key: int
       released: bool
-      was_down: bool
-      extra_info: unativeint }
+      was_down: bool }
 
 [<Struct>]
 type MouseHookEvent =
     { message: int
       mouse_data: uint32
       hook_window: nativeint
-      point_window: nativeint
-      extra_info: unativeint }
-
-let injected_input_marker = unativeint 0x52434657u
-
-let injected_input (extraInfo: unativeint) = extraInfo = injected_input_marker
+      point_window: nativeint }
 
 let keyboard_physical_key (virtualKey: int) (eventData: int64) =
     let extended = eventData &&& Win32Native.KEYBOARD_EXTENDED_KEY <> 0L
@@ -253,8 +276,7 @@ let install_keyboard_hook (handleEvent: KeyboardHookEvent -> bool) =
             let event: KeyboardHookEvent =
                 { physical_key = keyboard_physical_key virtualKey eventData
                   released = eventData &&& Win32Native.KEYBOARD_KEY_RELEASED <> 0L
-                  was_down = eventData &&& Win32Native.KEYBOARD_PREVIOUSLY_DOWN <> 0L
-                  extra_info = unativeint (Win32Native.GetMessageExtraInfo()) }
+                  was_down = eventData &&& Win32Native.KEYBOARD_PREVIOUSLY_DOWN <> 0L }
 
             if code = Win32Native.HC_ACTION && handleEvent event then
                 nativeint 1
@@ -282,9 +304,7 @@ let install_mouse_hook (handleEvent: MouseHookEvent -> bool) =
                 code = Win32Native.HC_ACTION
                 && (message = Win32Native.WM_XBUTTONDOWN
                     || message = Win32Native.WM_XBUTTONUP
-                    || message = Win32Native.WM_XBUTTONDBLCLK
-                    || message = Win32Native.WM_MBUTTONDOWN
-                    || message = Win32Native.WM_MBUTTONUP)
+                    || message = Win32Native.WM_XBUTTONDBLCLK)
             then
                 let data = NativePtr.read (NativePtr.ofNativeInt<Win32Native.MouseHookData> lparam)
                 let pointWindow = Win32Native.WindowFromPoint data.point
@@ -293,8 +313,7 @@ let install_mouse_hook (handleEvent: MouseHookEvent -> bool) =
                     { message = message
                       mouse_data = data.mouse_data
                       hook_window = data.window
-                      point_window = pointWindow
-                      extra_info = data.extra_info }
+                      point_window = pointWindow }
 
                 if handleEvent event then
                     nativeint 1
@@ -320,57 +339,3 @@ let remove_hook (hook: Win32Native.WindowsHook) =
         Ok()
     else
         Error(last_error "UnhookWindowsHookEx")
-
-let mouse_input (flags: uint32) =
-    let mutable mouse = Unchecked.defaultof<Win32Native.MouseInput>
-    mouse.flags <- flags
-    mouse.extra_info <- injected_input_marker
-
-    let mutable input = Unchecked.defaultof<Win32Native.NativeInput>
-    input.input_type <- Win32Native.INPUT_MOUSE
-
-    let mutable data = Unchecked.defaultof<Win32Native.InputData>
-    data.mouse <- mouse
-    input.data <- data
-    input
-
-let keyboard_input (virtualKey: int) (flags: uint32) =
-    let mutable keyboard = Unchecked.defaultof<Win32Native.KeyboardInput>
-    keyboard.virtual_key <- uint16 virtualKey
-    keyboard.flags <- flags
-    keyboard.extra_info <- injected_input_marker
-
-    let mutable input = Unchecked.defaultof<Win32Native.NativeInput>
-    input.input_type <- Win32Native.INPUT_KEYBOARD
-
-    let mutable data = Unchecked.defaultof<Win32Native.InputData>
-    data.keyboard <- keyboard
-    input.data <- data
-    input
-
-let try_send_inputs (operation: string) (inputs: Win32Native.NativeInput array) =
-    let sent = Win32Native.SendInput(uint32 inputs.Length, inputs, nativeInputSize)
-
-    if sent = uint32 inputs.Length then
-        Ok()
-    else
-        let error = last_error operation
-        Error(struct (sent, $"{error} ({sent} of {inputs.Length} events inserted)"))
-
-let send_inputs (operation: string) (inputs: Win32Native.NativeInput array) =
-    match try_send_inputs operation inputs with
-    | Ok() -> Ok()
-    | Error(struct (_, error)) -> Error error
-
-let send_middle_mouse (down: bool) =
-    let flags =
-        if down then
-            Win32Native.MOUSEEVENTF_MIDDLEDOWN
-        else
-            Win32Native.MOUSEEVENTF_MIDDLEUP
-
-    send_inputs "SendInput(middle mouse)" [| mouse_input flags |]
-
-let send_shift_key (down: bool) =
-    let flags = if down then 0u else Win32Native.KEYEVENTF_KEYUP
-    send_inputs "SendInput(shift)" [| keyboard_input Win32Native.VK_SHIFT flags |]

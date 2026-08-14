@@ -316,6 +316,9 @@ let finish_active (session: ActiveSession) (activeResult: Result<unit, string>) 
     if not session.input_safe then
         cleanupErrors.Add "input cleanup did not finish safely; run RhinosCanFlyInputRecover or restart Rhino"
 
+    if session.raw_input_clean && session.input_safe then
+        PlatformInput.request_application_redraw ()
+
     sessionState <-
         if session.raw_input_clean && session.input_safe then
             Ready
@@ -527,7 +530,7 @@ let process_starting (starting: StartingSession) =
         cleanup_starting starting "The active viewport did not release its mouse capture within 250 ms."
         |> finish_and_report
     else
-        ()
+        PlatformInput.wake_flight_loop starting.input_wake
 
 let process_main_loop () =
     if not processingMainLoop then

@@ -5,7 +5,7 @@ open System.Collections.Generic
 open System.Windows.Forms
 open RhinosCanFly
 
-type ViewLatchMode =
+type ViewNavigationMode =
     | Pivot
     | Pan
 
@@ -17,8 +17,8 @@ type SideButtonMode =
 type RoutingConfig =
     { mouse4: SideButtonMode
       mouse5: SideButtonMode
-      shift_right_click: ViewLatchMode option
-      alt_right_click: ViewLatchMode option
+      shift_right_click: ViewNavigationMode option
+      alt_right_click: ViewNavigationMode option
       exit: KeyBinding option
       exit_on_mouse_left: bool
       exit_on_mouse_right: bool }
@@ -50,30 +50,15 @@ type SideButtonState =
 
 type ViewLatchSession =
     { window: RootWindow
-      mode: ViewLatchMode
+      mode: ViewNavigationMode
       started_at: int64
       completion: Action option }
-
-type PivotViewLatch =
-    { session: ViewLatchSession
-      modifiers_down: bool }
 
 type ViewLatch =
     | NoViewLatch
     | WaitingForRelease of ViewLatchSession
-    | RetryingPivot of ViewLatchSession
-    | PivotActive of PivotViewLatch
+    | PivotActive of ViewLatchSession
     | PanActive of ViewLatchSession
-
-type SyntheticShiftState =
-    | ShiftReleased
-    | ShiftPressed
-    | ShiftReleasePending
-
-type SyntheticMiddleState =
-    | MiddleReleased
-    | MiddlePressed
-    | MiddleReleasePending
 
 type OverrideLifecycle =
     | Available
@@ -93,14 +78,6 @@ type State =
       mutable mouse4: SideButtonState
       mutable mouse5: SideButtonState
       mutable view_latch: ViewLatch
-      mutable synthetic_shift: SyntheticShiftState
-      mutable synthetic_middle: SyntheticMiddleState
-      mutable side_button_restart_pending: bool
-      mutable middle_mouse_modifiers_down: bool
-      mutable physical_shift_keys_down: int
-      mutable physical_middle_down: bool
-      mutable pending_synthetic_release_root: RootWindow voption
-      mutable pending_view_completion: Action option
       pending_side_button_events: Queue<SideButtonHookEvent>
       side_button_hook_capture: SideButtonHookCapture
       mutable navigation_exit_requested: bool
@@ -133,14 +110,6 @@ let create_state () =
       mouse4 = Released
       mouse5 = Released
       view_latch = NoViewLatch
-      synthetic_shift = ShiftReleased
-      synthetic_middle = MiddleReleased
-      side_button_restart_pending = false
-      middle_mouse_modifiers_down = false
-      physical_shift_keys_down = 0
-      physical_middle_down = false
-      pending_synthetic_release_root = ValueNone
-      pending_view_completion = None
       pending_side_button_events = Queue<SideButtonHookEvent>(16)
       side_button_hook_capture = { mouse4 = NotOwned; mouse5 = NotOwned }
       navigation_exit_requested = false
