@@ -17,6 +17,8 @@ type SideButtonMode =
 type RoutingConfig =
     { mouse4: SideButtonMode
       mouse5: SideButtonMode
+      right_click_entry: RightClickEntryMode
+      default_flight_mode: DefaultFlightMode
       shift_right_click: ViewNavigationMode option
       alt_right_click: ViewNavigationMode option
       exit: KeyBinding option
@@ -98,6 +100,8 @@ let transition_timeout_seconds = 2.
 let empty_routing =
     { mouse4 = Disabled
       mouse5 = Disabled
+      right_click_entry = RightClickEntryMode.Off
+      default_flight_mode = DefaultFlightMode.Normal
       shift_right_click = None
       alt_right_click = None
       exit = None

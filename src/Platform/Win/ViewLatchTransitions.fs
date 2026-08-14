@@ -84,11 +84,6 @@ let handle_right_click (state: State) (window: RootWindow) =
             | Some _
             | None -> Ok false
 
-let right_click_enabled (state: State) =
-    ViewNavigationState.right_mouse_exit_enabled state
-    || Option.isSome state.routing.shift_right_click
-    || Option.isSome state.routing.alt_right_click
-
 let activate (state: State) (session: ViewLatchSession) =
     if ViewNavigationState.side_button_navigation_active state then
         Error "Another view navigation mode is already active."

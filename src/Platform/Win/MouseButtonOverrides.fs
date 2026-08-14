@@ -22,6 +22,20 @@ type NavigationSample =
       mode: ViewNavigationMode
       point: Point }
 
+type NativeFlyEntry =
+    { view_serial_number: uint32
+      document_serial_number: uint32
+      root_window: RootWindow
+      entry_mode: RightClickEntryMode
+      default_flight_mode: DefaultFlightMode
+      started_at: int64 }
+
+type NativeRightClickGesture =
+    | NoNativeRightClick
+    | NativeButtonDown of NativeFlyEntry
+    | NativeButtonReleased of NativeFlyEntry
+    | NativeEntryDispatched of NativeFlyEntry
+
 type HookState =
     | HookAbsent
     | HookInstalled of Win32Native.WindowsHook
@@ -36,6 +50,9 @@ let test_bypass_keyboard_hook = true
 
 let mutable keyboard_hook_state = HookAbsent
 let mutable mouse_hook_state = HookAbsent
+let mutable native_right_click = NoNativeRightClick
+let mutable native_right_button_owned = false
+let mutable native_right_release_observed = false
 
 let log_exception (context: string) (error: exn) =
     Debug.WriteLine $"RhinosCanFly {context}: {error}"
@@ -45,6 +62,56 @@ let request_ui_redraw () =
         Win32.request_application_redraw (RhinoApp.MainWindowHandle())
     with error ->
         log_exception "UI redraw request" error
+
+[<Literal>]
+let native_entry_timeout_seconds = 2.
+
+let native_entry_enabled () =
+    match state.routing.right_click_entry with
+    | RightClickEntryMode.EnterFlying
+    | RightClickEntryMode.EnterFlyingDuringCommands
+    | RightClickEntryMode.EnterFlyingWhileHeld
+    | RightClickEntryMode.EnterFlyingWhileHeldDuringCommands -> true
+    | RightClickEntryMode.Off
+    | _ -> false
+
+let native_entry_during_commands (mode: RightClickEntryMode) =
+    match mode with
+    | RightClickEntryMode.EnterFlyingDuringCommands
+    | RightClickEntryMode.EnterFlyingWhileHeldDuringCommands -> true
+    | RightClickEntryMode.Off
+    | RightClickEntryMode.EnterFlying
+    | RightClickEntryMode.EnterFlyingWhileHeld
+    | _ -> false
+
+let native_entry_while_held (mode: RightClickEntryMode) =
+    match mode with
+    | RightClickEntryMode.EnterFlyingWhileHeld
+    | RightClickEntryMode.EnterFlyingWhileHeldDuringCommands -> true
+    | RightClickEntryMode.Off
+    | RightClickEntryMode.EnterFlying
+    | RightClickEntryMode.EnterFlyingDuringCommands
+    | _ -> false
+
+let native_entry_pending () =
+    match native_right_click with
+    | NoNativeRightClick -> false
+    | NativeButtonDown _
+    | NativeButtonReleased _
+    | NativeEntryDispatched _ -> true
+
+let clear_native_entry () =
+    native_right_click <- NoNativeRightClick
+
+let native_entry_timed_out (entry: NativeFlyEntry) =
+    let elapsedTicks = Stopwatch.GetTimestamp() - entry.started_at
+    float elapsedTicks / float Stopwatch.Frequency >= native_entry_timeout_seconds
+
+let keep_native_entry_timer_running () =
+    try
+        ViewNavigationState.keep_timer_running state
+    with error ->
+        log_exception "native right-click timer" error
 
 type NavigationExitCallback() =
     inherit MouseCallback()
@@ -264,6 +331,7 @@ let remove_keyboard_hook () =
 [<Struct>]
 type ViewWindow =
     { serial_number: uint32
+      document_serial_number: uint32
       handle: nativeint }
 
 let mutable view_windows: ViewWindow array = Array.empty
@@ -276,11 +344,12 @@ let refresh_view_windows () =
             RhinoDoc.OpenDocuments()
             |> Array.collect (fun (document: RhinoDoc) -> document.Views.GetViewList(true, true))
             |> Array.choose (fun (view: RhinoView) ->
-                if isNull view || view.Handle = nativeint 0 then
+                if isNull view || isNull view.Document || view.Handle = nativeint 0 then
                     None
                 else
                     Some
                         { serial_number = view.RuntimeSerialNumber
+                          document_serial_number = view.Document.RuntimeSerialNumber
                           handle = view.Handle })
 
         Ok()
@@ -294,9 +363,10 @@ let view_created =
         try
             let view = event.View
 
-            if not (isNull view) && view.Handle <> nativeint 0 then
+            if not (isNull view) && not (isNull view.Document) && view.Handle <> nativeint 0 then
                 let created =
                     { serial_number = view.RuntimeSerialNumber
+                      document_serial_number = view.Document.RuntimeSerialNumber
                       handle = view.Handle }
 
                 let remaining =
@@ -375,7 +445,7 @@ let unsubscribe_view_events () =
         if errors.Count > 0 then
             failwith (String.concat "; " errors)
 
-let try_view_root (window: nativeint) =
+let try_view_window (window: nativeint) =
     let mutable index = 0
     let mutable result = ValueNone
 
@@ -387,11 +457,83 @@ let try_view_root (window: nativeint) =
             && Win32Native.IsWindowEnabled candidate.handle
             && (candidate.handle = window || Win32Native.IsChild(candidate.handle, window))
         then
-            result <- ValueSome(ViewNavigationState.root_window candidate.handle)
+            result <- ValueSome candidate
 
         index <- index + 1
 
     result
+
+let try_view_root (window: nativeint) =
+    match try_view_window window with
+    | ValueSome view -> ValueSome(ViewNavigationState.root_window view.handle)
+    | ValueNone -> ValueNone
+
+let rec handle_native_right_event (event: Win32.MouseHookEvent) =
+    let isDown =
+        event.message = Win32Native.WM_RBUTTONDOWN
+        || event.message = Win32Native.WM_RBUTTONDBLCLK
+
+    let isUp = event.message = Win32Native.WM_RBUTTONUP
+
+    if isUp && native_right_button_owned then
+        native_right_button_owned <- false
+        native_right_release_observed <- false
+
+        match native_right_click with
+        | NativeButtonDown entry when native_entry_while_held entry.entry_mode -> clear_native_entry ()
+        | NativeButtonDown entry -> native_right_click <- NativeButtonReleased entry
+        | NoNativeRightClick
+        | NativeButtonReleased _
+        | NativeEntryDispatched _ -> ()
+
+        keep_native_entry_timer_running ()
+        true
+    elif isDown && native_right_button_owned then
+        if native_right_release_observed then
+            native_right_button_owned <- false
+            native_right_release_observed <- false
+            handle_native_right_event event
+        else
+            true
+    elif isDown && native_entry_pending () then
+        native_right_button_owned <- true
+        keep_native_entry_timer_running ()
+        true
+    elif
+        not isDown
+        || state.lifecycle <> Available
+        || not (native_entry_enabled ())
+        || ViewNavigationState.shift_down ()
+        || ViewNavigationState.alt_down ()
+    then
+        false
+    else
+        match try_view_window event.hook_window with
+        | ValueNone -> false
+        | ValueSome hookView ->
+            match try_view_window event.point_window with
+            | ValueSome pointView when hookView.serial_number = pointView.serial_number ->
+                let root = ViewNavigationState.root_window pointView.handle
+
+                if root <> ViewNavigationState.foreground_root_window () then
+                    false
+                else
+                    native_right_button_owned <- true
+                    native_right_release_observed <- false
+
+                    native_right_click <-
+                        NativeButtonDown
+                            { view_serial_number = pointView.serial_number
+                              document_serial_number = pointView.document_serial_number
+                              root_window = root
+                              entry_mode = state.routing.right_click_entry
+                              default_flight_mode = state.routing.default_flight_mode
+                              started_at = Stopwatch.GetTimestamp() }
+
+                    keep_native_entry_timer_running ()
+                    true
+            | ValueSome _
+            | ValueNone -> false
 
 let side_button_from_data (mouseData: uint32) =
     match mouseData >>> 16 with
@@ -403,67 +545,74 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
     let mutable swallow = false
 
     try
-        match side_button_from_data event.mouse_data with
-        | ValueNone -> false
-        | ValueSome button ->
-            let hookActive =
-                match mouse_hook_state with
-                | HookInstalled _ -> true
-                | HookAbsent
-                | HookRemovalPending _
-                | HookRemovalAbandoned _ -> false
+        if
+            event.message = Win32Native.WM_RBUTTONDOWN
+            || event.message = Win32Native.WM_RBUTTONUP
+            || event.message = Win32Native.WM_RBUTTONDBLCLK
+        then
+            handle_native_right_event event
+        else
+            match side_button_from_data event.mouse_data with
+            | ValueNone -> false
+            | ValueSome button ->
+                let hookActive =
+                    match mouse_hook_state with
+                    | HookInstalled _ -> true
+                    | HookAbsent
+                    | HookRemovalPending _
+                    | HookRemovalAbandoned _ -> false
 
-            let isDown =
-                event.message = Win32Native.WM_XBUTTONDOWN
-                || event.message = Win32Native.WM_XBUTTONDBLCLK
+                let isDown =
+                    event.message = Win32Native.WM_XBUTTONDOWN
+                    || event.message = Win32Native.WM_XBUTTONDBLCLK
 
-            let isUp = event.message = Win32Native.WM_XBUTTONUP
+                let isUp = event.message = Win32Native.WM_XBUTTONUP
 
-            if
-                isDown
-                && ViewNavigationState.hook_button_ownership state button = ReleaseObserved
-            then
-                // The previous Up happened outside Rhino and was observed
-                // by the watchdog. This Down starts a new physical pair.
-                ViewNavigationState.set_hook_owns_button state button false
+                if
+                    isDown
+                    && ViewNavigationState.hook_button_ownership state button = ReleaseObserved
+                then
+                    // The previous Up happened outside Rhino and was observed
+                    // by the watchdog. This Down starts a new physical pair.
+                    ViewNavigationState.set_hook_owns_button state button false
 
-            let hookOwnsButton = ViewNavigationState.hook_owns_button state button
+                let hookOwnsButton = ViewNavigationState.hook_owns_button state button
 
-            if isUp && hookOwnsButton then
-                swallow <- true
-                ViewNavigationState.set_hook_owns_button state button false
+                if isUp && hookOwnsButton then
+                    swallow <- true
+                    ViewNavigationState.set_hook_owns_button state button false
 
-                if state.lifecycle = Available then
-                    state.pending_side_button_events.Enqueue(ButtonUp button)
+                    if state.lifecycle = Available then
+                        state.pending_side_button_events.Enqueue(ButtonUp button)
 
-                ViewNavigationState.keep_timer_running state
-                true
-            elif isDown && hookOwnsButton then
-                swallow <- true
-                true
-            elif
-                not hookActive
-                || state.lifecycle <> Available
-                || ViewNavigationState.mode_for state button = Disabled
-            then
-                false
-            elif isDown then
-                match try_view_root event.hook_window with
-                | ValueSome hookRoot ->
-                    match try_view_root event.point_window with
-                    | ValueSome pointRoot when
-                        hookRoot = pointRoot && hookRoot = ViewNavigationState.foreground_root_window ()
-                        ->
-                        swallow <- true
-                        ViewNavigationState.set_hook_owns_button state button true
-                        state.pending_side_button_events.Enqueue(ButtonDown(button, hookRoot))
-                        ViewNavigationState.keep_timer_running state
-                        true
-                    | ValueSome _
+                    ViewNavigationState.keep_timer_running state
+                    true
+                elif isDown && hookOwnsButton then
+                    swallow <- true
+                    true
+                elif
+                    not hookActive
+                    || state.lifecycle <> Available
+                    || ViewNavigationState.mode_for state button = Disabled
+                then
+                    false
+                elif isDown then
+                    match try_view_root event.hook_window with
+                    | ValueSome hookRoot ->
+                        match try_view_root event.point_window with
+                        | ValueSome pointRoot when
+                            hookRoot = pointRoot && hookRoot = ViewNavigationState.foreground_root_window ()
+                            ->
+                            swallow <- true
+                            ViewNavigationState.set_hook_owns_button state button true
+                            state.pending_side_button_events.Enqueue(ButtonDown(button, hookRoot))
+                            ViewNavigationState.keep_timer_running state
+                            true
+                        | ValueSome _
+                        | ValueNone -> false
                     | ValueNone -> false
-                | ValueNone -> false
-            else
-                false
+                else
+                    false
     with error ->
         log_exception "mouse override hook" error
         swallow
@@ -538,9 +687,94 @@ let remove_mouse_hook () =
 
             Error error
 
+let native_entry_command (entry: NativeFlyEntry) =
+    let flightMode = DefaultFlightMode.flight_mode entry.default_flight_mode
+
+    if native_entry_while_held entry.entry_mode then
+        match flightMode with
+        | FlightMode.Temporary -> "'_RhinosCanFlyTempFlyHeld"
+        | FlightMode.Normal
+        | _ -> "'_RhinosCanFlyHeld"
+    else
+        match flightMode with
+        | FlightMode.Temporary -> "'_RhinosCanFlyTempFly"
+        | FlightMode.Normal
+        | _ -> "'_RhinosCanFly"
+
+let try_native_entry_view (entry: NativeFlyEntry) =
+    let view = RhinoView.FromRuntimeSerialNumber entry.view_serial_number
+
+    if
+        isNull view
+        || isNull view.Document
+        || view.Document.RuntimeSerialNumber <> entry.document_serial_number
+        || isNull RhinoDoc.ActiveDoc
+        || RhinoDoc.ActiveDoc.RuntimeSerialNumber <> entry.document_serial_number
+        || isNull view.Document.Views.ActiveView
+        || view.Document.Views.ActiveView.RuntimeSerialNumber <> entry.view_serial_number
+        || ViewNavigationState.root_window view.Handle <> entry.root_window
+    then
+        ValueNone
+    else
+        ValueSome view
+
+let dispatch_native_entry (entry: NativeFlyEntry) =
+    native_right_click <- NativeEntryDispatched entry
+
+    RhinoApp.RunScript(entry.document_serial_number, native_entry_command entry, false)
+    |> ignore
+
+let process_native_entry () =
+    match native_right_click with
+    | NoNativeRightClick -> ()
+    | NativeEntryDispatched entry ->
+        if state.lifecycle <> Available || native_entry_timed_out entry then
+            clear_native_entry ()
+    | NativeButtonDown entry ->
+        if
+            state.lifecycle <> Available
+            || native_entry_timed_out entry
+            || ViewNavigationState.foreground_root_window () <> entry.root_window
+        then
+            clear_native_entry ()
+        else
+            match try_native_entry_view entry with
+            | ValueNone -> clear_native_entry ()
+            | ValueSome view ->
+                let canEnter =
+                    native_entry_during_commands entry.entry_mode || not (Command.InCommand())
+
+                let heldAndDown =
+                    native_entry_while_held entry.entry_mode
+                    && Win32Native.GetAsyncKeyState Win32Native.VK_RBUTTON < 0s
+
+                if heldAndDown && canEnter && not (view.MouseCaptured false) then
+                    dispatch_native_entry entry
+                elif native_entry_while_held entry.entry_mode && not heldAndDown then
+                    clear_native_entry ()
+    | NativeButtonReleased entry ->
+        if
+            state.lifecycle <> Available
+            || native_entry_timed_out entry
+            || ViewNavigationState.foreground_root_window () <> entry.root_window
+        then
+            clear_native_entry ()
+        else
+            match try_native_entry_view entry with
+            | ValueNone -> clear_native_entry ()
+            | ValueSome view ->
+                let canEnter =
+                    native_entry_during_commands entry.entry_mode || not (Command.InCommand())
+
+                if canEnter && not (view.MouseCaptured false) then
+                    dispatch_native_entry entry
+
 let mouse_hook_needed () =
     state.lifecycle <> ShutDown
-    && (ViewNavigationState.side_button_routing_enabled state
+    && (native_entry_enabled ()
+        || native_right_button_owned
+        || native_entry_pending ()
+        || ViewNavigationState.side_button_routing_enabled state
         || ViewNavigationState.hook_owns_any_button state)
 
 let refresh_mouse_hook () =
@@ -569,8 +803,20 @@ let prune_released_side_buttons () =
         else
             ViewNavigationState.observe_hook_button_released state Mouse5
 
+let prune_released_native_right_button () =
+    if native_right_button_owned then
+        if Win32Native.GetAsyncKeyState Win32Native.VK_RBUTTON < 0s then
+            native_right_release_observed <- false
+        elif native_right_release_observed then
+            native_right_button_owned <- false
+            native_right_release_observed <- false
+            clear_native_entry ()
+        else
+            native_right_release_observed <- true
+
 let release_after_timer_error (error: exn) =
     log_exception "mouse override timer" error
+    clear_native_entry ()
 
     match ViewNavigationState.release_all state with
     | Ok() -> ()
@@ -597,7 +843,7 @@ let hook_removal_abandoned () =
     | _ -> false
 
 let poll_requirement () =
-    if ViewNavigationState.fast_poll_required state then
+    if native_entry_pending () || ViewNavigationState.fast_poll_required state then
         PollFast
     elif
         (match state.lifecycle with
@@ -607,6 +853,7 @@ let poll_requirement () =
          | Resuming
          | ShutDown -> false)
         || ViewNavigationState.hook_owns_any_button state
+        || native_right_button_owned
         || hook_removal_pending ()
         || mouse_hook_needs_reconciliation ()
     then
@@ -655,6 +902,8 @@ let poll_timer_elapsed () =
         try
             SideButtonTransitions.process_hook_events state
             prune_released_side_buttons ()
+            prune_released_native_right_button ()
+            process_native_entry ()
 
             let foreground = ViewNavigationState.foreground_root_window ()
 
@@ -736,6 +985,8 @@ let keeps_navigation_active (commandName: string) =
 let command_began =
     EventHandler<CommandEventArgs>(fun (_: obj) (event: CommandEventArgs) ->
         try
+            clear_native_entry ()
+
             if
                 not (keeps_navigation_active event.CommandEnglishName)
                 && state.lifecycle = Available
@@ -769,9 +1020,6 @@ let release_flight_keyboard () =
     FlightKeyboardSuppression.stop flightKeyboard
     Ok()
 
-let right_click_enabled () =
-    ViewLatchTransitions.right_click_enabled state
-
 let handle_right_click (window: RootWindow) =
     ViewLatchTransitions.handle_right_click state window
 
@@ -796,6 +1044,8 @@ let apply (config: MouseOverrideConfig) =
     if state.lifecycle = ShutDown then
         Error "Mouse button overrides have already shut down."
     else
+        clear_native_entry ()
+
         match ViewNavigationState.release_all state with
         | Error error ->
             activate_degraded error
@@ -804,6 +1054,8 @@ let apply (config: MouseOverrideConfig) =
             state.routing <-
                 { mouse4 = SideButtonTransitions.configured_mode config.mouse4
                   mouse5 = SideButtonTransitions.configured_mode config.mouse5
+                  right_click_entry = config.right_click_entry
+                  default_flight_mode = config.default_flight_mode
                   shift_right_click = ViewLatchTransitions.configured_mode config.shift_right_click
                   alt_right_click = ViewLatchTransitions.configured_mode config.alt_right_click
                   exit = config.exit_binding
@@ -849,6 +1101,7 @@ let suspend () =
     else
         let errors = ResizeArray<string>()
         state.lifecycle <- Suspended
+        clear_native_entry ()
 
         try
             callback.Enabled <- callback.OwnsLeftButton
@@ -978,6 +1231,9 @@ let shutdown () =
                 log_exception $"mouse override {name} shutdown" error
 
         state.lifecycle <- ShutDown
+        clear_native_entry ()
+        native_right_button_owned <- false
+        native_right_release_observed <- false
         state.suspension_ids.Clear()
         state.suspension_cleanup_error <- None
 

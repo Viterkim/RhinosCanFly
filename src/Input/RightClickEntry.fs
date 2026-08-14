@@ -32,6 +32,7 @@ type RightClickCallback() =
     let mutable gesture = NoRightClickGesture
     let mutable flyEntryMode = RightClickEntryMode.Off
     let mutable defaultFlightMode = DefaultFlightMode.Normal
+    let mutable viewManipulationEnabled = false
     let mutable suspended = false
     let mutable mainLoopHandlerInstalled = false
 
@@ -290,8 +291,9 @@ type RightClickCallback() =
         clear_gesture ()
         flyEntryMode <- config.fly_entry_mode
         defaultFlightMode <- config.default_flight_mode
+        viewManipulationEnabled <- config.view_manipulation_enabled
 
-        this.Enabled <- not suspended && (fly_entry_enabled () || config.view_manipulation_enabled)
+        this.Enabled <- not suspended && (fly_entry_enabled () || viewManipulationEnabled)
 
     member this.Suspend() =
         clear_gesture ()
@@ -299,7 +301,7 @@ type RightClickCallback() =
         suspended <- true
 
     member this.Resume() =
-        this.Enabled <- fly_entry_enabled () || PlatformInput.mouse_button_right_click_enabled ()
+        this.Enabled <- fly_entry_enabled () || viewManipulationEnabled
         suspended <- false
 
     member this.Shutdown() =

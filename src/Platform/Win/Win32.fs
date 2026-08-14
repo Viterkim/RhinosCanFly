@@ -302,7 +302,10 @@ let install_mouse_hook (handleEvent: MouseHookEvent -> bool) =
 
             if
                 code = Win32Native.HC_ACTION
-                && (message = Win32Native.WM_XBUTTONDOWN
+                && (message = Win32Native.WM_RBUTTONDOWN
+                    || message = Win32Native.WM_RBUTTONUP
+                    || message = Win32Native.WM_RBUTTONDBLCLK
+                    || message = Win32Native.WM_XBUTTONDOWN
                     || message = Win32Native.WM_XBUTTONUP
                     || message = Win32Native.WM_XBUTTONDBLCLK)
             then

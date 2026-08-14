@@ -180,9 +180,6 @@ let release_flight_keyboard () =
 
 let apply_mouse_button_overrides (config: MouseOverrideConfig) = MouseButtonOverrides.apply config
 
-let mouse_button_right_click_enabled () =
-    MouseButtonOverrides.right_click_enabled ()
-
 let handle_view_manipulation_right_click (view: RhinoView) =
     MouseButtonOverrides.handle_right_click (ViewNavigationState.root_window view.Handle)
 

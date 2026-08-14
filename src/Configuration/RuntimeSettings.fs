@@ -45,6 +45,12 @@ let apply_live (loaded: ConfigLoadResult) =
                     config.mouse5_pivot_mode
                 else
                     MouseButtonPivotMode.Off
+              right_click_entry =
+                if config.enabled then
+                    config.right_click_entry_mode
+                else
+                    RightClickEntryMode.Off
+              default_flight_mode = config.default_flight_mode
               shift_right_click = ModifiedRightClickMode.Off
               alt_right_click = ModifiedRightClickMode.Off
               exit_binding =
@@ -72,6 +78,8 @@ let apply_live (loaded: ConfigLoadResult) =
                 if config.enabled then
                     { mouse4 = config.mouse4_pivot_mode
                       mouse5 = config.mouse5_pivot_mode
+                      right_click_entry = config.right_click_entry_mode
+                      default_flight_mode = config.default_flight_mode
                       shift_right_click = ModifiedRightClickMode.Off
                       alt_right_click = ModifiedRightClickMode.Off
                       exit_binding = Some loaded.config.bindings.exit_key
@@ -80,6 +88,8 @@ let apply_live (loaded: ConfigLoadResult) =
                 else
                     { mouse4 = MouseButtonPivotMode.Off
                       mouse5 = MouseButtonPivotMode.Off
+                      right_click_entry = RightClickEntryMode.Off
+                      default_flight_mode = config.default_flight_mode
                       shift_right_click = ModifiedRightClickMode.Off
                       alt_right_click = ModifiedRightClickMode.Off
                       exit_binding = None

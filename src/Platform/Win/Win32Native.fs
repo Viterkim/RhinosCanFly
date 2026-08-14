@@ -72,6 +72,15 @@ let KEYBOARD_SCAN_CODE_SHIFT = 16
 let RIGHT_SHIFT_SCAN_CODE = 0x36
 
 [<Literal>]
+let WM_RBUTTONDOWN = 0x0204
+
+[<Literal>]
+let WM_RBUTTONUP = 0x0205
+
+[<Literal>]
+let WM_RBUTTONDBLCLK = 0x0206
+
+[<Literal>]
 let WM_XBUTTONDOWN = 0x020B
 
 [<Literal>]

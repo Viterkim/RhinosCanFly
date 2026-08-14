@@ -40,6 +40,8 @@ type RawInputConfig =
 type MouseOverrideConfig =
     { mouse4: MouseButtonPivotMode
       mouse5: MouseButtonPivotMode
+      right_click_entry: RightClickEntryMode
+      default_flight_mode: DefaultFlightMode
       shift_right_click: ModifiedRightClickMode
       alt_right_click: ModifiedRightClickMode
       exit_binding: KeyBinding option
