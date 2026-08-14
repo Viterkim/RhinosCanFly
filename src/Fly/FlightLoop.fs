@@ -74,15 +74,18 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
                 let dt = min (now - previousFrameSeconds) maximum_frame_delta_seconds
                 let previousCamera = state.camera
 
-                let nextCamera =
+                let movementStep =
                     Movement.step state.config.movement movement state.key_pivot_target dt previousCamera
+
+                let nextCamera = movementStep.camera
 
                 if not (CameraState.valid nextCamera) then
                     state.restore_camera_on_exit <- true
                     failwith "Movement produced an invalid camera state."
 
                 match state.active_mouse_navigation with
-                | MousePivot _ -> state.active_mouse_navigation <- MousePivot nextCamera.target
+                | MousePivot pivotCenter ->
+                    state.active_mouse_navigation <- MousePivot(pivotCenter + movementStep.translation)
                 | MouseLook
                 | MousePan _ -> ()
 

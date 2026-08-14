@@ -81,24 +81,37 @@ let rotate_vector (axis: Vector3d) (angle: float) (vector: Vector3d) =
 
     if rotated.Rotate(angle, axis) then rotated else vector
 
-let mouse_pivot (config: FlyingMouseConfig) (target: Point3d) (mouseDx: int64) (mouseDy: int64) (camera: CameraState) =
-    let offset = camera.position - target
+let mouse_pivot
+    (config: FlyingMouseConfig)
+    (pivotCenter: Point3d)
+    (mouseDx: int64)
+    (mouseDy: int64)
+    (camera: CameraState)
+    =
+    let positionOffset = camera.position - pivotCenter
+    let targetOffset = camera.target - pivotCenter
     let (MousePivotMultiplier multiplier) = config.pivot_multiplier
 
     let rotation = clamped_mouse_angle_deltas config multiplier mouseDx mouseDy camera
 
     let direction = direction_from_angles camera.yaw camera.pitch
-    let yawOffset = rotate_vector Vector3d.ZAxis rotation.yaw_delta offset
+
+    let yawPositionOffset =
+        rotate_vector Vector3d.ZAxis rotation.yaw_delta positionOffset
+
+    let yawTargetOffset = rotate_vector Vector3d.ZAxis rotation.yaw_delta targetOffset
     let yawDirection = rotate_vector Vector3d.ZAxis rotation.yaw_delta direction
     let mutable right = Vector3d.CrossProduct(yawDirection, Vector3d.ZAxis)
 
-    let rotatedOffset =
+    let struct (rotatedPositionOffset, rotatedTargetOffset) =
         if right.Unitize() then
-            rotate_vector right rotation.pitch_delta yawOffset
+            struct (rotate_vector right rotation.pitch_delta yawPositionOffset,
+                    rotate_vector right rotation.pitch_delta yawTargetOffset)
         else
-            yawOffset
+            struct (yawPositionOffset, yawTargetOffset)
 
-    let position = target + rotatedOffset
+    let position = pivotCenter + rotatedPositionOffset
+    let target = pivotCenter + rotatedTargetOffset
     let directionToTarget = target - position
     let struct (yaw, pitch) = angles_from_direction directionToTarget
 
@@ -136,21 +149,20 @@ let mouse_pan
     else
         camera
 
-let orbit (target: Point3d) (requestedAngle: float) (camera: CameraState) =
+let rotate_xy (cosine: float) (sine: float) (offset: Vector3d) =
+    Vector3d(offset.X * cosine - offset.Y * sine, offset.X * sine + offset.Y * cosine, offset.Z)
+
+let orbit (pivotCenter: Point3d) (requestedAngle: float) (camera: CameraState) =
     if requestedAngle = 0. then
         camera
     else
         let angle =
             clamp -maximum_orbit_angle_per_frame maximum_orbit_angle_per_frame requestedAngle
 
-        let offset = camera.position - target
         let cosine = Math.Cos angle
         let sine = Math.Sin angle
-
-        let rotatedOffset =
-            Vector3d(offset.X * cosine - offset.Y * sine, offset.X * sine + offset.Y * cosine, offset.Z)
-
-        let position = target + rotatedOffset
+        let position = pivotCenter + rotate_xy cosine sine (camera.position - pivotCenter)
+        let target = pivotCenter + rotate_xy cosine sine (camera.target - pivotCenter)
         let directionToTarget = target - position
         let struct (yaw, pitch) = angles_from_direction directionToTarget
 
@@ -158,6 +170,11 @@ let orbit (target: Point3d) (requestedAngle: float) (camera: CameraState) =
           target = target
           yaw = yaw
           pitch = pitch }
+
+[<Struct>]
+type MovementStep =
+    { camera: CameraState
+      translation: Vector3d }
 
 let step (config: MovementConfig) (input: InputSnapshot) (keyPivotTarget: Point3d) (dt: float) (camera: CameraState) =
     let yaw = camera.yaw
@@ -201,4 +218,5 @@ let step (config: MovementConfig) (input: InputSnapshot) (keyPivotTarget: Point3
         * config.key_pivot_speed_multiplier
         * dt
 
-    orbit keyPivotTarget keyPivotAngle translated
+    { camera = orbit keyPivotTarget keyPivotAngle translated
+      translation = translation }
