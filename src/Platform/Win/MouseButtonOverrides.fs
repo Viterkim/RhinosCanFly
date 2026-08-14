@@ -31,6 +31,12 @@ let mutable mouse_hook_lifetime_started = false
 let log_exception (context: string) (error: exn) =
     Debug.WriteLine $"RhinosCanFly {context}: {error}"
 
+let request_ui_redraw () =
+    try
+        Win32.request_application_redraw (RhinoApp.MainWindowHandle())
+    with error ->
+        log_exception "UI redraw request" error
+
 type NavigationExitCallback() =
     inherit MouseCallback()
 
@@ -598,6 +604,11 @@ let activate_available () =
 
 let poll_timer_elapsed () =
     try
+        let navigationWasActive =
+            ViewNavigationState.any_button_engaged state
+            || ViewNavigationState.view_latch_engaged state
+            || ViewNavigationState.synthetic_input_owned state
+
         try
             if
                 not (ViewNavigationState.any_button_engaged state)
@@ -648,6 +659,14 @@ let poll_timer_elapsed () =
 
                 ViewLatchTransitions.update state
                 SideButtonTransitions.update_middle_mouse_modifiers state
+
+            if
+                navigationWasActive
+                && not (ViewNavigationState.any_button_engaged state)
+                && not (ViewNavigationState.view_latch_engaged state)
+                && not (ViewNavigationState.synthetic_input_owned state)
+            then
+                request_ui_redraw ()
         with error ->
             release_after_timer_error error
 
@@ -720,6 +739,9 @@ let command_began =
                         log_exception "command mouse capture cleanup" error
 
                 apply_poll_requirement ()
+
+                if not (ViewNavigationState.synthetic_input_owned state) then
+                    request_ui_redraw ()
         with error ->
             log_exception "command navigation callback" error)
 
@@ -752,7 +774,18 @@ let start_view_latch (window: RootWindow) (mode: ViewLatchMode) (completion: Act
         | Error error -> Error error
         | Ok() -> ViewLatchTransitions.start_or_switch state window mode completion
 
-let stop_view_latch (mode: ViewLatchMode) = ViewLatchTransitions.stop state mode
+let stop_view_latch (mode: ViewLatchMode) =
+    let wasActive = ViewLatchTransitions.is_mode state mode
+    let result = ViewLatchTransitions.stop state mode
+
+    if
+        wasActive
+        && not (ViewNavigationState.view_latch_engaged state)
+        && not (ViewNavigationState.synthetic_input_owned state)
+    then
+        request_ui_redraw ()
+
+    result
 
 let view_latch_is (mode: ViewLatchMode) = ViewLatchTransitions.is_mode state mode
 

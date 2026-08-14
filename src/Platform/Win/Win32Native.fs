@@ -45,6 +45,15 @@ let QS_ALLINPUT = 0x04FFu
 let MWMO_INPUTAVAILABLE = 0x0004u
 
 [<Literal>]
+let RDW_INVALIDATE = 0x0001u
+
+[<Literal>]
+let RDW_ALLCHILDREN = 0x0080u
+
+[<Literal>]
+let RDW_FRAME = 0x0400u
+
+[<Literal>]
 let WAIT_FAILED = 0xFFFFFFFFu
 
 [<Literal>]
@@ -285,3 +294,6 @@ extern bool InvalidateRect(nativeint window, nativeint rectangle, bool erase)
 
 [<DllImport("user32.dll", SetLastError = true)>]
 extern bool UpdateWindow(nativeint window)
+
+[<DllImport("user32.dll", SetLastError = true)>]
+extern bool RedrawWindow(nativeint window, nativeint update_rectangle, nativeint update_region, uint32 flags)

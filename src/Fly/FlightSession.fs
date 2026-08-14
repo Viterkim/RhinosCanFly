@@ -316,6 +316,9 @@ let finish_active (session: ActiveSession) (activeResult: Result<unit, string>) 
     if not session.input_safe then
         cleanupErrors.Add "input cleanup did not finish safely; run RhinosCanFlyInputRecover or restart Rhino"
 
+    if session.raw_input_clean && session.input_safe then
+        PlatformInput.request_application_redraw ()
+
     sessionState <-
         if session.raw_input_clean && session.input_safe then
             Ready

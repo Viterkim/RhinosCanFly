@@ -177,6 +177,36 @@ let redraw_window (window: nativeint) =
 
     update_window window
 
+let request_window_tree_redraw (window: nativeint) =
+    if window <> nativeint 0 && Win32Native.IsWindow window then
+        Win32Native.RedrawWindow(
+            window,
+            nativeint 0,
+            nativeint 0,
+            Win32Native.RDW_INVALIDATE
+            ||| Win32Native.RDW_ALLCHILDREN
+            ||| Win32Native.RDW_FRAME
+        )
+        |> ignore
+
+let request_application_redraw (mainWindow: nativeint) =
+    try
+        let foregroundWindow = Win32Native.GetForegroundWindow()
+        request_window_tree_redraw mainWindow
+
+        if foregroundWindow <> nativeint 0 && foregroundWindow <> mainWindow then
+            let mutable mainProcess = 0u
+            let mutable foregroundProcess = 0u
+            Win32Native.GetWindowThreadProcessId(mainWindow, &mainProcess) |> ignore
+
+            Win32Native.GetWindowThreadProcessId(foregroundWindow, &foregroundProcess)
+            |> ignore
+
+            if mainProcess <> 0u && foregroundProcess = mainProcess then
+                request_window_tree_redraw foregroundWindow
+    with _ ->
+        ()
+
 let wait_for_input () =
     let result =
         Win32Native.MsgWaitForMultipleObjectsEx(

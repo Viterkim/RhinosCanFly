@@ -139,7 +139,11 @@ let resume_input (lease: InputSuspensionLease) =
                 Ok()
 
         match platformResult, rightClickResult with
-        | Ok(), Ok() -> Ok()
+        | Ok(), Ok() ->
+            if lastSuspension then
+                PlatformInput.request_application_redraw ()
+
+            Ok()
         | Error error, Ok()
         | Ok(), Error error -> Error error
         | Error platformError, Error rightClickError -> Error $"{platformError}; {rightClickError}"
