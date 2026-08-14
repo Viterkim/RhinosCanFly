@@ -4,6 +4,12 @@ open System
 open Rhino.Display
 open RhinosCanFly.Platform.Win
 
+[<Literal>]
+let test_bypass_mouse_button_overrides = true
+
+[<Literal>]
+let test_bypass_flight_keyboard = true
+
 let wheel_delta = int64 Win32Native.WHEEL_DELTA
 
 let foreground_root_window () =
@@ -161,10 +167,16 @@ let raw_input_runtime_failed (session: RawInputSession) = RawInputThread.runtime
 let retry_raw_input_cleanup () = RawInputThread.retry_recovery ()
 
 let suppress_flight_keyboard (bindings: FlightBindings) =
-    MouseButtonOverrides.suppress_flight_keyboard bindings
+    if test_bypass_flight_keyboard then
+        Ok()
+    else
+        MouseButtonOverrides.suppress_flight_keyboard bindings
 
 let release_flight_keyboard () =
-    MouseButtonOverrides.release_flight_keyboard ()
+    if test_bypass_flight_keyboard then
+        Ok()
+    else
+        MouseButtonOverrides.release_flight_keyboard ()
 
 let apply_mouse_button_overrides (config: MouseOverrideConfig) = MouseButtonOverrides.apply config
 
@@ -198,11 +210,24 @@ let pivot_active () =
 let pan_active () =
     MouseButtonOverrides.view_latch_is ViewNavigationTypes.ViewNavigationMode.Pan
 
-let suspend_mouse_button_overrides () = MouseButtonOverrides.suspend ()
+let suspend_mouse_button_overrides () =
+    if test_bypass_mouse_button_overrides then
+        Ok { id = 0L; cleanup_error = None }
+    else
+        MouseButtonOverrides.suspend ()
 
-let resume_mouse_button_overrides (lease: InputSuspensionLease) = MouseButtonOverrides.resume lease
+let resume_mouse_button_overrides (lease: InputSuspensionLease) =
+    if test_bypass_mouse_button_overrides then
+        Ok()
+    else
+        MouseButtonOverrides.resume lease
 
-let shutdown_mouse_button_overrides () = MouseButtonOverrides.shutdown ()
+let shutdown_mouse_button_overrides () =
+    if not test_bypass_mouse_button_overrides then
+        MouseButtonOverrides.shutdown ()
 
 let retry_input_hook_cleanup () =
-    MouseButtonOverrides.retry_hook_cleanup ()
+    if test_bypass_mouse_button_overrides then
+        []
+    else
+        MouseButtonOverrides.retry_hook_cleanup ()

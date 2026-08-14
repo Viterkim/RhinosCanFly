@@ -6,15 +6,11 @@ open Rhino.Commands
 open Rhino.Input
 
 let with_config (run: ConfigLoadResult -> Result) =
-    if RuntimeSettings.input_bypass_active () then
-        RhinoApp.WriteLine "RhinosCanFly input is disabled in this diagnostic build."
-        Result.Cancel
-    else
-        match RuntimeSettings.current () with
-        | Error error ->
-            RhinoApp.WriteLine $"RhinosCanFly config error:{Environment.NewLine}{error}"
-            Result.Failure
-        | Ok loaded -> run loaded
+    match RuntimeSettings.current () with
+    | Error error ->
+        RhinoApp.WriteLine $"RhinosCanFly config error:{Environment.NewLine}{error}"
+        Result.Failure
+    | Ok loaded -> run loaded
 
 let run (sessionMode: FlightSessionMode) (document: RhinoDoc) =
     let view = document.Views.ActiveView
@@ -184,14 +180,20 @@ let toggle_view_manipulation (mode: SoloViewManipulation) (document: RhinoDoc) =
                             Result.Failure)
 
 let pivot (document: RhinoDoc) =
-    if RuntimeSettings.input_suspended () then
+    if RuntimeSettings.input_bypass_active () then
+        RhinoApp.WriteLine "RhinosCanFlyPivot is disabled in this diagnostic build."
+        Result.Cancel
+    elif RuntimeSettings.input_suspended () then
         RhinoApp.WriteLine "RhinosCanFlyPivot is unavailable while an Options dialog is open."
         Result.Cancel
     else
         toggle_view_manipulation SoloPivot document
 
 let pan (document: RhinoDoc) =
-    if RuntimeSettings.input_suspended () then
+    if RuntimeSettings.input_bypass_active () then
+        RhinoApp.WriteLine "RhinosCanFlyPan is disabled in this diagnostic build."
+        Result.Cancel
+    elif RuntimeSettings.input_suspended () then
         RhinoApp.WriteLine "RhinosCanFlyPan is unavailable while an Options dialog is open."
         Result.Cancel
     else

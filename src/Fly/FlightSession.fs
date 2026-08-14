@@ -347,13 +347,13 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
     let state = session.state
 
     let rawInputConfig: RawInputConfig =
-        { exit_on_mouse_left = state.config.mouse.exit_on_left
-          exit_on_mouse_right = state.config.mouse.exit_on_right
-          middle_mouse_while_flying = state.config.mouse.middle_button
-          mouse4_pivot_mode = state.config.mouse.mouse4_pivot_mode
-          mouse5_pivot_mode = state.config.mouse.mouse5_pivot_mode
-          mouse4_also_while_flying = state.config.mouse.mouse4_also_while_flying
-          mouse5_also_while_flying = state.config.mouse.mouse5_also_while_flying }
+        { exit_on_mouse_left = false
+          exit_on_mouse_right = true
+          middle_mouse_while_flying = FlyingMiddleMouseMode.Off
+          mouse4_pivot_mode = MouseButtonPivotMode.Off
+          mouse5_pivot_mode = MouseButtonPivotMode.Off
+          mouse4_also_while_flying = false
+          mouse5_also_while_flying = false }
 
     let raw =
         try
