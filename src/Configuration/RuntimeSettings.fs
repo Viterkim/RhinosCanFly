@@ -34,16 +34,40 @@ let apply_live (loaded: ConfigLoadResult) =
     if input_bypass_experiment then
         let config = loaded.config_file
 
-        RightClickEntry.configure
-            { fly_entry_mode =
+        let mouseOverrides: MouseOverrideConfig =
+            { mouse4 = MouseButtonPivotMode.Off
+              mouse5 = MouseButtonPivotMode.Off
+              shift_right_click =
                 if config.enabled then
-                    config.right_click_entry_mode
+                    config.shift_right_click_mode
                 else
-                    RightClickEntryMode.Off
-              default_flight_mode = config.default_flight_mode
-              view_manipulation_enabled = false }
+                    ModifiedRightClickMode.Off
+              alt_right_click =
+                if config.enabled then
+                    config.alt_right_click_mode
+                else
+                    ModifiedRightClickMode.Off
+              exit_binding =
+                if config.enabled then
+                    Some loaded.config.bindings.exit_key
+                else
+                    None
+              exit_on_left = config.enabled && config.exit_on_mouse_left
+              exit_on_right = config.enabled && config.exit_on_mouse_right }
 
-        Ok()
+        match PlatformInput.apply_mouse_button_overrides mouseOverrides with
+        | Error error -> Error error
+        | Ok() ->
+            RightClickEntry.configure
+                { fly_entry_mode =
+                    if config.enabled then
+                        config.right_click_entry_mode
+                    else
+                        RightClickEntryMode.Off
+                  default_flight_mode = config.default_flight_mode
+                  view_manipulation_enabled = PlatformInput.mouse_button_right_click_enabled () }
+
+            Ok()
     else
         try
             let config = loaded.config_file

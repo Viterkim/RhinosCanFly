@@ -5,7 +5,7 @@ open Rhino.Display
 open RhinosCanFly.Platform.Win
 
 [<Literal>]
-let test_bypass_mouse_button_overrides = true
+let test_bypass_mouse_button_overrides = false
 
 [<Literal>]
 let test_bypass_flight_keyboard = true
