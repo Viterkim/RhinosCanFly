@@ -98,12 +98,6 @@ let update_window (view: RhinoView) = Win32.update_window view.Handle
 
 let redraw_window (view: RhinoView) = Win32.redraw_window view.Handle
 
-let request_application_redraw () =
-    try
-        Win32.request_application_redraw (Rhino.RhinoApp.MainWindowHandle())
-    with _ ->
-        ()
-
 let acquire_cursor_clip (view: RhinoView) =
     Win32.acquire_cursor_clip view.ScreenRectangle
 

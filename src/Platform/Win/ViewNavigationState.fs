@@ -224,45 +224,81 @@ let release_synthetic_middle (state: State) =
             Ok()
         | Error error -> Error error
 
-let release_synthetic_input (state: State) =
-    let errors = ResizeArray<string>()
-
-    match release_synthetic_middle state with
-    | Ok() -> ()
-    | Error error -> errors.Add error
-
-    match release_synthetic_shift state with
-    | Ok() -> ()
-    | Error error -> errors.Add error
-
-    if not (synthetic_input_owned state) then
-        state.pending_synthetic_release_root <- ValueNone
-
-    if errors.Count = 0 then
+let release_synthetic_middle_and_shift (state: State) =
+    match
+        Win32.try_send_inputs
+            "SendInput(middle mouse + shift release)"
+            [| Win32.mouse_input Win32Native.MOUSEEVENTF_MIDDLEUP
+               Win32.keyboard_input Win32Native.VK_SHIFT Win32Native.KEYEVENTF_KEYUP |]
+    with
+    | Ok() ->
+        state.synthetic_middle <- MiddleReleased
+        state.synthetic_shift <- ShiftReleased
         Ok()
-    else
-        Error(String.concat "; " errors)
+    | Error(struct (sent, error)) ->
+        if sent >= 1u then
+            state.synthetic_middle <- MiddleReleased
+
+        if sent >= 2u then
+            state.synthetic_shift <- ShiftReleased
+
+        Error error
+
+let release_synthetic_input (state: State) =
+    let middleResult =
+        if
+            state.synthetic_middle <> MiddleReleased
+            && state.synthetic_shift <> ShiftReleased
+            && not state.physical_middle_down
+            && state.physical_shift_keys_down = 0
+        then
+            release_synthetic_middle_and_shift state
+        else
+            release_synthetic_middle state
+
+    match middleResult with
+    | Error error -> Error error
+    | Ok() ->
+        let result = release_synthetic_shift state
+
+        if not (synthetic_input_owned state) then
+            state.pending_synthetic_release_root <- ValueNone
+
+        result
 
 let force_release_synthetic_input (state: State) =
-    let errors = ResizeArray<string>()
+    let middleResult =
+        if
+            state.synthetic_middle <> MiddleReleased
+            && state.synthetic_shift <> ShiftReleased
+        then
+            release_synthetic_middle_and_shift state
+        elif state.synthetic_middle = MiddleReleased then
+            Ok()
+        else
+            match Win32.send_middle_mouse false with
+            | Ok() ->
+                state.synthetic_middle <- MiddleReleased
+                Ok()
+            | Error error -> Error error
 
-    if state.synthetic_middle <> MiddleReleased then
-        match Win32.send_middle_mouse false with
-        | Ok() -> state.synthetic_middle <- MiddleReleased
-        | Error error -> errors.Add error
+    match middleResult with
+    | Error error -> Error error
+    | Ok() ->
+        let shiftResult =
+            if state.synthetic_shift = ShiftReleased then
+                Ok()
+            else
+                match Win32.send_shift_key false with
+                | Ok() ->
+                    state.synthetic_shift <- ShiftReleased
+                    Ok()
+                | Error error -> Error error
 
-    if state.synthetic_shift <> ShiftReleased then
-        match Win32.send_shift_key false with
-        | Ok() -> state.synthetic_shift <- ShiftReleased
-        | Error error -> errors.Add error
+        if not (synthetic_input_owned state) then
+            state.pending_synthetic_release_root <- ValueNone
 
-    if not (synthetic_input_owned state) then
-        state.pending_synthetic_release_root <- ValueNone
-
-    if errors.Count = 0 then
-        Ok()
-    else
-        Error(String.concat "; " errors)
+        shiftResult
 
 let press_synthetic_middle (state: State) =
     if state.synthetic_middle <> MiddleReleased then

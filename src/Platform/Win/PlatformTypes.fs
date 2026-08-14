@@ -26,7 +26,6 @@ type CursorClipLease =
 [<Struct>]
 type InputSuspensionLease =
     { id: int64
-      released_viewport_input: bool
       cleanup_error: string option }
 
 type RawInputConfig =
