@@ -204,7 +204,7 @@ type SettingsControl() as self =
             2
             [ SettingsLayout.item "Boost behaviour" modes.boost_mode.control
               SettingsLayout.item "Slow behaviour" modes.slow_mode.control
-              SettingsLayout.item "Mouse wheel changes speed" modes.wheel_speed_mode.control ]
+              SettingsLayout.item "MWheel changes speed" modes.wheel_speed_mode.control ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 

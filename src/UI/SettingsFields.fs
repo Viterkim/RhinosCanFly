@@ -159,9 +159,9 @@ let create () =
     let rightClickEntryModes =
         [| RightClickEntryMode.Off, "Off"
            RightClickEntryMode.ClickToFly, "Click to fly"
-           RightClickEntryMode.ClickToFlyDuringCommands, "Click to fly during commands"
+           RightClickEntryMode.ClickToFlyDuringCommands, "Click to fly + during commands"
            RightClickEntryMode.HoldToFly, "Hold to fly"
-           RightClickEntryMode.HoldToFlyDuringCommands, "Hold to fly during commands" |]
+           RightClickEntryMode.HoldToFlyDuringCommands, "Hold to fly + during commands" |]
 
     let flightModes =
         [| DefaultFlightMode.Normal, "Normal"
