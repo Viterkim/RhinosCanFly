@@ -98,26 +98,27 @@ let show_options (document: RhinoDoc) =
 
             result
 
-type NavigationCommandMode =
-    | PivotCommand
-    | PanCommand
+[<RequireQualifiedAccess>]
+type StandaloneNavigationMode =
+    | Pivot
+    | Pan
 
-let toggle_navigation_command (mode: NavigationCommandMode) (document: RhinoDoc) =
+let toggle_navigation_command (mode: StandaloneNavigationMode) (document: RhinoDoc) =
     let name =
         match mode with
-        | PivotCommand -> "RhinosCanFlyPivot"
-        | PanCommand -> "RhinosCanFlyPan"
+        | StandaloneNavigationMode.Pivot -> "RhinosCanFlyPivot"
+        | StandaloneNavigationMode.Pan -> "RhinosCanFlyPan"
 
     let active =
         match mode with
-        | PivotCommand -> PlatformInput.pivot_active ()
-        | PanCommand -> PlatformInput.pan_active ()
+        | StandaloneNavigationMode.Pivot -> PlatformInput.pivot_active ()
+        | StandaloneNavigationMode.Pan -> PlatformInput.pan_active ()
 
     if active then
         let stopped =
             match mode with
-            | PivotCommand -> PlatformInput.stop_pivot ()
-            | PanCommand -> PlatformInput.stop_pan ()
+            | StandaloneNavigationMode.Pivot -> PlatformInput.stop_pivot ()
+            | StandaloneNavigationMode.Pan -> PlatformInput.stop_pan ()
 
         match stopped with
         | Ok() -> Result.Success
@@ -145,8 +146,8 @@ let toggle_navigation_command (mode: NavigationCommandMode) (document: RhinoDoc)
                 | Ok true ->
                     let conflictingModeStopped =
                         match mode with
-                        | PivotCommand -> PlatformInput.stop_pan ()
-                        | PanCommand -> PlatformInput.stop_pivot ()
+                        | StandaloneNavigationMode.Pivot -> PlatformInput.stop_pan ()
+                        | StandaloneNavigationMode.Pan -> PlatformInput.stop_pivot ()
 
                     match conflictingModeStopped with
                     | Error error ->
@@ -174,8 +175,8 @@ let toggle_navigation_command (mode: NavigationCommandMode) (document: RhinoDoc)
 
                         let started =
                             match mode with
-                            | PivotCommand -> PlatformInput.start_pivot view completion
-                            | PanCommand -> PlatformInput.start_pan view completion
+                            | StandaloneNavigationMode.Pivot -> PlatformInput.start_pivot view completion
+                            | StandaloneNavigationMode.Pan -> PlatformInput.start_pan view completion
 
                         match started with
                         | Ok() ->
@@ -193,11 +194,17 @@ let toggle_navigation_command (mode: NavigationCommandMode) (document: RhinoDoc)
                                 ViewTarget.apply behavior.view_target speed view.ActiveViewport
                                 Result.Success
                             with error ->
-                                match mode with
-                                | PivotCommand -> PlatformInput.stop_pivot () |> ignore
-                                | PanCommand -> PlatformInput.stop_pan () |> ignore
+                                let cleanup =
+                                    match mode with
+                                    | StandaloneNavigationMode.Pivot -> PlatformInput.stop_pivot ()
+                                    | StandaloneNavigationMode.Pan -> PlatformInput.stop_pan ()
 
-                                RhinoApp.WriteLine $"{name} failed to set the view target: {error.Message}"
+                                match cleanup with
+                                | Ok() -> RhinoApp.WriteLine $"{name} failed to set the view target: {error.Message}"
+                                | Error cleanupError ->
+                                    RhinoApp.WriteLine
+                                        $"{name} failed to set the view target: {error.Message} Cleanup also failed: {cleanupError}"
+
                                 Result.Failure
                         | Error error ->
                             RhinoApp.WriteLine $"{name} failed: {error}"
@@ -208,14 +215,14 @@ let pivot (document: RhinoDoc) =
         RhinoApp.WriteLine "RhinosCanFlyPivot is unavailable while an Options dialog is open."
         Result.Cancel
     else
-        toggle_navigation_command PivotCommand document
+        toggle_navigation_command StandaloneNavigationMode.Pivot document
 
 let pan (document: RhinoDoc) =
     if RuntimeSettings.input_suspended () then
         RhinoApp.WriteLine "RhinosCanFlyPan is unavailable while an Options dialog is open."
         Result.Cancel
     else
-        toggle_navigation_command PanCommand document
+        toggle_navigation_command StandaloneNavigationMode.Pan document
 
 let recover_input () =
     let struct (remainingRawSessions, rawErrors) =
@@ -256,31 +263,3 @@ let recover_input () =
     | Error error ->
         RhinoApp.WriteLine $"Input recovery is incomplete: {error} Restart Rhino before flying again."
         Result.Failure
-
-let toggle_target_debug (document: RhinoDoc) =
-    let view = document.Views.ActiveView
-
-    if isNull view then
-        RhinoApp.WriteLine "RhinosCanFlyTargetDebug: no active view."
-        Result.Failure
-    elif ViewTargetDebug.enabled () then
-        ViewTargetDebug.set_enabled false
-        view.Redraw()
-        RhinoApp.WriteLine "RhinosCanFly target debug disabled."
-        Result.Success
-    else
-        with_config (fun (loaded: ConfigLoadResult) ->
-            let config = loaded.config
-            let behavior = config.behavior
-            let movement = config.movement
-
-            let speed =
-                FlightSpeed.current document behavior.load_speed_from_document movement.speed_range movement.base_speed
-
-            ViewTargetDebug.set_enabled true
-            ViewTarget.debug_current behavior.view_target speed view.ActiveViewport
-            view.Redraw()
-
-            RhinoApp.WriteLine "Target debug enabled. Run this command again to turn it off."
-
-            Result.Success)

@@ -55,7 +55,6 @@
     <Compile Include="src/Platform/Win/Win32Native.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/Win32.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/RawInputNative.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
-    <Compile Include="src/Platform/Win/KeyBindings.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/PlatformBindings.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Configuration/RuntimeConfig.fs" />
     <Compile Include="src/Fly/FlightTypes.fs" />
@@ -75,7 +74,6 @@
     <Compile Include="src/Platform/Win/MouseButtonOverrides.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/PlatformInput.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Fly/FlightRedraw.fs" />
-    <Compile Include="src/Fly/ViewTargetDebug.fs" />
     <Compile Include="src/Fly/ViewTarget.fs" />
     <Compile Include="src/Fly/FlightCamera.fs" />
     <Compile Include="src/Fly/FlightControls.fs" />
@@ -93,6 +91,6 @@
     <Compile Include="src/UI/SettingsDialog.fs" />
     <Compile Include="src/Plugin/Plugin.fs" />
     <Compile Include="src/Commands/Commands.fs" />
-    <Compile Include="src/Commands/FlyCommand.fs" />
+    <Compile Include="src/Commands/RhinoCommands.fs" />
   </ItemGroup>
 </Project>

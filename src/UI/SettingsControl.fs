@@ -114,7 +114,7 @@ type SettingsControl() as self =
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Non-flying behaviour"))
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Non flying behaviour"))
 
         SettingsLayout.grid
             2

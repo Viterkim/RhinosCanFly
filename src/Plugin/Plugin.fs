@@ -32,11 +32,6 @@ type RhinosCanFlyPlugin() as self =
 
     override _.OnShutdown() =
         try
-            ViewTargetDebug.shutdown ()
-        with error ->
-            report $"RhinosCanFly target debug shutdown failed: {error.Message}"
-
-        try
             FlightSession.shutdown ()
         with error ->
             report $"RhinosCanFly flight shutdown failed: {error.Message}"
