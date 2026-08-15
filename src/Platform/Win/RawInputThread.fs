@@ -16,6 +16,10 @@ type StopOutcome =
       registration_relinquished: bool
       errors: string list }
 
+type StopAttempt =
+    | InitialStop
+    | RecoveryRetry
+
 type StartFailureException(message: string, restartRequired: bool, innerError: exn) =
     inherit Exception(message, innerError)
 
@@ -335,10 +339,10 @@ let request_stop (session: Session) =
     else
         Ok()
 
-let stop_internal (retry: bool) (session: Session) =
+let stop_internal (attempt: StopAttempt) (session: Session) =
     lock session.stop_gate (fun () ->
         match session.stop_outcome with
-        | Some outcome when not retry && outcome.terminated && outcome.registration_relinquished -> outcome
+        | Some outcome when attempt = InitialStop && outcome.terminated && outcome.registration_relinquished -> outcome
         | Some _
         | None ->
             let errors = ResizeArray<string>()
@@ -378,7 +382,7 @@ let stop_internal (retry: bool) (session: Session) =
 
             outcome)
 
-let stop (session: Session) = stop_internal false session
+let stop (session: Session) = stop_internal InitialStop session
 
 let runtime_failed (session: Session) =
     Option.isSome session.result.runtime_error
@@ -416,7 +420,7 @@ let retry_recovery () =
     let errors = ResizeArray<string>()
 
     for session in sessions do
-        let outcome = stop_internal true session
+        let outcome = stop_internal RecoveryRetry session
 
         for error in outcome.errors do
             errors.Add error

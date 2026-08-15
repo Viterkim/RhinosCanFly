@@ -6,7 +6,7 @@ https://github.com/user-attachments/assets/52dc3237-e12b-4a54-8776-88f6b6475fac
 
 ## How to Use / Recommendations
 
-- Right click to enter flying, right click to exit (can change in `RhinosCanFlyOptions).
+- Right click to enter flying, right click to exit (change it in `RhinosCanFlyOptions`).
 
 - Set lens length in your file/project/default Rhino setup to something like `18` or so, which gives that 100 FOV feel.
 

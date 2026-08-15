@@ -65,7 +65,7 @@ let defaults: FlyConfigFile =
       vertical_speed_multiplier = 0.8
       forced_lens_length_mm = 0.
       lens_length_delta_mm = 0.
-      viewport_redraw_mode = ViewportRedrawMode.Rhino }
+      viewport_paint_mode = ViewportPaintMode.Immediate }
 
 let normalize_number (value: float) =
     let rounded = Math.Round(value, 12, MidpointRounding.AwayFromZero)
@@ -253,7 +253,7 @@ let compile (source: FlyConfigFile) =
                     else
                         Some source.forced_lens_length_mm
                   delta_mm = source.lens_length_delta_mm }
-              viewport_redraw_mode = source.viewport_redraw_mode } }
+              viewport_paint_mode = source.viewport_paint_mode } }
 
     if errors.Count = 0 then
         Ok config

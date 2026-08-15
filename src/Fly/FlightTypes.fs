@@ -41,5 +41,3 @@ module FlyState =
 
             if FlightExitReason.restores_camera reason then
                 state.restore_camera_on_exit <- true
-
-    let exit_reason (state: FlyState) = state.exit_reason

@@ -71,21 +71,14 @@ let read_movement (state: FlyState) =
     let bindings = state.config.bindings
     let movement = state.config.movement
 
-    let basicKeysOnly =
-        FlightHotPathTest.current () = FlightHotPathTest.BasicFlightKeysOnly
-
     let slowActive =
-        if basicKeysOnly then
-            false
-        elif movement.slow_mode = KeyActivationMode.Hold then
+        if movement.slow_mode = KeyActivationMode.Hold then
             state.slow_was_down
         else
             state.slow_enabled
 
     let boostActive =
-        if basicKeysOnly then
-            false
-        elif movement.boost_mode = KeyActivationMode.Hold then
+        if movement.boost_mode = KeyActivationMode.Hold then
             state.boost_was_down
         else
             state.boost_enabled
@@ -99,8 +92,8 @@ let read_movement (state: FlyState) =
       right = PlatformInput.flight_binding_down bindings.right
       up = PlatformInput.flight_binding_down bindings.up
       down = PlatformInput.flight_binding_down bindings.down
-      key_pivot_left = not basicKeysOnly && PlatformInput.flight_binding_down bindings.key_pivot_left
-      key_pivot_right = not basicKeysOnly && PlatformInput.flight_binding_down bindings.key_pivot_right
+      key_pivot_left = PlatformInput.flight_binding_down bindings.key_pivot_left
+      key_pivot_right = PlatformInput.flight_binding_down bindings.key_pivot_right
       move_speed = state.speed * slow * boost }
 
 let update_state (input: InputAccumulator.State) (state: FlyState) =
@@ -149,5 +142,4 @@ let update_state (input: InputAccumulator.State) (state: FlyState) =
             elif wheelSteps <> 0L then
                 speed_step state (SpeedStepCount(float (direction * wheelSteps)))
 
-        if FlightHotPathTest.current () <> FlightHotPathTest.BasicFlightKeysOnly then
-            update_toggles state
+        update_toggles state

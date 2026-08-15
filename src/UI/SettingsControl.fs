@@ -256,7 +256,7 @@ type SettingsControl() as self =
         |> mainTable.Rows.Add
 
         mainTable.Rows.Add(
-            SettingsLayout.full_width (SettingsLayout.item "Redraw mode" modes.viewport_redraw_mode.control)
+            SettingsLayout.full_width (SettingsLayout.item "Redraw mode" modes.viewport_paint_mode.control)
         )
 
         mainTable.Rows.Add(

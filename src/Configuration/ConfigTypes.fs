@@ -81,10 +81,9 @@ module FlightSessionMode =
         { lifetime = FlightLifetime.WhileRightMouseHeld
           flight_mode = flightMode }
 
-type ViewportRedrawMode =
-    | Rhino = 0
-    | RhinoImmediate = 1
-    | NativeWindow = 2
+type ViewportPaintMode =
+    | Immediate = 0
+    | Queued = 1
 
 [<CLIMutable>]
 type FlyConfigFile =
@@ -146,7 +145,7 @@ type FlyConfigFile =
       vertical_speed_multiplier: float
       forced_lens_length_mm: float
       lens_length_delta_mm: float
-      viewport_redraw_mode: ViewportRedrawMode }
+      viewport_paint_mode: ViewportPaintMode }
 
 [<Struct>]
 type ConfigMouseSensitivity = ConfigMouseSensitivity of float

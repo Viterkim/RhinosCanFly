@@ -64,7 +64,7 @@ type FlightBehavior =
       save_speed_to_document: bool
       load_speed_from_document: bool
       lens_adjustment: LensAdjustment
-      viewport_redraw_mode: ViewportRedrawMode }
+      viewport_paint_mode: ViewportPaintMode }
 
 type FlyConfig =
     { bindings: FlightBindings

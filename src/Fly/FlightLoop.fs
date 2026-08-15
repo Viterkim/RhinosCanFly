@@ -25,9 +25,7 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
         if not (FlyState.is_running state) then
             InputAccumulator.discard_transient_input rawInput
         else
-            if FlightHotPathTest.current () <> FlightHotPathTest.BasicFlightKeysOnly then
-                FlightControls.update_keyboard_navigation_input state
-
+            FlightControls.update_keyboard_navigation_input state
             FlightCamera.update_navigation_mode rawInput state
             mouseChange <- FlightCamera.apply_mouse_input rawInput state
 

@@ -57,7 +57,7 @@ type ModeFields =
       mouse4_pivot_mode: ModeField<MouseButtonPivotMode>
       mouse5_pivot_mode: ModeField<MouseButtonPivotMode>
       middle_mouse_while_flying: ModeField<FlyingMiddleMouseMode>
-      viewport_redraw_mode: ModeField<ViewportRedrawMode> }
+      viewport_paint_mode: ModeField<ViewportPaintMode> }
 
 type OptionFields =
     { enabled: CheckBox
@@ -174,10 +174,9 @@ let create () =
            ViewTargetMode.Distance, "Distance"
            ViewTargetMode.GeometryThenDistance, "Geometry, then distance" |]
 
-    let redrawModes =
-        [| ViewportRedrawMode.Rhino, "Rhino redraw (default)"
-           ViewportRedrawMode.RhinoImmediate, "Rhino redraw with immediate paint"
-           ViewportRedrawMode.NativeWindow, "Native window redraw (experimental)" |]
+    let paintModes =
+        [| ViewportPaintMode.Immediate, "Immediate paint (default)"
+           ViewportPaintMode.Queued, "Normal Rhino redraw" |]
 
     { config =
         { bindings =
@@ -228,7 +227,7 @@ let create () =
               mouse4_pivot_mode = mode_field mousePivotModes MouseButtonPivotMode.Off
               mouse5_pivot_mode = mode_field mousePivotModes MouseButtonPivotMode.Off
               middle_mouse_while_flying = mode_field flyingMiddleMouseModes FlyingMiddleMouseMode.Off
-              viewport_redraw_mode = mode_field redrawModes ViewportRedrawMode.Rhino }
+              viewport_paint_mode = mode_field paintModes ViewportPaintMode.Immediate }
           options =
             { enabled = new CheckBox(Text = "Enable Rhinos Can Fly")
               normalize_diagonal_movement = new CheckBox(Text = "Normalize diagonal movement")

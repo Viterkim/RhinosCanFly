@@ -168,7 +168,7 @@ let toggle_navigation_command (mode: StandaloneNavigationMode) (document: RhinoD
                                             CameraSnapshot.restore viewport snapshot
 
                                             if PlatformInput.viewport_host_is_foreground host view then
-                                                FlightRedraw.redraw loaded.config.behavior.viewport_redraw_mode view)
+                                                FlightRedraw.redraw loaded.config.behavior.viewport_paint_mode view)
                                 )
                             else
                                 None
@@ -263,22 +263,3 @@ let recover_input () =
     | Error error ->
         RhinoApp.WriteLine $"Input recovery is incomplete: {error} Restart Rhino before flying again."
         Result.Failure
-
-let toggle_keyboard_suppression () =
-    match FlightSession.toggle_keyboard_suppression () with
-    | Ok enabled ->
-        let state = if enabled then "enabled" else "disabled"
-        RhinoApp.WriteLine $"RhinosCanFly keyboard suppression {state}."
-        Result.Success
-    | Error error ->
-        RhinoApp.WriteLine $"RhinosCanFly: {error}"
-        Result.Failure
-
-let cycle_hot_path_test () =
-    if FlightSession.is_running () then
-        RhinoApp.WriteLine "RhinosCanFly: exit flight before changing the hot path test."
-        Result.Failure
-    else
-        let mode = FlightHotPathTest.next ()
-        RhinoApp.WriteLine $"RhinosCanFly hot path test: {FlightHotPathTest.description mode}."
-        Result.Success

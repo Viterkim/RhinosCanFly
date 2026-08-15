@@ -50,7 +50,6 @@ let mutable processingMainLoop = false
 let mutable mainLoopHandler: EventHandler = null
 
 let viewport_gesture_timeout = TimeSpan.FromMilliseconds 250.
-let mutable keyboard_suppression_enabled = true
 
 let report (message: string) =
     Debug.WriteLine message
@@ -91,19 +90,6 @@ let is_running () =
     | Finishing -> true
     | Ready
     | RestartRequired -> false
-
-let toggle_keyboard_suppression () =
-    if is_running () then
-        Error "Exit flight before changing keyboard suppression."
-    elif keyboard_suppression_enabled then
-        match PlatformInput.shutdown_flight_keyboard () with
-        | Ok() ->
-            keyboard_suppression_enabled <- false
-            Ok false
-        | Error error -> Error $"Could not disable keyboard suppression: {error}"
-    else
-        keyboard_suppression_enabled <- true
-        Ok true
 
 let recovery_completed () =
     if sessionState = RestartRequired then
@@ -204,7 +190,7 @@ let finish_active (session: ActiveSession) (activeResult: Result<unit, string>) 
     |> ignore
 
     let recordedExitReason =
-        FlyState.exit_reason state
+        state.exit_reason
         |> Option.defaultValue (
             if state.restore_camera_on_exit then
                 ExplicitRestoreCamera
@@ -298,7 +284,7 @@ let finish_active (session: ActiveSession) (activeResult: Result<unit, string>) 
 
     if session.flight_entered && display_is_safe () then
         attempt_cleanup cleanupErrors "redraw" (fun () ->
-            FlightRedraw.redraw state.config.behavior.viewport_redraw_mode state.view)
+            FlightRedraw.redraw state.config.behavior.viewport_paint_mode state.view)
         |> ignore
 
     let overrideResumed =
@@ -351,10 +337,9 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
 
     PlatformInput.focus_view state.view
 
-    if keyboard_suppression_enabled then
-        match PlatformInput.suppress_flight_keyboard state.config.bindings with
-        | Ok() -> session.keyboard_suppressed <- true
-        | Error error -> failwith $"Could not suppress flight keys: {error}"
+    match PlatformInput.suppress_flight_keyboard state.config.bindings with
+    | Ok() -> session.keyboard_suppressed <- true
+    | Error error -> failwith $"Could not suppress flight keys: {error}"
 
     let rawInputConfig: RawInputConfig =
         { exit_on_mouse_left = state.config.mouse.exit_on_left
@@ -421,7 +406,7 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
         let adjustment = state.config.behavior.lens_adjustment
         session.lens_changed <- Option.isSome adjustment.forced_length_mm || adjustment.delta_mm <> 0.
         FlightCamera.apply_entry_lens state
-        FlightRedraw.redraw state.config.behavior.viewport_redraw_mode state.view
+        FlightRedraw.redraw state.config.behavior.viewport_paint_mode state.view
         session.flight_entered <- true
 
 let begin_active (starting: StartingSession) =

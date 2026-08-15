@@ -248,9 +248,6 @@ extern nativeint CallNextHookEx(nativeint hook, int code, nativeint wparam, nati
 extern uint32 GetCurrentThreadId()
 
 [<DllImport("user32.dll", SetLastError = true)>]
-extern bool InvalidateRect(nativeint window, nativeint rectangle, bool erase)
-
-[<DllImport("user32.dll", SetLastError = true)>]
 extern bool UpdateWindow(nativeint window)
 
 [<DllImport("user32.dll", SetLastError = true)>]

@@ -120,7 +120,7 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     numbers.mouse_sensitivity.Text <- ConfigSchema.format_number config.mouse_sensitivity
     numbers.forced_lens_length_mm.Text <- ConfigSchema.format_number config.forced_lens_length_mm
     numbers.lens_length_delta_mm.Text <- ConfigSchema.format_number config.lens_length_delta_mm
-    SettingsFields.set_mode modes.viewport_redraw_mode config.viewport_redraw_mode
+    SettingsFields.set_mode modes.viewport_paint_mode config.viewport_paint_mode
     SettingsFields.set_mode modes.boost_mode config.boost_mode
     SettingsFields.set_mode modes.slow_mode config.slow_mode
     SettingsFields.set_mode modes.wheel_speed_mode config.wheel_speed_mode
@@ -213,4 +213,4 @@ let read (fields: SettingsFields.ConfigFields) =
               vertical_speed_multiplier = numbers.vertical_speed_multiplier
               forced_lens_length_mm = numbers.forced_lens_length_mm
               lens_length_delta_mm = numbers.lens_length_delta_mm
-              viewport_redraw_mode = SettingsFields.selected_mode modes.viewport_redraw_mode }
+              viewport_paint_mode = SettingsFields.selected_mode modes.viewport_paint_mode }
