@@ -230,12 +230,12 @@ let finish_active (session: ActiveSession) (activeResult: Result<unit, string>) 
             state.viewport.Camera35mmLensLength <- state.original_lens_length)
         |> ignore
 
-    let targetRequested =
+    let viewTargetRequested =
         session.flight_entered
         && FlightExitReason.is_explicit exitReason
-        && state.config.behavior.exit_pivot_target_mode <> ExitPivotTargetMode.Off
+        && state.config.behavior.view_target.mode <> ViewTargetMode.Off
         && (not restoreCamera
-            || (cameraRestored && state.config.behavior.retarget_restored_flights))
+            || (cameraRestored && state.config.behavior.view_target.set_on_restored_flights))
 
     let display_is_safe () =
         session.raw_input_clean
@@ -243,10 +243,10 @@ let finish_active (session: ActiveSession) (activeResult: Result<unit, string>) 
         && not skipBackgroundDisplay
         && PlatformInput.viewport_host_is_foreground state.host_identity state.view
 
-    if targetRequested then
+    if viewTargetRequested then
         if display_is_safe () then
-            attempt_cleanup cleanupErrors "pivot target" (fun () ->
-                ExitPivotTarget.apply state.config.behavior.exit_pivot_target_mode state.viewport)
+            attempt_cleanup cleanupErrors "target" (fun () ->
+                ViewTarget.apply state.config.behavior.view_target state.speed state.viewport)
             |> ignore
 
     if session.tooltips_changed then

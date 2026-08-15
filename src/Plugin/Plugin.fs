@@ -32,9 +32,9 @@ type RhinosCanFlyPlugin() as self =
 
     override _.OnShutdown() =
         try
-            ExitPivotTargetDebug.shutdown ()
+            ViewTargetDebug.shutdown ()
         with error ->
-            report $"RhinosCanFly pivot-target debug shutdown failed: {error.Message}"
+            report $"RhinosCanFly target debug shutdown failed: {error.Message}"
 
         try
             FlightSession.shutdown ()

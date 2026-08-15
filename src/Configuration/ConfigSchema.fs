@@ -52,8 +52,9 @@ let defaults: FlyConfigFile =
       mouse5_pivot_in_flight = false
       right_click_entry_mode = RightClickEntryMode.ClickToFlyDuringCommands
       default_flight_mode = DefaultFlightMode.Normal
-      exit_pivot_target_mode = ExitPivotTargetMode.Off
-      retarget_restored_flights = false
+      view_target_mode = ViewTargetMode.GeometryThenDistance
+      view_target_distance_multiplier = 1.
+      set_view_target_on_restored_flights = false
       commands_do_not_repeat = true
       mouse4_pivot_mode = MouseButtonPivotMode.Off
       mouse5_pivot_mode = MouseButtonPivotMode.Off
@@ -87,6 +88,7 @@ let normalize_numbers (source: FlyConfigFile) =
         mouse_pivot_multiplier = normalize_number source.mouse_pivot_multiplier
         mouse_pan_multiplier = normalize_number source.mouse_pan_multiplier
         mouse_sensitivity = normalize_number source.mouse_sensitivity
+        view_target_distance_multiplier = normalize_number source.view_target_distance_multiplier
         vertical_speed_multiplier = normalize_number source.vertical_speed_multiplier
         forced_lens_length_mm = normalize_number source.forced_lens_length_mm
         lens_length_delta_mm = normalize_number source.lens_length_delta_mm }
@@ -122,6 +124,7 @@ let compile (source: FlyConfigFile) =
       "mouse_pivot_multiplier", source.mouse_pivot_multiplier
       "mouse_pan_multiplier", source.mouse_pan_multiplier
       "mouse_sensitivity", source.mouse_sensitivity
+      "view_target_distance_multiplier", source.view_target_distance_multiplier
       "vertical_speed_multiplier", source.vertical_speed_multiplier ]
     |> List.iter (fun (name: string, value: float) -> positive name value)
 
@@ -174,7 +177,8 @@ let compile (source: FlyConfigFile) =
           * source.vertical_speed_multiplier
           "key pivot angular speed", source.key_pivot_speed_multiplier * Math.PI / 6.
           "mouse pivot sensitivity", source.mouse_sensitivity * source.mouse_pivot_multiplier
-          "mouse pan sensitivity", source.mouse_sensitivity * source.mouse_pan_multiplier ]
+          "mouse pan sensitivity", source.mouse_sensitivity * source.mouse_pan_multiplier
+          "maximum target distance", source.maximum_speed * source.view_target_distance_multiplier ]
 
     for name, value in derivedValues do
         if Double.IsNaN value || Double.IsInfinity value then
@@ -236,8 +240,10 @@ let compile (source: FlyConfigFile) =
           behavior =
             { hide_gumball = source.hide_gumball_while_flying
               flight_pivot_uses_gumball = source.flight_pivot_uses_gumball
-              exit_pivot_target_mode = source.exit_pivot_target_mode
-              retarget_restored_flights = source.retarget_restored_flights
+              view_target =
+                { mode = source.view_target_mode
+                  distance_multiplier = ViewTargetDistanceMultiplier source.view_target_distance_multiplier
+                  set_on_restored_flights = source.set_view_target_on_restored_flights }
               save_speed_to_document = source.save_speed_to_document
               load_speed_from_document = source.load_speed_from_document
               lens_adjustment =

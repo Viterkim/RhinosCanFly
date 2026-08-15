@@ -289,6 +289,12 @@ let try_activate_entry_view (entry: FlyEntry) =
         else
             ValueSome view
 
+let try_prepare_entry_view (entry: FlyEntry) =
+    if ViewNavigationState.try_bring_root_window_to_foreground entry.host.root_window then
+        try_activate_entry_view entry
+    else
+        ValueNone
+
 let dispatch_entry (state: RightClickState) (entry: FlyEntry) =
     state.gesture <- FlightDispatched entry
 
@@ -305,10 +311,8 @@ let update (navigation: State) (state: RightClickState) (commandActive: bool) =
     | ButtonDown(EnterFlight entry) ->
         if navigation.lifecycle <> Available || entry_timed_out entry then
             clear_action state
-        elif ViewNavigationState.foreground_root_window () <> entry.host.root_window then
-            ()
         else
-            match try_activate_entry_view entry with
+            match try_prepare_entry_view entry with
             | ValueNone -> clear_action state
             | ValueSome view ->
                 let canEnter = entry_during_commands entry.entry_mode || not commandActive
@@ -324,7 +328,7 @@ let update (navigation: State) (state: RightClickState) (commandActive: bool) =
     | ButtonReleased(NavigateView click) ->
         if
             navigation.lifecycle = Available
-            && ViewNavigationState.foreground_root_window () = click.host.root_window
+            && ViewNavigationState.try_bring_root_window_to_foreground click.host.root_window
         then
             match ViewLatchTransitions.apply_right_click_request navigation click.host click.request with
             | Ok() -> ()
@@ -334,10 +338,8 @@ let update (navigation: State) (state: RightClickState) (commandActive: bool) =
     | ButtonReleased(EnterFlight entry) ->
         if navigation.lifecycle <> Available || entry_timed_out entry then
             clear_action state
-        elif ViewNavigationState.foreground_root_window () <> entry.host.root_window then
-            ()
         else
-            match try_activate_entry_view entry with
+            match try_prepare_entry_view entry with
             | ValueNone -> clear_action state
             | ValueSome view ->
                 let canEnter = entry_during_commands entry.entry_mode || not commandActive

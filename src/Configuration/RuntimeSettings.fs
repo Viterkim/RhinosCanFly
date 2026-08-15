@@ -37,7 +37,6 @@ let apply_live (loaded: ConfigLoadResult) =
                   shift_right_click = config.shift_right_click_mode
                   alt_right_click = config.alt_right_click_mode
                   exit_binding = Some loaded.config.bindings.exit_key
-                  exit_on_left = config.exit_on_mouse_left
                   exit_on_right = config.exit_on_mouse_right }
             else
                 { mouse4 = MouseButtonPivotMode.Off
@@ -47,7 +46,6 @@ let apply_live (loaded: ConfigLoadResult) =
                   shift_right_click = ModifiedRightClickMode.Off
                   alt_right_click = ModifiedRightClickMode.Off
                   exit_binding = None
-                  exit_on_left = false
                   exit_on_right = false }
 
         match PlatformInput.apply_mouse_button_overrides mouseOverrides with

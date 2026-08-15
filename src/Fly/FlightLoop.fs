@@ -66,7 +66,7 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
             let pivotDirection = FlightInput.key_pivot_direction movement
 
             if pivotDirection <> NoKeyPivot && pivotDirection <> state.key_pivot_direction then
-                state.key_pivot_target <- FlightCamera.navigation_target state.view state.gumball_pivot_target
+                state.key_pivot_target <- FlightCamera.navigation_target state state.gumball_pivot_target
 
             state.key_pivot_direction <- pivotDirection
 

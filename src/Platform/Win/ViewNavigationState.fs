@@ -135,10 +135,6 @@ let exit_binding_contains (state: State) (virtualKey: int) =
     | Some binding -> binding_contains_key virtualKey binding.virtual_keys
     | None -> false
 
-let left_mouse_exit_enabled (state: State) =
-    state.routing.exit_on_mouse_left
-    || exit_binding_contains state Win32Native.VK_LBUTTON
-
 let right_mouse_exit_enabled (state: State) =
     state.routing.exit_on_mouse_right
     || exit_binding_contains state Win32Native.VK_RBUTTON
@@ -186,6 +182,18 @@ let root_window (window: nativeint) =
 
 let foreground_root_window () =
     RootWindow(Win32Native.GetForegroundWindow())
+
+let try_bring_root_window_to_foreground (window: RootWindow) =
+    if foreground_root_window () = window then
+        true
+    else
+        let (RootWindow handle) = window
+
+        handle <> nativeint 0
+        && Win32Native.IsWindow handle
+        && Win32Native.IsWindowEnabled handle
+        && Win32Native.SetForegroundWindow handle
+        && foreground_root_window () = window
 
 let same_host (left: ViewportHostIdentity) (right: ViewportHostIdentity) =
     left.view_serial_number = right.view_serial_number

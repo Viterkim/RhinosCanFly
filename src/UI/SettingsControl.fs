@@ -46,10 +46,12 @@ type SettingsControl() as self =
         options.mouse5_pivot_in_flight.Enabled <-
             SettingsFields.selected_mode modes.mouse5_pivot_mode <> MouseButtonPivotMode.Off
 
-    let refresh_exit_target_controls () =
-        options.retarget_restored_flights.Enabled <-
-            SettingsFields.selected_mode modes.exit_pivot_target_mode
-            <> ExitPivotTargetMode.Off
+    let refresh_view_target_controls () =
+        let enabled =
+            SettingsFields.selected_mode modes.view_target_mode <> ViewTargetMode.Off
+
+        numbers.view_target_distance_multiplier.Enabled <- enabled
+        options.set_view_target_on_restored_flights.Enabled <- enabled
 
     let binding_editor (field: TextBox) (defaultValue: string) =
         BindingCapture.editor bindingCapture field defaultValue
@@ -134,14 +136,22 @@ type SettingsControl() as self =
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.spacer 2))
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Target"))
 
         SettingsLayout.grid
             2
-            [ SettingsLayout.item "Pivot target on exit" modes.exit_pivot_target_mode.control
-              options.retarget_restored_flights ]
+            [ SettingsLayout.item "Mode" modes.view_target_mode.control
+              SettingsLayout.item "Distance multiplier" numbers.view_target_distance_multiplier
+              options.set_view_target_on_restored_flights ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
+
+        mainTable.Rows.Add(
+            SettingsLayout.full_width (
+                SettingsLayout.note
+                    "Used when Pivot or Pan starts, and when a flight ends. Distance is current flight speed × this multiplier."
+            )
+        )
 
         mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.spacer 2))
 
@@ -280,11 +290,10 @@ type SettingsControl() as self =
         modes.mouse5_pivot_mode.control.SelectedIndexChanged.Add(fun (_: EventArgs) ->
             refresh_side_button_flight_controls ())
 
-        modes.exit_pivot_target_mode.control.SelectedIndexChanged.Add(fun (_: EventArgs) ->
-            refresh_exit_target_controls ())
+        modes.view_target_mode.control.SelectedIndexChanged.Add(fun (_: EventArgs) -> refresh_view_target_controls ())
 
         refresh_side_button_flight_controls ()
-        refresh_exit_target_controls ()
+        refresh_view_target_controls ()
 
         actions.raw_json_toggle.Click.Add(fun (_: EventArgs) ->
             rawJsonPanel.Visible <- not rawJsonPanel.Visible
@@ -348,6 +357,6 @@ type SettingsControl() as self =
     member _.LoadConfig(config: FlyConfigFile) =
         SettingsConfig.load fields.config config
         refresh_side_button_flight_controls ()
-        refresh_exit_target_controls ()
+        refresh_view_target_controls ()
 
     member _.ReadConfig() = SettingsConfig.read fields.config

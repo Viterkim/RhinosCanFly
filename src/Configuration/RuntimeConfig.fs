@@ -52,11 +52,15 @@ type FlyingMouseConfig =
       mouse4_pivot_mode: MouseButtonPivotMode
       mouse5_pivot_mode: MouseButtonPivotMode }
 
+type ViewTargetConfig =
+    { mode: ViewTargetMode
+      distance_multiplier: ViewTargetDistanceMultiplier
+      set_on_restored_flights: bool }
+
 type FlightBehavior =
     { hide_gumball: bool
       flight_pivot_uses_gumball: bool
-      exit_pivot_target_mode: ExitPivotTargetMode
-      retarget_restored_flights: bool
+      view_target: ViewTargetConfig
       save_speed_to_document: bool
       load_speed_from_document: bool
       lens_adjustment: LensAdjustment

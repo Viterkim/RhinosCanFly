@@ -179,6 +179,9 @@ extern bool IsWindowEnabled(nativeint window)
 extern nativeint GetForegroundWindow()
 
 [<DllImport("user32.dll")>]
+extern bool SetForegroundWindow(nativeint window)
+
+[<DllImport("user32.dll")>]
 extern nativeint GetAncestor(nativeint window, uint32 flags)
 
 [<DllImport("user32.dll")>]

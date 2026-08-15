@@ -45,5 +45,4 @@ type MouseOverrideConfig =
       shift_right_click: ModifiedRightClickMode
       alt_right_click: ModifiedRightClickMode
       exit_binding: KeyBinding option
-      exit_on_left: bool
       exit_on_right: bool }

@@ -178,7 +178,27 @@ let toggle_navigation_command (mode: NavigationCommandMode) (document: RhinoDoc)
                             | PanCommand -> PlatformInput.start_pan view completion
 
                         match started with
-                        | Ok() -> Result.Success
+                        | Ok() ->
+                            try
+                                let behavior = loaded.config.behavior
+                                let movement = loaded.config.movement
+
+                                let speed =
+                                    FlightSpeed.current
+                                        document
+                                        behavior.load_speed_from_document
+                                        movement.speed_range
+                                        movement.base_speed
+
+                                ViewTarget.apply behavior.view_target speed view.ActiveViewport
+                                Result.Success
+                            with error ->
+                                match mode with
+                                | PivotCommand -> PlatformInput.stop_pivot () |> ignore
+                                | PanCommand -> PlatformInput.stop_pan () |> ignore
+
+                                RhinoApp.WriteLine $"{name} failed to set the view target: {error.Message}"
+                                Result.Failure
                         | Error error ->
                             RhinoApp.WriteLine $"{name} failed: {error}"
                             Result.Failure)
@@ -243,18 +263,24 @@ let toggle_target_debug (document: RhinoDoc) =
     if isNull view then
         RhinoApp.WriteLine "RhinosCanFlyTargetDebug: no active view."
         Result.Failure
-    elif ExitPivotTargetDebug.enabled () then
-        ExitPivotTargetDebug.set_enabled false
+    elif ViewTargetDebug.enabled () then
+        ViewTargetDebug.set_enabled false
         view.Redraw()
-        RhinoApp.WriteLine "RhinosCanFly pivot-target debug disabled."
+        RhinoApp.WriteLine "RhinosCanFly target debug disabled."
         Result.Success
     else
         with_config (fun (loaded: ConfigLoadResult) ->
-            ExitPivotTargetDebug.set_enabled true
-            ExitPivotTarget.debug_current loaded.config.behavior.exit_pivot_target_mode view.ActiveViewport
+            let config = loaded.config
+            let behavior = config.behavior
+            let movement = config.movement
+
+            let speed =
+                FlightSpeed.current document behavior.load_speed_from_document movement.speed_range movement.base_speed
+
+            ViewTargetDebug.set_enabled true
+            ViewTarget.debug_current behavior.view_target speed view.ActiveViewport
             view.Redraw()
 
-            RhinoApp.WriteLine
-                "Pivot-target debug enabled. Fly and exit normally; run this command again to disable it."
+            RhinoApp.WriteLine "Target debug enabled. Run this command again to turn it off."
 
             Result.Success)

@@ -21,7 +21,6 @@ type RoutingConfig =
       shift_right_click: ViewNavigationMode option
       alt_right_click: ViewNavigationMode option
       exit: KeyBinding option
-      exit_on_mouse_left: bool
       exit_on_mouse_right: bool }
 
 type SideButton =
@@ -104,7 +103,6 @@ let empty_routing =
       shift_right_click = None
       alt_right_click = None
       exit = None
-      exit_on_mouse_left = false
       exit_on_mouse_right = false }
 
 let create_state () =

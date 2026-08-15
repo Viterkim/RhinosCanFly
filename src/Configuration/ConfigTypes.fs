@@ -44,11 +44,13 @@ type DefaultFlightMode =
     | Temporary = 1
     | TemporaryIncludingNavigationCommands = 2
 
-type ExitPivotTargetMode =
+type ViewTargetMode =
     | Off = 0
-    | Geometry = 1
-    | GeometryThenCPlane = 2
-    | GeometryThenWorldXY = 3
+    | Distance = 1
+    | GeometryThenDistance = 2
+
+[<Struct>]
+type ViewTargetDistanceMultiplier = ViewTargetDistanceMultiplier of float
 
 module DefaultFlightMode =
     let flight_mode (mode: DefaultFlightMode) =
@@ -131,8 +133,9 @@ type FlyConfigFile =
       mouse5_pivot_in_flight: bool
       right_click_entry_mode: RightClickEntryMode
       default_flight_mode: DefaultFlightMode
-      exit_pivot_target_mode: ExitPivotTargetMode
-      retarget_restored_flights: bool
+      view_target_mode: ViewTargetMode
+      view_target_distance_multiplier: float
+      set_view_target_on_restored_flights: bool
       commands_do_not_repeat: bool
       mouse4_pivot_mode: MouseButtonPivotMode
       mouse5_pivot_mode: MouseButtonPivotMode

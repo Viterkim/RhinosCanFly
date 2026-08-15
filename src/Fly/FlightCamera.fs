@@ -4,52 +4,48 @@ open Rhino
 open Rhino.Display
 open Rhino.Geometry
 
-let navigation_target (view: RhinoView) (gumballTarget: Point3d option) =
+let fallback_navigation_target (view: RhinoView) =
     let viewport = view.ActiveViewport
+    let cameraLocation = viewport.CameraLocation
+    let cameraTarget = viewport.CameraTarget
+    let mutable cameraDirection = viewport.CameraDirection
+    let visibleBounds = view.Document.Objects.BoundingBoxVisible
+    let mutable nearDistance = 0.
+    let mutable farDistance = 0.
 
-    let valid_target (target: Point3d) =
-        let mutable direction = viewport.CameraDirection
-        let offset = target - viewport.CameraLocation
-        let distance = offset.Length
-
-        target.IsValid
-        && direction.Unitize()
-        && RhinoMath.IsValidDouble distance
-        && distance > RhinoMath.ZeroTolerance
-        && Vector3d.Multiply(offset, direction) > RhinoMath.ZeroTolerance
-
-    match gumballTarget with
-    | Some target when valid_target target -> target
-    | Some _
-    | None ->
-        let cameraLocation = viewport.CameraLocation
-        let cameraTarget = viewport.CameraTarget
-        let mutable cameraDirection = viewport.CameraDirection
-        let visibleBounds = view.Document.Objects.BoundingBoxVisible
-        let mutable nearDistance = 0.
-        let mutable farDistance = 0.
+    if
+        cameraDirection.Unitize()
+        && visibleBounds.IsValid
+        && viewport.GetDepth(visibleBounds, &nearDistance, &farDistance)
+        && RhinoMath.IsValidDouble nearDistance
+        && RhinoMath.IsValidDouble farDistance
+        && nearDistance > RhinoMath.ZeroTolerance
+        && farDistance > RhinoMath.ZeroTolerance
+    then
+        let targetDepth = Vector3d.Multiply(cameraTarget - cameraLocation, cameraDirection)
 
         if
-            cameraDirection.Unitize()
-            && visibleBounds.IsValid
-            && viewport.GetDepth(visibleBounds, &nearDistance, &farDistance)
-            && RhinoMath.IsValidDouble nearDistance
-            && RhinoMath.IsValidDouble farDistance
-            && nearDistance > RhinoMath.ZeroTolerance
-            && farDistance > RhinoMath.ZeroTolerance
+            not (RhinoMath.IsValidDouble targetDepth)
+            || targetDepth < nearDistance
+            || targetDepth > farDistance
         then
-            let targetDepth = Vector3d.Multiply(cameraTarget - cameraLocation, cameraDirection)
-
-            if
-                not (RhinoMath.IsValidDouble targetDepth)
-                || targetDepth < nearDistance
-                || targetDepth > farDistance
-            then
-                cameraLocation + cameraDirection * ((nearDistance + farDistance) / 2.)
-            else
-                cameraTarget
+            cameraLocation + cameraDirection * ((nearDistance + farDistance) / 2.)
         else
             cameraTarget
+    else
+        cameraTarget
+
+let navigation_target (state: FlyState) (gumballTarget: Point3d option) =
+    let viewport = state.viewport
+
+    match gumballTarget with
+    | Some target when ViewTarget.target_is_in_front viewport target -> target
+    | Some _
+    | None ->
+        match ViewTarget.selected_target state.config.behavior.view_target state.speed viewport with
+        | Some target when ViewTarget.target_is_in_front viewport target -> target
+        | Some _
+        | None -> fallback_navigation_target state.view
 
 let update_navigation_mode (input: InputAccumulator.State) (state: FlyState) =
     if InputAccumulator.drain_pivot_toggles input % 2 <> 0 then
@@ -70,13 +66,13 @@ let update_navigation_mode (input: InputAccumulator.State) (state: FlyState) =
             match state.active_mouse_navigation with
             | MousePivot _ -> state.active_mouse_navigation
             | MouseLook
-            | MousePan _ -> MousePivot(navigation_target state.view state.gumball_pivot_target)
+            | MousePan _ -> MousePivot(navigation_target state state.gumball_pivot_target)
         | PanNavigation ->
             match state.active_mouse_navigation with
             | MousePan _ -> state.active_mouse_navigation
             | MouseLook
             | MousePivot _ ->
-                let panTarget = navigation_target state.view None
+                let panTarget = navigation_target state None
                 let targetDistance = state.camera.position.DistanceTo panTarget
 
                 let unitsPerRadian =

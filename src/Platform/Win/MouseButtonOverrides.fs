@@ -60,7 +60,6 @@ let view_matches_host (host: ViewportHostIdentity) (view: RhinoView) =
 type ViewNavigationCallback() =
     inherit MouseCallback()
 
-    let mutable leftButtonOwned = false
     let mutable previousNavigationSample: NavigationSample voption = ValueNone
 
     let active_navigation_mode () =
@@ -74,44 +73,6 @@ type ViewNavigationCallback() =
             | PanActive _ -> ValueSome Pan
             | NoViewLatch
             | WaitingForRelease _ -> ValueNone
-
-    override this.OnMouseDown(event: MouseCallbackEventArgs) =
-        try
-            if event.MouseButton = Rhino.UI.MouseButton.Left then
-                // A focus change can hide the matching Up from Rhino. A fresh
-                // Down starts a new pair, so do not carry stale ownership into it.
-                leftButtonOwned <- false
-
-            let exitsNavigation =
-                state.lifecycle = Available
-                && ViewNavigationState.left_mouse_exit_enabled state
-                && (state.routing.exit_on_mouse_left || ViewNavigationState.exit_key_down state)
-                && event.MouseButton = Rhino.UI.MouseButton.Left
-                && (ViewNavigationState.any_button_engaged state
-                    || ViewNavigationState.view_latch_engaged state)
-
-            if exitsNavigation then
-                event.Cancel <- true
-                leftButtonOwned <- true
-                request_navigation_exit ()
-            elif event.MouseButton = Rhino.UI.MouseButton.Left then
-                this.Enabled <-
-                    state.lifecycle = Available
-                    && (ViewNavigationState.left_mouse_exit_enabled state || this.NavigationActive)
-        with error ->
-            log_exception "mouse override callback" error
-
-    override this.OnMouseUp(event: MouseCallbackEventArgs) =
-        try
-            if leftButtonOwned && event.MouseButton = Rhino.UI.MouseButton.Left then
-                event.Cancel <- true
-                leftButtonOwned <- false
-
-                this.Enabled <-
-                    state.lifecycle = Available
-                    && (ViewNavigationState.left_mouse_exit_enabled state || this.NavigationActive)
-        with error ->
-            log_exception "mouse override callback" error
 
     override _.OnMouseMove(event: MouseCallbackEventArgs) =
         try
@@ -155,7 +116,6 @@ type ViewNavigationCallback() =
             previousNavigationSample <- ValueNone
             log_exception "direct view navigation" error
 
-    member _.OwnsLeftButton = leftButtonOwned
     member _.NavigationActive = ValueOption.isSome (active_navigation_mode ())
     member _.ResetNavigation() = previousNavigationSample <- ValueNone
 
@@ -163,8 +123,7 @@ let view_navigation_callback = ViewNavigationCallback()
 
 let refresh_callback_enabled () =
     let shouldEnable =
-        view_navigation_callback.OwnsLeftButton
-        || (state.lifecycle = Available && view_navigation_callback.NavigationActive)
+        state.lifecycle = Available && view_navigation_callback.NavigationActive
 
     if not view_navigation_callback.NavigationActive then
         view_navigation_callback.ResetNavigation()
@@ -597,7 +556,7 @@ let activate_degraded (error: string) =
     state.lifecycle <- Degraded error
 
     try
-        view_navigation_callback.Enabled <- view_navigation_callback.OwnsLeftButton
+        view_navigation_callback.Enabled <- false
     with callbackError ->
         log_exception "mouse override callback disable" callbackError
 
@@ -803,7 +762,6 @@ let apply (config: MouseOverrideConfig) =
                   shift_right_click = ViewLatchTransitions.configured_mode config.shift_right_click
                   alt_right_click = ViewLatchTransitions.configured_mode config.alt_right_click
                   exit = config.exit_binding
-                  exit_on_mouse_left = config.exit_on_left
                   exit_on_mouse_right = config.exit_on_right }
 
             if state.lifecycle = Suspended then
@@ -843,7 +801,7 @@ let suspend () =
         RightClickTransitions.clear_action right_click
 
         try
-            view_navigation_callback.Enabled <- view_navigation_callback.OwnsLeftButton
+            view_navigation_callback.Enabled <- false
         with error ->
             log_exception "mouse override callback suspension" error
             errors.Add error.Message
