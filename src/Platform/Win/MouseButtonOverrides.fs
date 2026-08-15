@@ -122,10 +122,10 @@ type ViewNavigationCallback() =
 let view_navigation_callback = ViewNavigationCallback()
 
 let refresh_callback_enabled () =
-    let shouldEnable =
-        state.lifecycle = Available && view_navigation_callback.NavigationActive
+    let navigationActive = view_navigation_callback.NavigationActive
+    let shouldEnable = state.lifecycle = Available && navigationActive
 
-    if not view_navigation_callback.NavigationActive then
+    if not navigationActive then
         view_navigation_callback.ResetNavigation()
 
     if view_navigation_callback.Enabled <> shouldEnable then
