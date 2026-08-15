@@ -4,7 +4,7 @@ open System
 open System.Globalization
 
 [<Literal>]
-let current_version = 5
+let current_version = 6
 
 let defaults: FlyConfigFile =
     { config_version = current_version
