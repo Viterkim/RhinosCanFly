@@ -3,7 +3,7 @@ module RhinosCanFly.RepeatBehavior
 open System
 open Rhino.ApplicationSettings
 
-let commandNames = [| "RhinosCanFly" |]
+let commandNames = [| "RhinosCanFly"; "RhinosCanFlyTempFly" |]
 
 let contains_name (names: string array) (candidate: string) =
     names

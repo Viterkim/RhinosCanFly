@@ -53,7 +53,11 @@ if ([string]::IsNullOrWhiteSpace($RhinoInstallDir)) {
     throw "Rhino $RhinoMajorVersion is not installed. The plug-in was built, but direct installation requires Rhino $RhinoMajorVersion."
 }
 
-$pluginFile = Join-Path $repoRoot "bin\rh$RhinoMajorVersion\$Configuration\$TargetFramework\RhinosCanFly.rhp"
+$buildOutput = Join-Path $repoRoot "bin\rh$RhinoMajorVersion\$Configuration\$TargetFramework"
+$builtPluginFile = Join-Path $buildOutput "RhinosCanFly.rhp"
+$devInstallRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot "bin\RhinosCanFlyDev"))
+$devInstallDirectory = [IO.Path]::GetFullPath((Join-Path $devInstallRoot "rh$RhinoMajorVersion"))
+$pluginFile = Join-Path $devInstallDirectory "RhinosCanFly.rhp"
 $registryPath = "HKCU:\Software\McNeel\Rhinoceros\$RhinoMajorVersion.0\Plug-ins\$pluginId"
 $pluginRegistryPath = Join-Path $registryPath "PlugIn"
 $commandListRegistryPath = Join-Path $registryPath "CommandList"
@@ -61,8 +65,41 @@ $machineRegistryPath = "HKLM:\Software\McNeel\Rhinoceros\$RhinoMajorVersion.0\Pl
 $machinePluginRegistryPath = Join-Path $machineRegistryPath "PlugIn"
 $machineCommandListRegistryPath = Join-Path $machineRegistryPath "CommandList"
 
-if (-not (Test-Path -LiteralPath $pluginFile)) {
-    throw "The build succeeded but '$pluginFile' was not found."
+if (-not (Test-Path -LiteralPath $builtPluginFile)) {
+    throw "The build succeeded but '$builtPluginFile' was not found."
+}
+
+$expectedInstallPrefix = $devInstallRoot.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+
+if (-not $devInstallDirectory.StartsWith($expectedInstallPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Refusing to replace unexpected development install path '$devInstallDirectory'."
+}
+
+if (Test-Path -LiteralPath $devInstallDirectory) {
+    Remove-Item -LiteralPath $devInstallDirectory -Recurse -Force
+}
+
+New-Item -ItemType Directory -Path $devInstallDirectory | Out-Null
+
+$developmentFiles = @(
+    $builtPluginFile
+    (Join-Path $buildOutput "RhinosCanFly.pdb")
+    (Join-Path $buildOutput "RhinosCanFly.deps.json")
+    (Join-Path $buildOutput "RhinosCanFly.runtimeconfig.json")
+)
+
+foreach ($file in $developmentFiles) {
+    if (Test-Path -LiteralPath $file) {
+        Copy-Item -LiteralPath $file -Destination $devInstallDirectory -Force
+    }
+}
+
+foreach ($file in Get-ChildItem -LiteralPath $buildOutput -Filter "*.dll" -File) {
+    Copy-Item -LiteralPath $file.FullName -Destination $devInstallDirectory -Force
+}
+
+foreach ($directory in Get-ChildItem -LiteralPath $buildOutput -Directory) {
+    Copy-Item -LiteralPath $directory.FullName -Destination $devInstallDirectory -Recurse -Force
 }
 
 $existingRegistration = Get-ItemProperty -LiteralPath $registryPath -ErrorAction SilentlyContinue

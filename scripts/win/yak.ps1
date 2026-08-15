@@ -98,6 +98,11 @@ if ($yakPackages.Count -ne 1) {
     throw "Expected one Yak package in '$stage', found $($yakPackages.Count)."
 }
 
+$staleYakPattern = "rhinoscanfly-$version-rh${RhinoMajorVersion}_*-win.yak"
+
+Get-ChildItem -LiteralPath $dist -Filter $staleYakPattern -File |
+    Remove-Item -Force
+
 $yakPackage = Join-Path $dist $yakPackages[0].Name
 Copy-Item -LiteralPath $yakPackages[0].FullName -Destination $yakPackage -Force
 

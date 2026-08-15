@@ -3,9 +3,10 @@ module RhinosCanFly.FlightState
 open Rhino.Display
 open Rhino.Geometry
 
-let create (view: RhinoView) (config: FlyConfig) =
+let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyConfig) (sessionMode: FlightSessionMode) =
     let viewport = view.ActiveViewport
     let bindings = config.bindings
+    let mouseNavigationBindings = bindings.mouse_navigation
     let movement = config.movement
     let behavior = config.behavior
 
@@ -13,7 +14,7 @@ let create (view: RhinoView) (config: FlyConfig) =
         let mutable gumballPlane = Plane.Unset
 
         if
-            not behavior.pivot_bindings_ignore_gumball
+            behavior.flight_pivot_uses_gumball
             && RhinoSettings.rotate_view_around_gumball ()
             && view.Document.GetGumballPlane(&gumballPlane)
         then
@@ -31,32 +32,32 @@ let create (view: RhinoView) (config: FlyConfig) =
     { view = view
       viewport = viewport
       config = config
-      root_window = PlatformInput.root_window view
+      host_identity = hostIdentity
       original_cursor = originalCursor
+      original_camera = CameraSnapshot.capture viewport
       original_lens_length = viewport.Camera35mmLensLength
       gumball_pivot_target = gumballPivotTarget
-      pivot_target = viewport.CameraTarget
-      pivot_direction = NoPivot
-      pivot_input_state = WaitingForNeutralPivotInput
-      mouse_navigation = MouseLook
-      pivot_latched = false
-      keyboard_pivot_held = false
-      keyboard_pivot_toggle_was_down = FlightControls.is_optional_down bindings.pivot_toggle
-      running = true
+      key_pivot_target = viewport.CameraTarget
+      key_pivot_direction = NoKeyPivot
+      key_pivot_input_state = WaitingForNeutralKeyPivotInput
+      active_mouse_navigation = MouseLook
+      latched_mouse_navigation = LookNavigation
+      keyboard_held_mouse_navigation = LookNavigation
+      keyboard_pivot_toggle_was_down = FlightControls.is_optional_down mouseNavigationBindings.pivot.toggle
+      keyboard_pan_toggle_was_down = FlightControls.is_optional_down mouseNavigationBindings.pan.toggle
+      exit_reason = None
+      restore_camera_on_exit = sessionMode.flight_mode = FlightMode.Temporary
       camera =
         { position = viewport.CameraLocation
+          target = viewport.CameraTarget
           yaw = yaw
           pitch = pitch }
       speed =
-        FlightSpeed.current
-            view.Document
-            behavior.load_speed_from_document
-            movement.minimum_speed
-            movement.maximum_speed
-            movement.base_speed
+        FlightSpeed.current view.Document behavior.load_speed_from_document movement.speed_range movement.base_speed
       boost_enabled = false
-      boost_was_down = FlightControls.is_down bindings.boost
+      boost_was_down = PlatformInput.flight_binding_down bindings.boost
       slow_enabled = false
-      slow_was_down = FlightControls.is_down bindings.slow
+      slow_was_down = PlatformInput.flight_binding_down bindings.slow
       speed_increase_was_down = FlightControls.is_optional_down bindings.speed_increase
-      speed_decrease_was_down = FlightControls.is_optional_down bindings.speed_decrease }
+      speed_decrease_was_down = FlightControls.is_optional_down bindings.speed_decrease
+      wheel_remainder = 0L }

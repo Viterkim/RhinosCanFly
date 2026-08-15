@@ -1,6 +1,7 @@
 module RhinosCanFly.BindingCapture
 
 open System
+open System.Diagnostics
 open Eto.Drawing
 open Eto.Forms
 
@@ -108,7 +109,7 @@ let try_capture_mouse (state: State) (source: Control) (event: MouseEventArgs) =
         true
     | _ -> false
 
-let rec attach_mouse_behavior (state: State) (control: Control) =
+let attach_mouse_handler (state: State) (control: Control) =
     control.MouseDown.Add(fun (event: MouseEventArgs) ->
         if try_capture_mouse state control event then
             event.Handled <- true
@@ -116,10 +117,13 @@ let rec attach_mouse_behavior (state: State) (control: Control) =
             stop state
             state.focus_sink.Focus())
 
+let attach_mouse_behavior (state: State) (control: Control) =
+    attach_mouse_handler state control
+
     match control with
     | :? Container as container ->
         for child in container.Children do
-            attach_mouse_behavior state child
+            attach_mouse_handler state child
     | _ -> ()
 
 let create () =
@@ -131,7 +135,11 @@ let create () =
           disposed = false }
 
     state.side_button_timer.Elapsed.Add(fun (_: EventArgs) ->
-        PlatformBindings.try_side_mouse_binding () |> Option.iter (complete state))
+        try
+            PlatformBindings.try_side_mouse_binding () |> Option.iter (complete state)
+        with error ->
+            Debug.WriteLine $"RhinosCanFly binding capture timer: {error}"
+            cancel state)
 
     state
 

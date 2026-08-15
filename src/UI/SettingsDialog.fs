@@ -6,12 +6,45 @@ open Eto.Forms
 open Rhino
 open Rhino.UI
 
-module SettingsDialogPosition =
+module SettingsDialogPlacement =
+    [<Literal>]
+    let preferred_width = 1000
+
+    [<Literal>]
+    let preferred_height = 1000
+
+    [<Literal>]
+    let screen_margin = 24
+
     let mutable last_location: Point option = None
+
+    let fit_size (minimum: Size) (workingArea: RectangleF) =
+        let availableWidth = max minimum.Width (int workingArea.Width - screen_margin * 2)
+
+        let availableHeight =
+            max minimum.Height (int workingArea.Height - screen_margin * 2)
+
+        Size(min preferred_width availableWidth, min preferred_height availableHeight)
+
+    let centered_location (bounds: RectangleF) (size: Size) =
+        Point(int bounds.X + (int bounds.Width - size.Width) / 2, int bounds.Y + (int bounds.Height - size.Height) / 2)
+
+    let clamped_location (workingArea: RectangleF) (size: Size) (location: Point) =
+        let minimumX = int workingArea.X
+        let minimumY = int workingArea.Y
+        let maximumX = max minimumX (int workingArea.Right - size.Width)
+        let maximumY = max minimumY (int workingArea.Bottom - size.Height)
+
+        Point(min maximumX (max minimumX location.X), min maximumY (max minimumY location.Y))
 
 type RhinosCanFlySettingsDialog() as self =
     inherit
-        Dialog(Title = "Rhinos Can Fly Options", Size = Size(990, 990), MinimumSize = Size(650, 500), Resizable = true)
+        Dialog(
+            Title = "Rhinos Can Fly Options",
+            Size = Size(SettingsDialogPlacement.preferred_width, SettingsDialogPlacement.preferred_height),
+            MinimumSize = Size(700, 550),
+            Resizable = true
+        )
 
     let control = new SettingsControl()
     let saveButton = new Button(Text = "Save")
@@ -47,7 +80,7 @@ type RhinosCanFlySettingsDialog() as self =
 
         cancelButton.Click.Add(fun (_: EventArgs) -> self.Close())
 
-        self.Closed.Add(fun (_: EventArgs) -> SettingsDialogPosition.last_location <- Some self.Location)
+        self.Closed.Add(fun (_: EventArgs) -> SettingsDialogPlacement.last_location <- Some self.Location)
 
         Settings.load control
 
@@ -59,44 +92,135 @@ type RhinosCanFlySettingsDialog() as self =
         base.Dispose disposing
 
     member _.ShowForRhino(document: RhinoDoc) =
-        SettingsDialogPosition.last_location
-        |> Option.iter (fun (location: Point) -> self.Location <- location)
-
         let parent =
             if isNull document then
                 RhinoEtoApp.MainWindow
             else
                 RhinoEtoApp.MainWindowForDocument document
 
-        if isNull parent then
-            self.ShowModal()
-        else
-            self.ShowModal parent
+        let parentScreen =
+            if isNull parent || isNull parent.Screen then
+                Screen.PrimaryScreen
+            else
+                parent.Screen
+
+        let screen =
+            match SettingsDialogPlacement.last_location with
+            | Some saved ->
+                let savedScreen = Screen.FromPoint(PointF saved)
+
+                if isNull savedScreen then parentScreen else savedScreen
+            | None -> parentScreen
+
+        let workingArea = screen.WorkingArea
+        self.Size <- SettingsDialogPlacement.fit_size self.MinimumSize workingArea
+
+        let location =
+            match SettingsDialogPlacement.last_location with
+            | Some saved -> saved
+            | None -> SettingsDialogPlacement.centered_location workingArea self.Size
+
+        self.Location <- SettingsDialogPlacement.clamped_location workingArea self.Size location
+
+        self.ShowSemiModal(document, parent)
 
 type RhinosCanFlyOptionsPage() =
     inherit OptionsDialogPage "RhinosCanFly"
 
     let control = lazy (new SettingsControl())
+    let mutable inputSuspension: InputSuspensionLease option = None
+
+    let suspend_input () =
+        match inputSuspension with
+        | Some _ -> Ok()
+        | None ->
+            match RuntimeSettings.suspend_input () with
+            | Ok lease ->
+                inputSuspension <- Some lease
+
+                match lease.cleanup_error with
+                | None -> Ok()
+                | Some cleanupError ->
+                    inputSuspension <- None
+
+                    match RuntimeSettings.resume_input lease with
+                    | Ok() -> Error $"Input cleanup is incomplete: {cleanupError}"
+                    | Error resumeError ->
+                        Error $"Input cleanup is incomplete: {cleanupError}; resume failed: {resumeError}"
+            | Error error -> Error error
+
+    let resume_input () =
+        let suspension = inputSuspension
+        inputSuspension <- None
+
+        match suspension with
+        | Some lease -> RuntimeSettings.resume_input lease
+        | None -> Ok()
+
+    let resume_input_after_options () =
+        match resume_input () with
+        | Ok() -> true
+        | Error error ->
+            SettingsUi.report_error $"RhinosCanFly could not resume input after Options: {error}"
+            false
 
     override _.LocalPageTitle = "Rhinos Can Fly"
     override _.PageControl = control.Value
 
     override _.OnActivate(active: bool) =
         if active then
-            Settings.load control.Value
+            match suspend_input () with
+            | Error error ->
+                SettingsUi.report_error $"RhinosCanFly could not suspend input for Options: {error}"
+                false
+            | Ok() ->
+                try
+                    Settings.load control.Value
+                    true
+                with error ->
+                    resume_input_after_options () |> ignore
+                    SettingsUi.report_error $"RhinosCanFly Options activation failed: {error.Message}"
+                    false
+        else
+            let mutable deactivated = true
 
-        true
+            try
+                if control.IsValueCreated then
+                    control.Value.CancelBindingCapture()
+            with error ->
+                SettingsUi.report_error $"RhinosCanFly Options deactivation failed: {error.Message}"
+                deactivated <- false
+
+            deactivated
 
     override _.OnApply() =
-        if control.IsValueCreated then
-            Settings.save control.Value
-        else
-            true
+        try
+            if control.IsValueCreated then
+                control.Value.CancelBindingCapture()
+
+                let saved = Settings.save control.Value
+
+                if saved then resume_input_after_options () else false
+            else
+                resume_input_after_options ()
+        with error ->
+            SettingsUi.report_error $"RhinosCanFly Options apply failed: {error.Message}"
+            false
 
     override _.OnCancel() =
-        if control.IsValueCreated then
-            Settings.load control.Value
+        try
+            if control.IsValueCreated then
+                control.Value.CancelBindingCapture()
+                Settings.load control.Value
+        with error ->
+            SettingsUi.report_error $"RhinosCanFly Options cancel failed: {error.Message}"
+
+        resume_input_after_options () |> ignore
 
     override _.OnDefaults() =
-        control.Value.LoadConfig ConfigSchema.defaults
-        control.Value.ClearError()
+        try
+            control.Value.CancelBindingCapture()
+            control.Value.LoadConfig ConfigSchema.defaults
+            control.Value.ClearError()
+        with error ->
+            SettingsUi.report_error $"RhinosCanFly Options defaults failed: {error.Message}"

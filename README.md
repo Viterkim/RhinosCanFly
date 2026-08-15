@@ -6,25 +6,35 @@ https://github.com/user-attachments/assets/52dc3237-e12b-4a54-8776-88f6b6475fac
 
 ## How to Use / Recommendations
 
-- Go to Tools -> Options... -> Mouse, set middle mouse button to `Manipulate view` and `rotate`.
+- Right click to enter flying, right click to exit (change it in `RhinosCanFlyOptions`).
 
-- Set lens length in your file/project/default rhino setup to something like `18` or so, which gives that 100 FOV feel. (Not in the addon options, that's a temp toggle).
+- Set lens length in your file/project/default Rhino setup to something like `18` or so, which gives that 100 FOV feel.
 
-- Right click on Gumball at the bottom and enable `Rotate view around gumball`.
+## Links
 
-- Right click in your view and fly around, you can even use it while doing edits / commands (if enabled).
+[McNeel / Rhino Forum Link](https://discourse.mcneel.com/t/rhinos-can-fly-wasd-game-engine-fly-camera-controls-for-rhino/220880)
 
-## Run / Commands
+[Food 4 Rhino Link](https://www.food4rhino.com/en/app/rhinos-can-fly-rhinoscanfly-flying-custom-perspective-view)
 
-`RhinosCanFly` main command, fly around in perspective view, exit on right click and escape.
+[Building On Windows](./docs/building-on-windows.md)
+
+[Other Installation Options](./docs/other-installation-options.md)
+
+## Main Commands
+
+`RhinosCanFly` main command, fly around in perspective view, exit on right click and escape, keep the current camera position. (default flying behaviour, usually done with right click)
 
 `RhinosCanFlyOptions` pops up a panel where you can change keybindings / features (same menu is also in Tools -> Options... -> Rhinos Can Fly).
 
+## Extra Commands
+
+`RhinosCanFlyTempFly` goes back to the initial camera position after flight ends, this can be set to default behaviour in options.
+
 `RhinosCanFlySetSpeed` sets the current flying speed, you can also use a bind or the mousewheel up / down in settings.
 
-`RhinosCanFlyPan` pans around via a toggle (extra, if you want the functionality rhino doesn't provide)
+`RhinosCanFlyPan` pans around via a toggle (extra, if you want the functionality Rhino doesn't provide).
 
-`RhinosCanFlyPivot` pivots around via a toggle (extra, same)
+`RhinosCanFlyPivot` pivots around via a toggle (extra, same).
 
 ## Options
 
@@ -34,16 +44,6 @@ https://github.com/user-attachments/assets/52dc3237-e12b-4a54-8776-88f6b6475fac
 
 Install in Rhino itself, run `PackageManager` and search for `RhinosCanFly`, click install and restart Rhino.
 
-## Other
-
-[Mcneel / Rhino Forum Link](https://discourse.mcneel.com/t/rhinos-can-fly-wasd-game-engine-fly-camera-controls-for-rhino/220880)
-
-[Food 4 Rhino Link](https://www.food4rhino.com/en/app/rhinos-can-fly-rhinoscanfly-flying-custom-perspective-view)
-
-[Building On Windows](./docs/building-on-windows.md)
-
-[Other Installation Options](./docs/other-installation-options.md)
-
 ## Artistic Logo / Icon
 
 ![image](./docs/img/rcf-logo.png)
@@ -52,11 +52,11 @@ We might have to use cardboard wings, but it works. Credit to Peter for the arti
 
 ## If you care about file meta data
 
-If you enable "save speed to file" it will write the current speed to your document/file. Just disable it if you don't want any persisted state.
+If you enable "save current speed to document" it will write the current speed to your Rhino document. Just disable it if you don't want any persisted state.
 
 It only saves "RhinosCanFly\FlyingSpeed"
 
-The project still has a config file for the normal settings, and the options menu will show you the full path like `C:\Users\<username>\AppData\Roaming\McNeel\Rhinoceros\8.0\settings\rhinos-can-fly-config.json` and the raw json content.
+The project still has a config file for the normal settings, and the options menu will show you the full path like `C:\Users\<username>\AppData\Roaming\McNeel\Rhinoceros\<version>\settings\rhinos-can-fly-config.json` and the raw JSON content.
 
 ## Disclaimer
 

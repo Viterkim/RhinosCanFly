@@ -14,16 +14,18 @@ let current_lens () =
 let current_speed (config: FlyConfigFile) =
     let document = RhinoDoc.ActiveDoc
 
-    FlightSpeed.current
-        document
-        config.load_speed_from_document
-        config.minimum_speed
-        config.maximum_speed
-        config.base_speed
+    let range: SpeedRange =
+        { minimum = config.minimum_speed
+          maximum = config.maximum_speed }
+
+    FlightSpeed.current document config.load_speed_from_document range config.base_speed
 
 let load (control: SettingsControl) =
     match RuntimeSettings.current () with
-    | Error error -> control.ShowError $"Could not load configuration: {error}"
+    | Error error ->
+        control.LoadConfig ConfigSchema.defaults
+        control.ShowRuntimeState(current_speed ConfigSchema.defaults, current_lens ())
+        control.ShowError $"Could not load configuration: {error}"
     | Ok result ->
         control.LoadConfig result.config_file
 
@@ -40,21 +42,29 @@ let load (control: SettingsControl) =
         | messages -> control.ShowError(String.concat "; " messages)
 
 let save (control: SettingsControl) =
-    match control.ReadConfig() with
-    | Error error ->
-        control.ShowError error
-        RhinoApp.WriteLine $"RhinosCanFly settings were not saved: {error}"
-        false
-    | Ok config ->
-        let result = RuntimeSettings.save_and_apply config
-        control.RefreshRawIfVisible()
-
-        match result with
-        | Ok _ ->
-            control.ShowRuntimeState(current_speed config, current_lens ())
-            control.ClearError()
-            true
+    try
+        match control.ReadConfig() with
         | Error error ->
             control.ShowError error
-            RhinoApp.WriteLine $"RhinosCanFly settings error: {error}"
+            SettingsUi.report_error $"RhinosCanFly settings were not saved: {error}"
             false
+        | Ok config ->
+            match RuntimeSettings.save_and_apply config with
+            | Ok saved ->
+                control.RefreshRawIfVisible()
+                control.ShowRuntimeState(current_speed saved.config_file, current_lens ())
+                control.ClearError()
+                true
+            | Error error ->
+                control.ShowError error
+                SettingsUi.report_error $"RhinosCanFly settings error: {error}"
+                false
+    with error ->
+        try
+            control.ShowError $"Could not save settings: {error.Message}"
+        with _ ->
+            ()
+
+        SettingsUi.report_error $"RhinosCanFly settings error: {error.Message}"
+
+        false

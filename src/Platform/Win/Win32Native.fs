@@ -6,6 +6,9 @@ open System.Runtime.InteropServices
 open System.Text
 
 [<Literal>]
+let WM_NULL = 0x0000
+
+[<Literal>]
 let WM_MOUSELEAVE = 0x02A3
 
 [<Literal>]
@@ -13,21 +16,6 @@ let TTM_POP = 0x041C
 
 [<Literal>]
 let TOOLTIP_WINDOW_CLASS = "tooltips_class32"
-
-[<Literal>]
-let INPUT_MOUSE = 0u
-
-[<Literal>]
-let INPUT_KEYBOARD = 1u
-
-[<Literal>]
-let MOUSEEVENTF_MIDDLEDOWN = 0x00000020u
-
-[<Literal>]
-let MOUSEEVENTF_MIDDLEUP = 0x00000040u
-
-[<Literal>]
-let KEYEVENTF_KEYUP = 0x0002u
 
 [<Literal>]
 let WHEEL_DELTA = 120
@@ -42,6 +30,15 @@ let QS_ALLINPUT = 0x04FFu
 let MWMO_INPUTAVAILABLE = 0x0004u
 
 [<Literal>]
+let RDW_INVALIDATE = 0x0001u
+
+[<Literal>]
+let RDW_ALLCHILDREN = 0x0080u
+
+[<Literal>]
+let RDW_FRAME = 0x0400u
+
+[<Literal>]
 let WAIT_FAILED = 0xFFFFFFFFu
 
 [<Literal>]
@@ -51,7 +48,52 @@ let INFINITE = 0xFFFFFFFFu
 let WH_KEYBOARD = 2
 
 [<Literal>]
+let WH_MOUSE = 7
+
+[<Literal>]
 let HC_ACTION = 0
+
+[<Literal>]
+let KEYBOARD_EXTENDED_KEY = 0x01000000L
+
+[<Literal>]
+let KEYBOARD_PREVIOUSLY_DOWN = 0x40000000L
+
+[<Literal>]
+let KEYBOARD_KEY_RELEASED = 0x80000000L
+
+[<Literal>]
+let KEYBOARD_SCAN_CODE_MASK = 0x00FF0000L
+
+[<Literal>]
+let KEYBOARD_SCAN_CODE_SHIFT = 16
+
+[<Literal>]
+let RIGHT_SHIFT_SCAN_CODE = 0x36
+
+[<Literal>]
+let WM_RBUTTONDOWN = 0x0204
+
+[<Literal>]
+let WM_RBUTTONUP = 0x0205
+
+[<Literal>]
+let WM_RBUTTONDBLCLK = 0x0206
+
+[<Literal>]
+let WM_XBUTTONDOWN = 0x020B
+
+[<Literal>]
+let WM_XBUTTONUP = 0x020C
+
+[<Literal>]
+let WM_XBUTTONDBLCLK = 0x020D
+
+[<Literal>]
+let XBUTTON1 = 0x0001u
+
+[<Literal>]
+let XBUTTON2 = 0x0002u
 
 [<Literal>]
 let VK_LBUTTON = 0x01
@@ -108,41 +150,19 @@ type NativeRect =
     val mutable bottom: int
 
 [<Struct; StructLayout(LayoutKind.Sequential)>]
-type MouseInput =
-    val mutable dx: int
-    val mutable dy: int
+type MouseHookData =
+    val mutable point: NativePoint
+    val mutable window: nativeint
+    val mutable hit_test_code: uint32
+    val mutable extra_info: unativeint
     val mutable mouse_data: uint32
-    val mutable flags: uint32
-    val mutable time: uint32
-    val mutable extra_info: unativeint
-
-[<Struct; StructLayout(LayoutKind.Sequential)>]
-type KeyboardInput =
-    val mutable virtual_key: uint16
-    val mutable scan_code: uint16
-    val mutable flags: uint32
-    val mutable time: uint32
-    val mutable extra_info: unativeint
-
-[<Struct; StructLayout(LayoutKind.Explicit)>]
-type InputData =
-    [<FieldOffset(0)>]
-    val mutable mouse: MouseInput
-
-    [<FieldOffset(0)>]
-    val mutable keyboard: KeyboardInput
-
-[<Struct; StructLayout(LayoutKind.Sequential)>]
-type NativeInput =
-    val mutable input_type: uint32
-    val mutable data: InputData
 
 type EnumThreadWindowCallback = delegate of nativeint * nativeint -> bool
 
 [<UnmanagedFunctionPointer(CallingConvention.Winapi)>]
 type HookProcedure = delegate of int * nativeint * nativeint -> nativeint
 
-type KeyboardHook =
+type WindowsHook =
     { handle: nativeint
       procedure: HookProcedure }
 
@@ -152,29 +172,56 @@ extern int16 GetAsyncKeyState(int virtual_key)
 [<DllImport("user32.dll", SetLastError = true)>]
 extern bool GetCursorPos(NativePoint& point)
 
+[<DllImport("user32.dll")>]
+extern nativeint WindowFromPoint(NativePoint point)
+
 [<DllImport("user32.dll", SetLastError = true)>]
 extern bool SetCursorPos(int x, int y)
 
 [<DllImport("user32.dll", EntryPoint = "ClipCursor", SetLastError = true)>]
 extern bool ClipCursorRect(NativeRect& rectangle)
 
-[<DllImport("user32.dll", EntryPoint = "ClipCursor", SetLastError = true)>]
-extern bool ClipCursorClear(nativeint rectangle)
+[<DllImport("user32.dll", SetLastError = true)>]
+extern bool GetClipCursor(NativeRect& rectangle)
 
 [<DllImport("user32.dll")>]
 extern int ShowCursor(bool show)
 
 [<DllImport("user32.dll")>]
-extern nativeint SetFocus(nativeint window)
+extern bool IsChild(nativeint parent, nativeint window)
+
+[<DllImport("user32.dll")>]
+extern bool IsWindow(nativeint window)
+
+[<DllImport("user32.dll")>]
+extern bool IsWindowEnabled(nativeint window)
 
 [<DllImport("user32.dll")>]
 extern nativeint GetForegroundWindow()
+
+[<DllImport("user32.dll")>]
+extern nativeint SetFocus(nativeint window)
+
+[<DllImport("user32.dll")>]
+extern bool SetForegroundWindow(nativeint window)
 
 [<DllImport("user32.dll")>]
 extern nativeint GetAncestor(nativeint window, uint32 flags)
 
 [<DllImport("user32.dll")>]
 extern nativeint SendMessage(nativeint window, int message, nativeint wparam, nativeint lparam)
+
+[<DllImport("user32.dll", SetLastError = true)>]
+extern bool PostMessage(nativeint window, int message, nativeint wparam, nativeint lparam)
+
+[<DllImport("user32.dll", SetLastError = true)>]
+extern uint32 MsgWaitForMultipleObjectsEx(
+    uint32 object_count,
+    nativeint handles,
+    uint32 milliseconds,
+    uint32 wake_mask,
+    uint32 flags
+)
 
 [<DllImport("user32.dll")>]
 extern uint32 GetWindowThreadProcessId(nativeint window, uint32& process_id)
@@ -201,19 +248,7 @@ extern nativeint CallNextHookEx(nativeint hook, int code, nativeint wparam, nati
 extern uint32 GetCurrentThreadId()
 
 [<DllImport("user32.dll", SetLastError = true)>]
-extern uint32 SendInput(uint32 input_count, NativeInput[] inputs, int input_size)
-
-[<DllImport("user32.dll", SetLastError = true)>]
-extern bool InvalidateRect(nativeint window, nativeint rectangle, bool erase)
-
-[<DllImport("user32.dll", SetLastError = true)>]
 extern bool UpdateWindow(nativeint window)
 
 [<DllImport("user32.dll", SetLastError = true)>]
-extern uint32 MsgWaitForMultipleObjectsEx(
-    uint32 object_count,
-    nativeint handles,
-    uint32 milliseconds,
-    uint32 wake_mask,
-    uint32 flags
-)
+extern bool RedrawWindow(nativeint window, nativeint update_rectangle, nativeint update_region, uint32 flags)

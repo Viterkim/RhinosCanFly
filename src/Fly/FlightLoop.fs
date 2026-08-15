@@ -6,73 +6,106 @@ open Rhino
 [<Literal>]
 let maximum_frame_delta_seconds = 0.05
 
-let run (rawInput: InputAccumulator.State) (state: FlyState) =
+let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.State) (state: FlyState) =
     let clock = Stopwatch.StartNew()
-    let mutable previousFrame = clock.Elapsed.TotalSeconds
+    let mutable previousFrameSeconds = clock.Elapsed.TotalSeconds
     let mutable movementActive = false
+    let mutable rawInputReady = true
 
-    while state.running do
-        if not movementActive then
+    while FlyState.is_running state do
+        if not movementActive && not rawInputReady then
             PlatformInput.wait_for_input ()
 
         RhinoApp.Wait()
 
-        FlightControls.update_keyboard_pivot_input state
-        FlightCamera.update_navigation_mode rawInput state
-        let mouseChange = FlightCamera.apply_mouse_input rawInput state
+        let observedRevision = InputAccumulator.work_revision rawInput
+        FlightControls.update_state rawInput state
+        let mutable mouseChange = NoCameraChange
 
-        let mutable movementChanged =
-            match mouseChange with
-            | PositionChanged
-            | PositionAndDirectionChanged -> true
-            | DirectionChanged
-            | NoCameraChange -> false
+        if not (FlyState.is_running state) then
+            InputAccumulator.discard_transient_input rawInput
+        else
+            FlightControls.update_keyboard_navigation_input state
+            FlightCamera.update_navigation_mode rawInput state
+            mouseChange <- FlightCamera.apply_mouse_input rawInput state
 
-        let mutable directionChanged =
-            match mouseChange with
-            | DirectionChanged
-            | PositionAndDirectionChanged -> true
-            | PositionChanged
-            | NoCameraChange -> false
+        PlatformInput.acknowledge_raw_input_wake inputWake
+        rawInputReady <- InputAccumulator.work_pending_since observedRevision rawInput
 
-        if state.running then
-            FlightControls.update_state rawInput state
+        if FlyState.is_running state then
+            let mutable movementChanged =
+                match mouseChange with
+                | PositionChanged
+                | PositionAndDirectionChanged -> true
+                | DirectionChanged
+                | NoCameraChange -> false
 
-            if state.running then
-                let input = FlightControls.read_movement state
-                let requestedPivotDirection = FlightInput.pivot_direction input
+            let mutable directionChanged =
+                match mouseChange with
+                | DirectionChanged
+                | PositionAndDirectionChanged -> true
+                | PositionChanged
+                | NoCameraChange -> false
 
-                let movement =
-                    match state.pivot_input_state, requestedPivotDirection with
-                    | PivotInputArmed, _ -> input
-                    | WaitingForNeutralPivotInput, NoPivot ->
-                        state.pivot_input_state <- PivotInputArmed
+            let input = FlightControls.read_movement state
+            let requestedPivotDirection = FlightInput.key_pivot_direction input
+
+            let movement =
+                match state.key_pivot_input_state with
+                | KeyPivotInputArmed -> input
+                | WaitingForNeutralKeyPivotInput ->
+                    match requestedPivotDirection with
+                    | NoKeyPivot ->
+                        state.key_pivot_input_state <- KeyPivotInputArmed
                         input
-                    | WaitingForNeutralPivotInput, (PivotLeft | PivotRight) -> FlightInput.without_pivot input
+                    | KeyPivotLeft
+                    | KeyPivotRight -> FlightInput.without_key_pivot input
 
-                let now = clock.Elapsed.TotalSeconds
-                let currentlyMoving = FlightInput.movement_active movement
-                let pivotDirection = FlightInput.pivot_direction movement
+            let now = clock.Elapsed.TotalSeconds
+            let currentlyMoving = FlightInput.movement_active movement
+            let pivotDirection = FlightInput.key_pivot_direction movement
 
-                if pivotDirection <> NoPivot && pivotDirection <> state.pivot_direction then
-                    state.pivot_target <- FlightCamera.pivot_target state.view state.gumball_pivot_target
+            if pivotDirection <> NoKeyPivot && pivotDirection <> state.key_pivot_direction then
+                state.key_pivot_target <- FlightCamera.navigation_target state state.gumball_pivot_target
 
-                state.pivot_direction <- pivotDirection
+            state.key_pivot_direction <- pivotDirection
 
-                if movementActive && currentlyMoving then
-                    let dt = min (now - previousFrame) maximum_frame_delta_seconds
+            if movementActive && currentlyMoving then
+                let dt = min (now - previousFrameSeconds) maximum_frame_delta_seconds
+                let previousCamera = state.camera
 
-                    state.camera <- Movement.step state.config.movement movement state.pivot_target dt state.camera
+                let movementStep =
+                    Movement.step state.config.movement movement state.key_pivot_target dt previousCamera
+
+                let nextCamera = movementStep.camera
+
+                if not (CameraState.valid nextCamera) then
+                    state.restore_camera_on_exit <- true
+                    failwith "Movement produced an invalid camera state."
+
+                match state.active_mouse_navigation with
+                | MousePivot pivotCenter ->
+                    state.active_mouse_navigation <- MousePivot(pivotCenter + movementStep.translation)
+                | MouseLook
+                | MousePan _ -> ()
+
+                if nextCamera.position <> previousCamera.position then
                     movementChanged <- true
 
-                    if pivotDirection <> NoPivot then
-                        directionChanged <- true
+                if nextCamera.yaw <> previousCamera.yaw || nextCamera.pitch <> previousCamera.pitch then
+                    directionChanged <- true
 
-                previousFrame <- now
-                movementActive <- currentlyMoving
+                state.camera <- nextCamera
 
-        match movementChanged, directionChanged with
-        | true, true -> FlightCamera.apply state PositionAndDirectionChanged
-        | true, false -> FlightCamera.apply state PositionChanged
-        | false, true -> FlightCamera.apply state DirectionChanged
-        | false, false -> ()
+            previousFrameSeconds <- now
+            movementActive <- currentlyMoving
+
+            // Keep this boring instead of matching a tuple. The F# tuple form
+            // allocates System.Tuple<bool, bool> in this hot path.
+            if movementChanged then
+                if directionChanged then
+                    FlightCamera.apply state PositionAndDirectionChanged
+                else
+                    FlightCamera.apply state PositionChanged
+            elif directionChanged then
+                FlightCamera.apply state DirectionChanged

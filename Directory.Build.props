@@ -18,11 +18,11 @@
 
   <PropertyGroup Condition="'$(RhinoMajorVersion)' == '8'">
     <TargetFramework Condition="'$(TargetFramework)' == ''">net8.0-windows</TargetFramework>
-    <RhinoCommonPackageVersion Condition="'$(RhinoCommonPackageVersion)' == ''">8.32.26160.13001</RhinoCommonPackageVersion>
+    <RhinoCommonPackageVersion Condition="'$(RhinoCommonPackageVersion)' == ''">8.34.26223.11001</RhinoCommonPackageVersion>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(RhinoMajorVersion)' == '9'">
     <TargetFramework Condition="'$(TargetFramework)' == ''">net10.0-windows</TargetFramework>
-    <RhinoCommonPackageVersion Condition="'$(RhinoCommonPackageVersion)' == ''">9.0.26216.12303-beta</RhinoCommonPackageVersion>
+    <RhinoCommonPackageVersion Condition="'$(RhinoCommonPackageVersion)' == ''">9.0.26223.12303-beta</RhinoCommonPackageVersion>
   </PropertyGroup>
 </Project>

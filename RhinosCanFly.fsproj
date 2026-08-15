@@ -4,7 +4,7 @@
     <TargetExt>.rhp</TargetExt>
     <AssemblyName>RhinosCanFly</AssemblyName>
     <RootNamespace>RhinosCanFly</RootNamespace>
-    <ExplicitInputTypesSeverity Condition="'$(ExplicitInputTypesSeverity)' == ''">error</ExplicitInputTypesSeverity>
+    <SourceStyleSeverity Condition="'$(SourceStyleSeverity)' == ''">error</SourceStyleSeverity>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <!-- Allow restore/design-time project loading on non-Windows hosts. -->
     <EnableWindowsTargeting Condition="'$(RhinosCanFlyPlatform)' == 'win'">true</EnableWindowsTargeting>
@@ -28,12 +28,12 @@
   <ItemGroup>
     <EmbeddedResource Include="src/Resources/RhinosCanFly.ico" LogicalName="RhinosCanFly.Resources.PluginIcon.ico" />
   </ItemGroup>
-  <Target Name="CheckExplicitInputTypes" BeforeTargets="CoreCompile">
-    <Exec Command="dotnet fsi &quot;$(MSBuildProjectDirectory)/tools/check-explicit-input-types.fsx&quot; -- &quot;$(MSBuildProjectDirectory)/src&quot;" IgnoreExitCode="true">
-      <Output TaskParameter="ExitCode" PropertyName="ExplicitInputTypesExitCode" />
+  <Target Name="CheckSourceStyle" BeforeTargets="CoreCompile">
+    <Exec Command="dotnet fsi &quot;$(MSBuildProjectDirectory)/tools/check-source-style.fsx&quot; -- &quot;$(MSBuildProjectDirectory)/src&quot;" IgnoreExitCode="true">
+      <Output TaskParameter="ExitCode" PropertyName="SourceStyleExitCode" />
     </Exec>
-    <Warning Condition="'$(ExplicitInputTypesExitCode)' != '0' and '$(ExplicitInputTypesSeverity)' != 'error'" Code="RCF0001" Text="Some F# function inputs are missing explicit type annotations. Set ExplicitInputTypesSeverity=error to fail the build." />
-    <Error Condition="'$(ExplicitInputTypesExitCode)' != '0' and '$(ExplicitInputTypesSeverity)' == 'error'" Code="RCF0001" Text="Some F# function inputs are missing explicit type annotations." />
+    <Warning Condition="'$(SourceStyleExitCode)' != '0' and '$(SourceStyleSeverity)' != 'error'" Code="RCF0001" Text="F# source style checks failed. Set SourceStyleSeverity=error to fail the build." />
+    <Error Condition="'$(SourceStyleExitCode)' != '0' and '$(SourceStyleSeverity)' == 'error'" Code="RCF0001" Text="F# source style checks failed." />
   </Target>
   <Target Name="CheckPlatformBoundaries" BeforeTargets="CoreCompile">
     <Exec Command="dotnet fsi &quot;$(MSBuildProjectDirectory)/tools/check-platform-boundaries.fsx&quot; -- &quot;$(MSBuildProjectDirectory)/src&quot;" IgnoreExitCode="true">
@@ -55,9 +55,9 @@
     <Compile Include="src/Platform/Win/Win32Native.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/Win32.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/RawInputNative.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
-    <Compile Include="src/Platform/Win/KeyBindings.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/PlatformBindings.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Configuration/RuntimeConfig.fs" />
+    <Compile Include="src/Platform/Win/FlightKeyboardSuppression.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Fly/FlightTypes.fs" />
     <Compile Include="src/Configuration/ConfigSchema.fs" />
     <Compile Include="src/Configuration/ConfigStorage.fs" />
@@ -67,21 +67,19 @@
     <Compile Include="src/Platform/Win/RawInputReceiver.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/RawInputThread.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/RawInputWake.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
-    <Compile Include="src/Platform/Win/FlightKeyboardSuppression.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/ViewNavigationTypes.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/ViewNavigationState.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/ViewLatchTransitions.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
+    <Compile Include="src/Platform/Win/RightClickTransitions.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/SideButtonTransitions.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/MouseButtonOverrides.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/PlatformInput.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
-    <Compile Include="src/Fly/FlightRedraw.fs" />
+    <Compile Include="src/Fly/ViewTarget.fs" />
     <Compile Include="src/Fly/FlightCamera.fs" />
     <Compile Include="src/Fly/FlightControls.fs" />
     <Compile Include="src/Fly/FlightState.fs" />
     <Compile Include="src/Fly/FlightLoop.fs" />
     <Compile Include="src/Fly/FlightSession.fs" />
-    <Compile Include="src/Fly/Runtime.fs" />
-    <Compile Include="src/Input/RightClickEntry.fs" />
     <Compile Include="src/Configuration/RuntimeSettings.fs" />
     <Compile Include="src/UI/SettingsUi.fs" />
     <Compile Include="src/UI/SettingsLayout.fs" />
@@ -93,6 +91,6 @@
     <Compile Include="src/UI/SettingsDialog.fs" />
     <Compile Include="src/Plugin/Plugin.fs" />
     <Compile Include="src/Commands/Commands.fs" />
-    <Compile Include="src/Commands/FlyCommand.fs" />
+    <Compile Include="src/Commands/RhinoCommands.fs" />
   </ItemGroup>
 </Project>

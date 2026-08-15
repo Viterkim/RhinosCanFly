@@ -112,7 +112,8 @@ let violationsInSource (source: string) =
         |> Seq.map (fun (kind: string) -> fragment.line_number, fragment.text, kind))
     |> Seq.toList
 
-// Tests
+let privateKeywordPattern = Regex(@"\bprivate\b", RegexOptions.Compiled)
+
 let checkerSelfTests =
     [ "let private sample_rate = 120L", false
       "let internal sample_value: int = 1", false
@@ -145,6 +146,19 @@ for source, expectsViolation in checkerSelfTests do
     if hasViolation <> expectsViolation then
         failwith $"Explicit-input lint self-test failed for: {source}"
 
+let privateKeywordSelfTests =
+    [ "let private value = 1", true
+      "let mutable private value = 1", true
+      "let rec private loop (value: int) = loop value", true
+      "type private State = Ready", true
+      "type State = private | Ready", true
+      "let privateValue = 1", false
+      "let value = 1", false ]
+
+for source, expectsViolation in privateKeywordSelfTests do
+    if privateKeywordPattern.IsMatch(source) <> expectsViolation then
+        failwith $"No-private lint self-test failed for: {source}"
+
 let violations =
     Directory.EnumerateFiles(sourceRoot, "*.fs", SearchOption.AllDirectories)
     |> Seq.collect (fun (path: string) ->
@@ -154,8 +168,23 @@ let violations =
             $"{path}({lineNumber}): {kind} input is missing an explicit type: {line.Trim()}"))
     |> Seq.toList
 
+let privateKeywordViolations =
+    Directory.EnumerateFiles(sourceRoot, "*.fs", SearchOption.AllDirectories)
+    |> Seq.collect (fun (path: string) ->
+        File.ReadLines path
+        |> Seq.mapi (fun (index: int) (line: string) -> index + 1, line)
+        |> Seq.choose (fun (lineNumber: int, line: string) ->
+            if privateKeywordPattern.IsMatch line then
+                Some $"{path}({lineNumber}): the private keyword is not used in project source: {line.Trim()}"
+            else
+                None))
+    |> Seq.toList
+
 for violation in violations do
     Console.Error.WriteLine violation
 
-if not (List.isEmpty violations) then
+for violation in privateKeywordViolations do
+    Console.Error.WriteLine violation
+
+if not (List.isEmpty violations) || not (List.isEmpty privateKeywordViolations) then
     Environment.Exit 1

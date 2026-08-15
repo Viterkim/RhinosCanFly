@@ -1,227 +1,105 @@
 module RhinosCanFly.Platform.Win.SideButtonTransitions
 
 open System.Diagnostics
-open System.Drawing
-open System.Windows.Forms
-open Rhino.UI
 open RhinosCanFly
 open RhinosCanFly.Platform.Win.ViewNavigationTypes
 
 let is_down (button: SideButton) =
     let key =
         match button with
-        | Mouse4 -> Keys.XButton1
-        | Mouse5 -> Keys.XButton2
+        | Mouse4 -> Win32Native.VK_XBUTTON1
+        | Mouse5 -> Win32Native.VK_XBUTTON2
 
-    Win32Native.GetAsyncKeyState(int key) < 0s
+    Win32Native.GetAsyncKeyState key < 0s
 
-let begin_hold (state: State) (button: SideButton) (window: RootWindow) =
-    if ViewNavigationState.middle_mouse_down state then
-        ViewNavigationState.set_button_state state button (HoldActive window)
-    else
-        match Win32.send_middle_mouse true with
-        | Ok() ->
-            ViewNavigationState.set_button_state state button (HoldActive window)
-            state.side_button_restart_pending <- false
-            state.middle_mouse_modifiers_down <- ViewNavigationState.view_modifier_down ()
-        | Error error -> Debug.WriteLine $"RhinosCanFly mouse override: {error}"
+let begin_hold (state: State) (button: SideButton) (host: ViewportHostIdentity) =
+    ViewNavigationState.set_button_state state button (HoldActive host)
+    ViewNavigationState.keep_timer_running state
 
 let finish (state: State) (button: SideButton) =
     match ViewNavigationState.get_button_state state button with
     | Released -> ()
-    | WaitingForDrag _ -> ViewNavigationState.set_button_state state button Released
-    | TogglePressed window -> ViewNavigationState.set_button_state state button (ToggleLatched window)
+    | TogglePressed host -> ViewNavigationState.set_button_state state button (ToggleLatched host)
     | ToggleLatched _ -> ()
     | ToggleReleasePressed -> ViewNavigationState.set_button_state state button Released
-    | HoldActive window ->
-        ViewNavigationState.set_button_state state button Released
-
-        if not (ViewNavigationState.middle_mouse_down state) then
-            let releaseResult =
-                if state.side_button_restart_pending then
-                    state.side_button_restart_pending <- false
-                    Ok()
-                else
-                    Win32.send_middle_mouse false
-
-            match releaseResult with
-            | Ok() ->
-                state.middle_mouse_modifiers_down <- false
-
-                match ViewNavigationState.release_synthetic_shift state with
-                | Ok() -> ()
-                | Error error -> Debug.WriteLine $"RhinosCanFly mouse override: {error}"
-            | Error error ->
-                ViewNavigationState.set_button_state state button (HoldActive window)
-                Debug.WriteLine $"RhinosCanFly mouse override: {error}"
+    | HoldActive _ -> ViewNavigationState.set_button_state state button Released
 
     ViewNavigationState.stop_timer_if_idle state
 
-let update_middle_mouse_modifiers (state: State) =
-    if
-        ViewNavigationState.any_button_holds_middle state
-        && not (ViewNavigationState.view_latch_engaged state)
-    then
-        let modifiersDown = ViewNavigationState.view_modifier_down ()
-
-        if state.side_button_restart_pending then
-            match Win32.send_middle_mouse true with
-            | Ok() ->
-                state.side_button_restart_pending <- false
-                state.middle_mouse_modifiers_down <- modifiersDown
-            | Error error ->
-                Debug.WriteLine $"RhinosCanFly mouse override: {error}"
-
-                match ViewNavigationState.release_all state with
-                | Ok() -> ()
-                | Error cleanupError -> Debug.WriteLine $"RhinosCanFly mouse override cleanup: {cleanupError}"
-        elif modifiersDown <> state.middle_mouse_modifiers_down then
-            match Win32.send_middle_mouse false with
-            | Ok() -> state.side_button_restart_pending <- true
-            | Error error -> Debug.WriteLine $"RhinosCanFly mouse override: {error}"
-
-let begin_drag (state: State) (button: SideButton) (position: Point) (window: RootWindow) =
-    if ViewNavigationState.get_button_state state button = Released then
-        ViewNavigationState.set_button_state state button (WaitingForDrag(position, window))
-
-        ViewNavigationState.keep_timer_running state
-
-let update_hold_drag (state: State) (button: SideButton) (position: Point) =
-    match ViewNavigationState.get_button_state state button with
-    | WaitingForDrag(start, window) when ViewNavigationState.moved_enough state start position ->
-        begin_hold state button window
-    | Released
-    | WaitingForDrag _
-    | HoldActive _
-    | TogglePressed _
-    | ToggleLatched _
-    | ToggleReleasePressed -> ()
-
 let stop_toggle (state: State) (button: SideButton) (nextState: SideButtonState) =
-    let previous = ViewNavigationState.get_button_state state button
     ViewNavigationState.set_button_state state button nextState
+    ViewNavigationState.stop_timer_if_idle state
 
-    if ViewNavigationState.middle_mouse_down state then
-        ViewNavigationState.stop_timer_if_idle state
-    else
-        let releaseResult =
-            if state.side_button_restart_pending then
-                state.side_button_restart_pending <- false
-                Ok()
-            else
-                Win32.send_middle_mouse false
-
-        match releaseResult with
-        | Ok() ->
-            state.middle_mouse_modifiers_down <- false
-            ViewNavigationState.stop_timer_if_idle state
-
-            match ViewNavigationState.release_synthetic_shift state with
-            | Ok() -> ()
-            | Error error -> Debug.WriteLine $"RhinosCanFly mouse override: {error}"
-        | Error error ->
-            ViewNavigationState.set_button_state state button previous
-            Debug.WriteLine $"RhinosCanFly mouse override: {error}"
-
-let toggle (state: State) (button: SideButton) (window: RootWindow) =
+let toggle (state: State) (button: SideButton) (host: ViewportHostIdentity) =
     match ViewNavigationState.get_button_state state button with
     | Released ->
-        let start () =
-            ViewNavigationState.set_button_state state button (TogglePressed window)
-
-            ViewNavigationState.keep_timer_running state
-
-        if ViewNavigationState.middle_mouse_down state then
-            start ()
-        else
-            match Win32.send_middle_mouse true with
-            | Ok() ->
-                state.side_button_restart_pending <- false
-                state.middle_mouse_modifiers_down <- ViewNavigationState.view_modifier_down ()
-                start ()
-            | Error error -> Debug.WriteLine $"RhinosCanFly mouse override: {error}"
+        ViewNavigationState.set_button_state state button (TogglePressed host)
+        ViewNavigationState.keep_timer_running state
     | ToggleLatched _ -> stop_toggle state button ToggleReleasePressed
-    | WaitingForDrag _
     | HoldActive _
     | TogglePressed _
     | ToggleReleasePressed -> ()
 
-let handle_down (state: State) (button: SideButton) (position: Point) (window: RootWindow) =
+let handle_down (state: State) (button: SideButton) (host: ViewportHostIdentity) =
     let mode = ViewNavigationState.mode_for state button
 
-    if ViewNavigationState.view_latch_engaged state then
+    let otherButtonEngaged =
+        match button with
+        | Mouse4 ->
+            match state.mouse5 with
+            | Released -> false
+            | HoldActive _
+            | TogglePressed _
+            | ToggleLatched _
+            | ToggleReleasePressed -> true
+        | Mouse5 ->
+            match state.mouse4 with
+            | Released -> false
+            | HoldActive _
+            | TogglePressed _
+            | ToggleLatched _
+            | ToggleReleasePressed -> true
+
+    if otherButtonEngaged then
+        ()
+    elif ViewNavigationState.view_latch_engaged state then
         match ViewLatchTransitions.release state with
         | Error error -> Debug.WriteLine $"RhinosCanFly mouse override: {error}"
         | Ok() ->
             match mode with
-            | Disabled -> ()
-            | Hold -> begin_drag state button position window
-            | Toggle ->
+            | MouseButtonPivotMode.Off -> ()
+            | MouseButtonPivotMode.Hold -> begin_hold state button host
+            | MouseButtonPivotMode.Toggle ->
                 ViewNavigationState.set_button_state state button ToggleReleasePressed
                 ViewNavigationState.keep_timer_running state
+            | _ -> ()
     else
         match mode with
-        | Disabled -> ()
-        | Hold -> begin_drag state button position window
-        | Toggle -> toggle state button window
+        | MouseButtonPivotMode.Off -> ()
+        | MouseButtonPivotMode.Hold -> begin_hold state button host
+        | MouseButtonPivotMode.Toggle -> toggle state button host
+        | _ -> ()
 
-let event_root_window (event: MouseCallbackEventArgs) =
-    if isNull event.View then
-        ViewNavigationState.foreground_root_window ()
-    else
-        ViewNavigationState.root_window event.View.Handle
+let process_hook_events (state: State) =
+    while state.lifecycle = Available && state.pending_side_button_events.Count > 0 do
+        match state.pending_side_button_events.Dequeue() with
+        | ButtonDown(button, host) when ViewNavigationState.foreground_root_window () = host.root_window ->
+            handle_down state button host
+        | ButtonDown _ -> ()
+        | ButtonUp button -> finish state button
 
-let update_from_move (state: State) (button: SideButton) (event: MouseCallbackEventArgs) =
-    match ViewNavigationState.mode_for state button, ViewNavigationState.view_latch_engaged state with
-    | _, true -> ()
-    | Disabled, false -> ()
-    | Hold, false ->
-        if is_down button then
-            begin_drag state button event.ViewportPoint (event_root_window event)
-            update_hold_drag state button event.ViewportPoint
-        elif ViewNavigationState.get_button_state state button <> Released then
-            finish state button
-    | Toggle, false ->
-        match ViewNavigationState.get_button_state state button, is_down button with
-        | Released, true
-        | ToggleLatched _, true -> toggle state button (event_root_window event)
-        | TogglePressed _, false
-        | ToggleReleasePressed, false -> finish state button
-        | Released, false
-        | WaitingForDrag _, _
-        | HoldActive _, _
-        | TogglePressed _, true
-        | ToggleLatched _, false
-        | ToggleReleasePressed, true -> ()
-
-let lost_focus (foreground: RootWindow) (buttonState: SideButtonState) =
-    match buttonState with
-    | WaitingForDrag(_, window)
-    | HoldActive window
-    | TogglePressed window
-    | ToggleLatched window -> foreground <> window
-    | Released
-    | ToggleReleasePressed -> false
+    ViewNavigationState.stop_timer_if_idle state
 
 let poll (state: State) (button: SideButton) =
     match ViewNavigationState.get_button_state state button with
     | Released -> ()
-    | WaitingForDrag _
     | HoldActive _
     | TogglePressed _
     | ToggleReleasePressed when not (is_down button) -> finish state button
-    | ToggleLatched window when ViewNavigationState.foreground_root_window () <> window ->
+    | ToggleLatched host when ViewNavigationState.foreground_root_window () <> host.root_window ->
         stop_toggle state button Released
     | ToggleLatched _ when is_down button -> stop_toggle state button ToggleReleasePressed
-    | WaitingForDrag _
     | HoldActive _
     | TogglePressed _
     | ToggleLatched _
     | ToggleReleasePressed -> ()
-
-let configured_mode (mode: MouseButtonPivotMode) =
-    match mode with
-    | MouseButtonPivotMode.Off -> Disabled
-    | MouseButtonPivotMode.Hold -> Hold
-    | MouseButtonPivotMode.Toggle -> Toggle
-    | _ -> Disabled

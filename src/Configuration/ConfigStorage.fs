@@ -2,6 +2,7 @@ module RhinosCanFly.ConfigStorage
 
 open System
 open System.IO
+open System.Text
 open System.Text.Json
 open System.Text.Json.Nodes
 open System.Text.Json.Serialization
@@ -19,15 +20,20 @@ let options =
     value
 
 let mutable settingsRoot: string option = None
+let mutable saveBlocked: string option = None
 
 let initialize (directory: string) =
     Directory.CreateDirectory directory |> ignore
     settingsRoot <- Some directory
+    saveBlocked <- None
+
+let settings_directory () =
+    match settingsRoot with
+    | Some directory -> directory
+    | None -> failwith "The RhinosCanFly settings directory has not been initialized."
 
 let path () =
-    match settingsRoot with
-    | Some directory -> Path.Combine(directory, "rhinos-can-fly-config.json")
-    | None -> failwith "The RhinosCanFly settings directory has not been initialized."
+    Path.Combine(settings_directory (), "rhinos-can-fly-config.json")
 
 let to_object (value: FlyConfigFile) =
     JsonSerializer.SerializeToNode(ConfigSchema.normalize_numbers value, options).AsObject()
@@ -35,9 +41,78 @@ let to_object (value: FlyConfigFile) =
 let json_content (json: JsonObject) =
     json.ToJsonString options + Environment.NewLine
 
+let documentOptions =
+    JsonDocumentOptions(AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip)
+
+let config_version (json: JsonObject) =
+    let mutable maximum = None
+
+    for property: Collections.Generic.KeyValuePair<string, JsonNode> in json do
+        if
+            String.Equals(property.Key, "config_version", StringComparison.OrdinalIgnoreCase)
+            && not (isNull property.Value)
+        then
+            try
+                let version = property.Value.GetValue<int>()
+
+                maximum <-
+                    match maximum with
+                    | Some current -> Some(max current version)
+                    | None -> Some version
+            with _ ->
+                ()
+
+    maximum
+
+let current_file_version (configPath: string) =
+    if not (File.Exists configPath) then
+        None
+    else
+        try
+            let content = File.ReadAllText configPath
+
+            match JsonNode.Parse(content, Nullable<JsonNodeOptions>(), documentOptions) with
+            | :? JsonObject as json -> config_version json
+            | _ -> None
+        with _ ->
+            None
+
+let future_version_error (version: int) =
+    $"The config version {version} is newer than this RhinosCanFly build supports ({ConfigSchema.current_version}). The file was left unchanged."
+
+let write_atomic (configPath: string) (content: string) =
+    let directory = Path.GetDirectoryName configPath
+
+    let temporaryPath =
+        Path.Combine(directory, $".{Path.GetFileName configPath}.{Guid.NewGuid():N}.tmp")
+
+    let backupPath = configPath + ".bak"
+
+    try
+        let bytes = UTF8Encoding(false).GetBytes content
+
+        do
+            use stream =
+                new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None)
+
+            stream.Write(bytes, 0, bytes.Length)
+            stream.Flush true
+
+        if File.Exists configPath then
+            File.Replace(temporaryPath, configPath, backupPath, true)
+        else
+            File.Move(temporaryPath, configPath)
+    finally
+        if File.Exists temporaryPath then
+            File.Delete temporaryPath
+
 let merge_known_values (target: JsonObject) (source: FlyConfigFile) =
     for property in to_object source do
-        target[property.Key] <- property.Value.DeepClone()
+        target[property.Key] <-
+            if isNull property.Value then
+                null
+            else
+                property.Value.DeepClone()
 
 let load () =
     try
@@ -53,7 +128,7 @@ let load () =
                 let content = File.ReadAllText configPath
 
                 try
-                    match JsonNode.Parse content with
+                    match JsonNode.Parse(content, Nullable<JsonNodeOptions>(), documentOptions) with
                     | :? JsonObject as value -> value
                     | _ ->
                         malformed <- true
@@ -61,6 +136,17 @@ let load () =
                 with :? JsonException ->
                     malformed <- true
                     to_object ConfigSchema.defaults
+
+        let futureVersion = config_version json
+
+        match futureVersion with
+        | Some version when version > ConfigSchema.current_version ->
+            let error = future_version_error version
+
+            saveBlocked <- Some error
+            failwith error
+        | Some _
+        | None -> ()
 
         let mutable changed = created || malformed
         let beforeRepair = json.ToJsonString()
@@ -170,7 +256,20 @@ let load () =
             changed <- true
 
         if changed then
-            File.WriteAllText(configPath, json_content json)
+            let lockPath = configPath + ".lock"
+
+            use _saveLock =
+                new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)
+
+            match current_file_version configPath with
+            | Some version when version > ConfigSchema.current_version ->
+                let error = future_version_error version
+                saveBlocked <- Some error
+                failwith error
+            | Some _
+            | None -> write_atomic configPath (json_content json)
+
+        saveBlocked <- None
 
         Ok
             { config_file = source
@@ -180,36 +279,51 @@ let load () =
         Error error.Message
 
 let save (source: FlyConfigFile) =
-    let normalizedSource = ConfigSchema.normalize_numbers source
+    match saveBlocked with
+    | Some error -> Error error
+    | None ->
+        let normalizedSource = ConfigSchema.normalize_numbers source
 
-    match ConfigSchema.compile normalizedSource with
-    | Error error -> Error error
-    | Ok config ->
-        try
-            let configPath = path ()
+        match ConfigSchema.compile normalizedSource with
+        | Error error -> Error error
+        | Ok config ->
+            try
+                let configPath = path ()
+                let lockPath = configPath + ".lock"
 
-            let configFile =
-                { normalizedSource with
-                    config_version = ConfigSchema.current_version }
+                use _saveLock =
+                    new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)
 
-            let json = to_object configFile
-            let content = json_content json
+                match current_file_version configPath with
+                | Some version when version > ConfigSchema.current_version ->
+                    let error = future_version_error version
+                    saveBlocked <- Some error
+                    failwith error
+                | Some _
+                | None -> saveBlocked <- None
 
-            let existing =
-                if File.Exists configPath then
-                    File.ReadAllText configPath
-                else
-                    ""
+                let configFile =
+                    { normalizedSource with
+                        config_version = ConfigSchema.current_version }
 
-            if existing <> content then
-                File.WriteAllText(configPath, content)
+                let json = to_object configFile
+                let content = json_content json
 
-            Ok
-                { config_file = configFile
-                  config = config
-                  messages = [] }
-        with error ->
-            Error error.Message
+                let existing =
+                    if File.Exists configPath then
+                        File.ReadAllText configPath
+                    else
+                        ""
+
+                if existing <> content then
+                    write_atomic configPath content
+
+                Ok
+                    { config_file = configFile
+                      config = config
+                      messages = [] }
+            with error ->
+                Error error.Message
 
 let read_raw () =
     try

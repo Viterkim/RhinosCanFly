@@ -1,89 +1,163 @@
 module RhinosCanFly.RuntimeSettings
 
+open System
+open System.Collections.Generic
+open System.Diagnostics
 open Rhino
 
 let mutable loadedConfig: ConfigLoadResult option = None
+let inputSuspensionIds = HashSet<int64>()
+
+let record_exception (context: string) (error: exn) =
+    let details = $"{DateTimeOffset.Now:O} {context}{Environment.NewLine}{error}"
+    Debug.WriteLine details
+
+    try
+        RhinoApp.WriteLine $"{context}: {error.Message}"
+    with outputError ->
+        Debug.WriteLine $"RhinosCanFly exception output failed: {outputError}"
 
 let current () =
     match loadedConfig with
     | Some loaded -> Ok loaded
     | None -> Error "The configuration has not been loaded. Restart Rhino and try again."
 
-let apply (loaded: ConfigLoadResult) =
-    let config = loaded.config_file
+let input_suspended () = inputSuspensionIds.Count > 0
 
-    let mouseOverrides: MouseOverrideConfig =
-        if config.enabled then
-            { mouse4 = config.mouse4_pivot_mode
-              mouse5 = config.mouse5_pivot_mode
-              shift_right_click = config.shift_right_click_mode
-              alt_right_click = config.alt_right_click_mode
-              exit_binding = Some loaded.config.bindings.exit_key
-              exit_on_left = config.exit_on_mouse_left
-              exit_on_right = config.exit_on_mouse_right }
-        else
-            { mouse4 = MouseButtonPivotMode.Off
-              mouse5 = MouseButtonPivotMode.Off
-              shift_right_click = ModifiedRightClickMode.Off
-              alt_right_click = ModifiedRightClickMode.Off
-              exit_binding = None
-              exit_on_left = false
-              exit_on_right = false }
+let apply_live (loaded: ConfigLoadResult) =
+    try
+        let config = loaded.config_file
 
-    let mouseButtonResult = PlatformInput.apply_mouse_button_overrides mouseOverrides
+        let mouseOverrides: MouseOverrideConfig =
+            if config.enabled then
+                { mouse4 = config.mouse4_pivot_mode
+                  mouse5 = config.mouse5_pivot_mode
+                  right_click_entry = config.right_click_entry_mode
+                  default_flight_mode = config.default_flight_mode
+                  shift_right_click = config.shift_right_click_mode
+                  alt_right_click = config.alt_right_click_mode
+                  exit_binding = Some loaded.config.bindings.exit_key
+                  exit_on_right = config.exit_on_mouse_right }
+            else
+                { mouse4 = MouseButtonPivotMode.Off
+                  mouse5 = MouseButtonPivotMode.Off
+                  right_click_entry = RightClickEntryMode.Off
+                  default_flight_mode = config.default_flight_mode
+                  shift_right_click = ModifiedRightClickMode.Off
+                  alt_right_click = ModifiedRightClickMode.Off
+                  exit_binding = None
+                  exit_on_right = false }
 
-    let entryEnabled, enterDuringCommands, entrySessionMode =
-        match config.right_click_entry_mode with
-        | RightClickEntryMode.Off -> false, false, FlightSessionMode.Persistent
-        | RightClickEntryMode.EnterFlying -> true, false, FlightSessionMode.Persistent
-        | RightClickEntryMode.EnterFlyingDuringCommands -> true, true, FlightSessionMode.Persistent
-        | RightClickEntryMode.EnterFlyingWhileHeld -> true, false, FlightSessionMode.WhileRightMouseHeld
-        | RightClickEntryMode.EnterFlyingWhileHeldDuringCommands -> true, true, FlightSessionMode.WhileRightMouseHeld
-        | _ -> false, false, FlightSessionMode.Persistent
+        match PlatformInput.apply_mouse_button_overrides mouseOverrides with
+        | Error error -> Error error
+        | Ok() ->
+            RepeatBehavior.apply config.commands_do_not_repeat
+            Ok()
+    with error ->
+        Debug.WriteLine $"RhinosCanFly live settings: {error}"
+        Error $"Could not apply live settings: {error.Message}"
 
-    RightClickEntry.configure
-        { fly_entry_enabled = config.enabled && entryEnabled
-          enter_during_commands = enterDuringCommands
-          session_mode = entrySessionMode
-          view_manipulation_enabled = PlatformInput.mouse_button_right_click_enabled () }
+let suspend_input () =
+    let platformResult =
+        try
+            PlatformInput.suspend_mouse_button_overrides ()
+        with error ->
+            record_exception "RhinosCanFly mouse override suspension failed" error
+            Error error.Message
 
-    RepeatBehavior.apply config.commands_do_not_repeat
-    mouseButtonResult
+    match platformResult with
+    | Error error -> Error error
+    | Ok lease ->
+        inputSuspensionIds.Add lease.id |> ignore
 
-let apply_speed_and_settings (document: RhinoDoc) (loaded: ConfigLoadResult) (requestedSpeed: float) =
-    let config = loaded.config_file
+        match lease.cleanup_error with
+        | Some error ->
+            try
+                RhinoApp.WriteLine $"RhinosCanFly input cleanup is incomplete: {error}"
+            with outputError ->
+                record_exception "RhinosCanFly input cleanup warning failed" outputError
+        | None -> ()
 
-    let speedResult =
-        FlightSpeed.set document config.save_speed_to_document config.minimum_speed config.maximum_speed requestedSpeed
+        Ok lease
 
-    let settingsResult = apply loaded
+let resume_input (lease: InputSuspensionLease) =
+    if not (inputSuspensionIds.Contains lease.id) then
+        Ok()
+    else
+        let lastSuspension = inputSuspensionIds.Count = 1
 
-    match speedResult, settingsResult with
-    | Ok speed, Ok() -> Ok speed
-    | Error speedError, Ok() -> Error speedError
-    | Ok _, Error settingsError -> Error $"Mouse overrides unavailable: {settingsError}"
-    | Error speedError, Error settingsError -> Error $"{speedError}; Mouse overrides unavailable: {settingsError}"
+        let platformResult =
+            try
+                PlatformInput.resume_mouse_button_overrides lease
+            with error ->
+                record_exception "RhinosCanFly mouse override resume failed" error
+                Error error.Message
 
-let save (config: FlyConfigFile) =
-    match ConfigStorage.save config with
-    | Error error -> Error $"Could not save settings: {error}"
-    | Ok loaded ->
-        loadedConfig <- Some loaded
-        Ok loaded
+        inputSuspensionIds.Remove lease.id |> ignore
+
+        match platformResult with
+        | Ok() ->
+            if lastSuspension then
+                PlatformInput.request_application_redraw ()
+
+            Ok()
+        | Error error -> Error error
+
+let complete_input_recovery () =
+    if inputSuspensionIds.Count > 0 then
+        Error "Input is still suspended by an active command."
+    else
+        current () |> Result.bind apply_live
+
+let candidate (config: FlyConfigFile) =
+    let source = ConfigSchema.normalize_numbers config
+
+    match ConfigSchema.compile source with
+    | Error error -> Error error
+    | Ok runtime ->
+        Ok
+            { config_file = source
+              config = runtime
+              messages = [] }
 
 let save_and_apply (config: FlyConfigFile) =
-    match save config with
+    match candidate config with
     | Error error -> Error error
-    | Ok loaded -> apply loaded
+    | Ok requested ->
+        match loadedConfig with
+        | None ->
+            match ConfigStorage.save requested.config_file with
+            | Error error -> Error $"Could not save settings: {error}"
+            | Ok saved ->
+                match apply_live saved with
+                | Ok() ->
+                    loadedConfig <- Some saved
+                    Ok saved
+                | Error error -> Error error
+        | Some previous ->
+            let rollback (error: string) =
+                match apply_live previous with
+                | Ok() -> Error error
+                | Error rollbackError -> Error $"{error}; rollback failed: {rollbackError}"
 
-let save_apply_and_set_speed (document: RhinoDoc) (config: FlyConfigFile) (requestedSpeed: float) =
-    match save config with
-    | Error error -> Error error
-    | Ok loaded -> apply_speed_and_settings document loaded requestedSpeed
+            match apply_live requested with
+            | Error error -> rollback error
+            | Ok() ->
+                match ConfigStorage.save requested.config_file with
+                | Ok saved ->
+                    loadedConfig <- Some saved
+                    Ok saved
+                | Error error -> rollback $"Could not save settings: {error}"
 
 let load_and_apply () =
     match ConfigStorage.load () with
     | Ok loaded ->
         loadedConfig <- Some loaded
-        apply loaded
+
+        if inputSuspensionIds.Count > 0 then
+            Ok()
+        else
+            apply_live loaded
     | Error error -> Error error
+
+let shutdown () = inputSuspensionIds.Clear()

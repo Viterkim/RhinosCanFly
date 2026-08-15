@@ -15,8 +15,11 @@ let with_config (run: ConfigLoadResult -> Result) =
 let run (sessionMode: FlightSessionMode) (document: RhinoDoc) =
     let view = document.Views.ActiveView
 
-    if
-        sessionMode = FlightSessionMode.WhileRightMouseHeld
+    if RuntimeSettings.input_suspended () then
+        RhinoApp.WriteLine "RhinosCanFly is unavailable while an Options dialog is open."
+        Result.Cancel
+    elif
+        sessionMode.lifetime = FlightLifetime.WhileRightMouseHeld
         && not (PlatformInput.right_mouse_button_down ())
     then
         Result.Cancel
@@ -32,7 +35,7 @@ let run (sessionMode: FlightSessionMode) (document: RhinoDoc) =
                 RhinoApp.WriteLine "RhinosCanFly is disabled in Options."
                 Result.Cancel
             else
-                match Runtime.run view loaded.config sessionMode with
+                match FlightSession.run view loaded.config sessionMode with
                 | Ok() -> Result.Success
                 | Error error ->
                     RhinoApp.WriteLine $"RhinosCanFly failed: {error}"
@@ -45,26 +48,14 @@ let set_speed (document: RhinoDoc) =
         let behavior = config.behavior
 
         let mutable speed =
-            FlightSpeed.current
-                document
-                behavior.load_speed_from_document
-                movement.minimum_speed
-                movement.maximum_speed
-                movement.base_speed
+            FlightSpeed.current document behavior.load_speed_from_document movement.speed_range movement.base_speed
 
         let result = RhinoGet.GetNumber("Flying speed", false, &speed)
 
         if result <> Result.Success then
             result
         else
-            match
-                FlightSpeed.set
-                    document
-                    behavior.save_speed_to_document
-                    movement.minimum_speed
-                    movement.maximum_speed
-                    speed
-            with
+            match FlightSpeed.set document behavior.save_speed_to_document movement.speed_range speed with
             | Ok saved ->
                 RhinoApp.WriteLine $"RhinosCanFly speed set to {saved}."
                 Result.Success
@@ -72,15 +63,64 @@ let set_speed (document: RhinoDoc) =
                 RhinoApp.WriteLine $"RhinosCanFly: {error}"
                 Result.Failure)
 
-let toggle_view_manipulation
-    (name: string)
-    (isActive: unit -> bool)
-    (start: Rhino.Display.RhinoView -> Result<unit, string>)
-    (stop: unit -> Result<unit, string>)
-    (document: RhinoDoc)
-    =
-    if isActive () then
-        match stop () with
+let show_options (document: RhinoDoc) =
+    if FlightSession.is_running () then
+        RhinoApp.WriteLine "Exit flight before opening RhinosCanFly Options."
+        Result.Cancel
+    else
+        match RuntimeSettings.suspend_input () with
+        | Error error ->
+            SettingsUi.report_error $"RhinosCanFly could not suspend input for Options: {error}"
+            Result.Failure
+        | Ok suspension ->
+            let mutable result = Result.Success
+
+            try
+                match suspension.cleanup_error with
+                | Some error ->
+                    SettingsUi.report_error
+                        $"RhinosCanFly Options cannot open because input cleanup is incomplete: {error}"
+
+                    result <- Result.Failure
+                | None ->
+                    try
+                        use dialog = new RhinosCanFlySettingsDialog()
+                        dialog.ShowForRhino document
+                    with error ->
+                        SettingsUi.report_error $"RhinosCanFly Options failed: {error.Message}"
+                        result <- Result.Failure
+            finally
+                match RuntimeSettings.resume_input suspension with
+                | Ok() -> ()
+                | Error error ->
+                    SettingsUi.report_error $"RhinosCanFly could not resume input after Options: {error}"
+                    result <- Result.Failure
+
+            result
+
+[<RequireQualifiedAccess>]
+type StandaloneNavigationMode =
+    | Pivot
+    | Pan
+
+let toggle_navigation_command (mode: StandaloneNavigationMode) (document: RhinoDoc) =
+    let name =
+        match mode with
+        | StandaloneNavigationMode.Pivot -> "RhinosCanFlyPivot"
+        | StandaloneNavigationMode.Pan -> "RhinosCanFlyPan"
+
+    let active =
+        match mode with
+        | StandaloneNavigationMode.Pivot -> PlatformInput.pivot_active ()
+        | StandaloneNavigationMode.Pan -> PlatformInput.pan_active ()
+
+    if active then
+        let stopped =
+            match mode with
+            | StandaloneNavigationMode.Pivot -> PlatformInput.stop_pivot ()
+            | StandaloneNavigationMode.Pan -> PlatformInput.stop_pan ()
+
+        match stopped with
         | Ok() -> Result.Success
         | Error error ->
             RhinoApp.WriteLine $"{name} failed: {error}"
@@ -104,24 +144,122 @@ let toggle_view_manipulation
                     RhinoApp.WriteLine $"{name}: move the cursor over the active viewport."
                     Result.Cancel
                 | Ok true ->
-                    match start view with
-                    | Ok() -> Result.Success
+                    let conflictingModeStopped =
+                        match mode with
+                        | StandaloneNavigationMode.Pivot -> PlatformInput.stop_pan ()
+                        | StandaloneNavigationMode.Pan -> PlatformInput.stop_pivot ()
+
+                    match conflictingModeStopped with
                     | Error error ->
                         RhinoApp.WriteLine $"{name} failed: {error}"
-                        Result.Failure)
+                        Result.Failure
+                    | Ok() ->
+                        let completion =
+                            if
+                                DefaultFlightMode.restores_navigation_commands loaded.config_file.default_flight_mode
+                            then
+                                let viewport = view.ActiveViewport
+                                let snapshot = CameraSnapshot.capture viewport
+                                let host = PlatformInput.capture_viewport_host view
+
+                                Some(
+                                    Action(fun () ->
+                                        if PlatformInput.viewport_host_exists host view then
+                                            CameraSnapshot.restore viewport snapshot
+
+                                            if PlatformInput.viewport_host_is_foreground host view then
+                                                view.Redraw())
+                                )
+                            else
+                                None
+
+                        let started =
+                            match mode with
+                            | StandaloneNavigationMode.Pivot -> PlatformInput.start_pivot view completion
+                            | StandaloneNavigationMode.Pan -> PlatformInput.start_pan view completion
+
+                        match started with
+                        | Ok() ->
+                            try
+                                let behavior = loaded.config.behavior
+                                let movement = loaded.config.movement
+
+                                let speed =
+                                    FlightSpeed.current
+                                        document
+                                        behavior.load_speed_from_document
+                                        movement.speed_range
+                                        movement.base_speed
+
+                                ViewTarget.apply behavior.view_target speed view.ActiveViewport
+                                Result.Success
+                            with error ->
+                                let cleanup =
+                                    match mode with
+                                    | StandaloneNavigationMode.Pivot -> PlatformInput.stop_pivot ()
+                                    | StandaloneNavigationMode.Pan -> PlatformInput.stop_pan ()
+
+                                match cleanup with
+                                | Ok() -> RhinoApp.WriteLine $"{name} failed to set the view target: {error.Message}"
+                                | Error cleanupError ->
+                                    RhinoApp.WriteLine
+                                        $"{name} failed to set the view target: {error.Message} Cleanup also failed: {cleanupError}"
+
+                                Result.Failure
+                        | Error error ->
+                            RhinoApp.WriteLine $"{name} failed: {error}"
+                            Result.Failure)
 
 let pivot (document: RhinoDoc) =
-    toggle_view_manipulation
-        "RhinosCanFlyPivot"
-        PlatformInput.pivot_active
-        PlatformInput.start_pivot
-        PlatformInput.stop_pivot
-        document
+    if RuntimeSettings.input_suspended () then
+        RhinoApp.WriteLine "RhinosCanFlyPivot is unavailable while an Options dialog is open."
+        Result.Cancel
+    else
+        toggle_navigation_command StandaloneNavigationMode.Pivot document
 
 let pan (document: RhinoDoc) =
-    toggle_view_manipulation
-        "RhinosCanFlyPan"
-        PlatformInput.pan_active
-        PlatformInput.start_pan
-        PlatformInput.stop_pan
-        document
+    if RuntimeSettings.input_suspended () then
+        RhinoApp.WriteLine "RhinosCanFlyPan is unavailable while an Options dialog is open."
+        Result.Cancel
+    else
+        toggle_navigation_command StandaloneNavigationMode.Pan document
+
+let recover_input () =
+    let struct (remainingRawSessions, rawErrors) =
+        PlatformInput.retry_raw_input_cleanup ()
+
+    let hookErrors = PlatformInput.retry_input_hook_cleanup ()
+
+    let struct (remainingCursorClips, cursorErrors) =
+        PlatformInput.retry_cursor_clip_cleanup ()
+
+    RhinoApp.WriteLine "RhinosCanFly input recovery"
+    RhinoApp.WriteLine $"Raw cleanup items remaining: {remainingRawSessions}"
+    RhinoApp.WriteLine $"Cursor clips remaining: {remainingCursorClips}"
+
+    for error in rawErrors do
+        RhinoApp.WriteLine $"Raw cleanup: {error}"
+
+    for error in hookErrors do
+        RhinoApp.WriteLine $"Hook cleanup: {error}"
+
+    for error in cursorErrors do
+        RhinoApp.WriteLine $"Cursor clip cleanup: {error}"
+
+    let nativeRecoveryComplete =
+        remainingRawSessions = 0 && remainingCursorClips = 0 && List.isEmpty hookErrors
+
+    let settingsRecovery =
+        if nativeRecoveryComplete then
+            RuntimeSettings.complete_input_recovery ()
+        else
+            Error "Native input cleanup is incomplete."
+
+    match settingsRecovery with
+    | Ok() ->
+        FlightSession.recovery_completed ()
+        RhinoApp.WriteLine "Input recovery completed."
+        Result.Success
+    | Error error ->
+        RhinoApp.WriteLine $"Input recovery is incomplete: {error} Restart Rhino before flying again."
+        Result.Failure

@@ -1,23 +1,20 @@
 module RhinosCanFly.FlightInput
 
 let movement_active (input: InputSnapshot) =
-    input.forward
-    || input.backward
-    || input.left
-    || input.right
-    || input.up
-    || input.down
-    || input.pivot_left
-    || input.pivot_right
+    input.forward <> input.backward
+    || input.left <> input.right
+    || input.up <> input.down
+    || input.key_pivot_left <> input.key_pivot_right
 
-let pivot_direction (input: InputSnapshot) =
-    match input.pivot_left, input.pivot_right with
-    | true, false -> PivotLeft
-    | false, true -> PivotRight
-    | false, false
-    | true, true -> NoPivot
+let key_pivot_direction (input: InputSnapshot) =
+    if input.key_pivot_left = input.key_pivot_right then
+        NoKeyPivot
+    elif input.key_pivot_left then
+        KeyPivotLeft
+    else
+        KeyPivotRight
 
-let without_pivot (input: InputSnapshot) =
+let without_key_pivot (input: InputSnapshot) =
     { input with
-        pivot_left = false
-        pivot_right = false }
+        key_pivot_left = false
+        key_pivot_right = false }

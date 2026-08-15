@@ -3,50 +3,88 @@ module RhinosCanFly.InputAccumulator
 open System.Threading
 
 type State =
-    { mutable mouse_dx: int64
-      mutable mouse_dy: int64
-      mutable wheel_delta: int
+    { mutable mouse_xy: int64
+      mutable wheel_delta: int64
       mutable pivot_toggle_requests: int
       mutable pivot_held: int
-      mutable exit_requested: int }
+      mutable exit_reason: FlightExitReason option
+      mutable work_revision: int64 }
+
+[<Struct>]
+type WorkRevision = WorkRevision of int64
 
 let create () =
-    { mouse_dx = 0L
-      mouse_dy = 0L
-      wheel_delta = 0
+    { mouse_xy = 0L
+      wheel_delta = 0L
       pivot_toggle_requests = 0
       pivot_held = 0
-      exit_requested = 0 }
+      exit_reason = None
+      work_revision = 0L }
+
+let mark_work_available (state: State) =
+    Interlocked.Increment(&state.work_revision) |> ignore
+
+let pack_mouse (x: int32) (y: int32) =
+    int64 (uint64 (uint32 x) ||| (uint64 (uint32 y) <<< 32))
+
+let unpack_mouse (packed: int64) =
+    struct (int32 (uint32 packed), int32 (uint32 (uint64 packed >>> 32)))
 
 let add_mouse (dx: int) (dy: int) (state: State) =
-    if dx <> 0 then
-        Interlocked.Add(&state.mouse_dx, int64 dx) |> ignore
+    if dx <> 0 || dy <> 0 then
+        let mutable updated = false
 
-    if dy <> 0 then
-        Interlocked.Add(&state.mouse_dy, int64 dy) |> ignore
+        while not updated do
+            let current = Volatile.Read(&state.mouse_xy)
+            let struct (currentX, currentY) = unpack_mouse current
+            let next = pack_mouse (currentX + int32 dx) (currentY + int32 dy)
+            updated <- Interlocked.CompareExchange(&state.mouse_xy, next, current) = current
+
+        mark_work_available state
 
 let add_wheel (delta: int) (state: State) =
-    Interlocked.Add(&state.wheel_delta, delta) |> ignore
+    if delta <> 0 then
+        Interlocked.Add(&state.wheel_delta, int64 delta) |> ignore
+        mark_work_available state
 
-let request_exit (state: State) =
-    Interlocked.Exchange(&state.exit_requested, 1) |> ignore
+let request_exit (reason: FlightExitReason) (state: State) =
+    let previous = Interlocked.CompareExchange(&state.exit_reason, Some reason, None)
+
+    if Option.isNone previous then
+        mark_work_available state
 
 let request_pivot_toggle (state: State) =
     Interlocked.Increment(&state.pivot_toggle_requests) |> ignore
+    mark_work_available state
 
 let set_pivot_held (held: bool) (state: State) =
-    Volatile.Write(&state.pivot_held, if held then 1 else 0)
+    let value = if held then 1 else 0
+
+    if Interlocked.Exchange(&state.pivot_held, value) <> value then
+        mark_work_available state
 
 let drain_mouse (state: State) =
-    struct (Interlocked.Exchange(&state.mouse_dx, 0L), Interlocked.Exchange(&state.mouse_dy, 0L))
+    let struct (x, y) = unpack_mouse (Interlocked.Exchange(&state.mouse_xy, 0L))
+    struct (int64 x, int64 y)
 
 let drain_wheel (state: State) =
-    Interlocked.Exchange(&state.wheel_delta, 0)
+    Interlocked.Exchange(&state.wheel_delta, 0L)
 
 let drain_pivot_toggles (state: State) =
     Interlocked.Exchange(&state.pivot_toggle_requests, 0)
 
 let pivot_held (state: State) = Volatile.Read(&state.pivot_held) <> 0
 
-let exit_requested (state: State) =
-    Volatile.Read(&state.exit_requested) <> 0
+let exit_reason (state: State) = Volatile.Read(&state.exit_reason)
+
+let work_revision (state: State) =
+    WorkRevision(Volatile.Read(&state.work_revision))
+
+let work_pending_since (WorkRevision observed: WorkRevision) (state: State) =
+    Option.isSome (exit_reason state)
+    || Volatile.Read(&state.work_revision) <> observed
+
+let discard_transient_input (state: State) =
+    Interlocked.Exchange(&state.mouse_xy, 0L) |> ignore
+    Interlocked.Exchange(&state.wheel_delta, 0L) |> ignore
+    Interlocked.Exchange(&state.pivot_toggle_requests, 0) |> ignore

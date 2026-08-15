@@ -14,15 +14,18 @@ type BindingFields =
       right: TextBox
       up: TextBox
       down: TextBox
-      pivot_left: TextBox
-      pivot_right: TextBox
+      key_pivot_left: TextBox
+      key_pivot_right: TextBox
       pivot_toggle: TextBox
       pivot_hold: TextBox
+      pan_toggle: TextBox
+      pan_hold: TextBox
       boost: TextBox
       slow: TextBox
       speed_increase: TextBox
       speed_decrease: TextBox
-      exit_key: TextBox }
+      exit_key: TextBox
+      cancel_flight_and_restore: TextBox }
 
 type NumberFields =
     { base_speed: TextBox
@@ -32,8 +35,10 @@ type NumberFields =
       boost_multiplier: TextBox
       slow_multiplier: TextBox
       vertical_speed_multiplier: TextBox
-      pivot_speed_multiplier: TextBox
+      key_pivot_speed_multiplier: TextBox
       mouse_pivot_multiplier: TextBox
+      mouse_pan_multiplier: TextBox
+      view_target_distance_multiplier: TextBox
       mouse_sensitivity: TextBox
       forced_lens_length_mm: TextBox
       lens_length_delta_mm: TextBox }
@@ -45,24 +50,27 @@ type ModeFields =
       mouse_x_mode: ModeField<MouseAxisMode>
       mouse_y_mode: ModeField<MouseAxisMode>
       right_click_entry_mode: ModeField<RightClickEntryMode>
+      default_flight_mode: ModeField<DefaultFlightMode>
+      view_target_mode: ModeField<ViewTargetMode>
       shift_right_click_mode: ModeField<ModifiedRightClickMode>
       alt_right_click_mode: ModeField<ModifiedRightClickMode>
       mouse4_pivot_mode: ModeField<MouseButtonPivotMode>
       mouse5_pivot_mode: ModeField<MouseButtonPivotMode>
       middle_mouse_while_flying: ModeField<FlyingMiddleMouseMode>
-      viewport_redraw_mode: ModeField<ViewportRedrawMode> }
+      viewport_paint_mode: ModeField<ViewportPaintMode> }
 
 type OptionFields =
     { enabled: CheckBox
       normalize_diagonal_movement: CheckBox
       hide_gumball_while_flying: CheckBox
-      pivot_bindings_ignore_gumball: CheckBox
+      flight_pivot_uses_gumball: CheckBox
+      set_view_target_on_restored_flights: CheckBox
       save_speed_to_document: CheckBox
       load_speed_from_document: CheckBox
       exit_on_mouse_left: CheckBox
       exit_on_mouse_right: CheckBox
-      mouse4_also_while_flying: CheckBox
-      mouse5_also_while_flying: CheckBox
+      mouse4_pivot_in_flight: CheckBox
+      mouse5_pivot_in_flight: CheckBox
       commands_do_not_repeat: CheckBox }
 
 type ConfigFields =
@@ -141,7 +149,7 @@ let create () =
 
     let flyingMiddleMouseModes =
         [| FlyingMiddleMouseMode.Off, "Off"
-           FlyingMiddleMouseMode.ExitFlying, "Exit"
+           FlyingMiddleMouseMode.ExitFlight, "Exit flight"
            FlyingMiddleMouseMode.TogglePivot, "Toggle pivot" |]
 
     let modifiedRightClickModes =
@@ -151,15 +159,24 @@ let create () =
 
     let rightClickEntryModes =
         [| RightClickEntryMode.Off, "Off"
-           RightClickEntryMode.EnterFlying, "Enter flying"
-           RightClickEntryMode.EnterFlyingDuringCommands, "Enter flying + during cmds"
-           RightClickEntryMode.EnterFlyingWhileHeld, "Held enters flying"
-           RightClickEntryMode.EnterFlyingWhileHeldDuringCommands, "Held enters flying + during cmds" |]
+           RightClickEntryMode.ClickToFly, "Click to fly"
+           RightClickEntryMode.ClickToFlyDuringCommands, "Click to fly + during commands"
+           RightClickEntryMode.HoldToFly, "Hold to fly"
+           RightClickEntryMode.HoldToFlyDuringCommands, "Hold to fly + during commands" |]
 
-    let redrawModes =
-        [| ViewportRedrawMode.Rhino, "Rhino redraw (default)"
-           ViewportRedrawMode.RhinoImmediate, "Rhino redraw with immediate paint"
-           ViewportRedrawMode.NativeWindow, "Native window redraw (experimental)" |]
+    let flightModes =
+        [| DefaultFlightMode.Normal, "Normal"
+           DefaultFlightMode.Temporary, "Temporary"
+           DefaultFlightMode.TemporaryIncludingNavigationCommands, "Temporary, including Pivot/Pan commands" |]
+
+    let viewTargetModes =
+        [| ViewTargetMode.Off, "Off"
+           ViewTargetMode.Distance, "Distance"
+           ViewTargetMode.GeometryThenDistance, "Geometry, then distance" |]
+
+    let paintModes =
+        [| ViewportPaintMode.Queued, "Normal Rhino redraw (default)"
+           ViewportPaintMode.Immediate, "Immediate paint" |]
 
     { config =
         { bindings =
@@ -169,15 +186,18 @@ let create () =
               right = text_box ()
               up = text_box ()
               down = text_box ()
-              pivot_left = text_box ()
-              pivot_right = text_box ()
+              key_pivot_left = text_box ()
+              key_pivot_right = text_box ()
               pivot_toggle = text_box ()
               pivot_hold = text_box ()
+              pan_toggle = text_box ()
+              pan_hold = text_box ()
               boost = text_box ()
               slow = text_box ()
               speed_increase = text_box ()
               speed_decrease = text_box ()
-              exit_key = text_box () }
+              exit_key = text_box ()
+              cancel_flight_and_restore = text_box () }
           numbers =
             { base_speed = text_box ()
               minimum_speed = text_box ()
@@ -186,8 +206,10 @@ let create () =
               boost_multiplier = text_box ()
               slow_multiplier = text_box ()
               vertical_speed_multiplier = text_box ()
-              pivot_speed_multiplier = text_box ()
+              key_pivot_speed_multiplier = text_box ()
               mouse_pivot_multiplier = text_box ()
+              mouse_pan_multiplier = text_box ()
+              view_target_distance_multiplier = text_box ()
               mouse_sensitivity = text_box ()
               forced_lens_length_mm = text_box ()
               lens_length_delta_mm = text_box () }
@@ -197,25 +219,28 @@ let create () =
               wheel_speed_mode = mode_field wheelSpeedModes MouseWheelSpeedMode.Normal
               mouse_x_mode = mode_field mouseAxisModes MouseAxisMode.Normal
               mouse_y_mode = mode_field mouseAxisModes MouseAxisMode.Normal
-              right_click_entry_mode = mode_field rightClickEntryModes RightClickEntryMode.EnterFlyingDuringCommands
+              right_click_entry_mode = mode_field rightClickEntryModes RightClickEntryMode.ClickToFlyDuringCommands
+              default_flight_mode = mode_field flightModes DefaultFlightMode.Normal
+              view_target_mode = mode_field viewTargetModes ViewTargetMode.GeometryThenDistance
               shift_right_click_mode = mode_field modifiedRightClickModes ModifiedRightClickMode.Off
               alt_right_click_mode = mode_field modifiedRightClickModes ModifiedRightClickMode.Off
               mouse4_pivot_mode = mode_field mousePivotModes MouseButtonPivotMode.Off
               mouse5_pivot_mode = mode_field mousePivotModes MouseButtonPivotMode.Off
               middle_mouse_while_flying = mode_field flyingMiddleMouseModes FlyingMiddleMouseMode.Off
-              viewport_redraw_mode = mode_field redrawModes ViewportRedrawMode.Rhino }
+              viewport_paint_mode = mode_field paintModes ViewportPaintMode.Queued }
           options =
             { enabled = new CheckBox(Text = "Enable Rhinos Can Fly")
               normalize_diagonal_movement = new CheckBox(Text = "Normalize diagonal movement")
               hide_gumball_while_flying = new CheckBox(Text = "Hide gumball while flying")
-              pivot_bindings_ignore_gumball = new CheckBox(Text = "Pivot binds don't rotate around gumball")
-              save_speed_to_document = new CheckBox(Text = "Save current speed to file")
-              load_speed_from_document = new CheckBox(Text = "Load speed from file")
-              exit_on_mouse_left = new CheckBox(Text = "Left click exits")
-              exit_on_mouse_right = new CheckBox(Text = "Right click exits")
-              mouse4_also_while_flying = new CheckBox(Text = "Mouse 4 also while flying")
-              mouse5_also_while_flying = new CheckBox(Text = "Mouse 5 also while flying")
-              commands_do_not_repeat = new CheckBox(Text = "Don't count fly command as repeatable") } }
+              flight_pivot_uses_gumball = new CheckBox(Text = "Use gumball as flight pivot target")
+              set_view_target_on_restored_flights = new CheckBox(Text = "Set target on restored flights")
+              save_speed_to_document = new CheckBox(Text = "Save current speed to document")
+              load_speed_from_document = new CheckBox(Text = "Load speed from document")
+              exit_on_mouse_left = new CheckBox(Text = "Left click exits flight")
+              exit_on_mouse_right = new CheckBox(Text = "Right click exits flight / navigation")
+              mouse4_pivot_in_flight = new CheckBox(Text = "Mouse 4 pivots while flying")
+              mouse5_pivot_in_flight = new CheckBox(Text = "Mouse 5 pivots while flying")
+              commands_do_not_repeat = new CheckBox(Text = "Don't repeat flight commands") } }
       status =
         { status_line = new Label(Wrap = WrapMode.Word)
           runtime_line = new Label(Wrap = WrapMode.Word) }
