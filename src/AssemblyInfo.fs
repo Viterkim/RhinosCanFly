@@ -6,7 +6,7 @@ open Rhino.PlugIns
 
 [<assembly: AssemblyTitle("RhinosCanFly")>]
 [<assembly: AssemblyDescription("Classic game engine flying controls / WASD or custom binds with raw mouse input, for workflow or editing")>]
-[<assembly: AssemblyCompany("Local")>]
+[<assembly: AssemblyCompany("Viterkim")>]
 [<assembly: AssemblyProduct("RhinosCanFly")>]
 [<assembly: AssemblyCopyright("Copyright 2026")>]
 [<assembly: ComVisible(false)>]

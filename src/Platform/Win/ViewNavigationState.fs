@@ -20,7 +20,10 @@ let hook_button_ownership (state: State) (button: SideButton) =
     | Mouse5 -> state.side_button_hook_capture.mouse5
 
 let hook_owns_button (state: State) (button: SideButton) =
-    hook_button_ownership state button <> NotOwned
+    match hook_button_ownership state button with
+    | NotOwned -> false
+    | Owned
+    | ReleaseObserved -> true
 
 let set_hook_owns_button (state: State) (button: SideButton) (owned: bool) =
     let ownership = if owned then Owned else NotOwned
@@ -39,8 +42,7 @@ let observe_hook_button_released (state: State) (button: SideButton) =
     | ReleaseObserved -> set_hook_owns_button state button false
 
 let hook_owns_any_button (state: State) =
-    state.side_button_hook_capture.mouse4 <> NotOwned
-    || state.side_button_hook_capture.mouse5 <> NotOwned
+    hook_owns_button state Mouse4 || hook_owns_button state Mouse5
 
 let mode_for (state: State) (button: SideButton) =
     match button with
@@ -48,7 +50,16 @@ let mode_for (state: State) (button: SideButton) =
     | Mouse5 -> state.routing.mouse5
 
 let side_button_routing_enabled (state: State) =
-    state.routing.mouse4 <> Disabled || state.routing.mouse5 <> Disabled
+    match state.routing.mouse4 with
+    | MouseButtonPivotMode.Hold
+    | MouseButtonPivotMode.Toggle -> true
+    | MouseButtonPivotMode.Off
+    | _ ->
+        match state.routing.mouse5 with
+        | MouseButtonPivotMode.Hold
+        | MouseButtonPivotMode.Toggle -> true
+        | MouseButtonPivotMode.Off
+        | _ -> false
 
 let button_navigation_active (buttonState: SideButtonState) =
     match buttonState with
@@ -62,9 +73,25 @@ let side_button_navigation_active (state: State) =
     button_navigation_active state.mouse4 || button_navigation_active state.mouse5
 
 let any_button_engaged (state: State) =
-    state.mouse4 <> Released || state.mouse5 <> Released
+    match state.mouse4 with
+    | HoldActive _
+    | TogglePressed _
+    | ToggleLatched _
+    | ToggleReleasePressed -> true
+    | Released ->
+        match state.mouse5 with
+        | HoldActive _
+        | TogglePressed _
+        | ToggleLatched _
+        | ToggleReleasePressed -> true
+        | Released -> false
 
-let view_latch_engaged (state: State) = state.view_latch <> NoViewLatch
+let view_latch_engaged (state: State) =
+    match state.view_latch with
+    | NoViewLatch -> false
+    | WaitingForRelease _
+    | PivotActive _
+    | PanActive _ -> true
 
 let exit_key_is_down (state: State) (virtualKey: int) =
     if virtualKey = Win32Native.VK_RBUTTON then
@@ -76,54 +103,36 @@ let exit_key_is_down (state: State) (virtualKey: int) =
     else
         Win32Native.GetAsyncKeyState virtualKey < 0s
 
-let rec exit_keys_down (state: State) (keys: VirtualKey list) =
-    match keys with
-    | [] -> true
-    | VirtualKey key :: remaining -> exit_key_is_down state key && exit_keys_down state remaining
+let exit_keys_down (state: State) (keys: VirtualKey array) =
+    let mutable index = 0
+    let mutable down = keys.Length > 0
+
+    while down && index < keys.Length do
+        let (VirtualKey key) = keys[index]
+        down <- exit_key_is_down state key
+        index <- index + 1
+
+    down
 
 let exit_key_down (state: State) =
     match state.routing.exit with
     | Some binding -> exit_keys_down state binding.virtual_keys
     | None -> false
 
-let rec binding_contains_key (virtualKey: int) (keys: VirtualKey list) =
-    match keys with
-    | [] -> false
-    | VirtualKey key :: remaining -> key = virtualKey || binding_contains_key virtualKey remaining
+let binding_contains_key (virtualKey: int) (keys: VirtualKey array) =
+    let mutable index = 0
+    let mutable found = false
+
+    while not found && index < keys.Length do
+        let (VirtualKey key) = keys[index]
+        found <- key = virtualKey
+        index <- index + 1
+
+    found
 
 let exit_binding_contains (state: State) (virtualKey: int) =
     match state.routing.exit with
     | Some binding -> binding_contains_key virtualKey binding.virtual_keys
-    | None -> false
-
-let key_matches_event (key: VirtualKey) (eventKey: int) =
-    let (VirtualKey requiredKey) = key
-
-    requiredKey = eventKey
-    || (requiredKey = Win32Native.VK_SHIFT
-        && (eventKey = Win32Native.VK_LSHIFT || eventKey = Win32Native.VK_RSHIFT))
-    || (requiredKey = Win32Native.VK_CONTROL
-        && (eventKey = Win32Native.VK_LCONTROL || eventKey = Win32Native.VK_RCONTROL))
-    || (requiredKey = Win32Native.VK_MENU
-        && (eventKey = Win32Native.VK_LMENU || eventKey = Win32Native.VK_RMENU))
-
-let rec binding_contains_event_key (eventKey: int) (keys: VirtualKey list) =
-    match keys with
-    | [] -> false
-    | key :: remaining -> key_matches_event key eventKey || binding_contains_event_key eventKey remaining
-
-let rec exit_binding_keys_down_for_event (state: State) (eventKey: int) (keys: VirtualKey list) =
-    match keys with
-    | [] -> true
-    | (VirtualKey key as requiredKey) :: remaining ->
-        (key_matches_event requiredKey eventKey || exit_key_is_down state key)
-        && exit_binding_keys_down_for_event state eventKey remaining
-
-let exit_binding_down_for_event (state: State) (eventKey: int) =
-    match state.routing.exit with
-    | Some binding ->
-        binding_contains_event_key eventKey binding.virtual_keys
-        && exit_binding_keys_down_for_event state eventKey binding.virtual_keys
     | None -> false
 
 let left_mouse_exit_enabled (state: State) =
@@ -178,24 +187,30 @@ let root_window (window: nativeint) =
 let foreground_root_window () =
     RootWindow(Win32Native.GetForegroundWindow())
 
-let navigation_root (state: State) =
+let same_host (left: ViewportHostIdentity) (right: ViewportHostIdentity) =
+    left.view_serial_number = right.view_serial_number
+    && left.document_serial_number = right.document_serial_number
+    && left.view_window = right.view_window
+    && left.root_window = right.root_window
+
+let navigation_host (state: State) =
     match state.view_latch with
     | WaitingForRelease session
     | PivotActive session
-    | PanActive session -> ValueSome session.window
+    | PanActive session -> ValueSome session.host
     | NoViewLatch ->
         // Keep this boring instead of matching a tuple. This runs on the
         // navigation timer, and the tuple form allocates every time.
         match state.mouse4 with
-        | HoldActive window
-        | TogglePressed window
-        | ToggleLatched window -> ValueSome window
+        | HoldActive host
+        | TogglePressed host
+        | ToggleLatched host -> ValueSome host
         | Released
         | ToggleReleasePressed ->
             match state.mouse5 with
-            | HoldActive window
-            | TogglePressed window
-            | ToggleLatched window -> ValueSome window
+            | HoldActive host
+            | TogglePressed host
+            | ToggleLatched host -> ValueSome host
             | Released
             | ToggleReleasePressed -> ValueNone
 

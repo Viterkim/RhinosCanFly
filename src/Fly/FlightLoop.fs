@@ -10,7 +10,7 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
     let clock = Stopwatch.StartNew()
     let mutable previousFrameSeconds = clock.Elapsed.TotalSeconds
     let mutable movementActive = false
-    let mutable rawInputReady = false
+    let mutable rawInputReady = true
 
     while FlyState.is_running state do
         if not movementActive && not rawInputReady then

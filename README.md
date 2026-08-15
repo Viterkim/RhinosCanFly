@@ -6,9 +6,7 @@ https://github.com/user-attachments/assets/52dc3237-e12b-4a54-8776-88f6b6475fac
 
 ## How to Use / Recommendations
 
-- Go to Tools -> Options... -> Mouse, set middle mouse button to `Manipulate view` and `rotate`.
-
-- Set lens length in your file/project/default rhino setup to something like `18` or so, which gives that 100 FOV feel. (Not in the addon options, that's a temp toggle).
+- Set lens length in your file/project/default Rhino setup to something like `18` or so, which gives that 100 FOV feel. You can also set a flight-only lens in Options.
 
 - Right click on Gumball at the bottom and enable `Rotate view around gumball`.
 
@@ -24,9 +22,11 @@ https://github.com/user-attachments/assets/52dc3237-e12b-4a54-8776-88f6b6475fac
 
 `RhinosCanFlySetSpeed` sets the current flying speed, you can also use a bind or the mousewheel up / down in settings.
 
-`RhinosCanFlyPan` pans around via a toggle (extra, if you want the functionality rhino doesn't provide)
+`RhinosCanFlyPan` pans around via a toggle (extra, if you want the functionality Rhino doesn't provide).
 
-`RhinosCanFlyPivot` pivots around via a toggle (extra, same)
+`RhinosCanFlyPivot` pivots around via a toggle (extra, same).
+
+`RhinosCanFlyInputRecover` retries input cleanup if Rhinos Can Fly tells you cleanup failed. Normally you never need it.
 
 ## Options
 
@@ -58,7 +58,7 @@ If you enable "save current speed to document" it will write the current speed t
 
 It only saves "RhinosCanFly\FlyingSpeed"
 
-The project still has a config file for the normal settings, and the options menu will show you the full path like `C:\Users\<username>\AppData\Roaming\McNeel\Rhinoceros\8.0\settings\rhinos-can-fly-config.json` and the raw json content.
+The project still has a config file for the normal settings, and the options menu will show you the full path like `C:\Users\<username>\AppData\Roaming\McNeel\Rhinoceros\<version>\settings\rhinos-can-fly-config.json` and the raw JSON content.
 
 ## Disclaimer
 

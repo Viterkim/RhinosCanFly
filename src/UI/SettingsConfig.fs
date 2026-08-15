@@ -66,7 +66,7 @@ let parse_numbers (fields: SettingsFields.NumberFields) =
           boost_multiplier = required "Boost multiplier" fields.boost_multiplier
           slow_multiplier = required "Slow multiplier" fields.slow_multiplier
           vertical_speed_multiplier = required "Move up/down multiplier" fields.vertical_speed_multiplier
-          key_pivot_speed_multiplier = required "Key pivot speed multi" fields.key_pivot_speed_multiplier
+          key_pivot_speed_multiplier = required "Key pivot speed multiplier" fields.key_pivot_speed_multiplier
           mouse_pivot_multiplier = required "Pivot multiplier" fields.mouse_pivot_multiplier
           mouse_pan_multiplier = required "Pan multiplier" fields.mouse_pan_multiplier
           mouse_sensitivity = required "Mouse sensitivity" fields.mouse_sensitivity
@@ -122,7 +122,7 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     SettingsFields.set_mode modes.wheel_speed_mode config.wheel_speed_mode
     SettingsFields.set_mode modes.right_click_entry_mode config.right_click_entry_mode
     SettingsFields.set_mode modes.default_flight_mode config.default_flight_mode
-    SettingsFields.set_mode modes.auto_pivot_target_on_exit config.auto_pivot_target_on_exit
+    SettingsFields.set_mode modes.exit_pivot_target_mode config.exit_pivot_target_mode
     SettingsFields.set_mode modes.shift_right_click_mode config.shift_right_click_mode
     SettingsFields.set_mode modes.alt_right_click_mode config.alt_right_click_mode
     SettingsFields.set_mode modes.mouse4_pivot_mode config.mouse4_pivot_mode
@@ -132,14 +132,14 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     SettingsFields.set_mode modes.mouse_y_mode config.mouse_y_mode
     set_checked options.normalize_diagonal_movement config.normalize_diagonal_movement
     set_checked options.hide_gumball_while_flying config.hide_gumball_while_flying
-    set_checked options.pivot_bindings_ignore_gumball config.pivot_bindings_ignore_gumball
+    set_checked options.flight_pivot_uses_gumball config.flight_pivot_uses_gumball
     set_checked options.retarget_restored_flights config.retarget_restored_flights
     set_checked options.save_speed_to_document config.save_speed_to_document
     set_checked options.load_speed_from_document config.load_speed_from_document
     set_checked options.exit_on_mouse_left config.exit_on_mouse_left
     set_checked options.exit_on_mouse_right config.exit_on_mouse_right
-    set_checked options.mouse4_also_while_flying config.mouse4_also_while_flying
-    set_checked options.mouse5_also_while_flying config.mouse5_also_while_flying
+    set_checked options.mouse4_pivot_in_flight config.mouse4_pivot_in_flight
+    set_checked options.mouse5_pivot_in_flight config.mouse5_pivot_in_flight
     set_checked options.commands_do_not_repeat config.commands_do_not_repeat
 
 let read (fields: SettingsFields.ConfigFields) =
@@ -185,18 +185,18 @@ let read (fields: SettingsFields.ConfigFields) =
               mouse_y_mode = SettingsFields.selected_mode modes.mouse_y_mode
               normalize_diagonal_movement = is_checked options.normalize_diagonal_movement
               hide_gumball_while_flying = is_checked options.hide_gumball_while_flying
-              pivot_bindings_ignore_gumball = is_checked options.pivot_bindings_ignore_gumball
+              flight_pivot_uses_gumball = is_checked options.flight_pivot_uses_gumball
               save_speed_to_document = is_checked options.save_speed_to_document
               load_speed_from_document = is_checked options.load_speed_from_document
               wheel_speed_mode = SettingsFields.selected_mode modes.wheel_speed_mode
               exit_on_mouse_left = is_checked options.exit_on_mouse_left
               exit_on_mouse_right = is_checked options.exit_on_mouse_right
               middle_mouse_while_flying = SettingsFields.selected_mode modes.middle_mouse_while_flying
-              mouse4_also_while_flying = is_checked options.mouse4_also_while_flying
-              mouse5_also_while_flying = is_checked options.mouse5_also_while_flying
+              mouse4_pivot_in_flight = is_checked options.mouse4_pivot_in_flight
+              mouse5_pivot_in_flight = is_checked options.mouse5_pivot_in_flight
               right_click_entry_mode = SettingsFields.selected_mode modes.right_click_entry_mode
               default_flight_mode = SettingsFields.selected_mode modes.default_flight_mode
-              auto_pivot_target_on_exit = SettingsFields.selected_mode modes.auto_pivot_target_on_exit
+              exit_pivot_target_mode = SettingsFields.selected_mode modes.exit_pivot_target_mode
               retarget_restored_flights = is_checked options.retarget_restored_flights
               commands_do_not_repeat = is_checked options.commands_do_not_repeat
               mouse4_pivot_mode = SettingsFields.selected_mode modes.mouse4_pivot_mode

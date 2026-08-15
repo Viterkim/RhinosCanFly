@@ -9,14 +9,13 @@ type ViewNavigationMode =
     | Pivot
     | Pan
 
-type SideButtonMode =
-    | Disabled
-    | Hold
-    | Toggle
+type ViewNavigationRequest =
+    | StartNavigation of ViewNavigationMode
+    | StopNavigation
 
 type RoutingConfig =
-    { mouse4: SideButtonMode
-      mouse5: SideButtonMode
+    { mouse4: MouseButtonPivotMode
+      mouse5: MouseButtonPivotMode
       right_click_entry: RightClickEntryMode
       default_flight_mode: DefaultFlightMode
       shift_right_click: ViewNavigationMode option
@@ -31,7 +30,7 @@ type SideButton =
 
 [<Struct>]
 type SideButtonHookEvent =
-    | ButtonDown of button: SideButton * window: RootWindow
+    | ButtonDown of button: SideButton * host: ViewportHostIdentity
     | ButtonUp of button: SideButton
 
 type HookButtonOwnership =
@@ -45,13 +44,13 @@ type SideButtonHookCapture =
 
 type SideButtonState =
     | Released
-    | HoldActive of window: RootWindow
-    | TogglePressed of window: RootWindow
-    | ToggleLatched of window: RootWindow
+    | HoldActive of host: ViewportHostIdentity
+    | TogglePressed of host: ViewportHostIdentity
+    | ToggleLatched of host: ViewportHostIdentity
     | ToggleReleasePressed
 
 type ViewLatchSession =
-    { window: RootWindow
+    { host: ViewportHostIdentity
       mode: ViewNavigationMode
       started_at: int64
       completion: Action option }
@@ -98,8 +97,8 @@ let poll_timer_watchdog_interval_milliseconds = 250
 let transition_timeout_seconds = 2.
 
 let empty_routing =
-    { mouse4 = Disabled
-      mouse5 = Disabled
+    { mouse4 = MouseButtonPivotMode.Off
+      mouse5 = MouseButtonPivotMode.Off
       right_click_entry = RightClickEntryMode.Off
       default_flight_mode = DefaultFlightMode.Normal
       shift_right_click = None

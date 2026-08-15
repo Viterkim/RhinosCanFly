@@ -3,7 +3,7 @@ module RhinosCanFly.FlightState
 open Rhino.Display
 open Rhino.Geometry
 
-let create (view: RhinoView) (hostIdentity: FlightHostIdentity) (config: FlyConfig) (sessionMode: FlightSessionMode) =
+let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyConfig) (sessionMode: FlightSessionMode) =
     let viewport = view.ActiveViewport
     let bindings = config.bindings
     let mouseNavigationBindings = bindings.mouse_navigation
@@ -14,7 +14,7 @@ let create (view: RhinoView) (hostIdentity: FlightHostIdentity) (config: FlyConf
         let mutable gumballPlane = Plane.Unset
 
         if
-            not behavior.pivot_bindings_ignore_gumball
+            behavior.flight_pivot_uses_gumball
             && RhinoSettings.rotate_view_around_gumball ()
             && view.Document.GetGumballPlane(&gumballPlane)
         then

@@ -47,15 +47,15 @@ type FlyingMouseConfig =
       exit_on_left: bool
       exit_on_right: bool
       middle_button: FlyingMiddleMouseMode
-      mouse4_also_while_flying: bool
-      mouse5_also_while_flying: bool
+      mouse4_pivot_in_flight: bool
+      mouse5_pivot_in_flight: bool
       mouse4_pivot_mode: MouseButtonPivotMode
       mouse5_pivot_mode: MouseButtonPivotMode }
 
 type FlightBehavior =
     { hide_gumball: bool
-      pivot_bindings_ignore_gumball: bool
-      auto_pivot_target_on_exit: AutoPivotTargetMode
+      flight_pivot_uses_gumball: bool
+      exit_pivot_target_mode: ExitPivotTargetMode
       retarget_restored_flights: bool
       save_speed_to_document: bool
       load_speed_from_document: bool

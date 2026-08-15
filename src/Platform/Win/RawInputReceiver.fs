@@ -46,14 +46,14 @@ type RawInputReceiver
     let current_held_pivot_buttons () =
         let mouse4 =
             initial_held_pivot_bit
-                config.mouse4_also_while_flying
+                config.mouse4_pivot_in_flight
                 config.mouse4_pivot_mode
                 Win32Native.VK_XBUTTON1
                 mouse4PivotBit
 
         let mouse5 =
             initial_held_pivot_bit
-                config.mouse5_also_while_flying
+                config.mouse5_pivot_in_flight
                 config.mouse5_pivot_mode
                 Win32Native.VK_XBUTTON2
                 mouse5PivotBit
@@ -166,18 +166,18 @@ type RawInputReceiver
             && flags &&& RawInputNative.middle_button_down <> 0us
 
         let mouse4PivotRequested =
-            config.mouse4_also_while_flying
+            config.mouse4_pivot_in_flight
             && config.mouse4_pivot_mode = MouseButtonPivotMode.Toggle
             && flags &&& RawInputNative.button_4_down <> 0us
 
         let mouse5PivotRequested =
-            config.mouse5_also_while_flying
+            config.mouse5_pivot_in_flight
             && config.mouse5_pivot_mode = MouseButtonPivotMode.Toggle
             && flags &&& RawInputNative.button_5_down <> 0us
 
         let mouse4HeldChanged =
             update_held_pivot
-                config.mouse4_also_while_flying
+                config.mouse4_pivot_in_flight
                 config.mouse4_pivot_mode
                 mouse4PivotBit
                 RawInputNative.button_4_down
@@ -186,7 +186,7 @@ type RawInputReceiver
 
         let mouse5HeldChanged =
             update_held_pivot
-                config.mouse5_also_while_flying
+                config.mouse5_pivot_in_flight
                 config.mouse5_pivot_mode
                 mouse5PivotBit
                 RawInputNative.button_5_down
@@ -215,7 +215,7 @@ type RawInputReceiver
             && flags &&& RawInputNative.right_button_up <> 0us
 
         let middleExitRequested =
-            config.middle_mouse_while_flying = FlyingMiddleMouseMode.ExitFlying
+            config.middle_mouse_while_flying = FlyingMiddleMouseMode.ExitFlight
             && flags &&& RawInputNative.middle_button_up <> 0us
 
         let exitReason =

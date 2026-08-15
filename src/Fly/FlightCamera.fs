@@ -145,7 +145,7 @@ let apply (state: FlyState) (change: CameraChange) =
     | DirectionChanged
     | PositionAndDirectionChanged ->
         let invalidExit =
-            if not (PlatformInput.flight_host_is_active state.host_identity state.view) then
+            if not (PlatformInput.viewport_host_is_active state.host_identity state.view) then
                 Some HostInvalid
             elif PlatformInput.foreground_root_window () <> state.host_identity.root_window then
                 Some FocusLost

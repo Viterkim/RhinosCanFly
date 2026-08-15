@@ -4,7 +4,7 @@ authors:
     - Viterkim
 
 description: >
-    Flying camera custom keybinds with WASD(or custom binds) and mouse flying for Rhino in perspective view.
+    WASD flying camera controls with custom mouse and keyboard binds for Rhino perspective views.
 
 url: "https://github.com/Viterkim/RhinosCanFly"
 icon: icon.png

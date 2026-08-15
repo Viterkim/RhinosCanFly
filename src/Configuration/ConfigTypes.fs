@@ -20,7 +20,7 @@ type MouseButtonPivotMode =
 
 type FlyingMiddleMouseMode =
     | Off = 0
-    | ExitFlying = 1
+    | ExitFlight = 1
     | TogglePivot = 2
 
 type ModifiedRightClickMode =
@@ -30,10 +30,10 @@ type ModifiedRightClickMode =
 
 type RightClickEntryMode =
     | Off = 0
-    | EnterFlying = 1
-    | EnterFlyingDuringCommands = 2
-    | EnterFlyingWhileHeld = 3
-    | EnterFlyingWhileHeldDuringCommands = 4
+    | ClickToFly = 1
+    | ClickToFlyDuringCommands = 2
+    | HoldToFly = 3
+    | HoldToFlyDuringCommands = 4
 
 type FlightMode =
     | Normal = 0
@@ -42,9 +42,9 @@ type FlightMode =
 type DefaultFlightMode =
     | Normal = 0
     | Temporary = 1
-    | TemporaryIncludingSoloCommands = 2
+    | TemporaryIncludingNavigationCommands = 2
 
-type AutoPivotTargetMode =
+type ExitPivotTargetMode =
     | Off = 0
     | Geometry = 1
     | GeometryThenCPlane = 2
@@ -54,12 +54,12 @@ module DefaultFlightMode =
     let flight_mode (mode: DefaultFlightMode) =
         match mode with
         | DefaultFlightMode.Temporary
-        | DefaultFlightMode.TemporaryIncludingSoloCommands -> FlightMode.Temporary
+        | DefaultFlightMode.TemporaryIncludingNavigationCommands -> FlightMode.Temporary
         | DefaultFlightMode.Normal
         | _ -> FlightMode.Normal
 
-    let restores_solo_commands (mode: DefaultFlightMode) =
-        mode = DefaultFlightMode.TemporaryIncludingSoloCommands
+    let restores_navigation_commands (mode: DefaultFlightMode) =
+        mode = DefaultFlightMode.TemporaryIncludingNavigationCommands
 
 type FlightLifetime =
     | UntilExit
@@ -120,18 +120,18 @@ type FlyConfigFile =
       mouse_y_mode: MouseAxisMode
       normalize_diagonal_movement: bool
       hide_gumball_while_flying: bool
-      pivot_bindings_ignore_gumball: bool
+      flight_pivot_uses_gumball: bool
       save_speed_to_document: bool
       load_speed_from_document: bool
       wheel_speed_mode: MouseWheelSpeedMode
       exit_on_mouse_left: bool
       exit_on_mouse_right: bool
       middle_mouse_while_flying: FlyingMiddleMouseMode
-      mouse4_also_while_flying: bool
-      mouse5_also_while_flying: bool
+      mouse4_pivot_in_flight: bool
+      mouse5_pivot_in_flight: bool
       right_click_entry_mode: RightClickEntryMode
       default_flight_mode: DefaultFlightMode
-      auto_pivot_target_on_exit: AutoPivotTargetMode
+      exit_pivot_target_mode: ExitPivotTargetMode
       retarget_restored_flights: bool
       commands_do_not_repeat: bool
       mouse4_pivot_mode: MouseButtonPivotMode

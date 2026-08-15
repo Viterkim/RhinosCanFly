@@ -32,7 +32,7 @@ Right clicking the cmdline fixes the ui freeze that maybe means wpf is waiting f
 - WPF dispatcher shutdown
 - deadlock
 
-could still be triggering the problem through input / focus / message timing. 
+could still be triggering the problem through input / focus / message timing.
 
 dump only shows the state after it has already gone white.
 

@@ -12,7 +12,7 @@ type CursorPosition = CursorPosition of Point
 type ViewWindowHandle = ViewWindowHandle of nativeint
 
 [<Struct>]
-type FlightHostIdentity =
+type ViewportHostIdentity =
     { document_serial_number: uint32
       view_serial_number: uint32
       view_window: ViewWindowHandle
@@ -34,8 +34,8 @@ type RawInputConfig =
       middle_mouse_while_flying: FlyingMiddleMouseMode
       mouse4_pivot_mode: MouseButtonPivotMode
       mouse5_pivot_mode: MouseButtonPivotMode
-      mouse4_also_while_flying: bool
-      mouse5_also_while_flying: bool }
+      mouse4_pivot_in_flight: bool
+      mouse5_pivot_in_flight: bool }
 
 type MouseOverrideConfig =
     { mouse4: MouseButtonPivotMode

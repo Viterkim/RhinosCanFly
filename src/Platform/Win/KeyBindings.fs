@@ -174,13 +174,16 @@ let parse (source: string) =
 
         match error with
         | Some message -> Error message
-        | None -> Ok { virtual_keys = List.ofSeq keys }
+        | None -> Ok { virtual_keys = keys.ToArray() }
 
 let is_down (binding: KeyBinding) =
-    match binding.virtual_keys with
-    | [] -> false
-    | virtualKeys ->
-        virtualKeys
-        |> List.forall (fun (key: VirtualKey) ->
-            let (VirtualKey virtualKey) = key
-            Win32Native.GetAsyncKeyState virtualKey < 0s)
+    let keys = binding.virtual_keys
+    let mutable index = 0
+    let mutable down = keys.Length > 0
+
+    while down && index < keys.Length do
+        let (VirtualKey key) = keys[index]
+        down <- Win32Native.GetAsyncKeyState key < 0s
+        index <- index + 1
+
+    down

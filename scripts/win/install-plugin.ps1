@@ -80,7 +80,27 @@ if (Test-Path -LiteralPath $devInstallDirectory) {
 }
 
 New-Item -ItemType Directory -Path $devInstallDirectory | Out-Null
-Copy-Item -Path (Join-Path $buildOutput "*") -Destination $devInstallDirectory -Recurse -Force
+
+$developmentFiles = @(
+    $builtPluginFile
+    (Join-Path $buildOutput "RhinosCanFly.pdb")
+    (Join-Path $buildOutput "RhinosCanFly.deps.json")
+    (Join-Path $buildOutput "RhinosCanFly.runtimeconfig.json")
+)
+
+foreach ($file in $developmentFiles) {
+    if (Test-Path -LiteralPath $file) {
+        Copy-Item -LiteralPath $file -Destination $devInstallDirectory -Force
+    }
+}
+
+foreach ($file in Get-ChildItem -LiteralPath $buildOutput -Filter "*.dll" -File) {
+    Copy-Item -LiteralPath $file.FullName -Destination $devInstallDirectory -Force
+}
+
+foreach ($directory in Get-ChildItem -LiteralPath $buildOutput -Directory) {
+    Copy-Item -LiteralPath $directory.FullName -Destination $devInstallDirectory -Recurse -Force
+}
 
 $existingRegistration = Get-ItemProperty -LiteralPath $registryPath -ErrorAction SilentlyContinue
 $existingPluginFile = if ($null -eq $existingRegistration) { "" } else { [string] $existingRegistration.FileName }

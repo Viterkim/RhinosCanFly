@@ -98,26 +98,26 @@ let show_options (document: RhinoDoc) =
 
             result
 
-type SoloViewManipulation =
-    | SoloPivot
-    | SoloPan
+type NavigationCommandMode =
+    | PivotCommand
+    | PanCommand
 
-let toggle_view_manipulation (mode: SoloViewManipulation) (document: RhinoDoc) =
+let toggle_navigation_command (mode: NavigationCommandMode) (document: RhinoDoc) =
     let name =
         match mode with
-        | SoloPivot -> "RhinosCanFlyPivot"
-        | SoloPan -> "RhinosCanFlyPan"
+        | PivotCommand -> "RhinosCanFlyPivot"
+        | PanCommand -> "RhinosCanFlyPan"
 
     let active =
         match mode with
-        | SoloPivot -> PlatformInput.pivot_active ()
-        | SoloPan -> PlatformInput.pan_active ()
+        | PivotCommand -> PlatformInput.pivot_active ()
+        | PanCommand -> PlatformInput.pan_active ()
 
     if active then
         let stopped =
             match mode with
-            | SoloPivot -> PlatformInput.stop_pivot ()
-            | SoloPan -> PlatformInput.stop_pan ()
+            | PivotCommand -> PlatformInput.stop_pivot ()
+            | PanCommand -> PlatformInput.stop_pan ()
 
         match stopped with
         | Ok() -> Result.Success
@@ -145,8 +145,8 @@ let toggle_view_manipulation (mode: SoloViewManipulation) (document: RhinoDoc) =
                 | Ok true ->
                     let conflictingModeStopped =
                         match mode with
-                        | SoloPivot -> PlatformInput.stop_pan ()
-                        | SoloPan -> PlatformInput.stop_pivot ()
+                        | PivotCommand -> PlatformInput.stop_pan ()
+                        | PanCommand -> PlatformInput.stop_pivot ()
 
                     match conflictingModeStopped with
                     | Error error ->
@@ -154,24 +154,28 @@ let toggle_view_manipulation (mode: SoloViewManipulation) (document: RhinoDoc) =
                         Result.Failure
                     | Ok() ->
                         let completion =
-                            if DefaultFlightMode.restores_solo_commands loaded.config_file.default_flight_mode then
+                            if
+                                DefaultFlightMode.restores_navigation_commands loaded.config_file.default_flight_mode
+                            then
                                 let viewport = view.ActiveViewport
                                 let snapshot = CameraSnapshot.capture viewport
-                                let host = PlatformInput.capture_flight_host view
+                                let host = PlatformInput.capture_viewport_host view
 
                                 Some(
                                     Action(fun () ->
-                                        if PlatformInput.flight_host_is_foreground host view then
+                                        if PlatformInput.viewport_host_exists host view then
                                             CameraSnapshot.restore viewport snapshot
-                                            FlightRedraw.redraw loaded.config.behavior.viewport_redraw_mode view)
+
+                                            if PlatformInput.viewport_host_is_foreground host view then
+                                                FlightRedraw.redraw loaded.config.behavior.viewport_redraw_mode view)
                                 )
                             else
                                 None
 
                         let started =
                             match mode with
-                            | SoloPivot -> PlatformInput.start_pivot view completion
-                            | SoloPan -> PlatformInput.start_pan view completion
+                            | PivotCommand -> PlatformInput.start_pivot view completion
+                            | PanCommand -> PlatformInput.start_pan view completion
 
                         match started with
                         | Ok() -> Result.Success
@@ -180,24 +184,18 @@ let toggle_view_manipulation (mode: SoloViewManipulation) (document: RhinoDoc) =
                             Result.Failure)
 
 let pivot (document: RhinoDoc) =
-    if RuntimeSettings.input_bypass_active () then
-        RhinoApp.WriteLine "RhinosCanFlyPivot is disabled in this diagnostic build."
-        Result.Cancel
-    elif RuntimeSettings.input_suspended () then
+    if RuntimeSettings.input_suspended () then
         RhinoApp.WriteLine "RhinosCanFlyPivot is unavailable while an Options dialog is open."
         Result.Cancel
     else
-        toggle_view_manipulation SoloPivot document
+        toggle_navigation_command PivotCommand document
 
 let pan (document: RhinoDoc) =
-    if RuntimeSettings.input_bypass_active () then
-        RhinoApp.WriteLine "RhinosCanFlyPan is disabled in this diagnostic build."
-        Result.Cancel
-    elif RuntimeSettings.input_suspended () then
+    if RuntimeSettings.input_suspended () then
         RhinoApp.WriteLine "RhinosCanFlyPan is unavailable while an Options dialog is open."
         Result.Cancel
     else
-        toggle_view_manipulation SoloPan document
+        toggle_navigation_command PanCommand document
 
 let recover_input () =
     let struct (remainingRawSessions, rawErrors) =

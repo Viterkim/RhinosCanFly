@@ -40,16 +40,16 @@ type SettingsControl() as self =
         status.runtime_line.Text <- $"Current Speed: {speedText}  |  Current Lens: {lensText}"
 
     let refresh_side_button_flight_controls () =
-        options.mouse4_also_while_flying.Enabled <-
+        options.mouse4_pivot_in_flight.Enabled <-
             SettingsFields.selected_mode modes.mouse4_pivot_mode <> MouseButtonPivotMode.Off
 
-        options.mouse5_also_while_flying.Enabled <-
+        options.mouse5_pivot_in_flight.Enabled <-
             SettingsFields.selected_mode modes.mouse5_pivot_mode <> MouseButtonPivotMode.Off
 
     let refresh_exit_target_controls () =
         options.retarget_restored_flights.Enabled <-
-            SettingsFields.selected_mode modes.auto_pivot_target_on_exit
-            <> AutoPivotTargetMode.Off
+            SettingsFields.selected_mode modes.exit_pivot_target_mode
+            <> ExitPivotTargetMode.Off
 
     let binding_editor (field: TextBox) (defaultValue: string) =
         BindingCapture.editor bindingCapture field defaultValue
@@ -112,7 +112,7 @@ type SettingsControl() as self =
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Non flying behaviour"))
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Non-flying behaviour"))
 
         SettingsLayout.grid
             2
@@ -123,21 +123,14 @@ type SettingsControl() as self =
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
-        mainTable.Rows.Add(
-            SettingsLayout.full_width (
-                SettingsLayout.note
-                    "Pivot and pan require Options -> Mouse -> Middle mouse button to be set to Manipulate view with Rotate."
-            )
-        )
-
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "While flying behaviour"))
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "While flying"))
 
         SettingsLayout.grid
             2
             [ options.exit_on_mouse_right
               options.exit_on_mouse_left
               options.hide_gumball_while_flying
-              options.pivot_bindings_ignore_gumball ]
+              options.flight_pivot_uses_gumball ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
@@ -145,7 +138,7 @@ type SettingsControl() as self =
 
         SettingsLayout.grid
             2
-            [ SettingsLayout.item "Auto pivot target on exit" modes.auto_pivot_target_on_exit.control
+            [ SettingsLayout.item "Pivot target on exit" modes.exit_pivot_target_mode.control
               options.retarget_restored_flights ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
@@ -166,9 +159,9 @@ type SettingsControl() as self =
         SettingsLayout.grid
             2
             [ SettingsLayout.item "Mouse 4" modes.mouse4_pivot_mode.control
-              options.mouse4_also_while_flying
+              options.mouse4_pivot_in_flight
               SettingsLayout.item "Mouse 5" modes.mouse5_pivot_mode.control
-              options.mouse5_also_while_flying ]
+              options.mouse5_pivot_in_flight ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
@@ -177,7 +170,7 @@ type SettingsControl() as self =
         mainTable.Rows.Add(
             SettingsLayout.full_width (
                 SettingsLayout.note
-                    "Toggle pivots stop with the same button. While flying uses the same Hold or Toggle mode when enabled."
+                    "Toggle pivots stop with the same button. While flying uses the same hold or toggle mode when enabled."
             )
         )
 
@@ -199,7 +192,7 @@ type SettingsControl() as self =
               SettingsLayout.item "Hold pan" (binding_editor bindings.pan_hold defaults.pan_hold)
               SettingsLayout.item "Exit" (binding_editor bindings.exit_key defaults.exit_key)
               SettingsLayout.item
-                  "Cancel flight go back"
+                  "Cancel flight and go back"
                   (binding_editor bindings.cancel_flight_and_restore defaults.cancel_flight_and_restore) ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
@@ -211,7 +204,7 @@ type SettingsControl() as self =
             2
             [ SettingsLayout.item "Boost behaviour" modes.boost_mode.control
               SettingsLayout.item "Slow behaviour" modes.slow_mode.control
-              SettingsLayout.item "MWheel changes speed" modes.wheel_speed_mode.control ]
+              SettingsLayout.item "Mouse wheel changes speed" modes.wheel_speed_mode.control ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
@@ -219,8 +212,8 @@ type SettingsControl() as self =
 
         SettingsLayout.grid
             2
-            [ SettingsLayout.item "Boost mode" (binding_editor bindings.boost defaults.boost)
-              SettingsLayout.item "Slow mode" (binding_editor bindings.slow defaults.slow)
+            [ SettingsLayout.item "Boost" (binding_editor bindings.boost defaults.boost)
+              SettingsLayout.item "Slow" (binding_editor bindings.slow defaults.slow)
               SettingsLayout.item "Increase speed" (binding_editor bindings.speed_increase defaults.speed_increase)
               SettingsLayout.item "Decrease speed" (binding_editor bindings.speed_decrease defaults.speed_decrease) ]
         |> SettingsLayout.full_width
@@ -237,7 +230,7 @@ type SettingsControl() as self =
               SettingsLayout.item "Boost multiplier" numbers.boost_multiplier
               SettingsLayout.item "Slow multiplier" numbers.slow_multiplier
               SettingsLayout.item "Move up/down multiplier" numbers.vertical_speed_multiplier
-              SettingsLayout.item "Key pivot speed multi" numbers.key_pivot_speed_multiplier
+              SettingsLayout.item "Key pivot speed multiplier" numbers.key_pivot_speed_multiplier
               SettingsLayout.item "Pivot multiplier" numbers.mouse_pivot_multiplier
               SettingsLayout.item "Pan multiplier" numbers.mouse_pan_multiplier ]
         |> SettingsLayout.full_width
@@ -287,7 +280,7 @@ type SettingsControl() as self =
         modes.mouse5_pivot_mode.control.SelectedIndexChanged.Add(fun (_: EventArgs) ->
             refresh_side_button_flight_controls ())
 
-        modes.auto_pivot_target_on_exit.control.SelectedIndexChanged.Add(fun (_: EventArgs) ->
+        modes.exit_pivot_target_mode.control.SelectedIndexChanged.Add(fun (_: EventArgs) ->
             refresh_exit_target_controls ())
 
         refresh_side_button_flight_controls ()

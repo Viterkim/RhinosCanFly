@@ -4,12 +4,6 @@ open System
 open Rhino.Display
 open RhinosCanFly.Platform.Win
 
-[<Literal>]
-let test_bypass_mouse_button_overrides = false
-
-[<Literal>]
-let test_bypass_flight_keyboard = true
-
 let wheel_delta = int64 Win32Native.WHEEL_DELTA
 
 let foreground_root_window () =
@@ -23,45 +17,53 @@ let wait_for_input () = Win32.wait_for_input ()
 let root_window (view: RhinoView) =
     let ancestor = Win32Native.GetAncestor(view.Handle, Win32Native.GA_ROOT)
 
-    if ancestor = nativeint 0 then
-        foreground_root_window ()
-    else
-        RootWindow ancestor
+    RootWindow(if ancestor = nativeint 0 then view.Handle else ancestor)
 
-let capture_flight_host (view: RhinoView) =
+let capture_viewport_host (view: RhinoView) =
     { document_serial_number = view.Document.RuntimeSerialNumber
       view_serial_number = view.RuntimeSerialNumber
       view_window = ViewWindowHandle view.Handle
       root_window = root_window view }
 
-let flight_host_exists (identity: FlightHostIdentity) (view: RhinoView) =
+let viewport_matches_identity (identity: ViewportHostIdentity) (view: RhinoView) =
     let (ViewWindowHandle expectedHandle) = identity.view_window
 
-    try
-        not (isNull view)
+    if Object.ReferenceEquals(view, null) then
+        false
+    else
+        let document = view.Document
+
+        not (Object.ReferenceEquals(document, null))
         && view.RuntimeSerialNumber = identity.view_serial_number
-        && not (isNull view.Document)
-        && view.Document.RuntimeSerialNumber = identity.document_serial_number
-        && not (isNull (RhinoView.FromRuntimeSerialNumber identity.view_serial_number))
+        && document.RuntimeSerialNumber = identity.document_serial_number
         && expectedHandle <> nativeint 0
         && Win32Native.IsWindow expectedHandle
         && view.Handle = expectedHandle
-    with _ ->
-        false
 
-let flight_host_is_active (identity: FlightHostIdentity) (view: RhinoView) =
+let viewport_host_exists (identity: ViewportHostIdentity) (view: RhinoView) =
     try
-        flight_host_exists identity view
-        && not (isNull Rhino.RhinoDoc.ActiveDoc)
-        && Rhino.RhinoDoc.ActiveDoc.RuntimeSerialNumber = identity.document_serial_number
-        && not (isNull view.Document.Views.ActiveView)
-        && view.Document.Views.ActiveView.RuntimeSerialNumber = identity.view_serial_number
-        && root_window view = identity.root_window
+        viewport_matches_identity identity view
+        && viewport_matches_identity identity (RhinoView.FromRuntimeSerialNumber identity.view_serial_number)
     with _ ->
         false
 
-let flight_host_is_foreground (identity: FlightHostIdentity) (view: RhinoView) =
-    flight_host_is_active identity view
+let viewport_host_is_active (identity: ViewportHostIdentity) (view: RhinoView) =
+    try
+        if not (viewport_matches_identity identity view) then
+            false
+        else
+            let activeDocument = Rhino.RhinoDoc.ActiveDoc
+            let activeView = view.Document.Views.ActiveView
+
+            not (Object.ReferenceEquals(activeDocument, null))
+            && activeDocument.RuntimeSerialNumber = identity.document_serial_number
+            && viewport_matches_identity identity activeView
+            && root_window view = identity.root_window
+    with _ ->
+        false
+
+let viewport_host_is_foreground (identity: ViewportHostIdentity) (view: RhinoView) =
+    viewport_host_is_active identity view
     && foreground_root_window () = identity.root_window
 
 let get_cursor_position () =
@@ -166,37 +168,16 @@ let raw_input_runtime_failed (session: RawInputSession) = RawInputThread.runtime
 
 let retry_raw_input_cleanup () = RawInputThread.retry_recovery ()
 
-let suppress_flight_keyboard (bindings: FlightBindings) =
-    if test_bypass_flight_keyboard then
-        Ok()
-    else
-        MouseButtonOverrides.suppress_flight_keyboard bindings
-
-let release_flight_keyboard () =
-    if test_bypass_flight_keyboard then
-        Ok()
-    else
-        MouseButtonOverrides.release_flight_keyboard ()
-
 let apply_mouse_button_overrides (config: MouseOverrideConfig) = MouseButtonOverrides.apply config
 
-let handle_view_manipulation_right_click (view: RhinoView) =
-    MouseButtonOverrides.handle_right_click (ViewNavigationState.root_window view.Handle)
-
 let start_pivot (view: RhinoView) (completion: Action option) =
-    MouseButtonOverrides.start_view_latch
-        (ViewNavigationState.root_window view.Handle)
-        ViewNavigationTypes.ViewNavigationMode.Pivot
-        completion
+    MouseButtonOverrides.start_view_latch view ViewNavigationTypes.ViewNavigationMode.Pivot completion
 
 let stop_pivot () =
     MouseButtonOverrides.stop_view_latch ViewNavigationTypes.ViewNavigationMode.Pivot
 
 let start_pan (view: RhinoView) (completion: Action option) =
-    MouseButtonOverrides.start_view_latch
-        (ViewNavigationState.root_window view.Handle)
-        ViewNavigationTypes.ViewNavigationMode.Pan
-        completion
+    MouseButtonOverrides.start_view_latch view ViewNavigationTypes.ViewNavigationMode.Pan completion
 
 let stop_pan () =
     MouseButtonOverrides.stop_view_latch ViewNavigationTypes.ViewNavigationMode.Pan
@@ -207,24 +188,11 @@ let pivot_active () =
 let pan_active () =
     MouseButtonOverrides.view_latch_is ViewNavigationTypes.ViewNavigationMode.Pan
 
-let suspend_mouse_button_overrides () =
-    if test_bypass_mouse_button_overrides then
-        Ok { id = 0L; cleanup_error = None }
-    else
-        MouseButtonOverrides.suspend ()
+let suspend_mouse_button_overrides () = MouseButtonOverrides.suspend ()
 
-let resume_mouse_button_overrides (lease: InputSuspensionLease) =
-    if test_bypass_mouse_button_overrides then
-        Ok()
-    else
-        MouseButtonOverrides.resume lease
+let resume_mouse_button_overrides (lease: InputSuspensionLease) = MouseButtonOverrides.resume lease
 
-let shutdown_mouse_button_overrides () =
-    if not test_bypass_mouse_button_overrides then
-        MouseButtonOverrides.shutdown ()
+let shutdown_mouse_button_overrides () = MouseButtonOverrides.shutdown ()
 
 let retry_input_hook_cleanup () =
-    if test_bypass_mouse_button_overrides then
-        []
-    else
-        MouseButtonOverrides.retry_hook_cleanup ()
+    MouseButtonOverrides.retry_hook_cleanup ()

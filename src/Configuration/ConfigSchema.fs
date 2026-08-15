@@ -41,18 +41,18 @@ let defaults: FlyConfigFile =
       mouse_y_mode = MouseAxisMode.Normal
       normalize_diagonal_movement = true
       hide_gumball_while_flying = false
-      pivot_bindings_ignore_gumball = false
+      flight_pivot_uses_gumball = true
       save_speed_to_document = true
       load_speed_from_document = true
       wheel_speed_mode = MouseWheelSpeedMode.Normal
       exit_on_mouse_left = false
       exit_on_mouse_right = true
       middle_mouse_while_flying = FlyingMiddleMouseMode.Off
-      mouse4_also_while_flying = false
-      mouse5_also_while_flying = false
-      right_click_entry_mode = RightClickEntryMode.EnterFlyingDuringCommands
+      mouse4_pivot_in_flight = false
+      mouse5_pivot_in_flight = false
+      right_click_entry_mode = RightClickEntryMode.ClickToFlyDuringCommands
       default_flight_mode = DefaultFlightMode.Normal
-      auto_pivot_target_on_exit = AutoPivotTargetMode.Off
+      exit_pivot_target_mode = ExitPivotTargetMode.Off
       retarget_restored_flights = false
       commands_do_not_repeat = true
       mouse4_pivot_mode = MouseButtonPivotMode.Off
@@ -100,7 +100,7 @@ let compile (source: FlyConfigFile) =
         | Error error ->
             errors.Add $"{name}: {error}"
 
-            { virtual_keys = List.empty<VirtualKey> }
+            { virtual_keys = Array.empty<VirtualKey> }
 
     let optional (name: string) (value: string) =
         if String.IsNullOrWhiteSpace value then
@@ -229,14 +229,14 @@ let compile (source: FlyConfigFile) =
               exit_on_left = source.exit_on_mouse_left
               exit_on_right = source.exit_on_mouse_right
               middle_button = source.middle_mouse_while_flying
-              mouse4_also_while_flying = source.mouse4_also_while_flying
-              mouse5_also_while_flying = source.mouse5_also_while_flying
+              mouse4_pivot_in_flight = source.mouse4_pivot_in_flight
+              mouse5_pivot_in_flight = source.mouse5_pivot_in_flight
               mouse4_pivot_mode = source.mouse4_pivot_mode
               mouse5_pivot_mode = source.mouse5_pivot_mode }
           behavior =
             { hide_gumball = source.hide_gumball_while_flying
-              pivot_bindings_ignore_gumball = source.pivot_bindings_ignore_gumball
-              auto_pivot_target_on_exit = source.auto_pivot_target_on_exit
+              flight_pivot_uses_gumball = source.flight_pivot_uses_gumball
+              exit_pivot_target_mode = source.exit_pivot_target_mode
               retarget_restored_flights = source.retarget_restored_flights
               save_speed_to_document = source.save_speed_to_document
               load_speed_from_document = source.load_speed_from_document

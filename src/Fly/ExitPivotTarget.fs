@@ -80,21 +80,21 @@ let try_plane_target (viewport: RhinoViewport) (plane: Plane) =
     else
         None
 
-let try_target (mode: AutoPivotTargetMode) (viewport: RhinoViewport) =
+let try_target (mode: ExitPivotTargetMode) (viewport: RhinoViewport) =
     match mode with
-    | AutoPivotTargetMode.Off -> None
-    | AutoPivotTargetMode.Geometry -> try_geometry_target viewport
-    | AutoPivotTargetMode.GeometryThenCPlane ->
+    | ExitPivotTargetMode.Off -> None
+    | ExitPivotTargetMode.Geometry -> try_geometry_target viewport
+    | ExitPivotTargetMode.GeometryThenCPlane ->
         match try_geometry_target viewport with
         | Some target -> Some target
         | None -> try_plane_target viewport (viewport.ConstructionPlane())
-    | AutoPivotTargetMode.GeometryThenWorldXY ->
+    | ExitPivotTargetMode.GeometryThenWorldXY ->
         match try_geometry_target viewport with
         | Some target -> Some target
         | None -> try_plane_target viewport Plane.WorldXY
     | _ -> None
 
-let apply (mode: AutoPivotTargetMode) (viewport: RhinoViewport) =
+let apply (mode: ExitPivotTargetMode) (viewport: RhinoViewport) =
     match try_target mode viewport with
     | Some target -> viewport.SetCameraTarget(target, false)
     | None -> ()
