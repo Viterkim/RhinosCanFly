@@ -12,6 +12,9 @@ let foreground_root_window () =
 let right_mouse_button_down () =
     Win32Native.GetAsyncKeyState Win32Native.VK_RBUTTON < 0s
 
+let focus_view (view: RhinoView) =
+    Win32Native.SetFocus view.Handle |> ignore
+
 let wait_for_input () = Win32.wait_for_input ()
 
 let root_window (view: RhinoView) =

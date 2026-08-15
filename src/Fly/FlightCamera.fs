@@ -155,7 +155,14 @@ let apply (state: FlyState) (change: CameraChange) =
             failwith "The active Rhino document or viewport changed during flight."
         | None -> ()
 
-        state.viewport.SetCameraLocations(state.camera.target, state.camera.position)
+        match change with
+        | PositionChanged -> state.viewport.SetCameraLocation(state.camera.position, true)
+        | DirectionChanged ->
+            let direction = Movement.direction_from_angles state.camera.yaw state.camera.pitch
+            state.viewport.SetCameraDirection(direction, true)
+        | PositionAndDirectionChanged -> state.viewport.SetCameraLocations(state.camera.target, state.camera.position)
+        | NoCameraChange -> ()
+
         FlightRedraw.redraw state.config.behavior.viewport_redraw_mode state.view
 
 let apply_entry_lens (state: FlyState) =

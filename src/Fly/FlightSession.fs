@@ -50,7 +50,6 @@ let mutable processingMainLoop = false
 let mutable mainLoopHandler: EventHandler = null
 
 let viewport_gesture_timeout = TimeSpan.FromMilliseconds 250.
-let mutable keyboard_suppression_enabled = true
 
 let report (message: string) =
     Debug.WriteLine message
@@ -91,19 +90,6 @@ let is_running () =
     | Finishing -> true
     | Ready
     | RestartRequired -> false
-
-let toggle_keyboard_suppression () =
-    if is_running () then
-        Error "Exit flight before changing keyboard suppression."
-    elif keyboard_suppression_enabled then
-        match PlatformInput.shutdown_flight_keyboard () with
-        | Ok() ->
-            keyboard_suppression_enabled <- false
-            Ok false
-        | Error error -> Error $"Could not disable keyboard suppression: {error}"
-    else
-        keyboard_suppression_enabled <- true
-        Ok true
 
 let recovery_completed () =
     if sessionState = RestartRequired then
@@ -349,10 +335,11 @@ let cleanup_starting (starting: StartingSession) (failure: string) =
 let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
     let state = session.state
 
-    if keyboard_suppression_enabled then
-        match PlatformInput.suppress_flight_keyboard state.config.bindings with
-        | Ok() -> session.keyboard_suppressed <- true
-        | Error error -> failwith $"Could not suppress flight keys: {error}"
+    PlatformInput.focus_view state.view
+
+    match PlatformInput.suppress_flight_keyboard state.config.bindings with
+    | Ok() -> session.keyboard_suppressed <- true
+    | Error error -> failwith $"Could not suppress flight keys: {error}"
 
     let rawInputConfig: RawInputConfig =
         { exit_on_mouse_left = state.config.mouse.exit_on_left
