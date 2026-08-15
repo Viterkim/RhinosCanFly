@@ -31,6 +31,12 @@ type RightClickState =
       mutable button_ownership: HookButtonOwnership }
 
 [<Struct>]
+type EntryPreparation =
+    | EntryReady of RhinoView
+    | EntryDeferred
+    | EntryUnavailable
+
+[<Struct>]
 type RightClickViewport =
     { host: ViewportHostIdentity
       is_perspective: bool }
@@ -255,14 +261,16 @@ let entry_command (entry: FlyEntry) =
 
 let try_entry_view (entry: FlyEntry) =
     let view = RhinoView.FromRuntimeSerialNumber entry.host.view_serial_number
+    let document = if isNull view then null else view.Document
+    let activeDocument = RhinoDoc.ActiveDoc
     let (ViewWindowHandle expectedWindow) = entry.host.view_window
 
     if
         isNull view
-        || isNull view.Document
-        || view.Document.RuntimeSerialNumber <> entry.host.document_serial_number
-        || isNull RhinoDoc.ActiveDoc
-        || RhinoDoc.ActiveDoc.RuntimeSerialNumber <> entry.host.document_serial_number
+        || isNull document
+        || document.RuntimeSerialNumber <> entry.host.document_serial_number
+        || isNull activeDocument
+        || activeDocument.RuntimeSerialNumber <> entry.host.document_serial_number
         || view.Handle <> expectedWindow
         || ViewNavigationState.root_window view.Handle <> entry.host.root_window
     then
@@ -270,30 +278,23 @@ let try_entry_view (entry: FlyEntry) =
     else
         ValueSome view
 
-let try_activate_entry_view (entry: FlyEntry) =
-    match try_entry_view entry with
-    | ValueNone -> ValueNone
-    | ValueSome view ->
-        let activeView = view.Document.Views.ActiveView
-
-        if isNull activeView || activeView.RuntimeSerialNumber <> view.RuntimeSerialNumber then
-            view.Document.Views.ActiveView <- view
-
-        let activatedView = view.Document.Views.ActiveView
-
-        if
-            isNull activatedView
-            || activatedView.RuntimeSerialNumber <> view.RuntimeSerialNumber
-        then
-            ValueNone
-        else
-            ValueSome view
-
 let try_prepare_entry_view (entry: FlyEntry) =
-    if ViewNavigationState.try_bring_root_window_to_foreground entry.host.root_window then
-        try_activate_entry_view entry
+    if ViewNavigationState.foreground_root_window () <> entry.host.root_window then
+        if ViewNavigationState.try_bring_root_window_to_foreground entry.host.root_window then
+            EntryDeferred
+        else
+            EntryUnavailable
     else
-        ValueNone
+        match try_entry_view entry with
+        | ValueNone -> EntryUnavailable
+        | ValueSome view ->
+            let activeView = view.Document.Views.ActiveView
+
+            if isNull activeView || activeView.RuntimeSerialNumber <> view.RuntimeSerialNumber then
+                view.Document.Views.ActiveView <- view
+                EntryDeferred
+            else
+                EntryReady view
 
 let dispatch_entry (state: RightClickState) (entry: FlyEntry) =
     state.gesture <- FlightDispatched entry
@@ -313,8 +314,9 @@ let update (navigation: State) (state: RightClickState) (commandActive: bool) =
             clear_action state
         else
             match try_prepare_entry_view entry with
-            | ValueNone -> clear_action state
-            | ValueSome view ->
+            | EntryUnavailable -> clear_action state
+            | EntryDeferred -> ()
+            | EntryReady view ->
                 let canEnter = entry_during_commands entry.entry_mode || not commandActive
 
                 let heldAndDown =
@@ -340,8 +342,9 @@ let update (navigation: State) (state: RightClickState) (commandActive: bool) =
             clear_action state
         else
             match try_prepare_entry_view entry with
-            | ValueNone -> clear_action state
-            | ValueSome view ->
+            | EntryUnavailable -> clear_action state
+            | EntryDeferred -> ()
+            | EntryReady view ->
                 let canEnter = entry_during_commands entry.entry_mode || not commandActive
 
                 if canEnter && not (view.MouseCaptured false) then

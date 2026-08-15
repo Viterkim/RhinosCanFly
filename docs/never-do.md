@@ -1,11 +1,13 @@
 # Never do this
 
-Don't use `Rhino.UI.MouseCallback` to take a mouse button and cancel its down/up events.
+Don't use `Rhino.UI.MouseCallback` to own and cancel a mouse button down/up pair.
 
-We did that for right click. Sometimes Rhino stopped painting after it: white dialogs, frozen panels and a frozen command line. Right clicking the command line made it wake up again. It had been there since the first version and only broke sometimes, so it took forever to find.
+The old right click entry did this. It could leave Rhino with white dialogs, frozen panels and a dead command line.
 
-Right click now goes through one `WH_MOUSE` hook. It takes the whole down/up pair, stores what should happen, then the UI timer handles it. Do not call RhinoCommon or `RunScript` from inside the hook.
+Right click now uses `WH_MOUSE`. The hook owns the whole down/up pair and only stores what happened. The timer does the Rhino work later.
 
-There is still one `MouseCallback`. Pivot and pan use `OnMouseMove` while they are active, and cancel the movement so Rhino doesn't move the view as well. It never handles button down/up.
+Never call RhinoCommon or `RunScript` inside the hook.
+
+Pivot and pan still use `MouseCallback` for `OnMouseMove` only. Never for button down/up.
 
 Pivot and pan call `MouseRotateAroundTarget` and `MouseLateralDolly` directly. Do not bring fake middle mouse back.

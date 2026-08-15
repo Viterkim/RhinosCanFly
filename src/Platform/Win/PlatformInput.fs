@@ -133,9 +133,14 @@ let retry_cursor_clip_cleanup () = Win32.retry_cursor_clip_cleanup ()
 
 let cursor_clip_recovery_count () = Win32.cursor_clip_recovery_count ()
 
-let root_window_valid (rootWindow: RootWindow) =
-    let (RootWindow window) = rootWindow
-    Win32Native.IsWindow window
+let viewport_host_windows_exist (identity: ViewportHostIdentity) =
+    let (RootWindow rootWindow) = identity.root_window
+    let (ViewWindowHandle viewWindow) = identity.view_window
+
+    rootWindow <> nativeint 0
+    && viewWindow <> nativeint 0
+    && Win32Native.IsWindow rootWindow
+    && Win32Native.IsWindow viewWindow
 
 let hide_cursor () = Win32Native.ShowCursor false |> ignore
 

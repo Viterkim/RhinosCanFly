@@ -107,7 +107,7 @@ let update_state (input: InputAccumulator.State) (state: FlyState) =
             | ExplicitKeepCamera when state.restore_camera_on_exit -> Some ExplicitRestoreCamera
             | _ -> Some reason
         | None ->
-            if not (PlatformInput.root_window_valid state.host_identity.root_window) then
+            if not (PlatformInput.viewport_host_windows_exist state.host_identity) then
                 Some HostInvalid
             elif PlatformInput.foreground_root_window () <> state.host_identity.root_window then
                 Some FocusLost

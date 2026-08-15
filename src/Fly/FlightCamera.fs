@@ -140,21 +140,6 @@ let apply (state: FlyState) (change: CameraChange) =
     | PositionChanged
     | DirectionChanged
     | PositionAndDirectionChanged ->
-        let invalidExit =
-            if not (PlatformInput.viewport_host_is_active state.host_identity state.view) then
-                Some HostInvalid
-            elif PlatformInput.foreground_root_window () <> state.host_identity.root_window then
-                Some FocusLost
-            else
-                None
-
-        match invalidExit with
-        | Some reason ->
-            state.restore_camera_on_exit <- true
-            FlyState.request_exit reason state
-            failwith "The active Rhino document or viewport changed during flight."
-        | None -> ()
-
         match change with
         | PositionChanged -> state.viewport.SetCameraLocation(state.camera.position, true)
         | DirectionChanged ->
