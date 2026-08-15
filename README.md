@@ -6,21 +6,29 @@ https://github.com/user-attachments/assets/52dc3237-e12b-4a54-8776-88f6b6475fac
 
 ## How to Use / Recommendations
 
-- Right click to enter flying, right click to exit (can change in `RhinosCanFlyOptions`)
+- Right click to enter flying, right click to exit (can change in `RhinosCanFlyOptions).
 
-- Set lens length in your file/project/default Rhino setup to something like `18` or so, which gives that 100 FOV feel. You can also set a flight-only lens in Options.
+- Set lens length in your file/project/default Rhino setup to something like `18` or so, which gives that 100 FOV feel.
 
-- Right click on Gumball at the bottom and enable `Rotate view around gumball`.
+## Links
 
-- Right click in your view and fly around, you can even use it while doing edits / commands (if enabled).
+[McNeel / Rhino Forum Link](https://discourse.mcneel.com/t/rhinos-can-fly-wasd-game-engine-fly-camera-controls-for-rhino/220880)
 
-## Run / Commands
+[Food 4 Rhino Link](https://www.food4rhino.com/en/app/rhinos-can-fly-rhinoscanfly-flying-custom-perspective-view)
 
-`RhinosCanFly` main command, fly around in perspective view, exit on right click and escape, keep the current camera position. (Default flying behaviour)
+[Building On Windows](./docs/building-on-windows.md)
 
-`RhinosCanFlyTempFly` goes back to the initial camera position after flight ends, this can be set to default behaviour in options.
+[Other Installation Options](./docs/other-installation-options.md)
+
+## Main Commands
+
+`RhinosCanFly` main command, fly around in perspective view, exit on right click and escape, keep the current camera position. (default flying behaviour, usually done with right click)
 
 `RhinosCanFlyOptions` pops up a panel where you can change keybindings / features (same menu is also in Tools -> Options... -> Rhinos Can Fly).
+
+## Extra Commands
+
+`RhinosCanFlyTempFly` goes back to the initial camera position after flight ends, this can be set to default behaviour in options.
 
 `RhinosCanFlySetSpeed` sets the current flying speed, you can also use a bind or the mousewheel up / down in settings.
 
@@ -35,16 +43,6 @@ https://github.com/user-attachments/assets/52dc3237-e12b-4a54-8776-88f6b6475fac
 ## Main Install (Package Manager / Yak)
 
 Install in Rhino itself, run `PackageManager` and search for `RhinosCanFly`, click install and restart Rhino.
-
-## Other
-
-[Mcneel / Rhino Forum Link](https://discourse.mcneel.com/t/rhinos-can-fly-wasd-game-engine-fly-camera-controls-for-rhino/220880)
-
-[Food 4 Rhino Link](https://www.food4rhino.com/en/app/rhinos-can-fly-rhinoscanfly-flying-custom-perspective-view)
-
-[Building On Windows](./docs/building-on-windows.md)
-
-[Other Installation Options](./docs/other-installation-options.md)
 
 ## Artistic Logo / Icon
 
