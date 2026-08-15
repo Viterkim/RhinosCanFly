@@ -31,6 +31,11 @@ type RightClickState =
       mutable button_ownership: HookButtonOwnership }
 
 [<Struct>]
+type RightClickViewport =
+    { host: ViewportHostIdentity
+      is_perspective: bool }
+
+[<Struct>]
 type Modifiers = { shift: bool; alt: bool }
 
 [<Literal>]
@@ -133,7 +138,9 @@ let requested_navigation_mode (navigation: State) (modifiers: Modifiers) =
     else
         ValueNone
 
-let action (navigation: State) (host: ViewportHostIdentity) (modifiers: Modifiers) (commandActive: bool) =
+let action (navigation: State) (viewport: RightClickViewport) (modifiers: Modifiers) (commandActive: bool) =
+    let host = viewport.host
+
     if navigation_active navigation then
         if navigation_exit_enabled navigation then
             ValueSome(
@@ -153,6 +160,7 @@ let action (navigation: State) (host: ViewportHostIdentity) (modifiers: Modifier
             )
         | ValueNone when
             entry_enabled navigation
+            && viewport.is_perspective
             && (entry_during_commands navigation.routing.right_click_entry || not commandActive)
             && not modifiers.shift
             && not modifiers.alt
@@ -169,7 +177,7 @@ let action (navigation: State) (host: ViewportHostIdentity) (modifiers: Modifier
 let rec handle_event
     (navigation: State)
     (state: RightClickState)
-    (tryView: nativeint -> ViewportHostIdentity voption)
+    (tryView: nativeint -> RightClickViewport voption)
     (commandActive: bool)
     (event: Win32.MouseHookEvent)
     =
@@ -211,22 +219,19 @@ let rec handle_event
     else
         match tryView event.hook_window with
         | ValueNone -> false
-        | ValueSome hookHost ->
+        | ValueSome hookViewport ->
             match tryView event.point_window with
-            | ValueSome pointHost when ViewNavigationState.same_host hookHost pointHost ->
-                if pointHost.root_window <> ViewNavigationState.foreground_root_window () then
-                    false
-                else
-                    match action navigation pointHost (modifiers ()) commandActive with
-                    | ValueNone -> false
-                    | ValueSome captured ->
-                        state.button_ownership <- Owned
-                        state.gesture <- ButtonDown captured
+            | ValueSome pointViewport when ViewNavigationState.same_host hookViewport.host pointViewport.host ->
+                match action navigation pointViewport (modifiers ()) commandActive with
+                | ValueNone -> false
+                | ValueSome captured ->
+                    state.button_ownership <- Owned
+                    state.gesture <- ButtonDown captured
 
-                        if not (try_wake navigation) then
-                            clear_action state
+                    if not (try_wake navigation) then
+                        clear_action state
 
-                        true
+                    true
             | ValueSome _
             | ValueNone -> false
 
@@ -258,15 +263,31 @@ let try_entry_view (entry: FlyEntry) =
         || view.Document.RuntimeSerialNumber <> entry.host.document_serial_number
         || isNull RhinoDoc.ActiveDoc
         || RhinoDoc.ActiveDoc.RuntimeSerialNumber <> entry.host.document_serial_number
-        || isNull view.Document.Views.ActiveView
-        || view.Document.Views.ActiveView.RuntimeSerialNumber
-           <> entry.host.view_serial_number
         || view.Handle <> expectedWindow
         || ViewNavigationState.root_window view.Handle <> entry.host.root_window
     then
         ValueNone
     else
         ValueSome view
+
+let try_activate_entry_view (entry: FlyEntry) =
+    match try_entry_view entry with
+    | ValueNone -> ValueNone
+    | ValueSome view ->
+        let activeView = view.Document.Views.ActiveView
+
+        if isNull activeView || activeView.RuntimeSerialNumber <> view.RuntimeSerialNumber then
+            view.Document.Views.ActiveView <- view
+
+        let activatedView = view.Document.Views.ActiveView
+
+        if
+            isNull activatedView
+            || activatedView.RuntimeSerialNumber <> view.RuntimeSerialNumber
+        then
+            ValueNone
+        else
+            ValueSome view
 
 let dispatch_entry (state: RightClickState) (entry: FlyEntry) =
     state.gesture <- FlightDispatched entry
@@ -282,14 +303,12 @@ let update (navigation: State) (state: RightClickState) (commandActive: bool) =
             clear_action state
     | ButtonDown(NavigateView _) -> ()
     | ButtonDown(EnterFlight entry) ->
-        if
-            navigation.lifecycle <> Available
-            || entry_timed_out entry
-            || ViewNavigationState.foreground_root_window () <> entry.host.root_window
-        then
+        if navigation.lifecycle <> Available || entry_timed_out entry then
             clear_action state
+        elif ViewNavigationState.foreground_root_window () <> entry.host.root_window then
+            ()
         else
-            match try_entry_view entry with
+            match try_activate_entry_view entry with
             | ValueNone -> clear_action state
             | ValueSome view ->
                 let canEnter = entry_during_commands entry.entry_mode || not commandActive
@@ -313,14 +332,12 @@ let update (navigation: State) (state: RightClickState) (commandActive: bool) =
 
         clear_action state
     | ButtonReleased(EnterFlight entry) ->
-        if
-            navigation.lifecycle <> Available
-            || entry_timed_out entry
-            || ViewNavigationState.foreground_root_window () <> entry.host.root_window
-        then
+        if navigation.lifecycle <> Available || entry_timed_out entry then
             clear_action state
+        elif ViewNavigationState.foreground_root_window () <> entry.host.root_window then
+            ()
         else
-            match try_entry_view entry with
+            match try_activate_entry_view entry with
             | ValueNone -> clear_action state
             | ValueSome view ->
                 let canEnter = entry_during_commands entry.entry_mode || not commandActive

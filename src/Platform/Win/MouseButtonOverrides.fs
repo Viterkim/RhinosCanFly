@@ -178,32 +178,66 @@ let try_refresh_callback_enabled () =
     with error ->
         log_exception "mouse override callback refresh" error
 
-let mutable view_hosts: ViewportHostIdentity array = Array.empty
+let mutable right_click_viewports: RightClickTransitions.RightClickViewport array =
+    Array.empty
+
 let mutable view_create_subscribed = false
 let mutable view_destroy_subscribed = false
 
-let capture_navigation_host (view: RhinoView) =
+let capture_viewport_host (view: RhinoView) =
     { view_serial_number = view.RuntimeSerialNumber
       document_serial_number = view.Document.RuntimeSerialNumber
       view_window = ViewWindowHandle view.Handle
       root_window = ViewNavigationState.root_window view.Handle }
 
-let refresh_view_hosts () =
+let capture_right_click_viewport (view: RhinoView) : RightClickTransitions.RightClickViewport =
+    { host = capture_viewport_host view
+      is_perspective = view.ActiveViewport.IsPerspectiveProjection }
+
+let update_right_click_viewport (view: RhinoView) =
+    let updated = capture_right_click_viewport view
+    let mutable index = 0
+    let mutable found = false
+
+    while index < right_click_viewports.Length && not found do
+        if right_click_viewports[index].host.view_serial_number = updated.host.view_serial_number then
+            right_click_viewports[index] <- updated
+            found <- true
+
+        index <- index + 1
+
+    if not found then
+        right_click_viewports <- Array.append right_click_viewports [| updated |]
+
+let refresh_right_click_viewports () =
     try
-        view_hosts <-
+        right_click_viewports <-
             RhinoDoc.OpenDocuments()
             |> Array.collect (fun (document: RhinoDoc) -> document.Views.GetViewList(true, true))
             |> Array.choose (fun (view: RhinoView) ->
                 if isNull view || isNull view.Document || view.Handle = nativeint 0 then
                     None
                 else
-                    Some(capture_navigation_host view))
+                    Some(capture_right_click_viewport view))
 
         Ok()
     with error ->
-        view_hosts <- Array.empty
+        right_click_viewports <- Array.empty
         log_exception "viewport window refresh" error
         Error $"Could not enumerate Rhino viewport windows: {error.Message}"
+
+let application_initialized =
+    EventHandler(fun (_: obj) (_: EventArgs) ->
+        match mouse_hook_state with
+        | HookInstalled _ ->
+            match refresh_right_click_viewports () with
+            | Ok() -> ()
+            | Error error -> Debug.WriteLine $"RhinosCanFly initialized viewport refresh: {error}"
+        | HookAbsent
+        | HookRemovalPending _
+        | HookRemovalAbandoned _ -> ())
+
+do RhinoApp.Initialized.AddHandler application_initialized
 
 let view_created =
     EventHandler<ViewEventArgs>(fun (_: obj) (event: ViewEventArgs) ->
@@ -211,14 +245,7 @@ let view_created =
             let view = event.View
 
             if not (isNull view) && not (isNull view.Document) && view.Handle <> nativeint 0 then
-                let created = capture_navigation_host view
-
-                let remaining =
-                    view_hosts
-                    |> Array.filter (fun (candidate: ViewportHostIdentity) ->
-                        candidate.view_serial_number <> created.view_serial_number)
-
-                view_hosts <- Array.append remaining [| created |]
+                update_right_click_viewport view
         with error ->
             log_exception "viewport window created" error)
 
@@ -235,10 +262,10 @@ let view_destroyed =
                 | ValueSome _
                 | ValueNone -> ()
 
-                view_hosts <-
-                    view_hosts
-                    |> Array.filter (fun (candidate: ViewportHostIdentity) ->
-                        candidate.view_serial_number <> serialNumber)
+                right_click_viewports <-
+                    right_click_viewports
+                    |> Array.filter (fun (candidate: RightClickTransitions.RightClickViewport) ->
+                        candidate.host.view_serial_number <> serialNumber)
         with error ->
             log_exception "viewport window destroyed" error)
 
@@ -252,7 +279,7 @@ let subscribe_view_events () =
             RhinoView.Destroy.AddHandler view_destroyed
             view_destroy_subscribed <- true
 
-        match refresh_view_hosts () with
+        match refresh_right_click_viewports () with
         | Ok() -> ()
         | Error error -> failwith error
     with error ->
@@ -270,7 +297,7 @@ let subscribe_view_events () =
             with cleanupError ->
                 Debug.WriteLine $"RhinosCanFly Destroy subscription rollback: {cleanupError}"
 
-        view_hosts <- Array.empty
+        right_click_viewports <- Array.empty
         raise error
 
 let unsubscribe_view_events () =
@@ -291,18 +318,18 @@ let unsubscribe_view_events () =
             with error ->
                 errors.Add $"Destroy: {error.Message}"
 
-        view_hosts <- Array.empty
+        right_click_viewports <- Array.empty
 
         if errors.Count > 0 then
             failwith (String.concat "; " errors)
 
-let try_navigation_host (window: nativeint) =
+let try_right_click_viewport (window: nativeint) =
     let mutable index = 0
     let mutable result = ValueNone
 
-    while index < view_hosts.Length && ValueOption.isNone result do
-        let candidate = view_hosts[index]
-        let (ViewWindowHandle candidateWindow) = candidate.view_window
+    while index < right_click_viewports.Length && ValueOption.isNone result do
+        let candidate = right_click_viewports[index]
+        let (ViewWindowHandle candidateWindow) = candidate.host.view_window
 
         if
             Win32Native.IsWindow candidateWindow
@@ -336,7 +363,7 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
             rightClickWasOwned <- RightClickTransitions.owns_button right_click
 
             swallow <-
-                RightClickTransitions.handle_event state right_click try_navigation_host (command_depth > 0) event
+                RightClickTransitions.handle_event state right_click try_right_click_viewport (command_depth > 0) event
 
             swallow
         else
@@ -385,16 +412,16 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
                 then
                     false
                 elif isDown then
-                    match try_navigation_host event.hook_window with
-                    | ValueSome hookHost ->
-                        match try_navigation_host event.point_window with
-                        | ValueSome pointHost when
-                            ViewNavigationState.same_host hookHost pointHost
-                            && pointHost.root_window = ViewNavigationState.foreground_root_window ()
+                    match try_right_click_viewport event.hook_window with
+                    | ValueSome hookViewport ->
+                        match try_right_click_viewport event.point_window with
+                        | ValueSome pointViewport when
+                            ViewNavigationState.same_host hookViewport.host pointViewport.host
+                            && pointViewport.host.root_window = ViewNavigationState.foreground_root_window ()
                             ->
                             swallow <- true
                             ViewNavigationState.set_hook_owns_button state button true
-                            state.pending_side_button_events.Enqueue(ButtonDown(button, pointHost))
+                            state.pending_side_button_events.Enqueue(ButtonDown(button, pointViewport.host))
                             ViewNavigationState.keep_timer_running state
                             true
                         | ValueSome _
@@ -702,7 +729,23 @@ let command_began =
 let command_ended =
     EventHandler<CommandEventArgs>(fun (_: obj) (_: CommandEventArgs) ->
         if command_depth > 0 then
-            command_depth <- command_depth - 1)
+            command_depth <- command_depth - 1
+
+        match mouse_hook_state with
+        | HookInstalled _ ->
+            try
+                let document = RhinoDoc.ActiveDoc
+
+                if not (isNull document) then
+                    let view = document.Views.ActiveView
+
+                    if not (isNull view) && view.Handle <> nativeint 0 then
+                        update_right_click_viewport view
+            with error ->
+                log_exception "active viewport refresh" error
+        | HookAbsent
+        | HookRemovalPending _
+        | HookRemovalAbandoned _ -> ())
 
 do Command.BeginCommand.AddHandler command_began
 do Command.EndCommand.AddHandler command_ended
@@ -711,7 +754,7 @@ let start_view_latch (view: RhinoView) (mode: ViewNavigationMode) (completion: A
     if isNull view || isNull view.Document || view.Handle = nativeint 0 then
         Error "The active viewport is unavailable."
     else
-        let host = capture_navigation_host view
+        let host = capture_viewport_host view
 
         match ViewLatchTransitions.start_or_switch state host mode completion with
         | Error error -> Error error
@@ -915,6 +958,7 @@ let shutdown () =
 
         attempt "command handler" (fun () -> Command.BeginCommand.RemoveHandler command_began)
         attempt "command end handler" (fun () -> Command.EndCommand.RemoveHandler command_ended)
+        attempt "application initialized handler" (fun () -> RhinoApp.Initialized.RemoveHandler application_initialized)
         attempt "callback" (fun () -> view_navigation_callback.Enabled <- false)
 
         attempt "view navigation" (fun () ->

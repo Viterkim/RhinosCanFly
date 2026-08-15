@@ -1,6 +1,7 @@
 module RhinosCanFly.ExitPivotTarget
 
 open System
+open System.Diagnostics
 open Rhino
 open Rhino.Display
 open Rhino.Geometry
@@ -57,39 +58,53 @@ let try_geometry_target (viewport: RhinoViewport) =
 
             if valid_target viewport target then Some target else None
 
-let try_plane_target (viewport: RhinoViewport) (plane: Plane) =
-    let struct (x, y) = viewport_center viewport
-    let line = viewport.ClientToWorld(Point2d(float x, float y))
-    let mutable lineParameter = 0.
-    let mutable lineDirection = line.Direction
-
-    let sufficientlyTransverse =
-        lineDirection.Unitize()
-        && abs (Vector3d.Multiply(lineDirection, plane.Normal)) > 1e-6
-
-    if
-        plane.IsValid
-        && line.IsValid
-        && sufficientlyTransverse
-        && Intersection.LinePlane(line, plane, &lineParameter)
-        && RhinoMath.IsValidDouble lineParameter
-    then
-        let target = line.PointAt lineParameter
-
-        if valid_target viewport target then Some target else None
-    else
+let try_geometry_target_safely (viewport: RhinoViewport) =
+    try
+        try_geometry_target viewport
+    with error ->
+        Debug.WriteLine $"RhinosCanFly exit geometry target: {error}"
         None
+
+let try_plane_target (viewport: RhinoViewport) (plane: Plane) =
+    if not plane.IsValid then
+        None
+    else
+        let struct (x, y) = viewport_center viewport
+        let line = viewport.ClientToWorld(Point2d(float x, float y))
+        let mutable lineParameter = 0.
+        let mutable lineDirection = line.Direction
+
+        let rayTarget =
+            if
+                line.IsValid
+                && lineDirection.Unitize()
+                && abs (Vector3d.Multiply(lineDirection, plane.Normal)) > 1e-6
+                && Intersection.LinePlane(line, plane, &lineParameter)
+                && RhinoMath.IsValidDouble lineParameter
+            then
+                let target = line.PointAt lineParameter
+
+                if valid_target viewport target then Some target else None
+            else
+                None
+
+        match rayTarget with
+        | Some target -> Some target
+        | None ->
+            let target = plane.ClosestPoint viewport.CameraTarget
+
+            if valid_target viewport target then Some target else None
 
 let try_target (mode: ExitPivotTargetMode) (viewport: RhinoViewport) =
     match mode with
     | ExitPivotTargetMode.Off -> None
-    | ExitPivotTargetMode.Geometry -> try_geometry_target viewport
+    | ExitPivotTargetMode.Geometry -> try_geometry_target_safely viewport
     | ExitPivotTargetMode.GeometryThenCPlane ->
-        match try_geometry_target viewport with
+        match try_geometry_target_safely viewport with
         | Some target -> Some target
         | None -> try_plane_target viewport (viewport.ConstructionPlane())
     | ExitPivotTargetMode.GeometryThenWorldXY ->
-        match try_geometry_target viewport with
+        match try_geometry_target_safely viewport with
         | Some target -> Some target
         | None -> try_plane_target viewport Plane.WorldXY
     | _ -> None
