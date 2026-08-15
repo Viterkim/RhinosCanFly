@@ -136,7 +136,7 @@ type SettingsControl() as self =
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Target"))
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Target"))
 
         SettingsLayout.grid
             2
@@ -149,7 +149,7 @@ type SettingsControl() as self =
         mainTable.Rows.Add(
             SettingsLayout.full_width (
                 SettingsLayout.note
-                    "Used when Pivot or Pan starts, and when a flight ends. Distance is current flight speed × this multiplier."
+                    "Used when flight ends or pivot or pan starts (distance is affected by flight speed and multiplier)"
             )
         )
 
