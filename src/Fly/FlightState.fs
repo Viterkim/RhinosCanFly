@@ -55,9 +55,9 @@ let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyCo
       speed =
         FlightSpeed.current view.Document behavior.load_speed_from_document movement.speed_range movement.base_speed
       boost_enabled = false
-      boost_was_down = PlatformBindings.is_down bindings.boost
+      boost_was_down = PlatformInput.flight_binding_down bindings.boost
       slow_enabled = false
-      slow_was_down = PlatformBindings.is_down bindings.slow
+      slow_was_down = PlatformInput.flight_binding_down bindings.slow
       speed_increase_was_down = FlightControls.is_optional_down bindings.speed_increase
       speed_decrease_was_down = FlightControls.is_optional_down bindings.speed_decrease
       wheel_remainder = 0L }

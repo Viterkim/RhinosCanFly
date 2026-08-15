@@ -2,7 +2,7 @@ module RhinosCanFly.FlightControls
 
 let is_optional_down (key: KeyBinding option) =
     match key with
-    | Some binding -> PlatformBindings.is_down binding
+    | Some binding -> PlatformInput.flight_binding_down binding
     | None -> false
 
 let speed_step (state: FlyState) (steps: SpeedStepCount) =
@@ -35,7 +35,7 @@ let update_keyboard_navigation_input (state: FlyState) =
 let update_toggles (state: FlyState) =
     let bindings = state.config.bindings
     let movement = state.config.movement
-    let boost = PlatformBindings.is_down bindings.boost
+    let boost = PlatformInput.flight_binding_down bindings.boost
 
     if
         movement.boost_mode = KeyActivationMode.Toggle
@@ -46,7 +46,7 @@ let update_toggles (state: FlyState) =
 
     state.boost_was_down <- boost
 
-    let slow = PlatformBindings.is_down bindings.slow
+    let slow = PlatformInput.flight_binding_down bindings.slow
 
     if movement.slow_mode = KeyActivationMode.Toggle && slow && not state.slow_was_down then
         state.slow_enabled <- not state.slow_enabled
@@ -71,14 +71,21 @@ let read_movement (state: FlyState) =
     let bindings = state.config.bindings
     let movement = state.config.movement
 
+    let basicKeysOnly =
+        FlightHotPathTest.current () = FlightHotPathTest.BasicFlightKeysOnly
+
     let slowActive =
-        if movement.slow_mode = KeyActivationMode.Hold then
+        if basicKeysOnly then
+            false
+        elif movement.slow_mode = KeyActivationMode.Hold then
             state.slow_was_down
         else
             state.slow_enabled
 
     let boostActive =
-        if movement.boost_mode = KeyActivationMode.Hold then
+        if basicKeysOnly then
+            false
+        elif movement.boost_mode = KeyActivationMode.Hold then
             state.boost_was_down
         else
             state.boost_enabled
@@ -86,19 +93,19 @@ let read_movement (state: FlyState) =
     let slow = if slowActive then movement.slow_multiplier else 1.
     let boost = if boostActive then movement.boost_multiplier else 1.
 
-    { forward = PlatformBindings.is_down bindings.forward
-      backward = PlatformBindings.is_down bindings.backward
-      left = PlatformBindings.is_down bindings.left
-      right = PlatformBindings.is_down bindings.right
-      up = PlatformBindings.is_down bindings.up
-      down = PlatformBindings.is_down bindings.down
-      key_pivot_left = PlatformBindings.is_down bindings.key_pivot_left
-      key_pivot_right = PlatformBindings.is_down bindings.key_pivot_right
+    { forward = PlatformInput.flight_binding_down bindings.forward
+      backward = PlatformInput.flight_binding_down bindings.backward
+      left = PlatformInput.flight_binding_down bindings.left
+      right = PlatformInput.flight_binding_down bindings.right
+      up = PlatformInput.flight_binding_down bindings.up
+      down = PlatformInput.flight_binding_down bindings.down
+      key_pivot_left = not basicKeysOnly && PlatformInput.flight_binding_down bindings.key_pivot_left
+      key_pivot_right = not basicKeysOnly && PlatformInput.flight_binding_down bindings.key_pivot_right
       move_speed = state.speed * slow * boost }
 
 let update_state (input: InputAccumulator.State) (state: FlyState) =
     let cancelAndRestore =
-        PlatformBindings.is_down state.config.bindings.cancel_flight_and_restore
+        PlatformInput.flight_binding_down state.config.bindings.cancel_flight_and_restore
 
     let exitReason =
         match InputAccumulator.exit_reason input with
@@ -113,7 +120,7 @@ let update_state (input: InputAccumulator.State) (state: FlyState) =
                 Some FocusLost
             elif cancelAndRestore then
                 Some ExplicitRestoreCamera
-            elif PlatformBindings.is_down state.config.bindings.exit_key then
+            elif PlatformInput.flight_binding_down state.config.bindings.exit_key then
                 if state.restore_camera_on_exit then
                     Some ExplicitRestoreCamera
                 else
@@ -142,4 +149,5 @@ let update_state (input: InputAccumulator.State) (state: FlyState) =
             elif wheelSteps <> 0L then
                 speed_step state (SpeedStepCount(float (direction * wheelSteps)))
 
-        update_toggles state
+        if FlightHotPathTest.current () <> FlightHotPathTest.BasicFlightKeysOnly then
+            update_toggles state

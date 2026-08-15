@@ -14,6 +14,7 @@ type State =
     { configured: ConfiguredKeys
       passthrough_keys_down: HashSet<int>
       suppressed_keys_down: HashSet<int>
+      key_is_down: bool array
       mutable active: bool }
 
 let state =
@@ -24,6 +25,7 @@ let state =
           either_alt = false }
       passthrough_keys_down = HashSet<int>()
       suppressed_keys_down = HashSet<int>()
+      key_is_down = Array.zeroCreate 256
       active = false }
 
 let mutable keyboardHook: Win32Native.WindowsHook option = None
@@ -68,8 +70,19 @@ let add_passthrough_if_down (physicalKey: int) =
         && not (state.suppressed_keys_down.Contains physicalKey)
     then
         state.passthrough_keys_down.Add physicalKey |> ignore
+        state.key_is_down[physicalKey] <- true
 
 let configure (bindings: FlightBindings) =
+    let releasedKeys = ResizeArray<int>()
+
+    for physicalKey in state.suppressed_keys_down do
+        if Win32Native.GetAsyncKeyState physicalKey >= 0s then
+            releasedKeys.Add physicalKey
+
+    for physicalKey in releasedKeys do
+        state.suppressed_keys_down.Remove physicalKey |> ignore
+        state.key_is_down[physicalKey] <- false
+
     clear_configured ()
     add_binding bindings.forward
     add_binding bindings.backward
@@ -112,11 +125,17 @@ let configure (bindings: FlightBindings) =
 let stop () =
     state.active <- false
     clear_configured ()
+
+    for physicalKey in state.passthrough_keys_down do
+        if not (state.suppressed_keys_down.Contains physicalKey) then
+            state.key_is_down[physicalKey] <- false
+
     state.passthrough_keys_down.Clear()
 
 let classify_fresh_key_down (physicalKey: int) =
     if state.active && configured_key physicalKey then
         state.suppressed_keys_down.Add physicalKey |> ignore
+        state.key_is_down[physicalKey] <- true
         true
     else
         false
@@ -127,12 +146,10 @@ let handle_event (event: Win32.KeyboardHookEvent) =
     if not state.active && state.suppressed_keys_down.Count = 0 then
         false
     elif event.released then
-        if state.suppressed_keys_down.Remove physicalKey then
-            state.passthrough_keys_down.Remove physicalKey |> ignore
-            true
-        else
-            state.passthrough_keys_down.Remove physicalKey |> ignore
-            false
+        let suppressed = state.suppressed_keys_down.Remove physicalKey
+        state.passthrough_keys_down.Remove physicalKey |> ignore
+        state.key_is_down[physicalKey] <- false
+        suppressed
     elif state.suppressed_keys_down.Contains physicalKey then
         if event.was_down then
             true
@@ -147,6 +164,39 @@ let handle_event (event: Win32.KeyboardHookEvent) =
             classify_fresh_key_down physicalKey
     else
         classify_fresh_key_down physicalKey
+
+let virtual_key_down (virtualKey: int) =
+    match virtualKey with
+    | Win32Native.VK_LBUTTON
+    | Win32Native.VK_RBUTTON
+    | Win32Native.VK_MBUTTON
+    | Win32Native.VK_XBUTTON1
+    | Win32Native.VK_XBUTTON2 -> Win32Native.GetAsyncKeyState virtualKey < 0s
+    | Win32Native.VK_SHIFT ->
+        state.key_is_down[Win32Native.VK_LSHIFT]
+        || state.key_is_down[Win32Native.VK_RSHIFT]
+    | Win32Native.VK_CONTROL ->
+        state.key_is_down[Win32Native.VK_LCONTROL]
+        || state.key_is_down[Win32Native.VK_RCONTROL]
+    | Win32Native.VK_MENU ->
+        state.key_is_down[Win32Native.VK_LMENU]
+        || state.key_is_down[Win32Native.VK_RMENU]
+    | _ -> state.key_is_down[virtualKey]
+
+let binding_is_down (binding: KeyBinding) =
+    if not state.active then
+        PlatformBindings.is_down binding
+    else
+        let keys = binding.virtual_keys
+        let mutable index = 0
+        let mutable down = keys.Length > 0
+
+        while down && index < keys.Length do
+            let (VirtualKey virtualKey) = keys[index]
+            down <- virtual_key_down virtualKey
+            index <- index + 1
+
+        down
 
 let hook_event (event: Win32.KeyboardHookEvent) =
     let mutable swallow = false
@@ -182,6 +232,7 @@ let start (bindings: FlightBindings) =
 let shutdown () =
     stop ()
     state.suppressed_keys_down.Clear()
+    System.Array.Clear(state.key_is_down, 0, state.key_is_down.Length)
 
     match keyboardHook with
     | None -> Ok()

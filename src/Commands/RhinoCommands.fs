@@ -95,3 +95,11 @@ type RhinosCanFlyToggleKeyboardSuppressionCommand() =
     override _.CommandContextHelpUrl = CommandHelp.blank_url
 
     override _.RunCommand(_document: RhinoDoc, _mode: RunMode) = Commands.toggle_keyboard_suppression ()
+
+[<Guid("DBF724F5-A2E1-4E2A-9F2B-5EB68100C86D")>]
+[<CommandStyle(Style.Hidden ||| Style.DoNotRepeat)>]
+type RhinosCanFlyHotPathTestCommand() =
+    inherit Command()
+    override _.EnglishName = "RhinosCanFlyHotPathTest"
+    override _.CommandContextHelpUrl = CommandHelp.blank_url
+    override _.RunCommand(_document: RhinoDoc, _mode: RunMode) = Commands.cycle_hot_path_test ()

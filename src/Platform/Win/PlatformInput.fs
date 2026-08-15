@@ -52,16 +52,30 @@ let viewport_host_exists (identity: ViewportHostIdentity) (view: RhinoView) =
 
 let viewport_host_is_active (identity: ViewportHostIdentity) (view: RhinoView) =
     try
-        if not (viewport_matches_identity identity view) then
+        let (ViewWindowHandle expectedHandle) = identity.view_window
+
+        if
+            Object.ReferenceEquals(view, null)
+            || expectedHandle = nativeint 0
+            || view.RuntimeSerialNumber <> identity.view_serial_number
+            || view.Handle <> expectedHandle
+            || not (Win32Native.IsWindow expectedHandle)
+        then
             false
         else
             let activeDocument = Rhino.RhinoDoc.ActiveDoc
-            let activeView = view.Document.Views.ActiveView
 
-            not (Object.ReferenceEquals(activeDocument, null))
-            && activeDocument.RuntimeSerialNumber = identity.document_serial_number
-            && viewport_matches_identity identity activeView
-            && root_window view = identity.root_window
+            if
+                Object.ReferenceEquals(activeDocument, null)
+                || activeDocument.RuntimeSerialNumber <> identity.document_serial_number
+            then
+                false
+            else
+                let activeView = activeDocument.Views.ActiveView
+
+                not (Object.ReferenceEquals(activeView, null))
+                && activeView.RuntimeSerialNumber = identity.view_serial_number
+                && activeView.Handle = expectedHandle
     with _ ->
         false
 
@@ -174,6 +188,9 @@ let suppress_flight_keyboard (bindings: FlightBindings) =
 let release_flight_keyboard () = FlightKeyboardSuppression.stop ()
 
 let shutdown_flight_keyboard () = FlightKeyboardSuppression.shutdown ()
+
+let flight_binding_down (binding: KeyBinding) =
+    FlightKeyboardSuppression.binding_is_down binding
 
 let apply_mouse_button_overrides (config: MouseOverrideConfig) = MouseButtonOverrides.apply config
 

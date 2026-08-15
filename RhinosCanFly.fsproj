@@ -62,6 +62,7 @@
     <Compile Include="src/Configuration/ConfigSchema.fs" />
     <Compile Include="src/Configuration/ConfigStorage.fs" />
     <Compile Include="src/Commands/RepeatBehavior.fs" />
+    <Compile Include="src/Fly/FlightHotPathTest.fs" />
     <Compile Include="src/Fly/Movement.fs" />
     <Compile Include="src/Fly/FlightSpeed.fs" />
     <Compile Include="src/Platform/Win/RawInputReceiver.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />

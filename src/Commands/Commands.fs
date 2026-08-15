@@ -273,3 +273,12 @@ let toggle_keyboard_suppression () =
     | Error error ->
         RhinoApp.WriteLine $"RhinosCanFly: {error}"
         Result.Failure
+
+let cycle_hot_path_test () =
+    if FlightSession.is_running () then
+        RhinoApp.WriteLine "RhinosCanFly: exit flight before changing the hot path test."
+        Result.Failure
+    else
+        let mode = FlightHotPathTest.next ()
+        RhinoApp.WriteLine $"RhinosCanFly hot path test: {FlightHotPathTest.description mode}."
+        Result.Success
