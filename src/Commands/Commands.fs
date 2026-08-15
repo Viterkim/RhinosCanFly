@@ -168,7 +168,7 @@ let toggle_navigation_command (mode: StandaloneNavigationMode) (document: RhinoD
                                             CameraSnapshot.restore viewport snapshot
 
                                             if PlatformInput.viewport_host_is_foreground host view then
-                                                FlightRedraw.redraw loaded.config.behavior.viewport_paint_mode view)
+                                                view.Redraw())
                                 )
                             else
                                 None

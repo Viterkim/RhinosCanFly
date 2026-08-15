@@ -283,9 +283,7 @@ let finish_active (session: ActiveSession) (activeResult: Result<unit, string>) 
         |> ignore
 
     if session.flight_entered && display_is_safe () then
-        attempt_cleanup cleanupErrors "redraw" (fun () ->
-            FlightRedraw.redraw state.config.behavior.viewport_paint_mode state.view)
-        |> ignore
+        attempt_cleanup cleanupErrors "redraw" (fun () -> state.view.Redraw()) |> ignore
 
     let overrideResumed =
         attempt_cleanup cleanupErrors "mouse button overrides" (fun () ->
@@ -406,7 +404,7 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
         let adjustment = state.config.behavior.lens_adjustment
         session.lens_changed <- Option.isSome adjustment.forced_length_mm || adjustment.delta_mm <> 0.
         FlightCamera.apply_entry_lens state
-        FlightRedraw.redraw state.config.behavior.viewport_paint_mode state.view
+        state.view.Redraw()
         session.flight_entered <- true
 
 let begin_active (starting: StartingSession) =

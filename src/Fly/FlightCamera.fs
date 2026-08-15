@@ -163,7 +163,10 @@ let apply (state: FlyState) (change: CameraChange) =
         | PositionAndDirectionChanged -> state.viewport.SetCameraLocations(state.camera.target, state.camera.position)
         | NoCameraChange -> ()
 
-        FlightRedraw.redraw state.config.behavior.viewport_paint_mode state.view
+        state.view.Redraw()
+
+        if state.config.behavior.viewport_paint_mode = ViewportPaintMode.Immediate then
+            PlatformInput.update_window state.view
 
 let apply_entry_lens (state: FlyState) =
     let adjustment = state.config.behavior.lens_adjustment

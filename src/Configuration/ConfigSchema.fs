@@ -65,7 +65,7 @@ let defaults: FlyConfigFile =
       vertical_speed_multiplier = 0.8
       forced_lens_length_mm = 0.
       lens_length_delta_mm = 0.
-      viewport_paint_mode = ViewportPaintMode.Immediate }
+      viewport_paint_mode = ViewportPaintMode.Queued }
 
 let normalize_number (value: float) =
     let rounded = Math.Round(value, 12, MidpointRounding.AwayFromZero)

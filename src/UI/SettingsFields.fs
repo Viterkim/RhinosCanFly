@@ -175,8 +175,8 @@ let create () =
            ViewTargetMode.GeometryThenDistance, "Geometry, then distance" |]
 
     let paintModes =
-        [| ViewportPaintMode.Immediate, "Immediate paint (default)"
-           ViewportPaintMode.Queued, "Normal Rhino redraw" |]
+        [| ViewportPaintMode.Queued, "Normal Rhino redraw (default)"
+           ViewportPaintMode.Immediate, "Immediate paint" |]
 
     { config =
         { bindings =
@@ -227,7 +227,7 @@ let create () =
               mouse4_pivot_mode = mode_field mousePivotModes MouseButtonPivotMode.Off
               mouse5_pivot_mode = mode_field mousePivotModes MouseButtonPivotMode.Off
               middle_mouse_while_flying = mode_field flyingMiddleMouseModes FlyingMiddleMouseMode.Off
-              viewport_paint_mode = mode_field paintModes ViewportPaintMode.Immediate }
+              viewport_paint_mode = mode_field paintModes ViewportPaintMode.Queued }
           options =
             { enabled = new CheckBox(Text = "Enable Rhinos Can Fly")
               normalize_diagonal_movement = new CheckBox(Text = "Normalize diagonal movement")
