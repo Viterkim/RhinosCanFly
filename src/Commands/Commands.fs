@@ -236,3 +236,25 @@ let recover_input () =
     | Error error ->
         RhinoApp.WriteLine $"Input recovery is incomplete: {error} Restart Rhino before flying again."
         Result.Failure
+
+let toggle_target_debug (document: RhinoDoc) =
+    let view = document.Views.ActiveView
+
+    if isNull view then
+        RhinoApp.WriteLine "RhinosCanFlyTargetDebug: no active view."
+        Result.Failure
+    elif ExitPivotTargetDebug.enabled () then
+        ExitPivotTargetDebug.set_enabled false
+        view.Redraw()
+        RhinoApp.WriteLine "RhinosCanFly pivot-target debug disabled."
+        Result.Success
+    else
+        with_config (fun (loaded: ConfigLoadResult) ->
+            ExitPivotTargetDebug.set_enabled true
+            ExitPivotTarget.debug_current loaded.config.behavior.exit_pivot_target_mode view.ActiveViewport
+            view.Redraw()
+
+            RhinoApp.WriteLine
+                "Pivot-target debug enabled. Fly and exit normally; run this command again to disable it."
+
+            Result.Success)
