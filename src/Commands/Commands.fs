@@ -263,3 +263,13 @@ let recover_input () =
     | Error error ->
         RhinoApp.WriteLine $"Input recovery is incomplete: {error} Restart Rhino before flying again."
         Result.Failure
+
+let toggle_keyboard_suppression () =
+    match FlightSession.toggle_keyboard_suppression () with
+    | Ok enabled ->
+        let state = if enabled then "enabled" else "disabled"
+        RhinoApp.WriteLine $"RhinosCanFly keyboard suppression {state}."
+        Result.Success
+    | Error error ->
+        RhinoApp.WriteLine $"RhinosCanFly: {error}"
+        Result.Failure
