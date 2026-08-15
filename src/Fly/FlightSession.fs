@@ -32,6 +32,7 @@ type ActiveSession =
       mutable camera_mutated: bool
       mutable lens_changed: bool
       mutable flight_entered: bool
+      mutable keyboard_suppressed: bool
       mutable raw_input_clean: bool
       mutable raw_input_failed: bool
       mutable input_safe: bool }
@@ -108,6 +109,15 @@ let finish_active (session: ActiveSession) (activeResult: Result<unit, string>) 
     sessionState <- Finishing
     let state = session.state
     let cleanupErrors = session.cleanup_errors
+
+    if session.keyboard_suppressed then
+        let released =
+            attempt_cleanup cleanupErrors "keyboard suppression" (fun () ->
+                PlatformInput.release_flight_keyboard ()
+                session.keyboard_suppressed <- false)
+
+        if not released then
+            session.input_safe <- false
 
     match session.raw with
     | Some raw ->
@@ -325,6 +335,10 @@ let cleanup_starting (starting: StartingSession) (failure: string) =
 let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
     let state = session.state
 
+    match PlatformInput.suppress_flight_keyboard state.config.bindings with
+    | Ok() -> session.keyboard_suppressed <- true
+    | Error error -> failwith $"Could not suppress flight keys: {error}"
+
     let rawInputConfig: RawInputConfig =
         { exit_on_mouse_left = state.config.mouse.exit_on_left
           exit_on_mouse_right = state.config.mouse.exit_on_right
@@ -416,6 +430,7 @@ let begin_active (starting: StartingSession) =
               camera_mutated = false
               lens_changed = false
               flight_entered = false
+              keyboard_suppressed = false
               raw_input_clean = true
               raw_input_failed = false
               input_safe = true }

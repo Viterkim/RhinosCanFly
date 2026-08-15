@@ -348,13 +348,13 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
                 then
                     // The previous Up happened outside Rhino and was observed
                     // by the watchdog. This Down starts a new physical pair.
-                    ViewNavigationState.set_hook_owns_button state button false
+                    ViewNavigationState.set_hook_button_ownership state button NotOwned
 
                 let hookOwnsButton = ViewNavigationState.hook_owns_button state button
 
                 if isUp && hookOwnsButton then
                     swallow <- true
-                    ViewNavigationState.set_hook_owns_button state button false
+                    ViewNavigationState.set_hook_button_ownership state button NotOwned
 
                     if state.lifecycle = Available then
                         state.pending_side_button_events.Enqueue(ButtonUp button)
@@ -379,7 +379,7 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
                             && pointViewport.host.root_window = ViewNavigationState.foreground_root_window ()
                             ->
                             swallow <- true
-                            ViewNavigationState.set_hook_owns_button state button true
+                            ViewNavigationState.set_hook_button_ownership state button Owned
                             state.pending_side_button_events.Enqueue(ButtonDown(button, pointViewport.host))
                             ViewNavigationState.keep_timer_running state
                             true
@@ -488,13 +488,13 @@ let mouse_hook_needs_reconciliation () =
 let prune_released_side_buttons () =
     if ViewNavigationState.hook_owns_button state Mouse4 then
         if SideButtonTransitions.is_down Mouse4 then
-            ViewNavigationState.set_hook_owns_button state Mouse4 true
+            ViewNavigationState.set_hook_button_ownership state Mouse4 Owned
         else
             ViewNavigationState.observe_hook_button_released state Mouse4
 
     if ViewNavigationState.hook_owns_button state Mouse5 then
         if SideButtonTransitions.is_down Mouse5 then
-            ViewNavigationState.set_hook_owns_button state Mouse5 true
+            ViewNavigationState.set_hook_button_ownership state Mouse5 Owned
         else
             ViewNavigationState.observe_hook_button_released state Mouse5
 
@@ -925,8 +925,8 @@ let shutdown () =
             | Error error -> Debug.WriteLine $"RhinosCanFly mouse override shutdown: {error}")
 
         attempt "side-button ownership" (fun () ->
-            ViewNavigationState.set_hook_owns_button state Mouse4 false
-            ViewNavigationState.set_hook_owns_button state Mouse5 false)
+            ViewNavigationState.set_hook_button_ownership state Mouse4 NotOwned
+            ViewNavigationState.set_hook_button_ownership state Mouse5 NotOwned)
 
         attempt "mouse hook" (fun () ->
             match remove_mouse_hook () with

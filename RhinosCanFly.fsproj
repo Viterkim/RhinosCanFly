@@ -57,6 +57,7 @@
     <Compile Include="src/Platform/Win/RawInputNative.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/PlatformBindings.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Configuration/RuntimeConfig.fs" />
+    <Compile Include="src/Platform/Win/FlightKeyboardSuppression.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Fly/FlightTypes.fs" />
     <Compile Include="src/Configuration/ConfigSchema.fs" />
     <Compile Include="src/Configuration/ConfigStorage.fs" />

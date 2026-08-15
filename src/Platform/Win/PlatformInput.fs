@@ -69,15 +69,12 @@ let viewport_host_is_foreground (identity: ViewportHostIdentity) (view: RhinoVie
 let get_cursor_position () =
     Win32.get_cursor_position () |> Result.map CursorPosition
 
-let restore_cursor_position (position: CursorPosition) =
-    let (CursorPosition point) = position
-    Win32.set_cursor_position point
-
 let restore_cursor_position_if_foreground (window: RootWindow) (position: CursorPosition) =
     let (RootWindow root) = window
 
     if Win32Native.IsWindow root && Win32Native.GetForegroundWindow() = root then
-        restore_cursor_position position
+        let (CursorPosition point) = position
+        Win32.set_cursor_position point
     else
         Ok()
 
@@ -167,6 +164,13 @@ let close_raw_input (session: RawInputSession) = RawInputThread.stop session
 let raw_input_runtime_failed (session: RawInputSession) = RawInputThread.runtime_failed session
 
 let retry_raw_input_cleanup () = RawInputThread.retry_recovery ()
+
+let suppress_flight_keyboard (bindings: FlightBindings) =
+    FlightKeyboardSuppression.start bindings
+
+let release_flight_keyboard () = FlightKeyboardSuppression.stop ()
+
+let shutdown_flight_keyboard () = FlightKeyboardSuppression.shutdown ()
 
 let apply_mouse_button_overrides (config: MouseOverrideConfig) = MouseButtonOverrides.apply config
 

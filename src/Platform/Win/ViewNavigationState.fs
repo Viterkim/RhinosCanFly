@@ -25,9 +25,7 @@ let hook_owns_button (state: State) (button: SideButton) =
     | Owned
     | ReleaseObserved -> true
 
-let set_hook_owns_button (state: State) (button: SideButton) (owned: bool) =
-    let ownership = if owned then Owned else NotOwned
-
+let set_hook_button_ownership (state: State) (button: SideButton) (ownership: HookButtonOwnership) =
     match button with
     | Mouse4 -> state.side_button_hook_capture.mouse4 <- ownership
     | Mouse5 -> state.side_button_hook_capture.mouse5 <- ownership
@@ -39,7 +37,7 @@ let observe_hook_button_released (state: State) (button: SideButton) =
         match button with
         | Mouse4 -> state.side_button_hook_capture.mouse4 <- ReleaseObserved
         | Mouse5 -> state.side_button_hook_capture.mouse5 <- ReleaseObserved
-    | ReleaseObserved -> set_hook_owns_button state button false
+    | ReleaseObserved -> set_hook_button_ownership state button NotOwned
 
 let hook_owns_any_button (state: State) =
     hook_owns_button state Mouse4 || hook_owns_button state Mouse5

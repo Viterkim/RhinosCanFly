@@ -220,11 +220,78 @@ let wait_for_input () =
         failwith (last_error "MsgWaitForMultipleObjectsEx")
 
 [<Struct>]
+type KeyboardHookEvent =
+    { physical_key: int
+      released: bool
+      was_down: bool }
+
+[<Struct>]
 type MouseHookEvent =
     { message: int
       mouse_data: uint32
       hook_window: nativeint
       point_window: nativeint }
+
+let keyboard_physical_key (virtualKey: int) (eventData: int64) =
+    let extended = eventData &&& Win32Native.KEYBOARD_EXTENDED_KEY <> 0L
+
+    let scanCode =
+        int (
+            (eventData &&& Win32Native.KEYBOARD_SCAN_CODE_MASK)
+            >>> Win32Native.KEYBOARD_SCAN_CODE_SHIFT
+        )
+
+    match virtualKey with
+    | Win32Native.VK_LSHIFT -> Win32Native.VK_LSHIFT
+    | Win32Native.VK_RSHIFT -> Win32Native.VK_RSHIFT
+    | Win32Native.VK_SHIFT ->
+        if scanCode = Win32Native.RIGHT_SHIFT_SCAN_CODE then
+            Win32Native.VK_RSHIFT
+        else
+            Win32Native.VK_LSHIFT
+    | Win32Native.VK_LCONTROL -> Win32Native.VK_LCONTROL
+    | Win32Native.VK_RCONTROL -> Win32Native.VK_RCONTROL
+    | Win32Native.VK_CONTROL ->
+        if extended then
+            Win32Native.VK_RCONTROL
+        else
+            Win32Native.VK_LCONTROL
+    | Win32Native.VK_LMENU -> Win32Native.VK_LMENU
+    | Win32Native.VK_RMENU -> Win32Native.VK_RMENU
+    | Win32Native.VK_MENU ->
+        if extended then
+            Win32Native.VK_RMENU
+        else
+            Win32Native.VK_LMENU
+    | _ -> virtualKey
+
+let install_keyboard_hook (handleEvent: KeyboardHookEvent -> bool) =
+    let mutable hook = nativeint 0
+
+    let procedure =
+        Win32Native.HookProcedure(fun (code: int) (wparam: nativeint) (lparam: nativeint) ->
+            let eventData = int64 lparam
+            let virtualKey = int wparam
+
+            let event: KeyboardHookEvent =
+                { physical_key = keyboard_physical_key virtualKey eventData
+                  released = eventData &&& Win32Native.KEYBOARD_KEY_RELEASED <> 0L
+                  was_down = eventData &&& Win32Native.KEYBOARD_PREVIOUSLY_DOWN <> 0L }
+
+            if code = Win32Native.HC_ACTION && handleEvent event then
+                nativeint 1
+            else
+                Win32Native.CallNextHookEx(hook, code, wparam, lparam))
+
+    hook <-
+        Win32Native.SetWindowsHookEx(Win32Native.WH_KEYBOARD, procedure, nativeint 0, Win32Native.GetCurrentThreadId())
+
+    if hook = nativeint 0 then
+        Error(last_error "SetWindowsHookEx(WH_KEYBOARD)")
+    else
+        let keyboardHook: Win32Native.WindowsHook = { handle = hook; procedure = procedure }
+
+        Ok keyboardHook
 
 let install_mouse_hook (handleEvent: MouseHookEvent -> bool) =
     let mutable hook = nativeint 0

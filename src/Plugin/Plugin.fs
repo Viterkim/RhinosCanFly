@@ -37,6 +37,13 @@ type RhinosCanFlyPlugin() as self =
             report $"RhinosCanFly flight shutdown failed: {error.Message}"
 
         try
+            match PlatformInput.shutdown_flight_keyboard () with
+            | Ok() -> ()
+            | Error error -> report $"RhinosCanFly keyboard hook shutdown failed: {error}"
+        with error ->
+            report $"RhinosCanFly keyboard hook shutdown failed: {error.Message}"
+
+        try
             let struct (remaining, errors) = PlatformInput.retry_raw_input_cleanup ()
 
             for error in errors do

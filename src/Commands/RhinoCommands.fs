@@ -80,7 +80,7 @@ type RhinosCanFlyPanCommand() =
     override _.RunCommand(document: RhinoDoc, _mode: RunMode) = Commands.pan document
 
 [<Guid("E598A986-3A77-4C16-B35A-67FDDB9EF79C")>]
-[<CommandStyle(Style.DoNotRepeat)>]
+[<CommandStyle(Style.Hidden ||| Style.DoNotRepeat)>]
 type RhinosCanFlyInputRecoverCommand() =
     inherit Command()
     override _.EnglishName = "RhinosCanFlyInputRecover"

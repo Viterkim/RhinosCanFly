@@ -45,10 +45,31 @@ let WAIT_FAILED = 0xFFFFFFFFu
 let INFINITE = 0xFFFFFFFFu
 
 [<Literal>]
+let WH_KEYBOARD = 2
+
+[<Literal>]
 let WH_MOUSE = 7
 
 [<Literal>]
 let HC_ACTION = 0
+
+[<Literal>]
+let KEYBOARD_EXTENDED_KEY = 0x01000000L
+
+[<Literal>]
+let KEYBOARD_PREVIOUSLY_DOWN = 0x40000000L
+
+[<Literal>]
+let KEYBOARD_KEY_RELEASED = 0x80000000L
+
+[<Literal>]
+let KEYBOARD_SCAN_CODE_MASK = 0x00FF0000L
+
+[<Literal>]
+let KEYBOARD_SCAN_CODE_SHIFT = 16
+
+[<Literal>]
+let RIGHT_SHIFT_SCAN_CODE = 0x36
 
 [<Literal>]
 let WM_RBUTTONDOWN = 0x0204

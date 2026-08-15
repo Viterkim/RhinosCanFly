@@ -6,6 +6,8 @@ https://github.com/user-attachments/assets/52dc3237-e12b-4a54-8776-88f6b6475fac
 
 ## How to Use / Recommendations
 
+- Right click to enter flying, right click to exit (can change in `RhinosCanFlyOptions`)
+
 - Set lens length in your file/project/default Rhino setup to something like `18` or so, which gives that 100 FOV feel. You can also set a flight-only lens in Options.
 
 - Right click on Gumball at the bottom and enable `Rotate view around gumball`.
@@ -25,8 +27,6 @@ https://github.com/user-attachments/assets/52dc3237-e12b-4a54-8776-88f6b6475fac
 `RhinosCanFlyPan` pans around via a toggle (extra, if you want the functionality Rhino doesn't provide).
 
 `RhinosCanFlyPivot` pivots around via a toggle (extra, same).
-
-`RhinosCanFlyInputRecover` retries input cleanup if Rhinos Can Fly tells you cleanup failed. Normally you never need it.
 
 ## Options
 
