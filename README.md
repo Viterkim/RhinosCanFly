@@ -65,3 +65,7 @@ Gippity was a major contributor in this, even that is an understatement.
 Why F#? I chose microsoft ocaml over microsoft java.
 
 Why no Mac support? I don't have a mac and can't test / develop it, feel free to add mac support if you want it, all the raw input / windows native stuff will have to be redone, but it is split up in a way so it should be possible (with a lot of work).
+
+## Template from
+
+Template: Rhino F# Template [Github Link](https://github.com/Viterkim/RhinoFSharpTemplate)

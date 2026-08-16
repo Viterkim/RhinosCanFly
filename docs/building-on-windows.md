@@ -9,18 +9,29 @@ Get the newest .NET SDK.
 Run (set your version)
 
 ```powershell
-.\build.ps1 -RhinoVersion 8
+.\scripts\win\format.ps1 -Check
+.\scripts\win\check.ps1
+.\scripts\win\build.ps1 -RhinoVersion 8
+.\scripts\win\build-all.ps1
 ```
 
 Or for debugging / installing the build locally. `build-and-install.ps1` builds and registers a copy in `bin\RhinosCanFlyDev` as the current Windows user. Close Rhino, then the script builds, installs the addon and runs Rhino.
 
 ```powershell
-.\build-and-install.ps1 -RhinoVersion 8
+.\build-and-install.ps1
 ```
 
-If you don't specify the version, the newest installed Rhino is used. You can also set `$env:RCF_RHINO_VERSION = "8"` etc.
+`build-and-install.ps1` defaults to Rhino 9 and skips formatting and source checks for a quicker edit/install loop. Pass `-RhinoVersion 7` or `-RhinoVersion 8` when needed. You can also set `$env:RCF_RHINO_VERSION = "8"` etc.
 
 Uninstall the Package Manager version before using a dev registration. The dev installer overwrites Rhino's registration for the same plugin GUID, but a later Package Manager update or uninstall could replace or remove that registration.
+
+## Adding a command
+
+```powershell
+.\scripts\win\add-command.ps1 -Name MyNewCommand
+```
+
+Edit `src\Commands\MyNewCommand.fs`. The helper has already created the Rhino wrapper, GUID, and project entry.
 
 ## Yak package building and publishing (the built in package manager in rhino)
 

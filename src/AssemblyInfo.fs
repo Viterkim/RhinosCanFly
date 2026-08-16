@@ -5,7 +5,7 @@ open System.Runtime.InteropServices
 open Rhino.PlugIns
 
 [<assembly: AssemblyTitle("RhinosCanFly")>]
-[<assembly: AssemblyDescription("Classic game engine flying controls / WASD or custom binds with raw mouse input, for workflow or editing")>]
+[<assembly: AssemblyDescription("Rhinos Can Fly, classic game engine flying controls / WASD or custom binds with raw mouse input, for workflow or editing")>]
 [<assembly: AssemblyCompany("Viterkim")>]
 [<assembly: AssemblyProduct("RhinosCanFly")>]
 [<assembly: AssemblyCopyright("Copyright 2026")>]

@@ -23,7 +23,7 @@ function Invoke-Check {
 }
 
 try {
-    . $buildSetup -RhinoVersion 0 -Quiet
+    . $buildSetup -Quiet -MatrixOnly
 
     Write-Host "Dependency check"
     Write-Host "Project: $project"

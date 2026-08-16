@@ -1,6 +1,7 @@
 param(
     [int] $RhinoVersion = 0,
-    [switch] $Quiet
+    [switch] $Quiet,
+    [switch] $MatrixOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -126,13 +127,7 @@ function Get-RunningRhinoProcess {
 
 $requestedVersion = $RhinoVersion
 
-$matrixProperties = Get-RhinoBuildProperties -Major 0
-$SupportedRhinoVersions = Convert-VersionList $matrixProperties.RhinoSupportedVersions
-$ExperimentalRhinoVersions = Convert-VersionList $matrixProperties.RhinoExperimentalVersions
-$BuildRhinoVersions = Convert-VersionList $matrixProperties.RhinoBuildVersions
-$ReleaseRhinoVersions = Convert-VersionList $matrixProperties.RhinoReleaseVersions
-
-if ($requestedVersion -eq 0 -and -not [string]::IsNullOrWhiteSpace($env:RCF_RHINO_VERSION)) {
+if (-not $MatrixOnly -and $requestedVersion -eq 0 -and -not [string]::IsNullOrWhiteSpace($env:RCF_RHINO_VERSION)) {
     $environmentVersion = 0
 
     if (-not [int]::TryParse($env:RCF_RHINO_VERSION.Trim(), [ref] $environmentVersion)) {
@@ -140,6 +135,17 @@ if ($requestedVersion -eq 0 -and -not [string]::IsNullOrWhiteSpace($env:RCF_RHIN
     }
 
     $requestedVersion = $environmentVersion
+}
+
+$matrixMajor = if ($MatrixOnly) { 0 } else { $requestedVersion }
+$matrixProperties = Get-RhinoBuildProperties -Major $matrixMajor
+$SupportedRhinoVersions = Convert-VersionList $matrixProperties.RhinoSupportedVersions
+$ExperimentalRhinoVersions = Convert-VersionList $matrixProperties.RhinoExperimentalVersions
+$BuildRhinoVersions = Convert-VersionList $matrixProperties.RhinoBuildVersions
+$ReleaseRhinoVersions = Convert-VersionList $matrixProperties.RhinoReleaseVersions
+
+if ($MatrixOnly) {
+    return
 }
 
 if ($requestedVersion -eq 0) {
@@ -155,7 +161,13 @@ if ($requestedVersion -eq 0) {
     $requestedVersion = [int] $matrixProperties.RhinoMajorVersion
 }
 
-$properties = Get-RhinoBuildProperties -Major $requestedVersion
+$properties =
+    if ([int] $matrixProperties.RhinoMajorVersion -eq $requestedVersion) {
+        $matrixProperties
+    }
+    else {
+        Get-RhinoBuildProperties -Major $requestedVersion
+    }
 $resolvedVersion = [int] $properties.RhinoMajorVersion
 
 if ($resolvedVersion -notin $BuildRhinoVersions) {
