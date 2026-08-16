@@ -2,12 +2,15 @@ param(
     [int] $RhinoVersion = 0,
     [ValidateSet("None", "Test", "Production")]
     [string] $Publish = "None",
-    [switch] $Clean
+    [switch] $Clean,
+    [switch] $SkipChecks
 )
 
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$buildScript = Join-Path $projectRoot "build.ps1"
+$formatScript = Join-Path $PSScriptRoot "format.ps1"
+$checkScript = Join-Path $PSScriptRoot "check.ps1"
+$buildScript = Join-Path $PSScriptRoot "build.ps1"
 $buildSetup = Join-Path $PSScriptRoot "build-setup.ps1"
 $manifest = Join-Path $projectRoot "manifest.yml"
 $dist = Join-Path $projectRoot "dist"
@@ -24,6 +27,17 @@ $buildParameters = @{
     Configuration = "Release"
     Clean = $Clean.IsPresent
     RhinoVersion = [int] $RhinoMajorVersion
+    SkipChecks = $true
+    SkipSetup = $true
+    Quiet = $true
+}
+
+if (-not $SkipChecks) {
+    & $formatScript -Check
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+    & $checkScript
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
 & $buildScript @buildParameters

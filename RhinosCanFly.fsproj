@@ -4,7 +4,7 @@
     <TargetExt>.rhp</TargetExt>
     <AssemblyName>RhinosCanFly</AssemblyName>
     <RootNamespace>RhinosCanFly</RootNamespace>
-    <SourceStyleSeverity Condition="'$(SourceStyleSeverity)' == ''">error</SourceStyleSeverity>
+    <RunSourceChecks Condition="'$(RunSourceChecks)' == ''">true</RunSourceChecks>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <!-- Allow restore/design-time project loading on non-Windows hosts. -->
     <EnableWindowsTargeting Condition="'$(RhinosCanFlyPlatform)' == 'win'">true</EnableWindowsTargeting>
@@ -28,18 +28,11 @@
   <ItemGroup>
     <EmbeddedResource Include="src/Resources/RhinosCanFly.ico" LogicalName="RhinosCanFly.Resources.PluginIcon.ico" />
   </ItemGroup>
-  <Target Name="CheckSourceStyle" BeforeTargets="CoreCompile">
-    <Exec Command="dotnet fsi &quot;$(MSBuildProjectDirectory)/tools/check-source-style.fsx&quot; -- &quot;$(MSBuildProjectDirectory)/src&quot;" IgnoreExitCode="true">
-      <Output TaskParameter="ExitCode" PropertyName="SourceStyleExitCode" />
+  <Target Name="CheckSource" BeforeTargets="CoreCompile" Condition="'$(RunSourceChecks)' == 'true'">
+    <Exec Command="dotnet fsi &quot;$(MSBuildProjectDirectory)/tools/check-all.fsx&quot; -- &quot;$(MSBuildProjectDirectory)/src&quot;" IgnoreExitCode="true">
+      <Output TaskParameter="ExitCode" PropertyName="SourceCheckExitCode" />
     </Exec>
-    <Warning Condition="'$(SourceStyleExitCode)' != '0' and '$(SourceStyleSeverity)' != 'error'" Code="RCF0001" Text="F# source style checks failed. Set SourceStyleSeverity=error to fail the build." />
-    <Error Condition="'$(SourceStyleExitCode)' != '0' and '$(SourceStyleSeverity)' == 'error'" Code="RCF0001" Text="F# source style checks failed." />
-  </Target>
-  <Target Name="CheckPlatformBoundaries" BeforeTargets="CoreCompile">
-    <Exec Command="dotnet fsi &quot;$(MSBuildProjectDirectory)/tools/check-platform-boundaries.fsx&quot; -- &quot;$(MSBuildProjectDirectory)/src&quot;" IgnoreExitCode="true">
-      <Output TaskParameter="ExitCode" PropertyName="PlatformBoundariesExitCode" />
-    </Exec>
-    <Error Condition="'$(PlatformBoundariesExitCode)' != '0'" Code="RCF0002" Text="Platform implementation details must stay under src/Platform." />
+    <Error Condition="'$(SourceCheckExitCode)' != '0'" Code="RCF0001" Text="F# source checks failed." />
   </Target>
   <ItemGroup>
     <Compile Include="src/AssemblyInfo.fs" />
@@ -61,7 +54,7 @@
     <Compile Include="src/Fly/FlightTypes.fs" />
     <Compile Include="src/Configuration/ConfigSchema.fs" />
     <Compile Include="src/Configuration/ConfigStorage.fs" />
-    <Compile Include="src/Commands/RepeatBehavior.fs" />
+    <Compile Include="src/Core/RepeatBehavior.fs" />
     <Compile Include="src/Fly/Movement.fs" />
     <Compile Include="src/Fly/FlightSpeed.fs" />
     <Compile Include="src/Platform/Win/RawInputReceiver.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
@@ -89,8 +82,22 @@
     <Compile Include="src/UI/SettingsControl.fs" />
     <Compile Include="src/Settings/Settings.fs" />
     <Compile Include="src/UI/SettingsDialog.fs" />
+    <Compile Include="src/Core/CurrentConfig.fs" />
+    <Compile Include="src/Fly/FlightStart.fs" />
+    <Compile Include="src/Fly/SpeedSelection.fs" />
+    <Compile Include="src/Fly/StandaloneNavigation.fs" />
+    <Compile Include="src/Settings/Options.fs" />
+    <Compile Include="src/Platform/Win/InputRecovery.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Plugin/Plugin.fs" />
+    <Compile Include="src/Commands/RhinosCanFly.fs" />
+    <Compile Include="src/Commands/RhinosCanFlyTempFly.fs" />
+    <Compile Include="src/Commands/RhinosCanFlyHeld.fs" />
+    <Compile Include="src/Commands/RhinosCanFlyTempFlyHeld.fs" />
+    <Compile Include="src/Commands/RhinosCanFlyOptions.fs" />
+    <Compile Include="src/Commands/RhinosCanFlySetSpeed.fs" />
+    <Compile Include="src/Commands/RhinosCanFlyPivot.fs" />
+    <Compile Include="src/Commands/RhinosCanFlyPan.fs" />
+    <Compile Include="src/Commands/RhinosCanFlyInputRecover.fs" />
     <Compile Include="src/Commands/Commands.fs" />
-    <Compile Include="src/Commands/RhinoCommands.fs" />
   </ItemGroup>
 </Project>

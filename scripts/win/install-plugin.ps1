@@ -2,6 +2,8 @@ param(
     [ValidateSet("Debug", "Release")]
     [string] $Configuration = "Release",
     [switch] $Clean,
+    [switch] $SkipBuild,
+    [switch] $SkipSetup,
     [int] $RhinoVersion = 0
 )
 
@@ -10,7 +12,7 @@ $ErrorActionPreference = "Stop"
 $pluginName = "RhinosCanFly"
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $buildSetup = Join-Path $PSScriptRoot "build-setup.ps1"
-$buildScript = Join-Path $repoRoot "build.ps1"
+$buildScript = Join-Path $PSScriptRoot "build.ps1"
 $assemblyInfo = Join-Path $repoRoot "src\AssemblyInfo.fs"
 $pluginIdMatches = @(
     Select-String -Path $assemblyInfo -Pattern 'assembly:\s*Guid\("([0-9A-Fa-f-]+)"\)' -AllMatches |
@@ -29,7 +31,9 @@ if ($PSBoundParameters.ContainsKey("RhinoVersion")) {
     $setupParameters.RhinoVersion = $RhinoVersion
 }
 
-. $buildSetup @setupParameters
+if (-not $SkipSetup) {
+    . $buildSetup @setupParameters
+}
 
 if (-not [string]::IsNullOrWhiteSpace($RhinoInstallDir)) {
     $rhinoExecutable = Join-Path $RhinoInstallDir "System\Rhino.exe"
@@ -44,10 +48,15 @@ $buildParameters = @{
     Configuration = $Configuration
     Clean = $Clean.IsPresent
     RhinoVersion = [int] $RhinoMajorVersion
+    SkipChecks = $true
+    SkipSetup = $true
+    Quiet = $true
 }
 
-& $buildScript @buildParameters
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+if (-not $SkipBuild) {
+    & $buildScript @buildParameters
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
 
 if ([string]::IsNullOrWhiteSpace($RhinoInstallDir)) {
     throw "Rhino $RhinoMajorVersion is not installed. The plug-in was built, but direct installation requires Rhino $RhinoMajorVersion."
@@ -114,7 +123,6 @@ $machineRegistrationComplete =
     (Test-Path -LiteralPath $machineCommandListRegistryPath)
 $machinePluginFile = ""
 $registrationScope = ""
-$registeredPath = ""
 
 if ($registrationComplete) {
     $registeredPluginFile =
@@ -143,7 +151,6 @@ if ($registrationComplete) {
     New-ItemProperty -Path $pluginRegistryPath -Name "FileName" -Value $pluginFile -PropertyType String -Force | Out-Null
     Remove-ItemProperty -Path $registryPath -Name "FileName" -ErrorAction SilentlyContinue
     $registrationScope = "current user"
-    $registeredPath = $registryPath
 }
 elseif (
     $machineRegistrationComplete -and
@@ -156,7 +163,6 @@ elseif (
 
     Write-Host "Using the complete machine-wide RhinosCanFly registration."
     $registrationScope = "machine-wide"
-    $registeredPath = $machineRegistryPath
 }
 else {
     if (Test-Path -LiteralPath $registryPath) {
@@ -167,6 +173,4 @@ else {
     throw "Rhino $RhinoMajorVersion has no completed RhinosCanFly registration. Open Rhino, install '$pluginFile' once through Options > Plug-ins, close Rhino, then run build-and-install.ps1 again."
 }
 
-Write-Host "Installed: $pluginFile"
-Write-Host "Registered for Rhino $RhinoMajorVersion ($registrationScope): $registeredPath"
-Write-Host "Start Rhino $RhinoMajorVersion."
+Write-Host "Installed for Rhino $RhinoMajorVersion ($registrationScope): $pluginFile"

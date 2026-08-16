@@ -4,7 +4,9 @@ dist/
 *.user
 *.suo
 .vs/
+.vscode/
 .idea/
 TestResults/
 *.rhp
 /plan.txt
+.fake
