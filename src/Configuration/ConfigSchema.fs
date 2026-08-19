@@ -4,10 +4,10 @@ open System
 open System.Globalization
 
 [<Literal>]
-let current_version = 5
+let CURRENT_VERSION = 5
 
 let defaults: FlyConfigFile =
-    { config_version = current_version
+    { config_version = CURRENT_VERSION
       enabled = true
       forward = "W"
       backward = "S"

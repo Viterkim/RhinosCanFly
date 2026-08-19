@@ -4,7 +4,7 @@ open System.Diagnostics
 open Rhino
 
 [<Literal>]
-let maximum_frame_delta_seconds = 0.05
+let MAXIMUM_FRAME_DELTA_SECONDS = 0.05
 
 let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.State) (state: FlyState) =
     let clock = Stopwatch.StartNew()
@@ -71,7 +71,7 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
             state.key_pivot_direction <- pivotDirection
 
             if movementActive && currentlyMoving then
-                let dt = min (now - previousFrameSeconds) maximum_frame_delta_seconds
+                let dt = min (now - previousFrameSeconds) MAXIMUM_FRAME_DELTA_SECONDS
                 let previousCamera = state.camera
 
                 let movementStep =

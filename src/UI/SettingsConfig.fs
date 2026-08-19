@@ -155,7 +155,7 @@ let read (fields: SettingsFields.ConfigFields) =
     | Error error -> Error error
     | Ok numbers ->
         Ok
-            { config_version = ConfigSchema.current_version
+            { config_version = ConfigSchema.CURRENT_VERSION
               enabled = is_checked options.enabled
               forward = bindings.forward.Text
               backward = bindings.backward.Text

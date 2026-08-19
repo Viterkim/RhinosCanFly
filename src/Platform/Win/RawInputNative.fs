@@ -8,76 +8,76 @@ open System.Threading
 open Microsoft.FSharp.NativeInterop
 
 [<Literal>]
-let message = 0x00FF
+let MESSAGE = 0x00FF
 
 [<Literal>]
-let wm_app = 0x8000
+let WM_APP = 0x8000
 
 [<Literal>]
-let stop_message = wm_app + 1
+let STOP_MESSAGE = WM_APP + 1
 
 [<Literal>]
-let message_only_window = -3
+let MESSAGE_ONLY_WINDOW = -3
 
 [<Literal>]
-let rid_input = 0x10000003u
+let RID_INPUT = 0x10000003u
 
 [<Literal>]
-let rim_type_mouse = 0u
+let RIM_TYPE_MOUSE = 0u
 
 [<Literal>]
-let ridev_remove = 0x00000001u
+let RIDEV_REMOVE = 0x00000001u
 
 [<Literal>]
-let ridev_no_legacy = 0x00000030u
+let RIDEV_NO_LEGACY = 0x00000030u
 
 [<Literal>]
-let error_insufficient_buffer = 122
+let ERROR_INSUFFICIENT_BUFFER = 122
 
 [<Literal>]
-let mouse_move_absolute = 0x0001us
+let MOUSE_MOVE_ABSOLUTE = 0x0001us
 
 [<Literal>]
-let left_button_up = 0x0002us
+let LEFT_BUTTON_UP = 0x0002us
 
 [<Literal>]
-let right_button_up = 0x0008us
+let RIGHT_BUTTON_UP = 0x0008us
 
 [<Literal>]
-let middle_button_down = 0x0010us
+let MIDDLE_BUTTON_DOWN = 0x0010us
 
 [<Literal>]
-let middle_button_up = 0x0020us
+let MIDDLE_BUTTON_UP = 0x0020us
 
 [<Literal>]
-let button_4_down = 0x0040us
+let BUTTON_4_DOWN = 0x0040us
 
 [<Literal>]
-let button_4_up = 0x0080us
+let BUTTON_4_UP = 0x0080us
 
 [<Literal>]
-let button_5_down = 0x0100us
+let BUTTON_5_DOWN = 0x0100us
 
 [<Literal>]
-let button_5_up = 0x0200us
+let BUTTON_5_UP = 0x0200us
 
 [<Literal>]
-let mouse_wheel = 0x0400us
+let MOUSE_WHEEL = 0x0400us
 
 [<Literal>]
-let generic_desktop_usage_page = 0x01us
+let GENERIC_DESKTOP_USAGE_PAGE = 0x01us
 
 [<Literal>]
-let mouse_usage = 0x02us
+let MOUSE_USAGE = 0x02us
 
 [<Literal>]
-let button_word_mask = 0xFFFFu
+let BUTTON_WORD_MASK = 0xFFFFu
 
 [<Literal>]
-let signed_word_threshold = 0x8000
+let SIGNED_WORD_THRESHOLD = 0x8000
 
 [<Literal>]
-let unsigned_word_range = 0x10000
+let UNSIGNED_WORD_RANGE = 0x10000
 
 [<Struct; StructLayout(LayoutKind.Sequential)>]
 type Device =
@@ -144,7 +144,7 @@ let same_registration (left: Device option) (right: Device option) =
     | None, Some _ -> false
 
 [<Literal>]
-let registration_query_attempts = 3
+let REGISTRATION_QUERY_ATTEMPTS = 3
 
 let rec get_registered_mouse_attempt (attempt: int) =
     let mutable deviceCount = 0u
@@ -154,7 +154,7 @@ let rec get_registered_mouse_attempt (attempt: int) =
 
     let sizingError = Marshal.GetLastWin32Error()
 
-    if sizingResult = UInt32.MaxValue && sizingError <> error_insufficient_buffer then
+    if sizingResult = UInt32.MaxValue && sizingError <> ERROR_INSUFFICIENT_BUFFER then
         Error(Win32.win32_error "GetRegisteredRawInputDevices" sizingError)
     elif deviceCount = 0u then
         Ok None
@@ -168,7 +168,7 @@ let rec get_registered_mouse_attempt (attempt: int) =
             if read = UInt32.MaxValue then
                 let error = Marshal.GetLastWin32Error()
 
-                if error = error_insufficient_buffer && attempt < registration_query_attempts then
+                if error = ERROR_INSUFFICIENT_BUFFER && attempt < REGISTRATION_QUERY_ATTEMPTS then
                     get_registered_mouse_attempt (attempt + 1)
                 else
                     Error(Win32.win32_error "GetRegisteredRawInputDevices" error)
@@ -182,7 +182,7 @@ let rec get_registered_mouse_attempt (attempt: int) =
                     let address = IntPtr.Add(buffer, int (index * deviceSize))
                     let device = NativePtr.read (NativePtr.ofNativeInt<Device> address)
 
-                    if device.usage_page = generic_desktop_usage_page && device.usage = mouse_usage then
+                    if device.usage_page = GENERIC_DESKTOP_USAGE_PAGE && device.usage = MOUSE_USAGE then
                         registeredMouse <- Some device
 
                     index <- index + 1u
@@ -195,9 +195,9 @@ let get_registered_mouse () = get_registered_mouse_attempt 1
 
 let mouse_device (target: nativeint) =
     let mutable device = Unchecked.defaultof<Device>
-    device.usage_page <- generic_desktop_usage_page
-    device.usage <- mouse_usage
-    device.flags <- ridev_no_legacy
+    device.usage_page <- GENERIC_DESKTOP_USAGE_PAGE
+    device.usage <- MOUSE_USAGE
+    device.flags <- RIDEV_NO_LEGACY
     device.target <- target
     device
 
@@ -211,9 +211,9 @@ let register_mouse (target: nativeint) =
 
 let unregister_mouse () =
     let mutable device = Unchecked.defaultof<Device>
-    device.usage_page <- generic_desktop_usage_page
-    device.usage <- mouse_usage
-    device.flags <- ridev_remove
+    device.usage_page <- GENERIC_DESKTOP_USAGE_PAGE
+    device.usage <- MOUSE_USAGE
+    device.flags <- RIDEV_REMOVE
     device.target <- nativeint 0
 
     if RegisterRawInputDevices(&device, 1u, deviceSize) then
@@ -273,7 +273,7 @@ and release_mouse_registration (lease: MouseRegistrationLease) =
             let mutable attempt = 1
             let mutable releaseError = None
 
-            while attempt <= registration_query_attempts && not lease.relinquished do
+            while attempt <= REGISTRATION_QUERY_ATTEMPTS && not lease.relinquished do
                 match restore_mouse lease.previous with
                 | Ok() ->
                     match get_registered_mouse () with
@@ -293,7 +293,7 @@ and release_mouse_registration (lease: MouseRegistrationLease) =
 
                 attempt <- attempt + 1
 
-                if not lease.relinquished && attempt <= registration_query_attempts then
+                if not lease.relinquished && attempt <= REGISTRATION_QUERY_ATTEMPTS then
                     Thread.Yield() |> ignore
 
             if not lease.relinquished then
@@ -319,22 +319,22 @@ and release_mouse_registration (lease: MouseRegistrationLease) =
                 )
 
 let button_flags (mouse: Mouse) =
-    uint16 (mouse.buttons &&& button_word_mask)
+    uint16 (mouse.buttons &&& BUTTON_WORD_MASK)
 
 let button_data (mouse: Mouse) =
-    uint16 (mouse.buttons >>> 16 &&& button_word_mask)
+    uint16 (mouse.buttons >>> 16 &&& BUTTON_WORD_MASK)
 
 let signed_button_data (mouse: Mouse) =
     let value = int (button_data mouse)
 
-    if value >= signed_word_threshold then
-        value - unsigned_word_range
+    if value >= SIGNED_WORD_THRESHOLD then
+        value - UNSIGNED_WORD_RANGE
     else
         value
 
 let try_read_mouse (rawInput: nativeint) (buffer: nativeint) (bufferCapacity: int) (mouse: byref<Mouse>) =
     let mutable bytes = uint32 bufferCapacity
-    let bytesRead = GetRawInputData(rawInput, rid_input, buffer, &bytes, headerSize)
+    let bytesRead = GetRawInputData(rawInput, RID_INPUT, buffer, &bytes, headerSize)
 
     if bytesRead = UInt32.MaxValue || bytesRead < headerSize then
         false
@@ -342,7 +342,7 @@ let try_read_mouse (rawInput: nativeint) (buffer: nativeint) (bufferCapacity: in
         let header = NativePtr.read (NativePtr.ofNativeInt<Header> buffer)
 
         if
-            header.input_type <> rim_type_mouse
+            header.input_type <> RIM_TYPE_MOUSE
             || header.size < mouseInputSize
             || bytesRead < mouseInputSize
         then
@@ -353,7 +353,7 @@ let try_read_mouse (rawInput: nativeint) (buffer: nativeint) (bufferCapacity: in
             true
 
 let post_stop (window: nativeint) =
-    if Win32Native.PostMessage(window, stop_message, nativeint 0, nativeint 0) then
+    if Win32Native.PostMessage(window, STOP_MESSAGE, nativeint 0, nativeint 0) then
         Ok()
     else
         Error(Win32.last_error "PostMessage")

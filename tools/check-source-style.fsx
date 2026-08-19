@@ -113,6 +113,8 @@ let violationsInSource (source: string) =
     |> Seq.toList
 
 let privateKeywordPattern = Regex(@"\bprivate\b", RegexOptions.Compiled)
+let literalDeclarationPattern = Regex(@"\[<Literal>\]\s*let\s+(?<name>[A-Za-z_][\w']*)", RegexOptions.Compiled)
+let yellingSnakeCasePattern = Regex(@"^[A-Z][A-Z0-9_]*$", RegexOptions.Compiled)
 
 let checkerSelfTests =
     [ "let private sample_rate = 120L", false
@@ -159,6 +161,18 @@ for source, expectsViolation in privateKeywordSelfTests do
     if privateKeywordPattern.IsMatch(source) <> expectsViolation then
         failwith $"No-private lint self-test failed for: {source}"
 
+let literalNameSelfTests =
+    [ "CURRENT_VERSION", true
+      "WM_RBUTTONDOWN", true
+      "BUTTON_4_UP", true
+      "current_version", false
+      "CurrentVersion", false
+      "4_BUTTON", false ]
+
+for name, expected in literalNameSelfTests do
+    if yellingSnakeCasePattern.IsMatch(name) <> expected then
+        failwith $"Literal-name lint self-test failed for: {name}"
+
 let violations =
     Directory.EnumerateFiles(sourceRoot, "*.fs", SearchOption.AllDirectories)
     |> Seq.collect (fun (path: string) ->
@@ -180,11 +194,40 @@ let privateKeywordViolations =
                 None))
     |> Seq.toList
 
+let literalNameViolations =
+    Directory.EnumerateFiles(sourceRoot, "*.fs", SearchOption.AllDirectories)
+    |> Seq.collect (fun (path: string) ->
+        let source = File.ReadAllText path
+
+        literalDeclarationPattern.Matches source
+        |> Seq.cast<Match>
+        |> Seq.choose (fun (matched: Match) ->
+            let name = matched.Groups["name"].Value
+
+            if yellingSnakeCasePattern.IsMatch name then
+                None
+            else
+                let lineNumber =
+                    source.Substring(0, matched.Index)
+                    |> Seq.filter (fun (character: char) -> character = '\n')
+                    |> Seq.length
+                    |> (+) 1
+
+                Some $"{path}({lineNumber}): literal name must use YELLING_SNAKE_CASE: {name}"))
+    |> Seq.toList
+
 for violation in violations do
     Console.Error.WriteLine violation
 
 for violation in privateKeywordViolations do
     Console.Error.WriteLine violation
 
-if not (List.isEmpty violations) || not (List.isEmpty privateKeywordViolations) then
+for violation in literalNameViolations do
+    Console.Error.WriteLine violation
+
+if
+    not (List.isEmpty violations)
+    || not (List.isEmpty privateKeywordViolations)
+    || not (List.isEmpty literalNameViolations)
+then
     Environment.Exit 1

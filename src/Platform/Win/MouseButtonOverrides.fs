@@ -33,7 +33,7 @@ type HookState =
     | HookRemovalAbandoned of hook: Win32Native.WindowsHook * error: string
 
 [<Literal>]
-let maximum_hook_removal_attempts = 8
+let MAXIMUM_HOOK_REMOVAL_ATTEMPTS = 8
 
 let mutable mouse_hook_state = HookAbsent
 let mutable command_depth = if Command.InCommand() then 1 else 0
@@ -454,11 +454,11 @@ let remove_mouse_hook () =
             let nextAttempt =
                 match mouse_hook_state with
                 | HookRemovalPending(_, _, previousAttempts) -> previousAttempts + 1
-                | HookRemovalAbandoned _ -> maximum_hook_removal_attempts
+                | HookRemovalAbandoned _ -> MAXIMUM_HOOK_REMOVAL_ATTEMPTS
                 | HookAbsent
                 | HookInstalled _ -> 1
 
-            if nextAttempt >= maximum_hook_removal_attempts then
+            if nextAttempt >= MAXIMUM_HOOK_REMOVAL_ATTEMPTS then
                 mouse_hook_state <- HookRemovalAbandoned(hook, error)
             else
                 mouse_hook_state <- HookRemovalPending(hook, error, nextAttempt)

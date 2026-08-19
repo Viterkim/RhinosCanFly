@@ -51,13 +51,13 @@ type StartupRecovery =
       mutable stopped_disposed: bool }
 
 [<Literal>]
-let startup_timeout_ms = 250
+let STARTUP_TIMEOUT_MS = 250
 
 [<Literal>]
-let stop_observation_ms = 250
+let STOP_OBSERVATION_MS = 250
 
 [<Literal>]
-let join_timeout_ms = 50
+let JOIN_TIMEOUT_MS = 50
 
 let recoveryGate = obj ()
 let recoverySessions = ResizeArray<Session>()
@@ -206,10 +206,10 @@ let run_thread
         startup.stopped.Set()
 
 let observe_termination (thread: Thread) (stopped: ManualResetEventSlim) =
-    let signalled = stopped.Wait stop_observation_ms
+    let signalled = stopped.Wait STOP_OBSERVATION_MS
 
     if signalled && thread.IsAlive then
-        thread.Join join_timeout_ms
+        thread.Join JOIN_TIMEOUT_MS
     else
         signalled || not thread.IsAlive
 
@@ -261,7 +261,7 @@ let start
     thread.SetApartmentState(ApartmentState.STA)
     thread.Start()
 
-    if not (startup.ready.Wait startup_timeout_ms) then
+    if not (startup.ready.Wait STARTUP_TIMEOUT_MS) then
         let terminated = cancel_startup startup thread
 
         if terminated then
@@ -304,7 +304,7 @@ let start
         let message = "The raw-input worker started without a mouse registration."
         raise (StartFailureException(message, not terminated, InvalidOperationException message))
     | None, Some registration when startup.stopped.IsSet ->
-        let terminated = not thread.IsAlive || thread.Join join_timeout_ms
+        let terminated = not thread.IsAlive || thread.Join JOIN_TIMEOUT_MS
 
         if terminated then
             startup.stopped.Dispose()

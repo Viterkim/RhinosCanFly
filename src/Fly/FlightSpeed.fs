@@ -5,10 +5,10 @@ open System.Collections.Generic
 open Rhino
 
 [<Literal>]
-let documentSection = "RhinosCanFly"
+let DOCUMENT_SECTION = "RhinosCanFly"
 
 [<Literal>]
-let documentEntry = "FlyingSpeed"
+let DOCUMENT_ENTRY = "FlyingSpeed"
 
 let sessionSpeeds = Dictionary<uint32, float>()
 let mutable noDocumentSessionSpeed: float option = None
@@ -31,7 +31,7 @@ let try_document_speed (document: RhinoDoc) =
     if isNull document then
         None
     else
-        document.Strings.GetValue(documentSection, documentEntry)
+        document.Strings.GetValue(DOCUMENT_SECTION, DOCUMENT_ENTRY)
         |> Option.ofObj
         |> Option.bind Speed.try_parse
 
@@ -50,10 +50,10 @@ let set (document: RhinoDoc) (saveToDocument: bool) (range: SpeedRange) (request
     try
         if saveToDocument && not (isNull document) then
             let value = Speed.format speed
-            let existing = document.Strings.GetValue(documentSection, documentEntry)
+            let existing = document.Strings.GetValue(DOCUMENT_SECTION, DOCUMENT_ENTRY)
 
             if not (String.Equals(existing, value, StringComparison.Ordinal)) then
-                document.Strings.SetString(documentSection, documentEntry, value) |> ignore
+                document.Strings.SetString(DOCUMENT_SECTION, DOCUMENT_ENTRY, value) |> ignore
                 document.Modified <- true
 
         remember_session_speed document speed

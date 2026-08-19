@@ -149,16 +149,16 @@ let alt_down () =
 
 let transition_timed_out (session: ViewLatchSession) =
     let elapsedTicks = Stopwatch.GetTimestamp() - session.started_at
-    float elapsedTicks / float Stopwatch.Frequency >= transition_timeout_seconds
+    float elapsedTicks / float Stopwatch.Frequency >= TRANSITION_TIMEOUT_SECONDS
 
 let keep_timer_running (state: State) =
-    state.poll_timer.Interval <- poll_timer_interval_milliseconds
+    state.poll_timer.Interval <- POLL_TIMER_INTERVAL_MILLISECONDS
 
     if not state.poll_timer.Enabled then
         state.poll_timer.Start()
 
 let keep_watchdog_running (state: State) =
-    state.poll_timer.Interval <- poll_timer_watchdog_interval_milliseconds
+    state.poll_timer.Interval <- POLL_TIMER_WATCHDOG_INTERVAL_MILLISECONDS
 
     if not state.poll_timer.Enabled then
         state.poll_timer.Start()

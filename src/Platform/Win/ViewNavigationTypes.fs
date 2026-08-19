@@ -87,13 +87,13 @@ type State =
       poll_timer: Timer }
 
 [<Literal>]
-let poll_timer_interval_milliseconds = 15
+let POLL_TIMER_INTERVAL_MILLISECONDS = 15
 
 [<Literal>]
-let poll_timer_watchdog_interval_milliseconds = 250
+let POLL_TIMER_WATCHDOG_INTERVAL_MILLISECONDS = 250
 
 [<Literal>]
-let transition_timeout_seconds = 2.
+let TRANSITION_TIMEOUT_SECONDS = 2.
 
 let empty_routing =
     { mouse4 = MouseButtonPivotMode.Off
@@ -117,4 +117,4 @@ let create_state () =
       suspension_ids = HashSet<int64>()
       next_suspension_id = 0L
       suspension_cleanup_error = None
-      poll_timer = new Timer(Interval = poll_timer_interval_milliseconds) }
+      poll_timer = new Timer(Interval = POLL_TIMER_INTERVAL_MILLISECONDS) }

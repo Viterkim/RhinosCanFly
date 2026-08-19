@@ -45,7 +45,7 @@ type RightClickViewport =
 type Modifiers = { shift: bool; alt: bool }
 
 [<Literal>]
-let entry_timeout_seconds = 2.
+let ENTRY_TIMEOUT_SECONDS = 2.
 
 let create () =
     { gesture = Idle
@@ -243,7 +243,7 @@ let rec handle_event
 
 let entry_timed_out (entry: FlyEntry) =
     let elapsedTicks = Stopwatch.GetTimestamp() - entry.started_at
-    float elapsedTicks / float Stopwatch.Frequency >= entry_timeout_seconds
+    float elapsedTicks / float Stopwatch.Frequency >= ENTRY_TIMEOUT_SECONDS
 
 let entry_command (entry: FlyEntry) =
     let flightMode = DefaultFlightMode.flight_mode entry.default_flight_mode

@@ -15,7 +15,7 @@ type State =
       mutable disposed: bool }
 
 [<Literal>]
-let side_button_poll_interval_seconds = 0.015
+let SIDE_BUTTON_POLL_INTERVAL_SECONDS = 0.015
 
 let same_button (left: Button) (right: Button) = Object.ReferenceEquals(left, right)
 
@@ -129,7 +129,7 @@ let attach_mouse_behavior (state: State) (control: Control) =
 let create () =
     let state =
         { focus_sink = new Drawable(CanFocus = true, Size = Size(1, 1))
-          side_button_timer = new UITimer(Interval = side_button_poll_interval_seconds)
+          side_button_timer = new UITimer(Interval = SIDE_BUTTON_POLL_INTERVAL_SECONDS)
           active = None
           suppress_next_set_click = None
           disposed = false }
