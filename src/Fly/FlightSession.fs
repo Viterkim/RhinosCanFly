@@ -158,13 +158,6 @@ let finish_active (session: ActiveSession) (activeResult: Result<unit, string>) 
             session.input_safe <- false
     | None -> ()
 
-    if session.cursor_hidden then
-        let restored =
-            attempt_cleanup cleanupErrors "cursor visibility" (fun () -> PlatformInput.show_cursor ())
-
-        if not restored then
-            session.input_safe <- false
-
     match session.raw with
     | None -> ()
     | Some raw ->
@@ -219,6 +212,15 @@ let finish_active (session: ActiveSession) (activeResult: Result<unit, string>) 
             | Ok() -> ()
             | Error error -> failwith error)
         |> ignore
+
+    if session.cursor_hidden then
+        let restored =
+            attempt_cleanup cleanupErrors "cursor visibility" (fun () ->
+                PlatformInput.show_cursor ()
+                session.cursor_hidden <- false)
+
+        if not restored then
+            session.input_safe <- false
 
     let restoreCamera =
         state.restore_camera_on_exit
