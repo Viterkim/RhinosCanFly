@@ -43,8 +43,7 @@ let layoutViolationsInSource (source: string) =
                 None)
         |> Seq.toList
 
-    let hasNamespaceValues =
-        lines |> Seq.exists namespaceValuePattern.IsMatch
+    let hasNamespaceValues = lines |> Seq.exists namespaceValuePattern.IsMatch
 
     match namespaceName, boundModules, hasNamespaceValues with
     | Some name, modules, false ->

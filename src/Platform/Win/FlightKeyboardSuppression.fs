@@ -75,6 +75,8 @@ let add_passthrough_if_down (physicalKey: int) =
 let configure (bindings: FlightBindings) =
     let releasedKeys = ResizeArray<int>()
 
+    System.Array.Clear(state.key_is_down, 0, state.key_is_down.Length)
+
     for physicalKey in state.suppressed_keys_down do
         if Win32Native.GetAsyncKeyState physicalKey >= 0s then
             releasedKeys.Add physicalKey
@@ -125,12 +127,8 @@ let configure (bindings: FlightBindings) =
 let stop () =
     state.active <- false
     clear_configured ()
-
-    for physicalKey in state.passthrough_keys_down do
-        if not (state.suppressed_keys_down.Contains physicalKey) then
-            state.key_is_down[physicalKey] <- false
-
     state.passthrough_keys_down.Clear()
+    System.Array.Clear(state.key_is_down, 0, state.key_is_down.Length)
 
 let classify_fresh_key_down (physicalKey: int) =
     if state.active && configured_key physicalKey then
