@@ -98,6 +98,7 @@
     <Compile Include="src/Commands/RhinosCanFlyPivot.fs" />
     <Compile Include="src/Commands/RhinosCanFlyPan.fs" />
     <Compile Include="src/Commands/RhinosCanFlyInputRecover.fs" />
+    <Compile Include="src/Commands/RhinosCanFlyToggleEnable.fs" />
     <Compile Include="src/Commands/Commands.fs" />
   </ItemGroup>
 </Project>

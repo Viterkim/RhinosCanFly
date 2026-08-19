@@ -92,8 +92,8 @@ let start_if_ready (mode: Mode) (loaded: ConfigLoadResult) (document: RhinoDoc) 
     let commandName = name mode
     let view = document.Views.ActiveView
 
-    if not loaded.config_file.enabled then
-        RhinoApp.WriteLine "RhinosCanFly is disabled in Options."
+    if not (RuntimeSettings.runtime_enabled ()) then
+        RhinoApp.WriteLine "RhinosCanFly is disabled."
         Result.Cancel
     elif isNull view then
         RhinoApp.WriteLine $"{commandName}: no active view."

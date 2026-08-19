@@ -36,6 +36,8 @@ https://github.com/user-attachments/assets/52dc3237-e12b-4a54-8776-88f6b6475fac
 
 `RhinosCanFlyPivot` pivots around via a toggle (extra, same).
 
+`RhinosCanFlyToggleEnable` enables or disables Rhinos Can Fly until Rhino is restarted.
+
 ## Options
 
 ![image](./docs/img/options1.jpg)

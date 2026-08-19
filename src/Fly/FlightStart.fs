@@ -22,8 +22,8 @@ let run (sessionMode: FlightSessionMode) (document: RhinoDoc) =
         Result.Cancel
     else
         CurrentConfig.with_loaded (fun (loaded: ConfigLoadResult) ->
-            if not loaded.config_file.enabled then
-                RhinoApp.WriteLine "RhinosCanFly is disabled in Options."
+            if not (RuntimeSettings.runtime_enabled ()) then
+                RhinoApp.WriteLine "RhinosCanFly is disabled."
                 Result.Cancel
             else
                 match FlightSession.run view loaded.config sessionMode with

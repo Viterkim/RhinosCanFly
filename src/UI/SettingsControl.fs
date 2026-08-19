@@ -107,6 +107,7 @@ type SettingsControl() as self =
         SettingsLayout.grid
             2
             [ options.enabled
+              status.runtime_enabled
               options.commands_do_not_repeat
               options.save_speed_to_document
               options.load_speed_from_document
@@ -349,6 +350,9 @@ type SettingsControl() as self =
             | None -> "Unavailable"
 
         refresh_status ()
+
+    member _.ShowRuntimeEnabled(enabled: bool) =
+        status.runtime_enabled.Checked <- Nullable enabled
 
     member _.RefreshRawIfVisible() = refresh_raw_if_visible ()
 

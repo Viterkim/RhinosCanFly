@@ -21,6 +21,8 @@ let current_speed (config: FlyConfigFile) =
     FlightSpeed.current document config.load_speed_from_document range config.base_speed
 
 let load (control: SettingsControl) =
+    control.ShowRuntimeEnabled(RuntimeSettings.runtime_enabled ())
+
     match RuntimeSettings.current () with
     | Error error ->
         control.LoadConfig ConfigSchema.defaults
@@ -53,6 +55,7 @@ let save (control: SettingsControl) =
             | Ok saved ->
                 control.RefreshRawIfVisible()
                 control.ShowRuntimeState(current_speed saved.config_file, current_lens ())
+                control.ShowRuntimeEnabled(RuntimeSettings.runtime_enabled ())
                 control.ClearError()
                 true
             | Error error ->
