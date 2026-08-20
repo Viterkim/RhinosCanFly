@@ -112,10 +112,123 @@ let violationsInSource (source: string) =
         |> Seq.map (fun (kind: string) -> fragment.line_number, fragment.text, kind))
     |> Seq.toList
 
+type LexicalState =
+    | Code
+    | String
+    | VerbatimString
+    | TripleString
+    | Character
+    | LineComment
+    | BlockComment of int
+
+let codeOnly (source: string) =
+    let result = Text.StringBuilder(source.Length)
+    let mutable state = Code
+    let mutable index = 0
+
+    let blank (character: char) =
+        result.Append(if character = '\n' then '\n' else ' ') |> ignore
+
+    let blankPair () =
+        blank source[index]
+        blank source[index + 1]
+        index <- index + 2
+
+    let blankTriple () =
+        blank source[index]
+        blank source[index + 1]
+        blank source[index + 2]
+        index <- index + 3
+
+    while index < source.Length do
+        match state with
+        | Code when source.AsSpan(index).StartsWith("//".AsSpan(), StringComparison.Ordinal) ->
+            blankPair ()
+            state <- LineComment
+        | Code when source.AsSpan(index).StartsWith("(*".AsSpan(), StringComparison.Ordinal) ->
+            blankPair ()
+            state <- BlockComment 1
+        | Code when source.AsSpan(index).StartsWith("\"\"\"".AsSpan(), StringComparison.Ordinal) ->
+            blankTriple ()
+            state <- TripleString
+        | Code when source.AsSpan(index).StartsWith("@\"".AsSpan(), StringComparison.Ordinal) ->
+            blankPair ()
+            state <- VerbatimString
+        | Code when source[index] = '"' ->
+            blank source[index]
+            index <- index + 1
+            state <- String
+        | Code when source[index] = '\'' ->
+            let simpleCharacter = index + 2 < source.Length && source[index + 2] = '\''
+
+            let escapedCharacter =
+                index + 3 < source.Length
+                && source[index + 1] = '\\'
+                && source[index + 3] = '\''
+
+            if simpleCharacter || escapedCharacter then
+                blank source[index]
+                index <- index + 1
+                state <- Character
+            else
+                result.Append(source[index]) |> ignore
+                index <- index + 1
+        | Code ->
+            result.Append(source[index]) |> ignore
+            index <- index + 1
+        | LineComment when source[index] = '\n' ->
+            blank source[index]
+            index <- index + 1
+            state <- Code
+        | LineComment ->
+            blank source[index]
+            index <- index + 1
+        | BlockComment depth when source.AsSpan(index).StartsWith("(*".AsSpan(), StringComparison.Ordinal) ->
+            blankPair ()
+            state <- BlockComment(depth + 1)
+        | BlockComment depth when source.AsSpan(index).StartsWith("*)".AsSpan(), StringComparison.Ordinal) ->
+            blankPair ()
+            state <- if depth = 1 then Code else BlockComment(depth - 1)
+        | BlockComment _ ->
+            blank source[index]
+            index <- index + 1
+        | String when source[index] = '\\' && index + 1 < source.Length -> blankPair ()
+        | String when source[index] = '"' ->
+            blank source[index]
+            index <- index + 1
+            state <- Code
+        | String ->
+            blank source[index]
+            index <- index + 1
+        | VerbatimString when source.AsSpan(index).StartsWith("\"\"".AsSpan(), StringComparison.Ordinal) -> blankPair ()
+        | VerbatimString when source[index] = '"' ->
+            blank source[index]
+            index <- index + 1
+            state <- Code
+        | VerbatimString ->
+            blank source[index]
+            index <- index + 1
+        | TripleString when source.AsSpan(index).StartsWith("\"\"\"".AsSpan(), StringComparison.Ordinal) ->
+            blankTriple ()
+            state <- Code
+        | TripleString ->
+            blank source[index]
+            index <- index + 1
+        | Character when source[index] = '\\' && index + 1 < source.Length -> blankPair ()
+        | Character when source[index] = '\'' ->
+            blank source[index]
+            index <- index + 1
+            state <- Code
+        | Character ->
+            blank source[index]
+            index <- index + 1
+
+    result.ToString()
+
 let privateKeywordPattern = Regex(@"\bprivate\b", RegexOptions.Compiled)
 
 let literalDeclarationPattern =
-    Regex(@"\[<Literal>\]\s*let\s+(?<name>[A-Za-z_][\w']*)", RegexOptions.Compiled)
+    Regex(@"\[<Literal>\]\s*let\s+(?:(?:private|internal|public)\s+)*(?<name>[A-Za-z_][\w']*)", RegexOptions.Compiled)
 
 let yellingSnakeCasePattern = Regex(@"^[A-Z][A-Z0-9_]*$", RegexOptions.Compiled)
 
@@ -158,10 +271,13 @@ let privateKeywordSelfTests =
       "type private State = Ready", true
       "type State = private | Ready", true
       "let privateValue = 1", false
-      "let value = 1", false ]
+      "let value = 1", false
+      "// let private value = 1", false
+      "let text = \"private\"", false
+      "(* private *) let value = 1", false ]
 
 for source, expectsViolation in privateKeywordSelfTests do
-    if privateKeywordPattern.IsMatch(source) <> expectsViolation then
+    if privateKeywordPattern.IsMatch(codeOnly source) <> expectsViolation then
         failwith $"No-private lint self-test failed for: {source}"
 
 let literalNameSelfTests =
@@ -188,21 +304,25 @@ let violations =
 let privateKeywordViolations =
     Directory.EnumerateFiles(sourceRoot, "*.fs", SearchOption.AllDirectories)
     |> Seq.collect (fun (path: string) ->
-        File.ReadLines path
-        |> Seq.mapi (fun (index: int) (line: string) -> index + 1, line)
-        |> Seq.choose (fun (lineNumber: int, line: string) ->
-            if privateKeywordPattern.IsMatch line then
-                Some $"{path}({lineNumber}): the private keyword is not used in project source: {line.Trim()}"
-            else
-                None))
+        let source = File.ReadAllText path
+        let code = codeOnly source
+        let sourceLines = source.Replace("\r\n", "\n").Split '\n'
+
+        privateKeywordPattern.Matches code
+        |> Seq.cast<Match>
+        |> Seq.map (fun (matched: Match) ->
+            let lineNumber = code.AsSpan(0, matched.Index).Count '\n' + 1
+
+            $"{path}({lineNumber}): the private keyword is not used in project source: {sourceLines[lineNumber - 1].Trim()}"))
     |> Seq.toList
 
 let literalNameViolations =
     Directory.EnumerateFiles(sourceRoot, "*.fs", SearchOption.AllDirectories)
     |> Seq.collect (fun (path: string) ->
         let source = File.ReadAllText path
+        let code = codeOnly source
 
-        literalDeclarationPattern.Matches source
+        literalDeclarationPattern.Matches code
         |> Seq.cast<Match>
         |> Seq.choose (fun (matched: Match) ->
             let name = matched.Groups["name"].Value

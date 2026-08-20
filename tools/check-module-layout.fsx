@@ -46,19 +46,18 @@ let layoutViolationsInSource (source: string) =
     let hasNamespaceValues = lines |> Seq.exists namespaceValuePattern.IsMatch
 
     match namespaceName, boundModules, hasNamespaceValues with
-    | Some name, modules, false ->
-        modules
-        |> List.map (fun (lineNumber: int, moduleName: string) ->
-            { line_number = lineNumber
-              namespace_name = name
-              module_name = moduleName })
+    | Some name, [ lineNumber, moduleName ], false ->
+        [ { line_number = lineNumber
+            namespace_name = name
+            module_name = moduleName } ]
     | _ -> []
 
 let checkerSelfTests =
     [ "namespace Sample\n\nopen System\n\nmodule Worker =\n    let run () = ()", true
       "module Sample.Worker\n\nopen System\n\nlet run () = ()", false
       "namespace Sample\n\ntype State = Ready\n\nmodule State =\n    let ready = State.Ready", false
-      "namespace Sample\n\nmodule Helpers =\n    let value = 1\n\ntype Runner() = class end", false ]
+      "namespace Sample\n\nmodule Helpers =\n    let value = 1\n\ntype Runner() = class end", false
+      "namespace Sample\n\nmodule One =\n    let value = 1\n\nmodule Two =\n    let value = 2", false ]
 
 for source, expectsViolation in checkerSelfTests do
     let hasViolation = not (List.isEmpty (layoutViolationsInSource source))

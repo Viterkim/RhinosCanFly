@@ -1,5 +1,6 @@
 param([switch] $Check)
 
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $source = Join-Path $projectRoot "src"
