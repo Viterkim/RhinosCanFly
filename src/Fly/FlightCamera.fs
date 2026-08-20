@@ -4,36 +4,25 @@ open Rhino
 open Rhino.Display
 open Rhino.Geometry
 
-let fallback_navigation_target (view: RhinoView) =
-    let viewport = view.ActiveViewport
+let fallback_navigation_target (state: FlyState) =
+    let viewport = state.viewport
     let cameraLocation = viewport.CameraLocation
     let cameraTarget = viewport.CameraTarget
     let mutable cameraDirection = viewport.CameraDirection
-    let visibleBounds = view.Document.Objects.BoundingBoxVisible
-    let mutable nearDistance = 0.
-    let mutable farDistance = 0.
 
-    if
-        cameraDirection.Unitize()
-        && visibleBounds.IsValid
-        && viewport.GetDepth(visibleBounds, &nearDistance, &farDistance)
-        && RhinoMath.IsValidDouble nearDistance
-        && RhinoMath.IsValidDouble farDistance
-        && nearDistance > RhinoMath.ZeroTolerance
-        && farDistance > RhinoMath.ZeroTolerance
-    then
-        let targetDepth = Vector3d.Multiply(cameraTarget - cameraLocation, cameraDirection)
-
-        if
-            not (RhinoMath.IsValidDouble targetDepth)
-            || targetDepth < nearDistance
-            || targetDepth > farDistance
-        then
-            cameraLocation + cameraDirection * ((nearDistance + farDistance) / 2.)
-        else
-            cameraTarget
-    else
+    if ViewTarget.target_is_in_front viewport cameraTarget then
         cameraTarget
+    else
+        if not (cameraDirection.Unitize()) then
+            cameraDirection <- Movement.direction_from_angles state.camera.yaw state.camera.pitch
+
+        let distance =
+            if RhinoMath.IsValidDouble state.speed && state.speed > RhinoMath.ZeroTolerance then
+                state.speed
+            else
+                1.
+
+        cameraLocation + cameraDirection * distance
 
 let navigation_target (state: FlyState) (gumballTarget: Point3d option) =
     let viewport = state.viewport
@@ -45,7 +34,7 @@ let navigation_target (state: FlyState) (gumballTarget: Point3d option) =
         match ViewTarget.selected_target state.config.behavior.view_target state.speed viewport with
         | Some target when ViewTarget.target_is_in_front viewport target -> target
         | Some _
-        | None -> fallback_navigation_target state.view
+        | None -> fallback_navigation_target state
 
 let update_navigation_mode (input: InputAccumulator.State) (state: FlyState) =
     if InputAccumulator.drain_pivot_toggles input % 2 <> 0 then

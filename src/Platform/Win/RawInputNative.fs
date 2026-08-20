@@ -17,6 +17,9 @@ let WM_APP = 0x8000
 let STOP_MESSAGE = WM_APP + 1
 
 [<Literal>]
+let REGISTRATION_RETRY_INTERVAL_MS = 100
+
+[<Literal>]
 let MESSAGE_ONLY_WINDOW = -3
 
 [<Literal>]
@@ -89,12 +92,14 @@ type Device =
 type MouseRegistrationLease =
     { previous: Device option
       installed: Device
-      mutable relinquished: bool }
+      mutable relinquished: bool
+      mutable previous_registration_lost: bool }
 
 type RegistrationRelease =
-    | Relinquished
+    | RestoredPrevious
     | AlreadyRelinquished
     | ReplacedByAnotherOwner
+    | OwnRegistrationRemovedButPreviousRegistrationLost
 
 type RegistrationAcquisition =
     | Acquired of MouseRegistrationLease
@@ -244,7 +249,8 @@ let rec acquire_mouse_registration (target: nativeint) =
             let lease =
                 { previous = previous
                   installed = installed
-                  relinquished = false }
+                  relinquished = false
+                  previous_registration_lost = false }
 
             let verification = get_registered_mouse ()
 
@@ -257,29 +263,54 @@ let rec acquire_mouse_registration (target: nativeint) =
                     | Error error -> $"The raw-mouse registration could not be verified: {error}"
 
                 match release_mouse_registration lease with
+                | Ok OwnRegistrationRemovedButPreviousRegistrationLost ->
+                    CleanupPending(
+                        $"{verificationError}; RhinosCanFly removed its registration but could not restore the previous raw-mouse owner.",
+                        lease
+                    )
                 | Ok _ -> Failed verificationError
                 | Error releaseError -> CleanupPending($"{verificationError}; cleanup failed: {releaseError}", lease)
 
 and release_mouse_registration (lease: MouseRegistrationLease) =
     if lease.relinquished then
-        Ok AlreadyRelinquished
+        if lease.previous_registration_lost then
+            match get_registered_mouse () with
+            | Ok current when same_registration current lease.previous ->
+                lease.previous_registration_lost <- false
+                Ok RestoredPrevious
+            | Ok _
+            | Error _ -> Ok OwnRegistrationRemovedButPreviousRegistrationLost
+        else
+            Ok AlreadyRelinquished
     else
         match get_registered_mouse () with
         | Error error -> Error error
         | Ok current when not (same_registration current (Some lease.installed)) ->
             lease.relinquished <- true
-            Ok ReplacedByAnotherOwner
+
+            if lease.previous_registration_lost then
+                if same_registration current lease.previous then
+                    lease.previous_registration_lost <- false
+                    Ok RestoredPrevious
+                else
+                    Ok OwnRegistrationRemovedButPreviousRegistrationLost
+            else
+                Ok ReplacedByAnotherOwner
         | Ok _ ->
             let mutable attempt = 1
             let mutable releaseError = None
+            let mutable release = RestoredPrevious
 
             while attempt <= REGISTRATION_QUERY_ATTEMPTS && not lease.relinquished do
                 match restore_mouse lease.previous with
                 | Ok() ->
                     match get_registered_mouse () with
-                    | Ok current when same_registration current lease.previous -> lease.relinquished <- true
+                    | Ok current when same_registration current lease.previous ->
+                        lease.relinquished <- true
+                        lease.previous_registration_lost <- false
                     | Ok current when not (same_registration current (Some lease.installed)) ->
                         lease.relinquished <- true
+                        release <- ReplacedByAnotherOwner
                     | Ok _ -> releaseError <- Some "The raw-mouse registration still belongs to RhinosCanFly."
                     | Error error -> releaseError <- Some error
                 | Error error ->
@@ -288,6 +319,12 @@ and release_mouse_registration (lease: MouseRegistrationLease) =
                     match get_registered_mouse () with
                     | Ok current when not (same_registration current (Some lease.installed)) ->
                         lease.relinquished <- true
+
+                        release <-
+                            if same_registration current lease.previous then
+                                RestoredPrevious
+                            else
+                                ReplacedByAnotherOwner
                     | Ok _ -> ()
                     | Error queryError -> releaseError <- Some $"{error}; {queryError}"
 
@@ -298,20 +335,39 @@ and release_mouse_registration (lease: MouseRegistrationLease) =
 
             if not lease.relinquished then
                 match get_registered_mouse () with
-                | Ok current when not (same_registration current (Some lease.installed)) -> lease.relinquished <- true
+                | Ok current when not (same_registration current (Some lease.installed)) ->
+                    lease.relinquished <- true
+
+                    release <-
+                        if same_registration current lease.previous then
+                            lease.previous_registration_lost <- false
+                            RestoredPrevious
+                        else
+                            ReplacedByAnotherOwner
                 | Ok _ ->
                     match unregister_mouse () with
                     | Error error -> releaseError <- Some $"{releaseError |> Option.defaultValue error}; {error}"
                     | Ok() ->
+                        lease.relinquished <- true
+                        lease.previous_registration_lost <- Option.isSome lease.previous
+
                         match get_registered_mouse () with
-                        | Ok current when not (same_registration current (Some lease.installed)) ->
-                            lease.relinquished <- true
-                        | Ok _ -> releaseError <- Some "Emergency raw-mouse removal did not relinquish ownership."
+                        | Ok current when same_registration current lease.previous ->
+                            lease.previous_registration_lost <- false
+                            release <- RestoredPrevious
+                        | Ok current when same_registration current (Some lease.installed) ->
+                            lease.relinquished <- false
+                            releaseError <- Some "Emergency raw-mouse removal did not relinquish ownership."
+                        | Ok _ when not lease.previous_registration_lost -> release <- ReplacedByAnotherOwner
+                        | Ok _ -> ()
                         | Error error -> releaseError <- Some error
                 | Error error -> releaseError <- Some error
 
             if lease.relinquished then
-                Ok Relinquished
+                if lease.previous_registration_lost then
+                    Ok OwnRegistrationRemovedButPreviousRegistrationLost
+                else
+                    Ok release
             else
                 Error(
                     releaseError

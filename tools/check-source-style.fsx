@@ -113,7 +113,10 @@ let violationsInSource (source: string) =
     |> Seq.toList
 
 let privateKeywordPattern = Regex(@"\bprivate\b", RegexOptions.Compiled)
-let literalDeclarationPattern = Regex(@"\[<Literal>\]\s*let\s+(?<name>[A-Za-z_][\w']*)", RegexOptions.Compiled)
+
+let literalDeclarationPattern =
+    Regex(@"\[<Literal>\]\s*let\s+(?<name>[A-Za-z_][\w']*)", RegexOptions.Compiled)
+
 let yellingSnakeCasePattern = Regex(@"^[A-Z][A-Z0-9_]*$", RegexOptions.Compiled)
 
 let checkerSelfTests =

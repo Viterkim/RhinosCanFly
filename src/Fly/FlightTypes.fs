@@ -8,6 +8,7 @@ type FlyState =
       viewport: RhinoViewport
       config: FlyConfig
       host_identity: ViewportHostIdentity
+      session_mode: FlightSessionMode
       original_cursor: CursorPosition
       original_camera: CameraSnapshot
       original_lens_length: float
@@ -30,7 +31,8 @@ type FlyState =
       mutable slow_was_down: bool
       mutable speed_increase_was_down: bool
       mutable speed_decrease_was_down: bool
-      mutable wheel_remainder: int64 }
+      mutable wheel_remainder: int64
+      mutable next_host_validation_at: float }
 
 module FlyState =
     let is_running (state: FlyState) = Option.isNone state.exit_reason

@@ -21,17 +21,21 @@ let try_geometry_target (viewport: RhinoViewport) =
         let y = bounds.Height / 2
 
         use capture = new ZBufferCapture(viewport)
-        let depth = capture.ZValueAt(x, y)
 
-        if Single.IsNaN depth || Single.IsInfinity depth || depth <= 0.f || depth >= 1.f then
+        if capture.HitCount() <= 0 then
             None
         else
-            let target = capture.WorldPointAt(x, y)
+            let depth = capture.ZValueAt(x, y)
 
-            if target_is_in_front viewport target then
-                Some target
-            else
+            if Single.IsNaN depth || Single.IsInfinity depth || depth <= 0.f || depth >= 1.f then
                 None
+            else
+                let target = capture.WorldPointAt(x, y)
+
+                if target_is_in_front viewport target then
+                    Some target
+                else
+                    None
     with error ->
         Debug.WriteLine $"RhinosCanFly geometry target: {error}"
         None

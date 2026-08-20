@@ -133,9 +133,12 @@ let exit_binding_contains (state: State) (virtualKey: int) =
     | Some binding -> binding_contains_key virtualKey binding.virtual_keys
     | None -> false
 
-let right_mouse_exit_enabled (state: State) =
+let right_mouse_exit_capture_needed (state: State) =
     state.routing.exit_on_mouse_right
     || exit_binding_contains state Win32Native.VK_RBUTTON
+
+let right_mouse_exit_requested (state: State) =
+    state.routing.exit_on_mouse_right || exit_key_down state
 
 let shift_down () =
     Win32Native.GetAsyncKeyState Win32Native.VK_SHIFT < 0s

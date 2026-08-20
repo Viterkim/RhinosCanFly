@@ -58,7 +58,10 @@ let apply_right_click_request (state: State) (host: ViewportHostIdentity) (reque
 
                 match released with
                 | Error error -> Error error
-                | Ok() -> start state host mode None
+                | Ok() ->
+                    match state.routing.prepare_navigation host mode with
+                    | Error error -> Error error
+                    | Ok prepared -> start state prepared mode None
             else
                 Ok()
     | StopNavigation -> Ok()
@@ -127,12 +130,18 @@ let start_or_switch (state: State) (host: ViewportHostIdentity) (mode: ViewNavig
     else
         match current_mode state with
         | Some current when current = mode -> Ok()
-        | None when not (ViewNavigationState.side_button_navigation_active state) -> start state host mode completion
+        | None when not (ViewNavigationState.side_button_navigation_active state) ->
+            match state.routing.prepare_navigation host mode with
+            | Error error -> Error error
+            | Ok prepared -> start state prepared mode completion
         | Some _
         | None ->
             match ViewNavigationState.release_all state with
             | Error error -> Error error
-            | Ok() -> start state host mode completion
+            | Ok() ->
+                match state.routing.prepare_navigation host mode with
+                | Error error -> Error error
+                | Ok prepared -> start state prepared mode completion
 
 let stop (state: State) (mode: ViewNavigationMode) =
     if state.lifecycle <> Available then

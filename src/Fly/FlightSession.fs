@@ -164,7 +164,11 @@ let finish_active (session: ActiveSession) (activeResult: Result<unit, string>) 
         try
             try
                 let outcome = PlatformInput.close_raw_input raw
-                session.raw_input_clean <- outcome.terminated && outcome.registration_relinquished
+
+                session.raw_input_clean <-
+                    outcome.terminated
+                    && outcome.registration_relinquished
+                    && not outcome.previous_registration_lost
 
                 if not (List.isEmpty outcome.errors) then
                     session.raw_input_failed <- true
@@ -375,10 +379,10 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
     if heldEntryReleased then
         FlyState.request_exit RightMouseReleased state
     else
-        if not (PlatformInput.viewport_host_windows_exist state.host_identity) then
+        if not (PlatformInput.viewport_host_is_active state.host_identity state.view) then
             state.restore_camera_on_exit <- true
             FlyState.request_exit HostInvalid state
-            failwith "The Rhino viewport closed before flight began."
+            failwith "The Rhino viewport changed before flight began."
 
         if PlatformInput.foreground_root_window () <> state.host_identity.root_window then
             state.restore_camera_on_exit <- true

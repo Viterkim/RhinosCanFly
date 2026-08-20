@@ -5,10 +5,6 @@ open System.Collections.Generic
 open System.Windows.Forms
 open RhinosCanFly
 
-type ViewNavigationMode =
-    | Pivot
-    | Pan
-
 type ViewNavigationRequest =
     | StartNavigation of ViewNavigationMode
     | StopNavigation
@@ -21,7 +17,8 @@ type RoutingConfig =
       shift_right_click: ViewNavigationMode option
       alt_right_click: ViewNavigationMode option
       exit: KeyBinding option
-      exit_on_mouse_right: bool }
+      exit_on_mouse_right: bool
+      prepare_navigation: ViewportHostIdentity -> ViewNavigationMode -> Result<ViewportHostIdentity, string> }
 
 type SideButton =
     | Mouse4
@@ -103,7 +100,8 @@ let empty_routing =
       shift_right_click = None
       alt_right_click = None
       exit = None
-      exit_on_mouse_right = false }
+      exit_on_mouse_right = false
+      prepare_navigation = fun (host: ViewportHostIdentity) (_: ViewNavigationMode) -> Ok host }
 
 let create_state () =
     { routing = empty_routing

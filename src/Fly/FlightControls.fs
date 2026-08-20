@@ -1,5 +1,8 @@
 module RhinosCanFly.FlightControls
 
+[<Literal>]
+let HOST_VALIDATION_INTERVAL_SECONDS = 0.1
+
 let is_optional_down (key: KeyBinding option) =
     match key with
     | Some binding -> PlatformInput.flight_binding_down binding
@@ -7,6 +10,17 @@ let is_optional_down (key: KeyBinding option) =
 
 let speed_step (state: FlyState) (steps: SpeedStepCount) =
     state.speed <- FlightSpeed.step state.config.movement state.speed steps
+
+let speed_steps (state: FlyState) (steps: int64) =
+    let mutable remaining = steps
+
+    while remaining > 0L do
+        speed_step state (SpeedStepCount 1.)
+        remaining <- remaining - 1L
+
+    while remaining < 0L do
+        speed_step state (SpeedStepCount -1.)
+        remaining <- remaining + 1L
 
 let update_keyboard_navigation_input (state: FlyState) =
     let bindings = state.config.bindings.mouse_navigation
@@ -96,9 +110,32 @@ let read_movement (state: FlyState) =
       key_pivot_right = PlatformInput.flight_binding_down bindings.key_pivot_right
       move_speed = state.speed * slow * boost }
 
-let update_state (input: InputAccumulator.State) (state: FlyState) =
+let reconcile_held_side_button_navigation (input: InputAccumulator.State) (state: FlyState) =
+    let mouse = state.config.mouse
+
+    let mouse4Configured =
+        mouse.mouse4_pivot_in_flight
+        && mouse.mouse4_pivot_mode = MouseButtonPivotMode.Hold
+
+    let mouse5Configured =
+        mouse.mouse5_pivot_in_flight
+        && mouse.mouse5_pivot_mode = MouseButtonPivotMode.Hold
+
+    let mouse4Held = mouse4Configured && PlatformInput.mouse4_button_down ()
+
+    let mouse5Held = mouse5Configured && PlatformInput.mouse5_button_down ()
+
+    if mouse4Configured || mouse5Configured then
+        InputAccumulator.set_pivot_held (mouse4Held || mouse5Held) input
+
+let update_state (now: float) (input: InputAccumulator.State) (state: FlyState) =
     let cancelAndRestore =
         PlatformInput.flight_binding_down state.config.bindings.cancel_flight_and_restore
+
+    let periodicValidationDue = now >= state.next_host_validation_at
+
+    if periodicValidationDue then
+        state.next_host_validation_at <- now + HOST_VALIDATION_INTERVAL_SECONDS
 
     let exitReason =
         match InputAccumulator.exit_reason input with
@@ -109,8 +146,16 @@ let update_state (input: InputAccumulator.State) (state: FlyState) =
         | None ->
             if not (PlatformInput.viewport_host_windows_exist state.host_identity) then
                 Some HostInvalid
+            elif not (PlatformInput.viewport_id_matches state.host_identity state.view) then
+                Some HostInvalid
             elif PlatformInput.foreground_root_window () <> state.host_identity.root_window then
                 Some FocusLost
+            elif
+                periodicValidationDue
+                && state.session_mode.lifetime = FlightLifetime.WhileRightMouseHeld
+                && not (PlatformInput.right_mouse_button_down ())
+            then
+                Some RightMouseReleased
             elif cancelAndRestore then
                 Some ExplicitRestoreCamera
             elif PlatformInput.flight_binding_down state.config.bindings.exit_key then
@@ -118,12 +163,20 @@ let update_state (input: InputAccumulator.State) (state: FlyState) =
                     Some ExplicitRestoreCamera
                 else
                     Some ExplicitKeepCamera
+            else if periodicValidationDue then
+                if PlatformInput.viewport_host_is_active state.host_identity state.view then
+                    None
+                else
+                    Some HostInvalid
             else
                 None
 
     match exitReason with
     | Some reason -> FlyState.request_exit reason state
     | None ->
+        if periodicValidationDue then
+            reconcile_held_side_button_navigation input state
+
         let wheel = state.wheel_remainder + InputAccumulator.drain_wheel input
 
         if wheel <> 0L then
@@ -140,6 +193,6 @@ let update_state (input: InputAccumulator.State) (state: FlyState) =
             if direction = 0L then
                 state.wheel_remainder <- 0L
             elif wheelSteps <> 0L then
-                speed_step state (SpeedStepCount(float (direction * wheelSteps)))
+                speed_steps state (direction * wheelSteps)
 
         update_toggles state

@@ -80,4 +80,3 @@ if (Test-Path -LiteralPath $sourcePath -PathType Leaf) {
 else {
     Write-Host "Removed $relativePath from $($projects[0].Name)."
 }
-

@@ -33,6 +33,7 @@ let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyCo
       viewport = viewport
       config = config
       host_identity = hostIdentity
+      session_mode = sessionMode
       original_cursor = originalCursor
       original_camera = CameraSnapshot.capture viewport
       original_lens_length = viewport.Camera35mmLensLength
@@ -60,4 +61,5 @@ let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyCo
       slow_was_down = PlatformInput.flight_binding_down bindings.slow
       speed_increase_was_down = FlightControls.is_optional_down bindings.speed_increase
       speed_decrease_was_down = FlightControls.is_optional_down bindings.speed_decrease
-      wheel_remainder = 0L }
+      wheel_remainder = 0L
+      next_host_validation_at = FlightControls.HOST_VALIDATION_INTERVAL_SECONDS }

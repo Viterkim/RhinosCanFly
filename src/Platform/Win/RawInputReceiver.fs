@@ -19,11 +19,15 @@ type RawInputReceiver
 
     let bufferCapacity = int RawInputNative.mouseInputSize
     let buffer = Marshal.AllocHGlobal bufferCapacity
-    let registrationRetryTimer = new Timer(Interval = 250)
+
+    let registrationRetryTimer =
+        new Timer(Interval = RawInputNative.REGISTRATION_RETRY_INTERVAL_MS)
+
     let mutable handleCreated = false
     let mutable bufferFreed = false
     let mutable registrationLease: RawInputNative.MouseRegistrationLease option = None
     let mutable startupError: exn option = None
+    let mutable registrationReleaseError: string option = None
     let mutable stopRequested = false
     let mutable registrationRetryTimerDisposed = false
 
@@ -97,6 +101,13 @@ type RawInputReceiver
             Ok()
         | Some lease ->
             match RawInputNative.release_mouse_registration lease with
+            | Ok RawInputNative.OwnRegistrationRemovedButPreviousRegistrationLost ->
+                registrationReleaseError <-
+                    Some
+                        "RhinosCanFly removed its raw-mouse registration but could not restore the previous registration. Restart Rhino before flying again."
+
+                finish_message_loop ()
+                Ok()
             | Ok _ ->
                 finish_message_loop ()
                 Ok()
@@ -115,6 +126,10 @@ type RawInputReceiver
             invalidOp "The raw-input worker cannot release its window while mouse registration still belongs to it."
 
         let errors = ResizeArray<exn>()
+
+        match registrationReleaseError with
+        | Some error -> errors.Add(InvalidOperationException error)
+        | None -> ()
 
         try
             if handleCreated then
@@ -282,22 +297,34 @@ type RawInputReceiver
     member _.ReleaseResources() = release_resources ()
 
     override _.WndProc(message: byref<Message>) =
+        let mutable baseAttempted = false
+
         try
-            if message.Msg = RawInputNative.STOP_MESSAGE then
+            try
+                if message.Msg = RawInputNative.STOP_MESSAGE then
+                    message.Result <- nativeint 0
+                    request_stop ()
+                elif message.Msg = RawInputNative.MESSAGE then
+                    let mutable mouse = Unchecked.defaultof<RawInputNative.Mouse>
+
+                    if
+                        not stopRequested
+                        && RawInputNative.try_read_mouse message.LParam buffer bufferCapacity &mouse
+                    then
+                        process_mouse mouse
+
+                    baseAttempted <- true
+                    base.WndProc(&message)
+                else
+                    baseAttempted <- true
+                    base.WndProc(&message)
+            with error ->
+                fail_runtime error
                 message.Result <- nativeint 0
-                request_stop ()
-            elif message.Msg = RawInputNative.MESSAGE then
-                let mutable mouse = Unchecked.defaultof<RawInputNative.Mouse>
-
-                if
-                    not stopRequested
-                    && RawInputNative.try_read_mouse message.LParam buffer bufferCapacity &mouse
-                then
-                    process_mouse mouse
-
-                base.WndProc(&message)
-            else
-                base.WndProc(&message)
-        with error ->
-            fail_runtime error
-            message.Result <- nativeint 0
+        finally
+            if message.Msg = RawInputNative.MESSAGE && not baseAttempted then
+                try
+                    baseAttempted <- true
+                    base.WndProc(&message)
+                with cleanupError ->
+                    Debug.WriteLine $"RhinosCanFly raw-input message cleanup failed: {cleanupError}"
