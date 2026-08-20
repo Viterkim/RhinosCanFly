@@ -31,7 +31,7 @@ let navigation_target (state: FlyState) (gumballTarget: Point3d option) =
     | Some target when ViewTarget.target_is_in_front viewport target -> target
     | Some _
     | None ->
-        match ViewTarget.selected_target state.config.behavior.view_target state.speed viewport with
+        match ViewTarget.selected_target state.config.behavior.view_target state.speed state.view viewport with
         | Some target when ViewTarget.target_is_in_front viewport target -> target
         | Some _
         | None -> fallback_navigation_target state

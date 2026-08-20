@@ -173,7 +173,8 @@ let create () =
     let viewTargetModes =
         [| ViewTargetMode.Off, "Off"
            ViewTargetMode.Distance, "Distance"
-           ViewTargetMode.GeometryThenDistance, "Geometry, then distance" |]
+           ViewTargetMode.GeometryThenDistance, "Geometry, then distance"
+           ViewTargetMode.ObjectCenterThenDistance, "Object center, then distance" |]
 
     let paintModes =
         [| ViewportPaintMode.Queued, "Normal Rhino redraw (default)"

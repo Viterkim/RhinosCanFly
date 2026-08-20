@@ -48,6 +48,7 @@ type ViewTargetMode =
     | Off = 0
     | Distance = 1
     | GeometryThenDistance = 2
+    | ObjectCenterThenDistance = 3
 
 [<Struct>]
 type ViewTargetDistanceMultiplier = ViewTargetDistanceMultiplier of float

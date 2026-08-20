@@ -262,7 +262,7 @@ let finish_active (session: ActiveSession) (activeResult: Result<unit, string>) 
     if viewTargetRequested then
         if display_is_safe () then
             attempt_cleanup cleanupErrors "target" (fun () ->
-                ViewTarget.apply state.config.behavior.view_target state.speed state.viewport)
+                ViewTarget.apply state.config.behavior.view_target state.speed state.view state.viewport)
             |> ignore
 
     if session.tooltips_changed then

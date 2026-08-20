@@ -20,7 +20,7 @@ let apply (loaded: ConfigLoadResult) (view: RhinoView) =
                         movement.speed_range
                         movement.base_speed
 
-                ViewTarget.apply behavior.view_target speed view.ActiveViewport
+                ViewTarget.apply behavior.view_target speed view view.ActiveViewport
 
             Ok()
     with error ->
