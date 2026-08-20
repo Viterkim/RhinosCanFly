@@ -8,23 +8,23 @@ open Rhino.UI
 
 module SettingsDialogPlacement =
     [<Literal>]
-    let preferred_width = 1000
+    let PREFERRED_WIDTH = 1000
 
     [<Literal>]
-    let preferred_height = 1000
+    let PREFERRED_HEIGHT = 1000
 
     [<Literal>]
-    let screen_margin = 24
+    let SCREEN_MARGIN = 24
 
     let mutable last_location: Point option = None
 
     let fit_size (minimum: Size) (workingArea: RectangleF) =
-        let availableWidth = max minimum.Width (int workingArea.Width - screen_margin * 2)
+        let availableWidth = max minimum.Width (int workingArea.Width - SCREEN_MARGIN * 2)
 
         let availableHeight =
-            max minimum.Height (int workingArea.Height - screen_margin * 2)
+            max minimum.Height (int workingArea.Height - SCREEN_MARGIN * 2)
 
-        Size(min preferred_width availableWidth, min preferred_height availableHeight)
+        Size(min PREFERRED_WIDTH availableWidth, min PREFERRED_HEIGHT availableHeight)
 
     let centered_location (bounds: RectangleF) (size: Size) =
         Point(int bounds.X + (int bounds.Width - size.Width) / 2, int bounds.Y + (int bounds.Height - size.Height) / 2)
@@ -41,7 +41,7 @@ type RhinosCanFlySettingsDialog() as self =
     inherit
         Dialog(
             Title = "Rhinos Can Fly Options",
-            Size = Size(SettingsDialogPlacement.preferred_width, SettingsDialogPlacement.preferred_height),
+            Size = Size(SettingsDialogPlacement.PREFERRED_WIDTH, SettingsDialogPlacement.PREFERRED_HEIGHT),
             MinimumSize = Size(700, 550),
             Resizable = true
         )

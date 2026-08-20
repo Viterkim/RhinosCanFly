@@ -1,10 +1,12 @@
 param([switch] $Check)
 
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $source = Join-Path $projectRoot "src"
+$tools = Join-Path $projectRoot "tools"
 
-$arguments = @($source)
+$arguments = @($source, $tools)
 
 if ($Check) {
     $arguments = @("--check") + $arguments

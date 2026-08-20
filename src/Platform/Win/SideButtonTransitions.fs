@@ -16,6 +16,13 @@ let begin_hold (state: State) (button: SideButton) (host: ViewportHostIdentity) 
     ViewNavigationState.set_button_state state button (HoldActive host)
     ViewNavigationState.keep_timer_running state
 
+let prepare_pivot (state: State) (host: ViewportHostIdentity) =
+    match state.routing.prepare_navigation host Pivot with
+    | Ok prepared -> ValueSome prepared
+    | Error error ->
+        Debug.WriteLine $"RhinosCanFly mouse override target: {error}"
+        ValueNone
+
 let finish (state: State) (button: SideButton) =
     match ViewNavigationState.get_button_state state button with
     | Released -> ()
@@ -68,7 +75,10 @@ let handle_down (state: State) (button: SideButton) (host: ViewportHostIdentity)
         | Ok() ->
             match mode with
             | MouseButtonPivotMode.Off -> ()
-            | MouseButtonPivotMode.Hold -> begin_hold state button host
+            | MouseButtonPivotMode.Hold ->
+                match prepare_pivot state host with
+                | ValueSome prepared -> begin_hold state button prepared
+                | ValueNone -> ()
             | MouseButtonPivotMode.Toggle ->
                 ViewNavigationState.set_button_state state button ToggleReleasePressed
                 ViewNavigationState.keep_timer_running state
@@ -76,8 +86,20 @@ let handle_down (state: State) (button: SideButton) (host: ViewportHostIdentity)
     else
         match mode with
         | MouseButtonPivotMode.Off -> ()
-        | MouseButtonPivotMode.Hold -> begin_hold state button host
-        | MouseButtonPivotMode.Toggle -> toggle state button host
+        | MouseButtonPivotMode.Hold ->
+            match prepare_pivot state host with
+            | ValueSome prepared -> begin_hold state button prepared
+            | ValueNone -> ()
+        | MouseButtonPivotMode.Toggle ->
+            match ViewNavigationState.get_button_state state button with
+            | Released ->
+                match prepare_pivot state host with
+                | ValueSome prepared -> toggle state button prepared
+                | ValueNone -> ()
+            | HoldActive _
+            | TogglePressed _
+            | ToggleLatched _
+            | ToggleReleasePressed -> toggle state button host
         | _ -> ()
 
 let process_hook_events (state: State) =

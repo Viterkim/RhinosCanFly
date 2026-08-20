@@ -52,16 +52,7 @@ let restored_view_completion (loaded: ConfigLoadResult) (view: RhinoView) =
     else
         None
 
-let apply_view_target (loaded: ConfigLoadResult) (document: RhinoDoc) (view: RhinoView) =
-    let behavior = loaded.config.behavior
-    let movement = loaded.config.movement
-
-    let speed =
-        FlightSpeed.current document behavior.load_speed_from_document movement.speed_range movement.base_speed
-
-    ViewTarget.apply behavior.view_target speed view.ActiveViewport
-
-let start_navigation (mode: Mode) (loaded: ConfigLoadResult) (document: RhinoDoc) (view: RhinoView) =
+let start_navigation (mode: Mode) (loaded: ConfigLoadResult) (view: RhinoView) =
     let commandName = name mode
 
     match stop_conflict mode with
@@ -72,18 +63,7 @@ let start_navigation (mode: Mode) (loaded: ConfigLoadResult) (document: RhinoDoc
         let completion = restored_view_completion loaded view
 
         match start mode view completion with
-        | Ok() ->
-            try
-                apply_view_target loaded document view
-                Result.Success
-            with error ->
-                match stop mode with
-                | Ok() -> RhinoApp.WriteLine $"{commandName} failed to set the view target: {error.Message}"
-                | Error cleanupError ->
-                    RhinoApp.WriteLine
-                        $"{commandName} failed to set the view target: {error.Message} Cleanup also failed: {cleanupError}"
-
-                Result.Failure
+        | Ok() -> Result.Success
         | Error error ->
             RhinoApp.WriteLine $"{commandName} failed: {error}"
             Result.Failure
@@ -92,8 +72,8 @@ let start_if_ready (mode: Mode) (loaded: ConfigLoadResult) (document: RhinoDoc) 
     let commandName = name mode
     let view = document.Views.ActiveView
 
-    if not loaded.config_file.enabled then
-        RhinoApp.WriteLine "RhinosCanFly is disabled in Options."
+    if not (RuntimeSettings.runtime_enabled ()) then
+        RhinoApp.WriteLine "RhinosCanFly is disabled."
         Result.Cancel
     elif isNull view then
         RhinoApp.WriteLine $"{commandName}: no active view."
@@ -106,7 +86,7 @@ let start_if_ready (mode: Mode) (loaded: ConfigLoadResult) (document: RhinoDoc) 
         | Ok false ->
             RhinoApp.WriteLine $"{commandName}: move the cursor over the active viewport."
             Result.Cancel
-        | Ok true -> start_navigation mode loaded document view
+        | Ok true -> start_navigation mode loaded view
 
 let toggle (mode: Mode) (document: RhinoDoc) =
     if active mode then

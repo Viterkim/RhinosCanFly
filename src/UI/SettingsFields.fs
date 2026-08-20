@@ -80,7 +80,8 @@ type ConfigFields =
       options: OptionFields }
 
 type StatusFields =
-    { status_line: Label
+    { runtime_enabled: CheckBox
+      status_line: Label
       runtime_line: Label }
 
 type RawJsonFields = { path: TextBox; contents: TextArea }
@@ -172,7 +173,8 @@ let create () =
     let viewTargetModes =
         [| ViewTargetMode.Off, "Off"
            ViewTargetMode.Distance, "Distance"
-           ViewTargetMode.GeometryThenDistance, "Geometry, then distance" |]
+           ViewTargetMode.GeometryThenDistance, "Geometry, then distance"
+           ViewTargetMode.ObjectCenterThenDistance, "Object center, then distance" |]
 
     let paintModes =
         [| ViewportPaintMode.Queued, "Normal Rhino redraw (default)"
@@ -242,7 +244,8 @@ let create () =
               mouse5_pivot_in_flight = new CheckBox(Text = "Mouse 5 pivots while flying")
               commands_do_not_repeat = new CheckBox(Text = "Don't repeat flight commands") } }
       status =
-        { status_line = new Label(Wrap = WrapMode.Word)
+        { runtime_enabled = new CheckBox(Text = "Runtime enabled (RhinosCanFlyToggleEnable)", Enabled = false)
+          status_line = new Label(Wrap = WrapMode.Word)
           runtime_line = new Label(Wrap = WrapMode.Word) }
       raw_json =
         { path = new TextBox(ReadOnly = true)

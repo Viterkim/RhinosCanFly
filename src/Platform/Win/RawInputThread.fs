@@ -14,6 +14,7 @@ type ThreadResult =
 type StopOutcome =
     { terminated: bool
       registration_relinquished: bool
+      previous_registration_lost: bool
       errors: string list }
 
 type StopAttempt =
@@ -51,13 +52,13 @@ type StartupRecovery =
       mutable stopped_disposed: bool }
 
 [<Literal>]
-let startup_timeout_ms = 250
+let STARTUP_TIMEOUT_MS = 250
 
 [<Literal>]
-let stop_observation_ms = 250
+let STOP_OBSERVATION_MS = 1000
 
 [<Literal>]
-let join_timeout_ms = 50
+let JOIN_TIMEOUT_MS = 100
 
 let recoveryGate = obj ()
 let recoverySessions = ResizeArray<Session>()
@@ -112,9 +113,15 @@ let exception_messages (error: exn) =
         |> List.ofSeq
     | _ -> [ error.Message ]
 
-let registration_relinquished (registration: RawInputNative.MouseRegistrationLease option) =
+let try_complete_registration_cleanup (registration: RawInputNative.MouseRegistrationLease option) =
     match registration with
-    | Some lease -> lease.relinquished
+    | Some lease ->
+        match RawInputNative.release_mouse_registration lease with
+        | Ok RawInputNative.OwnRegistrationRemovedButPreviousRegistrationLost
+        | Error _ -> false
+        | Ok RawInputNative.RestoredPrevious
+        | Ok RawInputNative.AlreadyRelinquished
+        | Ok RawInputNative.ReplacedByAnotherOwner -> true
     | None -> true
 
 let post_stop (window: nativeint) =
@@ -193,7 +200,7 @@ let run_thread
                     created.RequestStop()
 
                     if not created.RegistrationRelinquished then
-                        Thread.Sleep 250
+                        Thread.Sleep RawInputNative.REGISTRATION_RETRY_INTERVAL_MS
             | None -> ()
     finally
         try
@@ -206,10 +213,10 @@ let run_thread
         startup.stopped.Set()
 
 let observe_termination (thread: Thread) (stopped: ManualResetEventSlim) =
-    let signalled = stopped.Wait stop_observation_ms
+    let signalled = stopped.Wait STOP_OBSERVATION_MS
 
     if signalled && thread.IsAlive then
-        thread.Join join_timeout_ms
+        thread.Join JOIN_TIMEOUT_MS
     else
         signalled || not thread.IsAlive
 
@@ -221,10 +228,13 @@ let cancel_startup (startup: StartupState) (thread: Thread) =
 
     let terminated = observe_termination thread startup.stopped
 
-    if not terminated then
+    let cleanupComplete =
+        terminated && try_complete_registration_cleanup startup.registration
+
+    if not cleanupComplete then
         retain_startup thread startup
 
-    terminated
+    cleanupComplete
 
 let dispose_startup_events (startup: StartupState) =
     if not startup.ready_disposed then
@@ -261,25 +271,25 @@ let start
     thread.SetApartmentState(ApartmentState.STA)
     thread.Start()
 
-    if not (startup.ready.Wait startup_timeout_ms) then
-        let terminated = cancel_startup startup thread
+    if not (startup.ready.Wait STARTUP_TIMEOUT_MS) then
+        let cleanupComplete = cancel_startup startup thread
 
-        if terminated then
+        if cleanupComplete then
             dispose_startup_events startup
 
         let message =
             "The raw-input worker did not become ready within 250 ms. Cleanup is continuing on that worker."
 
-        raise (StartFailureException(message, not terminated, TimeoutException message))
+        raise (StartFailureException(message, not cleanupComplete, TimeoutException message))
 
     startup.ready.Dispose()
     startup.ready_disposed <- true
 
     match result.startup_error, startup.registration with
     | Some error, _ ->
-        let terminated = cancel_startup startup thread
+        let cleanupComplete = cancel_startup startup thread
 
-        if terminated then
+        if cleanupComplete then
             startup.stopped.Dispose()
 
         let errors =
@@ -288,38 +298,29 @@ let start
 
         let message = String.concat "; " errors
 
-        raise (
-            StartFailureException(
-                message,
-                not terminated || not (registration_relinquished startup.registration),
-                error
-            )
-        )
+        raise (StartFailureException(message, not cleanupComplete, error))
     | None, None ->
-        let terminated = cancel_startup startup thread
+        let cleanupComplete = cancel_startup startup thread
 
-        if terminated then
+        if cleanupComplete then
             startup.stopped.Dispose()
 
         let message = "The raw-input worker started without a mouse registration."
-        raise (StartFailureException(message, not terminated, InvalidOperationException message))
+        raise (StartFailureException(message, not cleanupComplete, InvalidOperationException message))
     | None, Some registration when startup.stopped.IsSet ->
-        let terminated = not thread.IsAlive || thread.Join join_timeout_ms
+        let terminated = not thread.IsAlive || thread.Join JOIN_TIMEOUT_MS
 
-        if terminated then
+        let cleanupComplete =
+            terminated && try_complete_registration_cleanup startup.registration
+
+        if cleanupComplete then
             startup.stopped.Dispose()
         else
             retain_startup thread startup
 
         let message = "The raw-input worker stopped before startup completed."
 
-        raise (
-            StartFailureException(
-                message,
-                not terminated || not registration.relinquished,
-                InvalidOperationException message
-            )
-        )
+        raise (StartFailureException(message, not cleanupComplete, InvalidOperationException message))
     | None, Some registration ->
         { thread = thread
           window_handle = startup.window_handle
@@ -342,7 +343,13 @@ let request_stop (session: Session) =
 let stop_internal (attempt: StopAttempt) (session: Session) =
     lock session.stop_gate (fun () ->
         match session.stop_outcome with
-        | Some outcome when attempt = InitialStop && outcome.terminated && outcome.registration_relinquished -> outcome
+        | Some outcome when
+            attempt = InitialStop
+            && outcome.terminated
+            && outcome.registration_relinquished
+            && not outcome.previous_registration_lost
+            ->
+            outcome
         | Some _
         | None ->
             let errors = ResizeArray<string>()
@@ -353,7 +360,12 @@ let stop_internal (attempt: StopAttempt) (session: Session) =
 
             let terminated = observe_termination session.thread session.stopped
 
-            if terminated && not session.stopped_disposed then
+            let cleanupComplete =
+                terminated && try_complete_registration_cleanup (Some session.registration)
+
+            let previousRegistrationLost = session.registration.previous_registration_lost
+
+            if cleanupComplete && not session.stopped_disposed then
                 session.stopped.Dispose()
                 session.stopped_disposed <- true
 
@@ -371,11 +383,16 @@ let stop_internal (attempt: StopAttempt) (session: Session) =
             let outcome =
                 { terminated = terminated
                   registration_relinquished = session.registration.relinquished
+                  previous_registration_lost = previousRegistrationLost
                   errors = List.ofSeq errors }
 
             session.stop_outcome <- Some outcome
 
-            if outcome.terminated && outcome.registration_relinquished then
+            if
+                outcome.terminated
+                && outcome.registration_relinquished
+                && not outcome.previous_registration_lost
+            then
                 forget_session session
             else
                 retain_session session
@@ -401,7 +418,10 @@ let recover_startup (recovery: StartupRecovery) =
 
     let terminated = observe_termination recovery.thread recovery.startup.stopped
 
-    if terminated then
+    let cleanupComplete =
+        terminated && try_complete_registration_cleanup recovery.startup.registration
+
+    if cleanupComplete then
         if not recovery.startup.ready_disposed then
             recovery.startup.ready.Dispose()
             recovery.startup.ready_disposed <- true
@@ -412,7 +432,13 @@ let recover_startup (recovery: StartupRecovery) =
 
         forget_startup recovery
 
-    struct (terminated, List.ofSeq errors)
+    match recovery.startup.registration with
+    | Some lease when lease.previous_registration_lost ->
+        errors.Add "The previous raw-mouse registration was lost. Restart Rhino before flying again."
+    | Some _
+    | None -> ()
+
+    struct (cleanupComplete, List.ofSeq errors)
 
 let retry_recovery () =
     let sessions = lock recoveryGate (fun () -> recoverySessions.ToArray())

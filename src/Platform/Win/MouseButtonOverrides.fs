@@ -33,7 +33,7 @@ type HookState =
     | HookRemovalAbandoned of hook: Win32Native.WindowsHook * error: string
 
 [<Literal>]
-let maximum_hook_removal_attempts = 8
+let MAXIMUM_HOOK_REMOVAL_ATTEMPTS = 8
 
 let mutable mouse_hook_state = HookAbsent
 let mutable command_depth = if Command.InCommand() then 1 else 0
@@ -55,6 +55,7 @@ let view_matches_host (host: ViewportHostIdentity) (view: RhinoView) =
     && view.RuntimeSerialNumber = host.view_serial_number
     && document.RuntimeSerialNumber = host.document_serial_number
     && view.Handle = expectedWindow
+    && view.ActiveViewportID = host.viewport_id
     && ViewNavigationState.root_window view.Handle = host.root_window
 
 type ViewNavigationCallback() =
@@ -116,6 +117,11 @@ type ViewNavigationCallback() =
             previousNavigationSample <- ValueNone
             log_exception "direct view navigation" error
 
+            try
+                request_navigation_exit ()
+            with exitError ->
+                log_exception "direct view navigation exit" exitError
+
     member _.NavigationActive = ValueOption.isSome (active_navigation_mode ())
     member _.ResetNavigation() = previousNavigationSample <- ValueNone
 
@@ -146,6 +152,7 @@ let mutable view_destroy_subscribed = false
 let capture_viewport_host (view: RhinoView) =
     { view_serial_number = view.RuntimeSerialNumber
       document_serial_number = view.Document.RuntimeSerialNumber
+      viewport_id = view.ActiveViewportID
       view_window = ViewWindowHandle view.Handle
       root_window = ViewNavigationState.root_window view.Handle }
 
@@ -170,7 +177,7 @@ let update_right_click_viewport (view: RhinoView) =
 
 let refresh_right_click_viewports () =
     try
-        right_click_viewports <-
+        let refreshed =
             RhinoDoc.OpenDocuments()
             |> Array.collect (fun (document: RhinoDoc) -> document.Views.GetViewList(true, true))
             |> Array.choose (fun (view: RhinoView) ->
@@ -179,9 +186,9 @@ let refresh_right_click_viewports () =
                 else
                     Some(capture_right_click_viewport view))
 
+        right_click_viewports <- refreshed
         Ok()
     with error ->
-        right_click_viewports <- Array.empty
         log_exception "viewport window refresh" error
         Error $"Could not enumerate Rhino viewport windows: {error.Message}"
 
@@ -454,11 +461,11 @@ let remove_mouse_hook () =
             let nextAttempt =
                 match mouse_hook_state with
                 | HookRemovalPending(_, _, previousAttempts) -> previousAttempts + 1
-                | HookRemovalAbandoned _ -> maximum_hook_removal_attempts
+                | HookRemovalAbandoned _ -> MAXIMUM_HOOK_REMOVAL_ATTEMPTS
                 | HookAbsent
                 | HookInstalled _ -> 1
 
-            if nextAttempt >= maximum_hook_removal_attempts then
+            if nextAttempt >= MAXIMUM_HOOK_REMOVAL_ATTEMPTS then
                 mouse_hook_state <- HookRemovalAbandoned(hook, error)
             else
                 mouse_hook_state <- HookRemovalPending(hook, error, nextAttempt)
@@ -714,6 +721,7 @@ let start_view_latch (view: RhinoView) (mode: ViewNavigationMode) (completion: A
         Error "The active viewport is unavailable."
     else
         let host = capture_viewport_host view
+        let originalTarget = view.ActiveViewport.CameraTarget
 
         match ViewLatchTransitions.start_or_switch state host mode completion with
         | Error error -> Error error
@@ -721,9 +729,19 @@ let start_view_latch (view: RhinoView) (mode: ViewNavigationMode) (completion: A
             match refresh_mouse_hook () with
             | Ok() -> Ok()
             | Error hookError ->
+                let mutable error = hookError
+
                 match ViewLatchTransitions.release state with
-                | Ok() -> Error hookError
-                | Error cleanupError -> Error $"{hookError}; cleanup failed: {cleanupError}"
+                | Ok() -> ()
+                | Error cleanupError -> error <- $"{error}; cleanup failed: {cleanupError}"
+
+                try
+                    if view_matches_host host view then
+                        view.ActiveViewport.SetCameraTarget(originalTarget, false)
+                with targetError ->
+                    error <- $"{error}; target rollback failed: {targetError.Message}"
+
+                Error error
 
 let stop_view_latch (mode: ViewNavigationMode) =
     let wasActive = ViewLatchTransitions.is_mode state mode
@@ -762,7 +780,8 @@ let apply (config: MouseOverrideConfig) =
                   shift_right_click = ViewLatchTransitions.configured_mode config.shift_right_click
                   alt_right_click = ViewLatchTransitions.configured_mode config.alt_right_click
                   exit = config.exit_binding
-                  exit_on_mouse_right = config.exit_on_right }
+                  exit_on_mouse_right = config.exit_on_right
+                  prepare_navigation = config.prepare_navigation }
 
             if state.lifecycle = Suspended then
                 Ok()

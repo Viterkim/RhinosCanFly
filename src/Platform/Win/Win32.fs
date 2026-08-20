@@ -10,22 +10,22 @@ open System.Text
 open Microsoft.FSharp.NativeInterop
 open RhinosCanFly
 
-let cursorClipRecoveries = ResizeArray<CursorClipLease>()
+let ownedCursorClips = ResizeArray<CursorClipLease>()
 
 let retain_cursor_clip_recovery (lease: CursorClipLease) =
     let exists =
-        cursorClipRecoveries
+        ownedCursorClips
         |> Seq.exists (fun (candidate: CursorClipLease) -> Object.ReferenceEquals(candidate, lease))
 
     if not exists then
-        cursorClipRecoveries.Add lease
+        ownedCursorClips.Add lease
 
 let forget_cursor_clip_recovery (lease: CursorClipLease) =
-    let mutable index = cursorClipRecoveries.Count - 1
+    let mutable index = ownedCursorClips.Count - 1
 
     while index >= 0 do
-        if Object.ReferenceEquals(cursorClipRecoveries[index], lease) then
-            cursorClipRecoveries.RemoveAt index
+        if Object.ReferenceEquals(ownedCursorClips[index], lease) then
+            ownedCursorClips.RemoveAt index
 
         index <- index - 1
 
@@ -89,6 +89,7 @@ let rec acquire_cursor_clip (rectangle: Rectangle) =
                   installed = rectangle
                   relinquished = false }
 
+            retain_cursor_clip_recovery lease
             let verification = get_cursor_clip ()
 
             match verification with
@@ -109,23 +110,33 @@ and release_cursor_clip (lease: CursorClipLease) =
         Ok()
     else
         match get_cursor_clip () with
-        | Error error -> Error error
+        | Error error ->
+            retain_cursor_clip_recovery lease
+            Error error
         | Ok current when current <> lease.installed ->
             lease.relinquished <- true
             forget_cursor_clip_recovery lease
             Ok()
         | Ok _ ->
             match clip_cursor lease.previous with
-            | Ok() ->
-                lease.relinquished <- true
-                forget_cursor_clip_recovery lease
-                Ok()
             | Error error ->
                 retain_cursor_clip_recovery lease
                 Error error
+            | Ok() ->
+                match get_cursor_clip () with
+                | Error error ->
+                    retain_cursor_clip_recovery lease
+                    Error $"The previous cursor clip was restored but could not be verified: {error}"
+                | Ok current when current = lease.previous || current <> lease.installed ->
+                    lease.relinquished <- true
+                    forget_cursor_clip_recovery lease
+                    Ok()
+                | Ok _ ->
+                    retain_cursor_clip_recovery lease
+                    Error "The cursor clip still belongs to RhinosCanFly after restoration."
 
 let retry_cursor_clip_cleanup () =
-    let pending = cursorClipRecoveries.ToArray()
+    let pending = ownedCursorClips.ToArray()
     let errors = ResizeArray<string>()
 
     for lease in pending do
@@ -133,9 +144,9 @@ let retry_cursor_clip_cleanup () =
         | Ok() -> ()
         | Error error -> errors.Add error
 
-    struct (cursorClipRecoveries.Count, List.ofSeq errors)
+    struct (ownedCursorClips.Count, List.ofSeq errors)
 
-let cursor_clip_recovery_count () = cursorClipRecoveries.Count
+let cursor_clip_recovery_count () = ownedCursorClips.Count
 
 let clear_mouse_hover (window: nativeint) =
     Win32Native.SendMessage(window, Win32Native.WM_MOUSELEAVE, nativeint 0, nativeint 0)
@@ -200,12 +211,12 @@ let request_application_redraw (mainWindow: nativeint) =
     with _ ->
         ()
 
-let wait_for_input () =
+let wait_for_input_for (timeoutMilliseconds: int) =
     let result =
         Win32Native.MsgWaitForMultipleObjectsEx(
             0u,
             nativeint 0,
-            Win32Native.INFINITE,
+            uint32 (max 0 timeoutMilliseconds),
             Win32Native.QS_ALLINPUT,
             Win32Native.MWMO_INPUTAVAILABLE
         )

@@ -4,7 +4,7 @@ open Eto.Drawing
 open Eto.Forms
 
 [<Literal>]
-let itemLabelWidth = 140
+let ITEM_LABEL_WIDTH = 140
 
 let row (cells: TableCell list) =
     let result = new TableRow()
@@ -17,7 +17,7 @@ let row (cells: TableCell list) =
 let full_width (control: Control) = row [ new TableCell(control, true) ]
 
 let item (label: string) (control: Control) =
-    let caption = new Label(Text = label, Width = itemLabelWidth)
+    let caption = new Label(Text = label, Width = ITEM_LABEL_WIDTH)
     let result = new TableLayout(Spacing = Size(8, 0))
 
     result.Rows.Add(row [ new TableCell(caption, false); new TableCell(control, true) ])

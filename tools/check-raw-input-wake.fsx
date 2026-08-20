@@ -48,10 +48,11 @@ if wakeSource.Contains("AutoResetEvent", StringComparison.Ordinal) then
     fail "RawInputWake must not own a private wait handle."
 
 if
-    not (loopSource.Contains("PlatformInput.wait_for_input", StringComparison.Ordinal))
+    not (loopSource.Contains("PlatformInput.wait_for_input_for", StringComparison.Ordinal))
+    || not (loopSource.Contains("state.next_host_validation_at", StringComparison.Ordinal))
     || not (loopSource.Contains("RhinoApp.Wait", StringComparison.Ordinal))
 then
-    fail "FlightLoop must sleep while idle and pump Rhino before applying the next frame."
+    fail "FlightLoop must wake for periodic validation while idle and pump Rhino before applying the next frame."
 
 let revisionIndex =
     loopSource.IndexOf("InputAccumulator.work_revision", StringComparison.Ordinal)

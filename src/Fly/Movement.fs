@@ -152,12 +152,21 @@ let mouse_pan
 let rotate_xy (cosine: float) (sine: float) (offset: Vector3d) =
     Vector3d(offset.X * cosine - offset.Y * sine, offset.X * sine + offset.Y * cosine, offset.Z)
 
+let orbit_angle (requestedAngle: float) =
+    clamp -maximum_orbit_angle_per_frame maximum_orbit_angle_per_frame requestedAngle
+
+let orbit_point (pivotCenter: Point3d) (requestedAngle: float) (point: Point3d) =
+    if requestedAngle = 0. then
+        point
+    else
+        let angle = orbit_angle requestedAngle
+        pivotCenter + rotate_xy (Math.Cos angle) (Math.Sin angle) (point - pivotCenter)
+
 let orbit (pivotCenter: Point3d) (requestedAngle: float) (camera: CameraState) =
     if requestedAngle = 0. then
         camera
     else
-        let angle =
-            clamp -maximum_orbit_angle_per_frame maximum_orbit_angle_per_frame requestedAngle
+        let angle = orbit_angle requestedAngle
 
         let cosine = Math.Cos angle
         let sine = Math.Sin angle
@@ -174,7 +183,8 @@ let orbit (pivotCenter: Point3d) (requestedAngle: float) (camera: CameraState) =
 [<Struct>]
 type MovementStep =
     { camera: CameraState
-      translation: Vector3d }
+      translation: Vector3d
+      key_pivot_angle: float }
 
 let step (config: MovementConfig) (input: InputSnapshot) (keyPivotTarget: Point3d) (dt: float) (camera: CameraState) =
     let yaw = camera.yaw
@@ -190,13 +200,20 @@ let step (config: MovementConfig) (input: InputSnapshot) (keyPivotTarget: Point3
     let rightAmount = amount input.right input.left
     let verticalAmount = amount input.up input.down
 
-    let mutable movement =
-        forward * forwardAmount + right * rightAmount + Vector3d.ZAxis * verticalAmount
+    let directionalMovement = forward * forwardAmount + right * rightAmount
+    let verticalMovement = Vector3d.ZAxis * verticalAmount
+    let unscaledMovement = directionalMovement + verticalMovement
+    let unscaledSquareLength = unscaledMovement.SquareLength
 
-    if config.normalize_diagonal_movement && movement.SquareLength > 1. then
-        movement.Unitize() |> ignore
+    let normalizationScale =
+        if config.normalize_diagonal_movement && unscaledSquareLength > 1. then
+            1. / Math.Sqrt unscaledSquareLength
+        else
+            1.
 
-    movement.Z <- movement.Z * config.vertical_speed_multiplier
+    let movement =
+        directionalMovement * normalizationScale
+        + verticalMovement * (normalizationScale * config.vertical_speed_multiplier)
 
     let translation = movement * input.move_speed * dt
 
@@ -219,4 +236,5 @@ let step (config: MovementConfig) (input: InputSnapshot) (keyPivotTarget: Point3
         * dt
 
     { camera = orbit keyPivotTarget keyPivotAngle translated
-      translation = translation }
+      translation = translation
+      key_pivot_angle = keyPivotAngle }

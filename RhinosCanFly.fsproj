@@ -68,6 +68,7 @@
     <Compile Include="src/Platform/Win/MouseButtonOverrides.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/PlatformInput.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Fly/ViewTarget.fs" />
+    <Compile Include="src/Fly/NavigationTarget.fs" />
     <Compile Include="src/Fly/FlightCamera.fs" />
     <Compile Include="src/Fly/FlightControls.fs" />
     <Compile Include="src/Fly/FlightState.fs" />
@@ -98,6 +99,7 @@
     <Compile Include="src/Commands/RhinosCanFlyPivot.fs" />
     <Compile Include="src/Commands/RhinosCanFlyPan.fs" />
     <Compile Include="src/Commands/RhinosCanFlyInputRecover.fs" />
+    <Compile Include="src/Commands/RhinosCanFlyToggleEnable.fs" />
     <Compile Include="src/Commands/Commands.fs" />
   </ItemGroup>
 </Project>

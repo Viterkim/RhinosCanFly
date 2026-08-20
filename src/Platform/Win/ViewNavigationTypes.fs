@@ -5,10 +5,6 @@ open System.Collections.Generic
 open System.Windows.Forms
 open RhinosCanFly
 
-type ViewNavigationMode =
-    | Pivot
-    | Pan
-
 type ViewNavigationRequest =
     | StartNavigation of ViewNavigationMode
     | StopNavigation
@@ -21,7 +17,8 @@ type RoutingConfig =
       shift_right_click: ViewNavigationMode option
       alt_right_click: ViewNavigationMode option
       exit: KeyBinding option
-      exit_on_mouse_right: bool }
+      exit_on_mouse_right: bool
+      prepare_navigation: ViewportHostIdentity -> ViewNavigationMode -> Result<ViewportHostIdentity, string> }
 
 type SideButton =
     | Mouse4
@@ -87,13 +84,13 @@ type State =
       poll_timer: Timer }
 
 [<Literal>]
-let poll_timer_interval_milliseconds = 15
+let POLL_TIMER_INTERVAL_MILLISECONDS = 15
 
 [<Literal>]
-let poll_timer_watchdog_interval_milliseconds = 250
+let POLL_TIMER_WATCHDOG_INTERVAL_MILLISECONDS = 250
 
 [<Literal>]
-let transition_timeout_seconds = 2.
+let TRANSITION_TIMEOUT_SECONDS = 2.
 
 let empty_routing =
     { mouse4 = MouseButtonPivotMode.Off
@@ -103,7 +100,8 @@ let empty_routing =
       shift_right_click = None
       alt_right_click = None
       exit = None
-      exit_on_mouse_right = false }
+      exit_on_mouse_right = false
+      prepare_navigation = fun (host: ViewportHostIdentity) (_: ViewNavigationMode) -> Ok host }
 
 let create_state () =
     { routing = empty_routing
@@ -117,4 +115,4 @@ let create_state () =
       suspension_ids = HashSet<int64>()
       next_suspension_id = 0L
       suspension_cleanup_error = None
-      poll_timer = new Timer(Interval = poll_timer_interval_milliseconds) }
+      poll_timer = new Timer(Interval = POLL_TIMER_INTERVAL_MILLISECONDS) }

@@ -78,7 +78,7 @@ let current_file_version (configPath: string) =
             None
 
 let future_version_error (version: int) =
-    $"The config version {version} is newer than this RhinosCanFly build supports ({ConfigSchema.current_version}). The file was left unchanged."
+    $"The config version {version} is newer than this RhinosCanFly build supports ({ConfigSchema.CURRENT_VERSION}). The file was left unchanged."
 
 let write_atomic (configPath: string) (content: string) =
     let directory = Path.GetDirectoryName configPath
@@ -140,7 +140,7 @@ let load () =
         let futureVersion = config_version json
 
         match futureVersion with
-        | Some version when version > ConfigSchema.current_version ->
+        | Some version when version > ConfigSchema.CURRENT_VERSION ->
             let error = future_version_error version
 
             saveBlocked <- Some error
@@ -197,7 +197,7 @@ let load () =
         if renamed > 0 then
             messages.Add $"normalized {renamed} setting name(s)"
 
-        json["config_version"] <- JsonValue.Create ConfigSchema.current_version
+        json["config_version"] <- JsonValue.Create ConfigSchema.CURRENT_VERSION
         let mutable added = 0
 
         for property in defaults do
@@ -262,7 +262,7 @@ let load () =
                 new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)
 
             match current_file_version configPath with
-            | Some version when version > ConfigSchema.current_version ->
+            | Some version when version > ConfigSchema.CURRENT_VERSION ->
                 let error = future_version_error version
                 saveBlocked <- Some error
                 failwith error
@@ -295,7 +295,7 @@ let save (source: FlyConfigFile) =
                     new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)
 
                 match current_file_version configPath with
-                | Some version when version > ConfigSchema.current_version ->
+                | Some version when version > ConfigSchema.CURRENT_VERSION ->
                     let error = future_version_error version
                     saveBlocked <- Some error
                     failwith error
@@ -304,7 +304,7 @@ let save (source: FlyConfigFile) =
 
                 let configFile =
                     { normalizedSource with
-                        config_version = ConfigSchema.current_version }
+                        config_version = ConfigSchema.CURRENT_VERSION }
 
                 let json = to_object configFile
                 let content = json_content json

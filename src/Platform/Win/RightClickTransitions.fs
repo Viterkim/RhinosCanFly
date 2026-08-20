@@ -45,7 +45,7 @@ type RightClickViewport =
 type Modifiers = { shift: bool; alt: bool }
 
 [<Literal>]
-let entry_timeout_seconds = 2.
+let ENTRY_TIMEOUT_SECONDS = 2.
 
 let create () =
     { gesture = Idle
@@ -109,14 +109,18 @@ let navigation_active (navigation: State) =
     ViewNavigationState.any_button_engaged navigation
     || ViewNavigationState.view_latch_engaged navigation
 
-let navigation_exit_enabled (navigation: State) =
+let navigation_exit_requested (navigation: State) =
     navigation_active navigation
-    && ViewNavigationState.right_mouse_exit_enabled navigation
+    && ViewNavigationState.right_mouse_exit_requested navigation
+
+let navigation_exit_capture_needed (navigation: State) =
+    navigation_active navigation
+    && ViewNavigationState.right_mouse_exit_capture_needed navigation
 
 let capture_needed (navigation: State) (state: RightClickState) =
     entry_enabled navigation
     || modified_navigation_enabled navigation
-    || navigation_exit_enabled navigation
+    || navigation_exit_capture_needed navigation
     || owns_button state
     || action_pending state
 
@@ -148,7 +152,7 @@ let action (navigation: State) (viewport: RightClickViewport) (modifiers: Modifi
     let host = viewport.host
 
     if navigation_active navigation then
-        if navigation_exit_enabled navigation then
+        if navigation_exit_requested navigation then
             ValueSome(
                 NavigateView
                     { host = host
@@ -243,7 +247,7 @@ let rec handle_event
 
 let entry_timed_out (entry: FlyEntry) =
     let elapsedTicks = Stopwatch.GetTimestamp() - entry.started_at
-    float elapsedTicks / float Stopwatch.Frequency >= entry_timeout_seconds
+    float elapsedTicks / float Stopwatch.Frequency >= ENTRY_TIMEOUT_SECONDS
 
 let entry_command (entry: FlyEntry) =
     let flightMode = DefaultFlightMode.flight_mode entry.default_flight_mode

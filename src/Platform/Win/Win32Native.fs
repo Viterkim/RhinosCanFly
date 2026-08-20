@@ -42,9 +42,6 @@ let RDW_FRAME = 0x0400u
 let WAIT_FAILED = 0xFFFFFFFFu
 
 [<Literal>]
-let INFINITE = 0xFFFFFFFFu
-
-[<Literal>]
 let WH_KEYBOARD = 2
 
 [<Literal>]

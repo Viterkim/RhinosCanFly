@@ -1,9 +1,9 @@
 module RhinosCanFly.MouseSensitivity
 
 [<Literal>]
-let sensitivity_scale = 10000.
+let SENSITIVITY_SCALE = 10000.
 
 let to_runtime (ConfigMouseSensitivity value: ConfigMouseSensitivity) =
-    RuntimeMouseSensitivity(value / sensitivity_scale)
+    RuntimeMouseSensitivity(value / SENSITIVITY_SCALE)
 
 let radians_per_count (RuntimeMouseSensitivity value: RuntimeMouseSensitivity) = value

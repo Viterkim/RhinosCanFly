@@ -12,10 +12,17 @@ let foreground_root_window () =
 let right_mouse_button_down () =
     Win32Native.GetAsyncKeyState Win32Native.VK_RBUTTON < 0s
 
+let mouse4_button_down () =
+    Win32Native.GetAsyncKeyState Win32Native.VK_XBUTTON1 < 0s
+
+let mouse5_button_down () =
+    Win32Native.GetAsyncKeyState Win32Native.VK_XBUTTON2 < 0s
+
 let focus_view (view: RhinoView) =
     Win32Native.SetFocus view.Handle |> ignore
 
-let wait_for_input () = Win32.wait_for_input ()
+let wait_for_input_for (timeoutMilliseconds: int) =
+    Win32.wait_for_input_for timeoutMilliseconds
 
 let root_window (view: RhinoView) =
     let ancestor = Win32Native.GetAncestor(view.Handle, Win32Native.GA_ROOT)
@@ -25,6 +32,7 @@ let root_window (view: RhinoView) =
 let capture_viewport_host (view: RhinoView) =
     { document_serial_number = view.Document.RuntimeSerialNumber
       view_serial_number = view.RuntimeSerialNumber
+      viewport_id = view.ActiveViewportID
       view_window = ViewWindowHandle view.Handle
       root_window = root_window view }
 
@@ -76,6 +84,15 @@ let viewport_host_is_active (identity: ViewportHostIdentity) (view: RhinoView) =
                 not (Object.ReferenceEquals(activeView, null))
                 && activeView.RuntimeSerialNumber = identity.view_serial_number
                 && activeView.Handle = expectedHandle
+                && activeView.ActiveViewportID = identity.viewport_id
+                && activeView.ActiveViewport.IsPerspectiveProjection
+    with _ ->
+        false
+
+let viewport_id_matches (identity: ViewportHostIdentity) (view: RhinoView) =
+    try
+        not (Object.ReferenceEquals(view, null))
+        && view.ActiveViewportID = identity.viewport_id
     with _ ->
         false
 
@@ -198,22 +215,22 @@ let flight_binding_down (binding: KeyBinding) =
 let apply_mouse_button_overrides (config: MouseOverrideConfig) = MouseButtonOverrides.apply config
 
 let start_pivot (view: RhinoView) (completion: Action option) =
-    MouseButtonOverrides.start_view_latch view ViewNavigationTypes.ViewNavigationMode.Pivot completion
+    MouseButtonOverrides.start_view_latch view ViewNavigationMode.Pivot completion
 
 let stop_pivot () =
-    MouseButtonOverrides.stop_view_latch ViewNavigationTypes.ViewNavigationMode.Pivot
+    MouseButtonOverrides.stop_view_latch ViewNavigationMode.Pivot
 
 let start_pan (view: RhinoView) (completion: Action option) =
-    MouseButtonOverrides.start_view_latch view ViewNavigationTypes.ViewNavigationMode.Pan completion
+    MouseButtonOverrides.start_view_latch view ViewNavigationMode.Pan completion
 
 let stop_pan () =
-    MouseButtonOverrides.stop_view_latch ViewNavigationTypes.ViewNavigationMode.Pan
+    MouseButtonOverrides.stop_view_latch ViewNavigationMode.Pan
 
 let pivot_active () =
-    MouseButtonOverrides.view_latch_is ViewNavigationTypes.ViewNavigationMode.Pivot
+    MouseButtonOverrides.view_latch_is ViewNavigationMode.Pivot
 
 let pan_active () =
-    MouseButtonOverrides.view_latch_is ViewNavigationTypes.ViewNavigationMode.Pan
+    MouseButtonOverrides.view_latch_is ViewNavigationMode.Pan
 
 let suspend_mouse_button_overrides () = MouseButtonOverrides.suspend ()
 

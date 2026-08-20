@@ -1,10 +1,11 @@
 module RhinosCanFly.FlightLoop
 
+open System
 open System.Diagnostics
 open Rhino
 
 [<Literal>]
-let maximum_frame_delta_seconds = 0.05
+let MAXIMUM_FRAME_DELTA_SECONDS = 0.05
 
 let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.State) (state: FlyState) =
     let clock = Stopwatch.StartNew()
@@ -14,12 +15,17 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
 
     while FlyState.is_running state do
         if not movementActive && not rawInputReady then
-            PlatformInput.wait_for_input ()
+            let remainingSeconds =
+                max 0. (state.next_host_validation_at - clock.Elapsed.TotalSeconds)
+
+            let timeoutMilliseconds = int (Math.Ceiling(remainingSeconds * 1000.))
+            PlatformInput.wait_for_input_for timeoutMilliseconds
 
         RhinoApp.Wait()
 
+        let frameSeconds = clock.Elapsed.TotalSeconds
         let observedRevision = InputAccumulator.work_revision rawInput
-        FlightControls.update_state rawInput state
+        FlightControls.update_state frameSeconds rawInput state
         let mutable mouseChange = NoCameraChange
 
         if not (FlyState.is_running state) then
@@ -61,7 +67,7 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
                     | KeyPivotLeft
                     | KeyPivotRight -> FlightInput.without_key_pivot input
 
-            let now = clock.Elapsed.TotalSeconds
+            let now = frameSeconds
             let currentlyMoving = FlightInput.movement_active movement
             let pivotDirection = FlightInput.key_pivot_direction movement
 
@@ -71,7 +77,7 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
             state.key_pivot_direction <- pivotDirection
 
             if movementActive && currentlyMoving then
-                let dt = min (now - previousFrameSeconds) maximum_frame_delta_seconds
+                let dt = min (now - previousFrameSeconds) MAXIMUM_FRAME_DELTA_SECONDS
                 let previousCamera = state.camera
 
                 let movementStep =
@@ -85,7 +91,12 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
 
                 match state.active_mouse_navigation with
                 | MousePivot pivotCenter ->
-                    state.active_mouse_navigation <- MousePivot(pivotCenter + movementStep.translation)
+                    let translatedCenter = pivotCenter + movementStep.translation
+
+                    state.active_mouse_navigation <-
+                        MousePivot(
+                            Movement.orbit_point state.key_pivot_target movementStep.key_pivot_angle translatedCenter
+                        )
                 | MouseLook
                 | MousePan _ -> ()
 

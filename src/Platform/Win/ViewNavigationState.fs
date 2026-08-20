@@ -133,9 +133,12 @@ let exit_binding_contains (state: State) (virtualKey: int) =
     | Some binding -> binding_contains_key virtualKey binding.virtual_keys
     | None -> false
 
-let right_mouse_exit_enabled (state: State) =
+let right_mouse_exit_capture_needed (state: State) =
     state.routing.exit_on_mouse_right
     || exit_binding_contains state Win32Native.VK_RBUTTON
+
+let right_mouse_exit_requested (state: State) =
+    state.routing.exit_on_mouse_right || exit_key_down state
 
 let shift_down () =
     Win32Native.GetAsyncKeyState Win32Native.VK_SHIFT < 0s
@@ -149,16 +152,16 @@ let alt_down () =
 
 let transition_timed_out (session: ViewLatchSession) =
     let elapsedTicks = Stopwatch.GetTimestamp() - session.started_at
-    float elapsedTicks / float Stopwatch.Frequency >= transition_timeout_seconds
+    float elapsedTicks / float Stopwatch.Frequency >= TRANSITION_TIMEOUT_SECONDS
 
 let keep_timer_running (state: State) =
-    state.poll_timer.Interval <- poll_timer_interval_milliseconds
+    state.poll_timer.Interval <- POLL_TIMER_INTERVAL_MILLISECONDS
 
     if not state.poll_timer.Enabled then
         state.poll_timer.Start()
 
 let keep_watchdog_running (state: State) =
-    state.poll_timer.Interval <- poll_timer_watchdog_interval_milliseconds
+    state.poll_timer.Interval <- POLL_TIMER_WATCHDOG_INTERVAL_MILLISECONDS
 
     if not state.poll_timer.Enabled then
         state.poll_timer.Start()

@@ -1,5 +1,6 @@
 namespace RhinosCanFly
 
+open System
 open System.Drawing
 
 [<Struct>]
@@ -15,6 +16,7 @@ type ViewWindowHandle = ViewWindowHandle of nativeint
 type ViewportHostIdentity =
     { document_serial_number: uint32
       view_serial_number: uint32
+      viewport_id: Guid
       view_window: ViewWindowHandle
       root_window: RootWindow }
 
@@ -37,6 +39,10 @@ type RawInputConfig =
       mouse4_pivot_in_flight: bool
       mouse5_pivot_in_flight: bool }
 
+type ViewNavigationMode =
+    | Pivot
+    | Pan
+
 type MouseOverrideConfig =
     { mouse4: MouseButtonPivotMode
       mouse5: MouseButtonPivotMode
@@ -45,4 +51,5 @@ type MouseOverrideConfig =
       shift_right_click: ModifiedRightClickMode
       alt_right_click: ModifiedRightClickMode
       exit_binding: KeyBinding option
-      exit_on_right: bool }
+      exit_on_right: bool
+      prepare_navigation: ViewportHostIdentity -> ViewNavigationMode -> Result<ViewportHostIdentity, string> }

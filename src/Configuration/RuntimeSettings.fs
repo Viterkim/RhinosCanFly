@@ -5,7 +5,14 @@ open System.Collections.Generic
 open System.Diagnostics
 open Rhino
 
+[<RequireQualifiedAccess>]
+type RuntimeEnableOverride =
+    | FollowConfig
+    | ForceEnabled
+    | ForceDisabled
+
 let mutable loadedConfig: ConfigLoadResult option = None
+let mutable runtimeEnableOverride = RuntimeEnableOverride.FollowConfig
 let inputSuspensionIds = HashSet<int64>()
 
 let record_exception (context: string) (error: exn) =
@@ -24,12 +31,23 @@ let current () =
 
 let input_suspended () = inputSuspensionIds.Count > 0
 
+let runtime_enabled_for (config: FlyConfigFile) =
+    match runtimeEnableOverride with
+    | RuntimeEnableOverride.FollowConfig -> config.enabled
+    | RuntimeEnableOverride.ForceEnabled -> true
+    | RuntimeEnableOverride.ForceDisabled -> false
+
+let runtime_enabled () =
+    match loadedConfig with
+    | Some loaded -> runtime_enabled_for loaded.config_file
+    | None -> false
+
 let apply_live (loaded: ConfigLoadResult) =
     try
         let config = loaded.config_file
 
         let mouseOverrides: MouseOverrideConfig =
-            if config.enabled then
+            if runtime_enabled_for config then
                 { mouse4 = config.mouse4_pivot_mode
                   mouse5 = config.mouse5_pivot_mode
                   right_click_entry = config.right_click_entry_mode
@@ -37,7 +55,8 @@ let apply_live (loaded: ConfigLoadResult) =
                   shift_right_click = config.shift_right_click_mode
                   alt_right_click = config.alt_right_click_mode
                   exit_binding = Some loaded.config.bindings.exit_key
-                  exit_on_right = config.exit_on_mouse_right }
+                  exit_on_right = config.exit_on_mouse_right
+                  prepare_navigation = NavigationTarget.prepare loaded }
             else
                 { mouse4 = MouseButtonPivotMode.Off
                   mouse5 = MouseButtonPivotMode.Off
@@ -46,7 +65,8 @@ let apply_live (loaded: ConfigLoadResult) =
                   shift_right_click = ModifiedRightClickMode.Off
                   alt_right_click = ModifiedRightClickMode.Off
                   exit_binding = None
-                  exit_on_right = false }
+                  exit_on_right = false
+                  prepare_navigation = NavigationTarget.prepare loaded }
 
         match PlatformInput.apply_mouse_button_overrides mouseOverrides with
         | Error error -> Error error
@@ -56,6 +76,29 @@ let apply_live (loaded: ConfigLoadResult) =
     with error ->
         Debug.WriteLine $"RhinosCanFly live settings: {error}"
         Error $"Could not apply live settings: {error.Message}"
+
+let toggle_runtime_enabled () =
+    match current () with
+    | Error error -> Error error
+    | Ok loaded ->
+        let previousOverride = runtimeEnableOverride
+
+        runtimeEnableOverride <-
+            if runtime_enabled_for loaded.config_file then
+                RuntimeEnableOverride.ForceDisabled
+            else
+                RuntimeEnableOverride.ForceEnabled
+
+        let enabled = runtime_enabled_for loaded.config_file
+
+        match apply_live loaded with
+        | Ok() -> Ok enabled
+        | Error error ->
+            runtimeEnableOverride <- previousOverride
+
+            match apply_live loaded with
+            | Ok() -> Error error
+            | Error rollbackError -> Error $"{error}; rollback failed: {rollbackError}"
 
 let suspend_input () =
     let platformResult =
