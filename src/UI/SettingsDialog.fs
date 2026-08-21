@@ -37,6 +37,10 @@ module SettingsDialogPlacement =
 
         Point(min maximumX (max minimumX location.X), min maximumY (max minimumY location.Y))
 
+module SettingsScrollPosition =
+    let mutable command_dialog = Point.Empty
+    let mutable rhino_options = Point.Empty
+
 type RhinosCanFlySettingsDialog() as self =
     inherit
         Dialog(
@@ -80,7 +84,11 @@ type RhinosCanFlySettingsDialog() as self =
 
         cancelButton.Click.Add(fun (_: EventArgs) -> self.Close())
 
-        self.Closed.Add(fun (_: EventArgs) -> SettingsDialogPlacement.last_location <- Some self.Location)
+        self.Shown.Add(fun (_: EventArgs) -> control.SetScrollPosition SettingsScrollPosition.command_dialog)
+
+        self.Closed.Add(fun (_: EventArgs) ->
+            SettingsDialogPlacement.last_location <- Some self.Location
+            SettingsScrollPosition.command_dialog <- control.ReadScrollPosition())
 
         Settings.load control
 
@@ -130,6 +138,10 @@ type RhinosCanFlyOptionsPage() =
     let control = lazy (new SettingsControl())
     let mutable inputSuspension: InputSuspensionLease option = None
 
+    let save_scroll_position () =
+        if control.IsValueCreated then
+            SettingsScrollPosition.rhino_options <- control.Value.ReadScrollPosition()
+
     let suspend_input () =
         match inputSuspension with
         | Some _ -> Ok()
@@ -176,12 +188,14 @@ type RhinosCanFlyOptionsPage() =
             | Ok() ->
                 try
                     Settings.load control.Value
+                    control.Value.SetScrollPosition SettingsScrollPosition.rhino_options
                     true
                 with error ->
                     resume_input_after_options () |> ignore
                     SettingsUi.report_error $"RhinosCanFly Options activation failed: {error.Message}"
                     false
         else
+            save_scroll_position ()
             let mutable deactivated = true
 
             try
@@ -195,6 +209,8 @@ type RhinosCanFlyOptionsPage() =
 
     override _.OnApply() =
         try
+            save_scroll_position ()
+
             if control.IsValueCreated then
                 control.Value.CancelBindingCapture()
 
@@ -209,6 +225,8 @@ type RhinosCanFlyOptionsPage() =
 
     override _.OnCancel() =
         try
+            save_scroll_position ()
+
             if control.IsValueCreated then
                 control.Value.CancelBindingCapture()
                 Settings.load control.Value
