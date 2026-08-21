@@ -32,6 +32,56 @@ let target_distance (camera: CameraState) =
     else
         1.
 
+let target_on_camera_axis (location: Point3d) (target: Point3d) (cameraDirection: Vector3d) =
+    let mutable direction = cameraDirection
+
+    if not location.IsValid || not (direction.Unitize()) then
+        target
+    else
+        let projectedDistance = Vector3d.Multiply(target - location, direction)
+
+        let distance =
+            if
+                RhinoMath.IsValidDouble projectedDistance
+                && projectedDistance > RhinoMath.ZeroTolerance
+            then
+                projectedDistance
+            else
+                let directDistance = location.DistanceTo target
+
+                if
+                    RhinoMath.IsValidDouble directDistance
+                    && directDistance > RhinoMath.ZeroTolerance
+                then
+                    directDistance
+                else
+                    1.
+
+        location + direction * distance
+
+let dolly_towards (target: Point3d) (magnification: float) (camera: CameraState) =
+    let direction = direction_from_angles camera.yaw camera.pitch
+    let depth = Vector3d.Multiply(target - camera.position, direction)
+
+    if
+        not (RhinoMath.IsValidDouble magnification)
+        || magnification <= RhinoMath.ZeroTolerance
+        || not (RhinoMath.IsValidDouble depth)
+        || depth <= RhinoMath.ZeroTolerance
+    then
+        camera
+    else
+        let nextDepth = depth / magnification
+
+        if not (RhinoMath.IsValidDouble nextDepth) || nextDepth <= RhinoMath.ZeroTolerance then
+            camera
+        else
+            let translation = direction * (depth - nextDepth)
+
+            { camera with
+                position = camera.position + translation
+                target = camera.target + translation }
+
 [<Struct>]
 type MouseAngleDeltas =
     { yaw_delta: float; pitch_delta: float }
