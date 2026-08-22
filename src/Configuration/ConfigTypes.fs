@@ -35,6 +35,43 @@ type RightClickEntryMode =
     | HoldToFly = 3
     | HoldToFlyDuringCommands = 4
 
+type ParallelViewFlyingMode =
+    | DisabledAll = 0
+    | EnabledAll = 1
+    | EnabledSome = 2
+    | DisabledSome = 3
+
+[<CLIMutable>]
+type ParallelViewFlyingFile =
+    { mode: ParallelViewFlyingMode
+      viewports: string array }
+
+type ParallelViewFlying =
+    | EnabledAll
+    | EnabledSome of viewports: string array
+    | DisabledSome of viewports: string array
+    | DisabledAll
+
+module ParallelViewFlying =
+    let listed (viewportName: string) (viewports: string array) =
+        viewports
+        |> Array.exists (fun (configured: string) ->
+            System.String.Equals(configured, viewportName, System.StringComparison.OrdinalIgnoreCase))
+
+    let allows (viewportName: string) (mode: ParallelViewFlying) =
+        match mode with
+        | EnabledAll -> true
+        | EnabledSome viewports -> listed viewportName viewports
+        | DisabledSome viewports -> not (listed viewportName viewports)
+        | DisabledAll -> false
+
+    let has_allowed_viewports (mode: ParallelViewFlying) =
+        match mode with
+        | EnabledAll
+        | DisabledSome _ -> true
+        | EnabledSome viewports -> viewports.Length > 0
+        | DisabledAll -> false
+
 type FlightMode =
     | Normal = 0
     | Temporary = 1
@@ -145,14 +182,15 @@ type FlyConfigFile =
       boost_mode: KeyActivationMode
       slow_mode: KeyActivationMode
       vertical_speed_multiplier: float
-      enable_parallel_views: bool
+      parallel_view_flying: ParallelViewFlyingFile
       parallel_mouse_sensitivity: float
       parallel_mouse_pivot_multiplier: float
       parallel_mouse_pan_multiplier: float
-      parallel_speed_multiplier: float
+      parallel_zoom_speed_multiplier: float
       parallel_up_down_multiplier: float
-      forced_lens_length_mm: float
-      lens_length_delta_mm: float
+      perspective_lens_length_after_parallel_mm: float
+      forced_perspective_lens_length_on_flight_start_mm: float
+      perspective_lens_length_delta_during_flight_mm: float
       viewport_paint_mode: ViewportPaintMode }
 
 [<Struct>]
@@ -167,6 +205,7 @@ type MousePivotMultiplier = MousePivotMultiplier of float
 [<Struct>]
 type MousePanMultiplier = MousePanMultiplier of float
 
-type LensAdjustment =
-    { forced_length_mm: float option
-      delta_mm: float }
+type PerspectiveLensConfig =
+    { after_parallel_mm: float
+      forced_on_flight_start_mm: float option
+      delta_during_flight_mm: float }

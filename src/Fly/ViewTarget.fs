@@ -76,8 +76,8 @@ let try_object_center_target (view: RhinoView) (viewport: RhinoViewport) =
             None
         else
             let bounds = viewport.Bounds
-            let x = bounds.Left + bounds.Width / 2
-            let y = bounds.Top + bounds.Height / 2
+            let x = bounds.Width / 2
+            let y = bounds.Height / 2
             let mutable pickLine = Line.Unset
 
             if not (viewport.GetFrustumLine(float x, float y, &pickLine)) then

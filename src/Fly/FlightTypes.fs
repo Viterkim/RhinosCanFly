@@ -22,8 +22,8 @@ type FlyState =
       mutable keyboard_pan_toggle_was_down: bool
       mutable keyboard_projection_toggle_was_down: bool
       mutable projection: ViewProjectionKind
-      mutable last_perspective_projection: ViewProjectionKind
-      mutable last_perspective_lens_length: float
+      mutable perspective_projection: ViewProjectionKind
+      mutable perspective_lens_length_mm: float
       mutable exit_reason: FlightExitReason option
       mutable restore_camera_on_exit: bool
       mutable camera: CameraState

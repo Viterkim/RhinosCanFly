@@ -9,7 +9,12 @@ let current_lens () =
     if isNull document || isNull document.Views.ActiveView then
         None
     else
-        Some document.Views.ActiveView.ActiveViewport.Camera35mmLensLength
+        let viewport = document.Views.ActiveView.ActiveViewport
+
+        if viewport.IsParallelProjection then
+            None
+        else
+            Some viewport.Camera35mmLensLength
 
 let current_speed (config: FlyConfigFile) =
     let document = RhinoDoc.ActiveDoc

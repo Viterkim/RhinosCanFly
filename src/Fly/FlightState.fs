@@ -44,13 +44,35 @@ let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyCo
     if not (CameraState.valid camera) then
         failwith "The active viewport has an invalid camera."
 
+    let speed =
+        FlightSpeed.current view.Document behavior.load_speed_from_document movement.speed_range movement.base_speed
+
+    let keyboardPivotToggleWasDown =
+        FlightControls.is_optional_down mouseNavigationBindings.pivot.toggle
+
+    let keyboardPanToggleWasDown =
+        FlightControls.is_optional_down mouseNavigationBindings.pan.toggle
+
+    let keyboardProjectionToggleWasDown =
+        FlightControls.is_optional_down bindings.toggle_projection
+
+    let boostWasDown = PlatformInput.flight_binding_down bindings.boost
+    let slowWasDown = PlatformInput.flight_binding_down bindings.slow
+    let speedIncreaseWasDown = FlightControls.is_optional_down bindings.speed_increase
+    let speedDecreaseWasDown = FlightControls.is_optional_down bindings.speed_decrease
+
     let originalCamera = CameraSnapshot.capture viewport
 
-    let lastPerspectiveProjection =
+    let perspectiveProjection =
         match originalCamera.projection with
         | ViewProjectionKind.TwoPointPerspective -> ViewProjectionKind.TwoPointPerspective
         | ViewProjectionKind.Parallel
         | ViewProjectionKind.Perspective -> ViewProjectionKind.Perspective
+
+    let perspectiveLensLength =
+        match originalCamera.perspective_lens_length_mm with
+        | ValueSome lens -> lens
+        | ValueNone -> behavior.perspective_lens.after_parallel_mm
 
     { view = view
       viewport = viewport
@@ -66,22 +88,21 @@ let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyCo
       active_mouse_navigation = MouseLook
       latched_mouse_navigation = LookNavigation
       keyboard_held_mouse_navigation = LookNavigation
-      keyboard_pivot_toggle_was_down = FlightControls.is_optional_down mouseNavigationBindings.pivot.toggle
-      keyboard_pan_toggle_was_down = FlightControls.is_optional_down mouseNavigationBindings.pan.toggle
-      keyboard_projection_toggle_was_down = FlightControls.is_optional_down bindings.toggle_projection
+      keyboard_pivot_toggle_was_down = keyboardPivotToggleWasDown
+      keyboard_pan_toggle_was_down = keyboardPanToggleWasDown
+      keyboard_projection_toggle_was_down = keyboardProjectionToggleWasDown
       projection = originalCamera.projection
-      last_perspective_projection = lastPerspectiveProjection
-      last_perspective_lens_length = viewport.Camera35mmLensLength
+      perspective_projection = perspectiveProjection
+      perspective_lens_length_mm = perspectiveLensLength
       exit_reason = None
       restore_camera_on_exit = sessionMode.flight_mode = FlightMode.Temporary
       camera = camera
-      speed =
-        FlightSpeed.current view.Document behavior.load_speed_from_document movement.speed_range movement.base_speed
+      speed = speed
       boost_enabled = false
-      boost_was_down = PlatformInput.flight_binding_down bindings.boost
+      boost_was_down = boostWasDown
       slow_enabled = false
-      slow_was_down = PlatformInput.flight_binding_down bindings.slow
-      speed_increase_was_down = FlightControls.is_optional_down bindings.speed_increase
-      speed_decrease_was_down = FlightControls.is_optional_down bindings.speed_decrease
+      slow_was_down = slowWasDown
+      speed_increase_was_down = speedIncreaseWasDown
+      speed_decrease_was_down = speedDecreaseWasDown
       wheel_remainder = 0L
       next_host_validation_at = FlightControls.HOST_VALIDATION_INTERVAL_SECONDS }

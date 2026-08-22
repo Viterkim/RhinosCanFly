@@ -29,7 +29,7 @@ type ActiveSession =
       mutable cursor_hidden: bool
       mutable tooltips_changed: bool
       mutable gumball_changed: bool
-      mutable lens_changed: bool
+      mutable perspective_lens_changed: bool
       mutable flight_entered: bool
       mutable keyboard_suppressed: bool
       mutable raw_input_clean: bool
@@ -104,7 +104,7 @@ let finish_result (flightResult: Result<unit, string>) (errors: ResizeArray<stri
         | Ok() -> Error $"Cleanup failed: {cleanupMessage}"
         | Error error -> Error $"{error}; cleanup failed: {cleanupMessage}"
 
-let finish_active (session: ActiveSession) (activeResult: Result<unit, string>) =
+let finish_active_core (session: ActiveSession) (activeResult: Result<unit, string>) =
     sessionState <- Finishing
     let state = session.state
     let cleanupErrors = session.cleanup_errors
@@ -238,9 +238,15 @@ let finish_active (session: ActiveSession) (activeResult: Result<unit, string>) 
         else
             true
 
-    if session.lens_changed && hostExists then
-        attempt_cleanup cleanupErrors "lens" (fun () ->
-            state.viewport.Camera35mmLensLength <- state.original_camera.lens_length_mm)
+    if
+        session.perspective_lens_changed
+        && hostExists
+        && state.projection <> ViewProjectionKind.Parallel
+    then
+        attempt_cleanup cleanupErrors "perspective lens" (fun () ->
+            match state.original_camera.perspective_lens_length_mm with
+            | ValueSome lens -> state.viewport.Camera35mmLensLength <- lens
+            | ValueNone -> failwith "The original perspective lens length is unavailable.")
         |> ignore
 
     let viewTargetRequested =
@@ -316,6 +322,12 @@ let finish_active (session: ActiveSession) (activeResult: Result<unit, string>) 
             RestartRequired
 
     finish_result activeResult cleanupErrors
+
+let finish_active (session: ActiveSession) (activeResult: Result<unit, string>) =
+    try
+        finish_active_core session activeResult
+    finally
+        CameraSnapshot.dispose session.state.original_camera
 
 let cleanup_starting (starting: StartingSession) (failure: string) =
     sessionState <- Finishing
@@ -398,8 +410,8 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
         session.cursor_hidden <- true
         PlatformInput.hide_cursor ()
 
-        session.lens_changed <- FlightCamera.entry_lens_changes state
-        FlightCamera.apply_entry_lens state
+        session.perspective_lens_changed <- FlightCamera.entry_perspective_lens_changes state
+        FlightCamera.apply_entry_perspective_lens state
         state.view.Redraw()
         session.flight_entered <- true
 
@@ -424,7 +436,7 @@ let begin_active (starting: StartingSession) =
               cursor_hidden = false
               tooltips_changed = false
               gumball_changed = false
-              lens_changed = false
+              perspective_lens_changed = false
               flight_entered = false
               keyboard_suppressed = false
               raw_input_clean = true

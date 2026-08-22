@@ -16,6 +16,7 @@ type SettingsControl() as self =
     let numbers = fields.config.numbers
     let modes = fields.config.modes
     let options = fields.config.options
+    let parallelViewNames = fields.config.parallel_view_names
     let status = fields.status
     let rawJson = fields.raw_json
     let actions = fields.actions
@@ -54,17 +55,26 @@ type SettingsControl() as self =
         options.set_view_target_on_restored_flights.Enabled <- enabled
 
     let refresh_parallel_view_controls () =
-        bindings.toggle_projection.Enabled <- SettingsConfig.is_checked options.enable_parallel_views
+        let mode = SettingsFields.selected_mode modes.parallel_view_flying
 
-        numbers.parallel_mouse_sensitivity.Enabled <- SettingsConfig.is_checked options.enable_parallel_views
+        let parallelFlyingPossible = mode <> ParallelViewFlyingMode.DisabledAll
 
-        numbers.parallel_mouse_pivot_multiplier.Enabled <- SettingsConfig.is_checked options.enable_parallel_views
+        let usesList =
+            mode = ParallelViewFlyingMode.EnabledSome
+            || mode = ParallelViewFlyingMode.DisabledSome
 
-        numbers.parallel_mouse_pan_multiplier.Enabled <- SettingsConfig.is_checked options.enable_parallel_views
+        parallelViewNames.Enabled <- usesList
+        bindings.toggle_projection.Enabled <- parallelFlyingPossible
 
-        numbers.parallel_speed_multiplier.Enabled <- SettingsConfig.is_checked options.enable_parallel_views
+        numbers.parallel_mouse_sensitivity.Enabled <- parallelFlyingPossible
 
-        numbers.parallel_up_down_multiplier.Enabled <- SettingsConfig.is_checked options.enable_parallel_views
+        numbers.parallel_mouse_pivot_multiplier.Enabled <- parallelFlyingPossible
+
+        numbers.parallel_mouse_pan_multiplier.Enabled <- parallelFlyingPossible
+
+        numbers.parallel_zoom_speed_multiplier.Enabled <- parallelFlyingPossible
+
+        numbers.parallel_up_down_multiplier.Enabled <- parallelFlyingPossible
 
     let binding_editor (field: TextBox) (defaultValue: string) =
         BindingCapture.editor bindingCapture field defaultValue
@@ -97,6 +107,23 @@ type SettingsControl() as self =
         layout
 
     let rawJsonPanel = new Panel(Content = rawJsonLayout, Visible = false)
+
+    let parallelLensLayout =
+        let layout = new TableLayout(Spacing = Size(16, 0))
+
+        let description =
+            SettingsLayout.note
+                "When switching parallel -> perspective we don't have the lens, manually set a non zero value:"
+
+        numbers.perspective_lens_length_after_parallel_mm.Width <- 230
+
+        layout.Rows.Add(
+            SettingsLayout.row
+                [ new TableCell(description, true)
+                  new TableCell(numbers.perspective_lens_length_after_parallel_mm, false) ]
+        )
+
+        layout :> Control
 
     let refresh_raw () =
         match ConfigStorage.read_raw () with
@@ -266,25 +293,32 @@ type SettingsControl() as self =
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Parallel Viewport"))
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Parallel projection"))
 
         SettingsLayout.grid
             2
-            [ options.enable_parallel_views
+            [ SettingsLayout.item "Parallel flying" modes.parallel_view_flying.control
+              SettingsLayout.item "Viewports (comma list)" parallelViewNames
               SettingsLayout.item "Parallel sensitivity" numbers.parallel_mouse_sensitivity
-              SettingsLayout.item "Parallel speed" numbers.parallel_speed_multiplier
+              SettingsLayout.item "Parallel zoom speed" numbers.parallel_zoom_speed_multiplier
               SettingsLayout.item "Parallel up/down multi" numbers.parallel_up_down_multiplier
               SettingsLayout.item "Parallel pivot multi" numbers.parallel_mouse_pivot_multiplier
               SettingsLayout.item "Parallel pan multi" numbers.parallel_mouse_pan_multiplier ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
+        mainTable.Rows.Add(SettingsLayout.full_width parallelLensLayout)
+
         mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Viewport"))
 
         SettingsLayout.grid
             2
-            [ SettingsLayout.item "Force lens length" numbers.forced_lens_length_mm
-              SettingsLayout.item "Force lens length delta" numbers.lens_length_delta_mm ]
+            [ SettingsLayout.item
+                  "Forced perspective lens on flight start"
+                  numbers.forced_perspective_lens_length_on_flight_start_mm
+              SettingsLayout.item
+                  "Perspective lens diff during flight"
+                  numbers.perspective_lens_length_delta_during_flight_mm ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
@@ -319,7 +353,8 @@ type SettingsControl() as self =
         modes.mouse4_pivot_mode.control.SelectedIndexChanged.Add(fun (_: EventArgs) ->
             refresh_side_button_flight_controls ())
 
-        options.enable_parallel_views.CheckedChanged.Add(fun (_: EventArgs) -> refresh_parallel_view_controls ())
+        modes.parallel_view_flying.control.SelectedIndexChanged.Add(fun (_: EventArgs) ->
+            refresh_parallel_view_controls ())
 
         modes.mouse5_pivot_mode.control.SelectedIndexChanged.Add(fun (_: EventArgs) ->
             refresh_side_button_flight_controls ())

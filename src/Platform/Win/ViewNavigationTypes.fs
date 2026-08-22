@@ -14,7 +14,7 @@ type RoutingConfig =
       mouse5: MouseButtonPivotMode
       right_click_entry: RightClickEntryMode
       default_flight_mode: DefaultFlightMode
-      parallel_views_enabled: bool
+      parallel_view_flying: ParallelViewFlying
       shift_right_click: ViewNavigationMode option
       alt_right_click: ViewNavigationMode option
       exit: KeyBinding option
@@ -98,7 +98,7 @@ let empty_routing =
       mouse5 = MouseButtonPivotMode.Off
       right_click_entry = RightClickEntryMode.Off
       default_flight_mode = DefaultFlightMode.Normal
-      parallel_views_enabled = false
+      parallel_view_flying = ParallelViewFlying.DisabledAll
       shift_right_click = None
       alt_right_click = None
       exit = None

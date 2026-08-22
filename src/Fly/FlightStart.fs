@@ -24,9 +24,9 @@ let run (sessionMode: FlightSessionMode) (document: RhinoDoc) =
                 Result.Cancel
             elif
                 view.ActiveViewport.IsParallelProjection
-                && not loaded.config.movement.parallel_view.enabled
+                && not (ParallelViewFlying.allows view.ActiveViewport.Name loaded.config.movement.parallel_view.flying)
             then
-                RhinoApp.WriteLine "RhinosCanFly: enable parallel views in Options."
+                RhinoApp.WriteLine "RhinosCanFly: parallel flying is disabled for this viewport."
                 Result.Cancel
             else
                 match FlightSession.run view loaded.config sessionMode with

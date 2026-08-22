@@ -75,8 +75,7 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
                 let previousCamera = state.camera
                 let parallelView = state.config.movement.parallel_view
 
-                let parallelFlight =
-                    parallelView.enabled && state.projection = ViewProjectionKind.Parallel
+                let parallelFlight = state.projection = ViewProjectionKind.Parallel
 
                 let verticalSpeedMultiplier =
                     if parallelFlight then
@@ -88,7 +87,6 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
                     Movement.step
                         state.config.movement
                         verticalSpeedMultiplier
-                        parallelFlight
                         movement
                         state.key_pivot_target
                         dt
@@ -105,14 +103,14 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
 
                 match state.active_mouse_navigation with
                 | MousePivot pivotCenter ->
-                    let translatedCenter = pivotCenter + movementStep.target_translation
+                    let translatedCenter = pivotCenter + movementStep.translation
 
                     state.active_mouse_navigation <-
                         MousePivot(
                             Movement.orbit_point state.key_pivot_target movementStep.key_pivot_angle translatedCenter
                         )
                 | MousePan(panTarget, unitsPerRadian) ->
-                    let translatedTarget = panTarget + movementStep.target_translation
+                    let translatedTarget = panTarget + movementStep.translation
 
                     state.active_mouse_navigation <-
                         MousePan(

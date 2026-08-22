@@ -19,11 +19,12 @@ type NumberValues =
       parallel_mouse_sensitivity: float
       parallel_mouse_pivot_multiplier: float
       parallel_mouse_pan_multiplier: float
-      parallel_speed_multiplier: float
+      parallel_zoom_speed_multiplier: float
       parallel_up_down_multiplier: float
       mouse_sensitivity: float
-      forced_lens_length_mm: float
-      lens_length_delta_mm: float }
+      perspective_lens_length_after_parallel_mm: float
+      forced_perspective_lens_length_on_flight_start_mm: float
+      perspective_lens_length_delta_during_flight_mm: float }
 
 let is_checked (control: CheckBox) = control.Checked.GetValueOrDefault()
 
@@ -79,11 +80,15 @@ let parse_numbers (fields: SettingsFields.NumberFields) =
           parallel_mouse_sensitivity = required "Parallel sensitivity" fields.parallel_mouse_sensitivity
           parallel_mouse_pivot_multiplier = required "Parallel pivot multiplier" fields.parallel_mouse_pivot_multiplier
           parallel_mouse_pan_multiplier = required "Parallel pan multiplier" fields.parallel_mouse_pan_multiplier
-          parallel_speed_multiplier = required "Parallel speed" fields.parallel_speed_multiplier
+          parallel_zoom_speed_multiplier = required "Parallel zoom speed" fields.parallel_zoom_speed_multiplier
           parallel_up_down_multiplier = required "Parallel up/down multiplier" fields.parallel_up_down_multiplier
           mouse_sensitivity = required "Mouse sensitivity" fields.mouse_sensitivity
-          forced_lens_length_mm = optional "Force lens length" fields.forced_lens_length_mm
-          lens_length_delta_mm = optional "Force lens length delta" fields.lens_length_delta_mm }
+          perspective_lens_length_after_parallel_mm =
+            required "Perspective lens from parallel" fields.perspective_lens_length_after_parallel_mm
+          forced_perspective_lens_length_on_flight_start_mm =
+            optional "Forced perspective lens on flight start" fields.forced_perspective_lens_length_on_flight_start_mm
+          perspective_lens_length_delta_during_flight_mm =
+            optional "Perspective lens diff during flight" fields.perspective_lens_length_delta_during_flight_mm }
 
     if errors.Count = 0 then
         Ok values
@@ -132,12 +137,20 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     numbers.parallel_mouse_pivot_multiplier.Text <- ConfigSchema.format_number config.parallel_mouse_pivot_multiplier
     numbers.parallel_mouse_pan_multiplier.Text <- ConfigSchema.format_number config.parallel_mouse_pan_multiplier
 
-    numbers.parallel_speed_multiplier.Text <- ConfigSchema.format_number config.parallel_speed_multiplier
+    numbers.parallel_zoom_speed_multiplier.Text <- ConfigSchema.format_number config.parallel_zoom_speed_multiplier
     numbers.parallel_up_down_multiplier.Text <- ConfigSchema.format_number config.parallel_up_down_multiplier
 
     numbers.mouse_sensitivity.Text <- ConfigSchema.format_number config.mouse_sensitivity
-    numbers.forced_lens_length_mm.Text <- ConfigSchema.format_number config.forced_lens_length_mm
-    numbers.lens_length_delta_mm.Text <- ConfigSchema.format_number config.lens_length_delta_mm
+
+    numbers.perspective_lens_length_after_parallel_mm.Text <-
+        ConfigSchema.format_number config.perspective_lens_length_after_parallel_mm
+
+    numbers.forced_perspective_lens_length_on_flight_start_mm.Text <-
+        ConfigSchema.format_number config.forced_perspective_lens_length_on_flight_start_mm
+
+    numbers.perspective_lens_length_delta_during_flight_mm.Text <-
+        ConfigSchema.format_number config.perspective_lens_length_delta_during_flight_mm
+
     SettingsFields.set_mode modes.viewport_paint_mode config.viewport_paint_mode
     SettingsFields.set_mode modes.boost_mode config.boost_mode
     SettingsFields.set_mode modes.slow_mode config.slow_mode
@@ -152,11 +165,12 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     SettingsFields.set_mode modes.middle_mouse_while_flying config.middle_mouse_while_flying
     SettingsFields.set_mode modes.mouse_x_mode config.mouse_x_mode
     SettingsFields.set_mode modes.mouse_y_mode config.mouse_y_mode
+    SettingsFields.set_mode modes.parallel_view_flying config.parallel_view_flying.mode
+    fields.parallel_view_names.Text <- String.Join(", ", config.parallel_view_flying.viewports)
     set_checked options.normalize_diagonal_movement config.normalize_diagonal_movement
     set_checked options.hide_gumball_while_flying config.hide_gumball_while_flying
     set_checked options.flight_pivot_uses_gumball config.flight_pivot_uses_gumball
     set_checked options.set_view_target_on_restored_flights config.set_view_target_on_restored_flights
-    set_checked options.enable_parallel_views config.enable_parallel_views
     set_checked options.save_speed_to_document config.save_speed_to_document
     set_checked options.load_speed_from_document config.load_speed_from_document
     set_checked options.exit_on_mouse_left config.exit_on_mouse_left
@@ -169,6 +183,14 @@ let read (fields: SettingsFields.ConfigFields) =
     let bindings = fields.bindings
     let modes = fields.modes
     let options = fields.options
+
+    let parallelViewNames =
+        fields.parallel_view_names.Text.Split([| ',' |], StringSplitOptions.RemoveEmptyEntries)
+        |> Array.map (fun (value: string) -> value.Trim())
+        |> Array.filter (String.IsNullOrWhiteSpace >> not)
+        |> Array.distinctBy (fun (value: string) -> value.ToUpperInvariant())
+
+    fields.parallel_view_names.Text <- String.Join(", ", parallelViewNames)
 
     match parse_numbers fields.numbers with
     | Error error -> Error error
@@ -208,7 +230,7 @@ let read (fields: SettingsFields.ConfigFields) =
               parallel_mouse_sensitivity = numbers.parallel_mouse_sensitivity
               parallel_mouse_pivot_multiplier = numbers.parallel_mouse_pivot_multiplier
               parallel_mouse_pan_multiplier = numbers.parallel_mouse_pan_multiplier
-              parallel_speed_multiplier = numbers.parallel_speed_multiplier
+              parallel_zoom_speed_multiplier = numbers.parallel_zoom_speed_multiplier
               parallel_up_down_multiplier = numbers.parallel_up_down_multiplier
               mouse_sensitivity = numbers.mouse_sensitivity
               mouse_x_mode = SettingsFields.selected_mode modes.mouse_x_mode
@@ -228,7 +250,9 @@ let read (fields: SettingsFields.ConfigFields) =
               default_flight_mode = SettingsFields.selected_mode modes.default_flight_mode
               view_target_mode = SettingsFields.selected_mode modes.view_target_mode
               set_view_target_on_restored_flights = is_checked options.set_view_target_on_restored_flights
-              enable_parallel_views = is_checked options.enable_parallel_views
+              parallel_view_flying =
+                { mode = SettingsFields.selected_mode modes.parallel_view_flying
+                  viewports = parallelViewNames }
               commands_do_not_repeat = is_checked options.commands_do_not_repeat
               mouse4_pivot_mode = SettingsFields.selected_mode modes.mouse4_pivot_mode
               mouse5_pivot_mode = SettingsFields.selected_mode modes.mouse5_pivot_mode
@@ -237,6 +261,8 @@ let read (fields: SettingsFields.ConfigFields) =
               boost_mode = SettingsFields.selected_mode modes.boost_mode
               slow_mode = SettingsFields.selected_mode modes.slow_mode
               vertical_speed_multiplier = numbers.vertical_speed_multiplier
-              forced_lens_length_mm = numbers.forced_lens_length_mm
-              lens_length_delta_mm = numbers.lens_length_delta_mm
+              perspective_lens_length_after_parallel_mm = numbers.perspective_lens_length_after_parallel_mm
+              forced_perspective_lens_length_on_flight_start_mm =
+                numbers.forced_perspective_lens_length_on_flight_start_mm
+              perspective_lens_length_delta_during_flight_mm = numbers.perspective_lens_length_delta_during_flight_mm
               viewport_paint_mode = SettingsFields.selected_mode modes.viewport_paint_mode }

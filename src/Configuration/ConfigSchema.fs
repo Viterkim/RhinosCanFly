@@ -4,7 +4,11 @@ open System
 open System.Globalization
 
 [<Literal>]
-let CURRENT_VERSION = 5
+let CURRENT_VERSION = 6
+
+let default_parallel_view_flying () =
+    { mode = ParallelViewFlyingMode.EnabledSome
+      viewports = [| "Perspective" |] }
 
 let defaults: FlyConfigFile =
     { config_version = CURRENT_VERSION
@@ -64,14 +68,15 @@ let defaults: FlyConfigFile =
       boost_mode = KeyActivationMode.Toggle
       slow_mode = KeyActivationMode.Toggle
       vertical_speed_multiplier = 0.7
-      enable_parallel_views = true
-      parallel_mouse_sensitivity = 25.
-      parallel_mouse_pivot_multiplier = 1.
-      parallel_mouse_pan_multiplier = 1.
-      parallel_speed_multiplier = 1.
+      parallel_view_flying = default_parallel_view_flying ()
+      parallel_mouse_sensitivity = 20.
+      parallel_mouse_pivot_multiplier = 2.
+      parallel_mouse_pan_multiplier = 2.
+      parallel_zoom_speed_multiplier = 1.
       parallel_up_down_multiplier = 0.7
-      forced_lens_length_mm = 0.
-      lens_length_delta_mm = 0.
+      perspective_lens_length_after_parallel_mm = 18.
+      forced_perspective_lens_length_on_flight_start_mm = 0.
+      perspective_lens_length_delta_during_flight_mm = 0.
       viewport_paint_mode = ViewportPaintMode.Queued }
 
 let normalize_number (value: float) =
@@ -83,8 +88,32 @@ let format_number (value: float) =
     let normalized = normalize_number value
     normalized.ToString("0.############", CultureInfo.InvariantCulture)
 
-let normalize_numbers (source: FlyConfigFile) =
+let normalize_parallel_view_flying (source: ParallelViewFlyingFile) =
+    if isNull (box source) then
+        default_parallel_view_flying ()
+    else
+        let mode =
+            match source.mode with
+            | ParallelViewFlyingMode.DisabledAll
+            | ParallelViewFlyingMode.EnabledAll
+            | ParallelViewFlyingMode.EnabledSome
+            | ParallelViewFlyingMode.DisabledSome -> source.mode
+            | _ -> (default_parallel_view_flying ()).mode
+
+        let viewports =
+            if isNull source.viewports then
+                Array.empty
+            else
+                source.viewports
+                |> Array.map (fun (value: string) -> if isNull value then "" else value.Trim())
+                |> Array.filter (String.IsNullOrWhiteSpace >> not)
+                |> Array.distinctBy (fun (value: string) -> value.ToUpperInvariant())
+
+        { mode = mode; viewports = viewports }
+
+let normalize (source: FlyConfigFile) =
     { source with
+        parallel_view_flying = normalize_parallel_view_flying source.parallel_view_flying
         base_speed = normalize_number source.base_speed
         minimum_speed = normalize_number source.minimum_speed
         maximum_speed = normalize_number source.maximum_speed
@@ -100,13 +129,41 @@ let normalize_numbers (source: FlyConfigFile) =
         parallel_mouse_sensitivity = normalize_number source.parallel_mouse_sensitivity
         parallel_mouse_pivot_multiplier = normalize_number source.parallel_mouse_pivot_multiplier
         parallel_mouse_pan_multiplier = normalize_number source.parallel_mouse_pan_multiplier
-        parallel_speed_multiplier = normalize_number source.parallel_speed_multiplier
+        parallel_zoom_speed_multiplier = normalize_number source.parallel_zoom_speed_multiplier
         parallel_up_down_multiplier = normalize_number source.parallel_up_down_multiplier
-        forced_lens_length_mm = normalize_number source.forced_lens_length_mm
-        lens_length_delta_mm = normalize_number source.lens_length_delta_mm }
+        perspective_lens_length_after_parallel_mm = normalize_number source.perspective_lens_length_after_parallel_mm
+        forced_perspective_lens_length_on_flight_start_mm =
+            normalize_number source.forced_perspective_lens_length_on_flight_start_mm
+        perspective_lens_length_delta_during_flight_mm =
+            normalize_number source.perspective_lens_length_delta_during_flight_mm }
 
 let compile (source: FlyConfigFile) =
     let errors = ResizeArray<string>()
+
+    let parallelViewFlying =
+        let sourceValue = source.parallel_view_flying
+
+        let viewports =
+            if isNull (box sourceValue) || isNull sourceValue.viewports then
+                Array.empty
+            else
+                sourceValue.viewports
+                |> Array.map (fun (value: string) -> if isNull value then "" else value.Trim())
+                |> Array.filter (String.IsNullOrWhiteSpace >> not)
+                |> Array.distinctBy (fun (value: string) -> value.ToUpperInvariant())
+
+        if isNull (box sourceValue) then
+            errors.Add "parallel_view_flying is missing"
+            ParallelViewFlying.DisabledAll
+        else
+            match sourceValue.mode with
+            | ParallelViewFlyingMode.EnabledAll -> ParallelViewFlying.EnabledAll
+            | ParallelViewFlyingMode.EnabledSome -> ParallelViewFlying.EnabledSome viewports
+            | ParallelViewFlyingMode.DisabledSome -> ParallelViewFlying.DisabledSome viewports
+            | ParallelViewFlyingMode.DisabledAll -> ParallelViewFlying.DisabledAll
+            | _ ->
+                errors.Add "parallel_view_flying.mode is invalid"
+                ParallelViewFlying.DisabledAll
 
     let required (name: string) (value: string) =
         match PlatformBindings.parse value with
@@ -141,8 +198,9 @@ let compile (source: FlyConfigFile) =
       "parallel_mouse_sensitivity", source.parallel_mouse_sensitivity
       "parallel_mouse_pivot_multiplier", source.parallel_mouse_pivot_multiplier
       "parallel_mouse_pan_multiplier", source.parallel_mouse_pan_multiplier
-      "parallel_speed_multiplier", source.parallel_speed_multiplier
-      "parallel_up_down_multiplier", source.parallel_up_down_multiplier ]
+      "parallel_zoom_speed_multiplier", source.parallel_zoom_speed_multiplier
+      "parallel_up_down_multiplier", source.parallel_up_down_multiplier
+      "perspective_lens_length_after_parallel_mm", source.perspective_lens_length_after_parallel_mm ]
     |> List.iter (fun (name: string, value: float) -> positive name value)
 
     if source.maximum_speed < source.minimum_speed then
@@ -158,27 +216,30 @@ let compile (source: FlyConfigFile) =
         errors.Add "speed_step_multiplier must be greater than 1"
 
     if
-        Double.IsNaN source.forced_lens_length_mm
-        || Double.IsInfinity source.forced_lens_length_mm
-        || source.forced_lens_length_mm < 0.
+        Double.IsNaN source.forced_perspective_lens_length_on_flight_start_mm
+        || Double.IsInfinity source.forced_perspective_lens_length_on_flight_start_mm
+        || source.forced_perspective_lens_length_on_flight_start_mm < 0.
     then
-        errors.Add "forced_lens_length_mm must be 0 (disabled) or a positive finite number"
+        errors.Add "forced_perspective_lens_length_on_flight_start_mm must be 0 (disabled) or a positive finite number"
 
     if
-        Double.IsNaN source.lens_length_delta_mm
-        || Double.IsInfinity source.lens_length_delta_mm
+        Double.IsNaN source.perspective_lens_length_delta_during_flight_mm
+        || Double.IsInfinity source.perspective_lens_length_delta_during_flight_mm
     then
-        errors.Add "lens_length_delta_mm must be a finite number"
+        errors.Add "perspective_lens_length_delta_during_flight_mm must be a finite number"
 
-    if source.forced_lens_length_mm > 0. then
-        let adjustedLens = source.forced_lens_length_mm + source.lens_length_delta_mm
+    if source.forced_perspective_lens_length_on_flight_start_mm > 0. then
+        let adjustedLens =
+            source.forced_perspective_lens_length_on_flight_start_mm
+            + source.perspective_lens_length_delta_during_flight_mm
 
         if
             Double.IsNaN adjustedLens
             || Double.IsInfinity adjustedLens
             || adjustedLens <= 0.
         then
-            errors.Add "forced_lens_length_mm plus lens_length_delta_mm must be a positive finite number"
+            errors.Add
+                "forced_perspective_lens_length_on_flight_start_mm plus perspective_lens_length_delta_during_flight_mm must be a positive finite number"
 
     let derivedValues =
         let combinedMovementMultiplier = source.boost_multiplier * source.slow_multiplier
@@ -199,7 +260,7 @@ let compile (source: FlyConfigFile) =
           "maximum parallel zoom speed",
           source.maximum_speed
           * maximumMovementMultiplier
-          * source.parallel_speed_multiplier
+          * source.parallel_zoom_speed_multiplier
           "maximum parallel mouse sensitivity",
           source.parallel_mouse_sensitivity
           * max 1. (max source.parallel_mouse_pivot_multiplier source.parallel_mouse_pan_multiplier)
@@ -236,7 +297,7 @@ let compile (source: FlyConfigFile) =
               exit_key = required "exit_key" source.exit_key
               cancel_flight_and_restore = required "cancel_flight_and_restore" source.cancel_flight_and_restore
               toggle_projection =
-                if source.enable_parallel_views then
+                if ParallelViewFlying.has_allowed_viewports parallelViewFlying then
                     optional "toggle_projection" source.toggle_projection
                 else
                     None }
@@ -255,14 +316,14 @@ let compile (source: FlyConfigFile) =
               boost_mode = source.boost_mode
               slow_mode = source.slow_mode
               parallel_view =
-                { enabled = source.enable_parallel_views
+                { flying = parallelViewFlying
                   mouse_sensitivity =
                     source.parallel_mouse_sensitivity
                     |> ConfigMouseSensitivity
                     |> MouseSensitivity.to_runtime
                   mouse_pivot_multiplier = MousePivotMultiplier source.parallel_mouse_pivot_multiplier
                   mouse_pan_multiplier = MousePanMultiplier source.parallel_mouse_pan_multiplier
-                  speed_multiplier = source.parallel_speed_multiplier
+                  zoom_speed_multiplier = source.parallel_zoom_speed_multiplier
                   up_down_multiplier = source.parallel_up_down_multiplier } }
           mouse =
             { pivot_multiplier = MousePivotMultiplier source.mouse_pivot_multiplier
@@ -289,13 +350,14 @@ let compile (source: FlyConfigFile) =
                   set_on_restored_flights = source.set_view_target_on_restored_flights }
               save_speed_to_document = source.save_speed_to_document
               load_speed_from_document = source.load_speed_from_document
-              lens_adjustment =
-                { forced_length_mm =
-                    if source.forced_lens_length_mm = 0. then
+              perspective_lens =
+                { after_parallel_mm = source.perspective_lens_length_after_parallel_mm
+                  forced_on_flight_start_mm =
+                    if source.forced_perspective_lens_length_on_flight_start_mm = 0. then
                         None
                     else
-                        Some source.forced_lens_length_mm
-                  delta_mm = source.lens_length_delta_mm }
+                        Some source.forced_perspective_lens_length_on_flight_start_mm
+                  delta_during_flight_mm = source.perspective_lens_length_delta_during_flight_mm }
               viewport_paint_mode = source.viewport_paint_mode } }
 
     if errors.Count = 0 then

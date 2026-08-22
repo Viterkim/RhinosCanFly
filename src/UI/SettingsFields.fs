@@ -43,11 +43,12 @@ type NumberFields =
       parallel_mouse_sensitivity: TextBox
       parallel_mouse_pivot_multiplier: TextBox
       parallel_mouse_pan_multiplier: TextBox
-      parallel_speed_multiplier: TextBox
+      parallel_zoom_speed_multiplier: TextBox
       parallel_up_down_multiplier: TextBox
       mouse_sensitivity: TextBox
-      forced_lens_length_mm: TextBox
-      lens_length_delta_mm: TextBox }
+      perspective_lens_length_after_parallel_mm: TextBox
+      forced_perspective_lens_length_on_flight_start_mm: TextBox
+      perspective_lens_length_delta_during_flight_mm: TextBox }
 
 type ModeFields =
     { boost_mode: ModeField<KeyActivationMode>
@@ -55,6 +56,7 @@ type ModeFields =
       wheel_speed_mode: ModeField<MouseWheelSpeedMode>
       mouse_x_mode: ModeField<MouseAxisMode>
       mouse_y_mode: ModeField<MouseAxisMode>
+      parallel_view_flying: ModeField<ParallelViewFlyingMode>
       right_click_entry_mode: ModeField<RightClickEntryMode>
       default_flight_mode: ModeField<DefaultFlightMode>
       view_target_mode: ModeField<ViewTargetMode>
@@ -71,7 +73,6 @@ type OptionFields =
       hide_gumball_while_flying: CheckBox
       flight_pivot_uses_gumball: CheckBox
       set_view_target_on_restored_flights: CheckBox
-      enable_parallel_views: CheckBox
       save_speed_to_document: CheckBox
       load_speed_from_document: CheckBox
       exit_on_mouse_left: CheckBox
@@ -84,7 +85,8 @@ type ConfigFields =
     { bindings: BindingFields
       numbers: NumberFields
       modes: ModeFields
-      options: OptionFields }
+      options: OptionFields
+      parallel_view_names: TextBox }
 
 type StatusFields =
     { runtime_enabled: CheckBox
@@ -172,6 +174,12 @@ let create () =
            RightClickEntryMode.HoldToFly, "Hold to fly"
            RightClickEntryMode.HoldToFlyDuringCommands, "Hold to fly + during commands" |]
 
+    let parallelViewFlyingModes =
+        [| ParallelViewFlyingMode.DisabledAll, "Off"
+           ParallelViewFlyingMode.EnabledAll, "Allow all"
+           ParallelViewFlyingMode.EnabledSome, "Allow listed"
+           ParallelViewFlyingMode.DisabledSome, "Ban listed" |]
+
     let flightModes =
         [| DefaultFlightMode.Normal, "Normal"
            DefaultFlightMode.Temporary, "Temporary"
@@ -223,17 +231,19 @@ let create () =
               parallel_mouse_sensitivity = text_box ()
               parallel_mouse_pivot_multiplier = text_box ()
               parallel_mouse_pan_multiplier = text_box ()
-              parallel_speed_multiplier = text_box ()
+              parallel_zoom_speed_multiplier = text_box ()
               parallel_up_down_multiplier = text_box ()
               mouse_sensitivity = text_box ()
-              forced_lens_length_mm = text_box ()
-              lens_length_delta_mm = text_box () }
+              perspective_lens_length_after_parallel_mm = text_box ()
+              forced_perspective_lens_length_on_flight_start_mm = text_box ()
+              perspective_lens_length_delta_during_flight_mm = text_box () }
           modes =
             { boost_mode = mode_field activationModes KeyActivationMode.Toggle
               slow_mode = mode_field activationModes KeyActivationMode.Toggle
               wheel_speed_mode = mode_field wheelSpeedModes MouseWheelSpeedMode.Normal
               mouse_x_mode = mode_field mouseAxisModes MouseAxisMode.Normal
               mouse_y_mode = mode_field mouseAxisModes MouseAxisMode.Normal
+              parallel_view_flying = mode_field parallelViewFlyingModes ParallelViewFlyingMode.DisabledAll
               right_click_entry_mode = mode_field rightClickEntryModes RightClickEntryMode.ClickToFlyDuringCommands
               default_flight_mode = mode_field flightModes DefaultFlightMode.Normal
               view_target_mode = mode_field viewTargetModes ViewTargetMode.ObjectCenterThenDistance
@@ -249,14 +259,14 @@ let create () =
               hide_gumball_while_flying = new CheckBox(Text = "Hide gumball while flying")
               flight_pivot_uses_gumball = new CheckBox(Text = "Use gumball as flight pivot target")
               set_view_target_on_restored_flights = new CheckBox(Text = "Set target on restored flights")
-              enable_parallel_views = new CheckBox(Text = "Fly in parallel views")
               save_speed_to_document = new CheckBox(Text = "Save current speed to document")
               load_speed_from_document = new CheckBox(Text = "Load speed from document")
               exit_on_mouse_left = new CheckBox(Text = "Left click exits flight")
               exit_on_mouse_right = new CheckBox(Text = "Right click exits flight / navigation")
               mouse4_pivot_in_flight = new CheckBox(Text = "Mouse 4 pivots while flying")
               mouse5_pivot_in_flight = new CheckBox(Text = "Mouse 5 pivots while flying")
-              commands_do_not_repeat = new CheckBox(Text = "Don't repeat flight commands") } }
+              commands_do_not_repeat = new CheckBox(Text = "Don't repeat flight commands") }
+          parallel_view_names = text_box () }
       status =
         { runtime_enabled = new CheckBox(Text = "Runtime enabled (RhinosCanFlyToggleEnable)", Enabled = false)
           status_line = new Label(Wrap = WrapMode.Word)

@@ -39,18 +39,27 @@ let restored_view_completion (loaded: ConfigLoadResult) (view: RhinoView) =
     if DefaultFlightMode.restores_navigation_commands loaded.config_file.default_flight_mode then
         let viewport = view.ActiveViewport
         let snapshot = CameraSnapshot.capture viewport
-        let host = PlatformInput.capture_viewport_host view
 
-        Some(
-            Action(fun () ->
-                if PlatformInput.viewport_host_exists host view then
-                    CameraSnapshot.restore viewport snapshot
+        try
+            let host = PlatformInput.capture_viewport_host view
 
-                    if PlatformInput.viewport_host_is_foreground host view then
-                        view.Redraw())
-        )
+            let completion =
+                Action(fun () ->
+                    try
+                        if PlatformInput.viewport_host_exists host view then
+                            CameraSnapshot.restore viewport snapshot
+
+                            if PlatformInput.viewport_host_is_foreground host view then
+                                view.Redraw()
+                    finally
+                        CameraSnapshot.dispose snapshot)
+
+            struct (Some completion, Some snapshot)
+        with _ ->
+            CameraSnapshot.dispose snapshot
+            reraise ()
     else
-        None
+        struct (None, None)
 
 let start_navigation (mode: Mode) (loaded: ConfigLoadResult) (view: RhinoView) =
     let commandName = name mode
@@ -60,12 +69,18 @@ let start_navigation (mode: Mode) (loaded: ConfigLoadResult) (view: RhinoView) =
         RhinoApp.WriteLine $"{commandName} failed: {error}"
         Result.Failure
     | Ok() ->
-        let completion = restored_view_completion loaded view
+        let struct (completion, snapshot) = restored_view_completion loaded view
 
-        match start mode view completion with
-        | Ok() -> Result.Success
-        | Error error ->
-            RhinoApp.WriteLine $"{commandName} failed: {error}"
+        try
+            match start mode view completion with
+            | Ok() -> Result.Success
+            | Error error ->
+                snapshot |> Option.iter CameraSnapshot.dispose
+                RhinoApp.WriteLine $"{commandName} failed: {error}"
+                Result.Failure
+        with error ->
+            snapshot |> Option.iter CameraSnapshot.dispose
+            RhinoApp.WriteLine $"{commandName} failed: {error.Message}"
             Result.Failure
 
 let start_if_ready (mode: Mode) (loaded: ConfigLoadResult) (document: RhinoDoc) =

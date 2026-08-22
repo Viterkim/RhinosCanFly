@@ -85,7 +85,7 @@ let target_on_camera_axis (location: Point3d) (target: Point3d) (cameraDirection
 let target_depth (target: Point3d) (camera: CameraState) =
     Vector3d.Multiply(target - camera.position, camera.direction)
 
-let dolly_towards (target: Point3d) (magnification: float) (keepCameraTarget: bool) (camera: CameraState) =
+let dolly_towards (target: Point3d) (magnification: float) (camera: CameraState) =
     let depth = target_depth target camera
 
     if
@@ -105,17 +105,9 @@ let dolly_towards (target: Point3d) (magnification: float) (keepCameraTarget: bo
             let forwardDistance = depth - nextDepth
             let translation = camera.direction * forwardDistance
 
-            let targetTranslation =
-                if not keepCameraTarget then
-                    translation
-                else
-                    let minimumTargetDistance = max 0.000001 (depth * 0.001)
-                    let remainingTargetDistance = target_distance camera - forwardDistance
-                    camera.direction * max 0. (minimumTargetDistance - remainingTargetDistance)
-
             { camera with
                 position = camera.position + translation
-                target = camera.target + targetTranslation }
+                target = camera.target + translation }
 
 [<Struct>]
 type MouseAngleDeltas =
@@ -177,9 +169,15 @@ let rotate_vector (axis: Vector3d) (angle: float) (vector: Vector3d) =
 
     if rotated.Rotate(angle, axis) then rotated else vector
 
-let look (config: FlyingMouseConfig) (mouseDx: int64) (mouseDy: int64) (camera: CameraState) =
+let mouse_look
+    (config: FlyingMouseConfig)
+    (mouseSensitivity: RuntimeMouseSensitivity)
+    (mouseDx: int64)
+    (mouseDy: int64)
+    (camera: CameraState)
+    =
     let rotation =
-        clamped_mouse_angle_deltas config config.sensitivity 1. mouseDx mouseDy camera
+        clamped_mouse_angle_deltas config mouseSensitivity 1. mouseDx mouseDy camera
 
     let yawDirection = rotate_vector Vector3d.ZAxis rotation.yaw_delta camera.direction
     let yawUp = rotate_vector Vector3d.ZAxis rotation.yaw_delta camera.up
@@ -314,14 +312,12 @@ let orbit (pivotCenter: Point3d) (requestedAngle: float) (camera: CameraState) =
 type MovementStep =
     { camera: CameraState
       translation: Vector3d
-      target_translation: Vector3d
       forward_distance: float
       key_pivot_angle: float }
 
 let step
     (config: MovementConfig)
     (verticalSpeedMultiplier: float)
-    (keepForwardTarget: bool)
     (input: InputSnapshot)
     (keyPivotTarget: Point3d)
     (dt: float)
@@ -354,25 +350,10 @@ let step
 
     let translation = movement * input.move_speed * dt
     let forwardDistance = forwardAmount * normalizationScale * input.move_speed * dt
-    let forwardTranslation = forward * forwardDistance
-
-    let targetTranslation =
-        if not keepForwardTarget then
-            translation
-        else
-            let nonForwardTranslation = translation - forwardTranslation
-
-            if forwardDistance <= 0. then
-                nonForwardTranslation
-            else
-                let minimumTargetDistance = max 0.000001 (input.move_speed * 0.01)
-                let remainingTargetDistance = target_distance camera - forwardDistance
-                let targetCatchup = max 0. (minimumTargetDistance - remainingTargetDistance)
-                nonForwardTranslation + forward * targetCatchup
 
     let translated =
         { position = camera.position + translation
-          target = camera.target + targetTranslation
+          target = camera.target + translation
           direction = camera.direction
           up = camera.up }
 
@@ -390,6 +371,5 @@ let step
 
     { camera = orbit keyPivotTarget keyPivotAngle translated
       translation = translation
-      target_translation = targetTranslation
       forward_distance = forwardDistance
       key_pivot_angle = keyPivotAngle }

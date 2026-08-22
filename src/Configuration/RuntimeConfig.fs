@@ -27,11 +27,11 @@ type FlightBindings =
       toggle_projection: KeyBinding option }
 
 type ParallelViewConfig =
-    { enabled: bool
+    { flying: ParallelViewFlying
       mouse_sensitivity: RuntimeMouseSensitivity
       mouse_pivot_multiplier: MousePivotMultiplier
       mouse_pan_multiplier: MousePanMultiplier
-      speed_multiplier: float
+      zoom_speed_multiplier: float
       up_down_multiplier: float }
 
 type MovementConfig =
@@ -73,7 +73,7 @@ type FlightBehavior =
       view_target: ViewTargetConfig
       save_speed_to_document: bool
       load_speed_from_document: bool
-      lens_adjustment: LensAdjustment
+      perspective_lens: PerspectiveLensConfig
       viewport_paint_mode: ViewportPaintMode }
 
 type FlyConfig =

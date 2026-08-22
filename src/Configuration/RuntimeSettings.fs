@@ -52,7 +52,7 @@ let apply_live (loaded: ConfigLoadResult) =
                   mouse5 = config.mouse5_pivot_mode
                   right_click_entry = config.right_click_entry_mode
                   default_flight_mode = config.default_flight_mode
-                  parallel_views_enabled = config.enable_parallel_views
+                  parallel_view_flying = loaded.config.movement.parallel_view.flying
                   shift_right_click = config.shift_right_click_mode
                   alt_right_click = config.alt_right_click_mode
                   exit_binding = Some loaded.config.bindings.exit_key
@@ -63,7 +63,7 @@ let apply_live (loaded: ConfigLoadResult) =
                   mouse5 = MouseButtonPivotMode.Off
                   right_click_entry = RightClickEntryMode.Off
                   default_flight_mode = config.default_flight_mode
-                  parallel_views_enabled = false
+                  parallel_view_flying = ParallelViewFlying.DisabledAll
                   shift_right_click = ModifiedRightClickMode.Off
                   alt_right_click = ModifiedRightClickMode.Off
                   exit_binding = None
@@ -155,7 +155,7 @@ let complete_input_recovery () =
         current () |> Result.bind apply_live
 
 let candidate (config: FlyConfigFile) =
-    let source = ConfigSchema.normalize_numbers config
+    let source = ConfigSchema.normalize config
 
     match ConfigSchema.compile source with
     | Error error -> Error error

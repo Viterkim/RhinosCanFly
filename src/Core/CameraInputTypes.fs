@@ -71,96 +71,50 @@ module ViewProjectionKind =
         else
             ViewProjectionKind.Perspective
 
-[<Struct>]
-type ViewFrustum =
-    { left: float
-      right: float
-      bottom: float
-      top: float
-      near_distance: float
-      far_distance: float }
+type CameraSnapshot
+    internal
+    (
+        viewProjection: ViewportInfo,
+        target: Point3d,
+        projectionKind: ViewProjectionKind,
+        perspectiveLensLengthMm: float voption
+    ) =
+    let mutable disposed = false
 
-[<Struct>]
-type CameraSnapshot =
-    { location: Point3d
-      target: Point3d
-      up: Vector3d
-      projection: ViewProjectionKind
-      lens_length_mm: float
-      frustum: ViewFrustum voption }
+    member internal _.view_projection = viewProjection
+    member _.target = target
+    member _.projection = projectionKind
+    member _.perspective_lens_length_mm = perspectiveLensLengthMm
+    member _.is_disposed = disposed
+
+    member _.dispose() =
+        if not disposed then
+            disposed <- true
+            viewProjection.Dispose()
 
 module CameraSnapshot =
     let capture (viewport: Rhino.Display.RhinoViewport) =
         let projection = ViewProjectionKind.capture viewport
-        let mutable left = 0.
-        let mutable right = 0.
-        let mutable bottom = 0.
-        let mutable top = 0.
-        let mutable nearDistance = 0.
-        let mutable farDistance = 0.
+        let viewProjection = new ViewportInfo(viewport)
 
-        let frustum =
-            if viewport.GetFrustum(&left, &right, &bottom, &top, &nearDistance, &farDistance) then
-                ValueSome
-                    { left = left
-                      right = right
-                      bottom = bottom
-                      top = top
-                      near_distance = nearDistance
-                      far_distance = farDistance }
-            else
-                ValueNone
+        let perspectiveLensLength =
+            match projection with
+            | ViewProjectionKind.Parallel -> ValueNone
+            | ViewProjectionKind.Perspective
+            | ViewProjectionKind.TwoPointPerspective -> ValueSome viewProjection.Camera35mmLensLength
 
-        { location = viewport.CameraLocation
-          target = viewport.CameraTarget
-          up = viewport.CameraUp
-          projection = projection
-          lens_length_mm = viewport.Camera35mmLensLength
-          frustum = frustum }
+        CameraSnapshot(viewProjection, viewport.CameraTarget, projection, perspectiveLensLength)
 
     let restore (viewport: Rhino.Display.RhinoViewport) (snapshot: CameraSnapshot) =
-        let projectionRestored =
-            if ViewProjectionKind.capture viewport = snapshot.projection then
-                true
-            else
-                match snapshot.projection with
-                | ViewProjectionKind.Parallel -> viewport.ChangeToParallelProjection true
-                | ViewProjectionKind.Perspective ->
-                    viewport.ChangeToPerspectiveProjection(true, snapshot.lens_length_mm)
-                | ViewProjectionKind.TwoPointPerspective ->
-                    viewport.ChangeToTwoPointPerspectiveProjection snapshot.lens_length_mm
+        if snapshot.is_disposed then
+            failwith "The camera snapshot has already been disposed."
 
-        if not projectionRestored then
+        if not (viewport.SetViewProjection(snapshot.view_projection, false)) then
             failwith "Rhino could not restore the viewport projection."
 
-        viewport.SetCameraLocations(snapshot.target, snapshot.location)
-        viewport.CameraUp <- snapshot.up
+        viewport.SetCameraTarget(snapshot.target, false)
 
-        if
-            snapshot.projection <> ViewProjectionKind.Parallel
-            && ValueOption.isNone snapshot.frustum
-        then
-            viewport.Camera35mmLensLength <- snapshot.lens_length_mm
-
-        match snapshot.frustum with
-        | ValueNone -> ()
-        | ValueSome frustum ->
-            use projection = new ViewportInfo(viewport)
-
-            if
-                projection.SetFrustum(
-                    frustum.left,
-                    frustum.right,
-                    frustum.bottom,
-                    frustum.top,
-                    frustum.near_distance,
-                    frustum.far_distance
-                )
-            then
-                if not (viewport.SetViewProjection(projection, false)) then
-                    failwith "Rhino could not restore the viewport frustum."
-            else
-                failwith "Rhino could not restore the viewport frustum."
+    let dispose (snapshot: CameraSnapshot) = snapshot.dispose ()
 
 [<Struct>]
 type ViewChange =
