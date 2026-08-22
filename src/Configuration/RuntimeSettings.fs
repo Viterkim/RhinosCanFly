@@ -48,7 +48,8 @@ let apply_live (loaded: ConfigLoadResult) =
 
         let mouseOverrides: MouseOverrideConfig =
             if runtime_enabled_for config then
-                { mouse4 = config.mouse4_pivot_mode
+                { runtime_enabled = true
+                  mouse4 = config.mouse4_pivot_mode
                   mouse5 = config.mouse5_pivot_mode
                   right_click_entry = config.right_click_entry_mode
                   default_flight_mode = config.default_flight_mode
@@ -59,7 +60,8 @@ let apply_live (loaded: ConfigLoadResult) =
                   exit_on_right = config.exit_on_mouse_right
                   prepare_navigation = NavigationTarget.prepare loaded }
             else
-                { mouse4 = MouseButtonPivotMode.Off
+                { runtime_enabled = false
+                  mouse4 = MouseButtonPivotMode.Off
                   mouse5 = MouseButtonPivotMode.Off
                   right_click_entry = RightClickEntryMode.Off
                   default_flight_mode = config.default_flight_mode

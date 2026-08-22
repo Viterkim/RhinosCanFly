@@ -19,9 +19,12 @@ type NavigationClick =
 type RightClickAction =
     | EnterFlight of FlyEntry
     | NavigateView of NavigationClick
+    | PanParallel of ViewportHostIdentity
+    | ZoomParallel of ViewportHostIdentity
 
 type RightClickGesture =
     | Idle
+    | NativeModifiedGesture
     | ButtonDown of RightClickAction
     | ButtonReleased of RightClickAction
     | FlightDispatched of FlyEntry
@@ -44,7 +47,10 @@ type RightClickViewport =
       is_parallel: bool }
 
 [<Struct>]
-type Modifiers = { shift: bool; alt: bool }
+type Modifiers =
+    { shift: bool
+      alt: bool
+      control: bool }
 
 [<Literal>]
 let ENTRY_TIMEOUT_SECONDS = 2.
@@ -91,6 +97,7 @@ let entry_while_held (mode: RightClickEntryMode) =
 let action_pending (state: RightClickState) =
     match state.gesture with
     | Idle -> false
+    | NativeModifiedGesture -> false
     | ButtonDown _
     | ButtonReleased _
     | FlightDispatched _ -> true
@@ -120,7 +127,8 @@ let navigation_exit_capture_needed (navigation: State) =
     && ViewNavigationState.right_mouse_exit_capture_needed navigation
 
 let capture_needed (navigation: State) (state: RightClickState) =
-    entry_enabled navigation
+    navigation.routing.runtime_enabled
+    || entry_enabled navigation
     || modified_navigation_enabled navigation
     || navigation_exit_capture_needed navigation
     || owns_button state
@@ -128,7 +136,8 @@ let capture_needed (navigation: State) (state: RightClickState) =
 
 let modifiers () =
     { shift = ViewNavigationState.shift_down ()
-      alt = ViewNavigationState.alt_down () }
+      alt = ViewNavigationState.alt_down ()
+      control = ViewNavigationState.control_down () }
 
 let requested_navigation_mode (navigation: State) (modifiers: Modifiers) =
     let shiftMode =
@@ -171,6 +180,22 @@ let action (navigation: State) (viewport: RightClickViewport) (modifiers: Modifi
                       request = StartNavigation mode }
             )
         | ValueNone when
+            navigation.routing.runtime_enabled
+            && viewport.is_parallel
+            && modifiers.shift
+            && not modifiers.alt
+            && not modifiers.control
+            ->
+            ValueSome(PanParallel host)
+        | ValueNone when
+            navigation.routing.runtime_enabled
+            && viewport.is_parallel
+            && modifiers.alt
+            && not modifiers.shift
+            && not modifiers.control
+            ->
+            ValueSome(ZoomParallel host)
+        | ValueNone when
             entry_enabled navigation
             && (viewport.is_perspective
                 || (viewport.is_parallel
@@ -178,6 +203,7 @@ let action (navigation: State) (viewport: RightClickViewport) (modifiers: Modifi
             && (entry_during_commands navigation.routing.right_click_entry || not commandActive)
             && not modifiers.shift
             && not modifiers.alt
+            && not modifiers.control
             ->
             ValueSome(
                 EnterFlight
@@ -201,13 +227,19 @@ let rec handle_event
 
     let isUp = event.message = Win32Native.WM_RBUTTONUP
 
-    if isUp && owns_button state then
+    if isUp && state.gesture = NativeModifiedGesture then
+        clear_action state
+        false
+    elif isDown && state.gesture = NativeModifiedGesture then
+        false
+    elif isUp && owns_button state then
         state.button_ownership <- NotOwned
 
         match state.gesture with
         | ButtonDown(EnterFlight entry) when entry_while_held entry.entry_mode -> clear_action state
         | ButtonDown captured -> state.gesture <- ButtonReleased captured
         | Idle
+        | NativeModifiedGesture
         | ButtonReleased _
         | FlightDispatched _ -> ()
 
@@ -231,12 +263,22 @@ let rec handle_event
     elif not isDown || navigation.lifecycle <> Available then
         false
     else
+        let currentModifiers = modifiers ()
+
         match tryView event.hook_window with
         | ValueNone -> false
         | ValueSome hookViewport ->
             match tryView event.point_window with
             | ValueSome pointViewport when ViewNavigationState.same_host hookViewport.host pointViewport.host ->
-                match action navigation pointViewport (modifiers ()) commandActive with
+                match action navigation pointViewport currentModifiers commandActive with
+                | ValueNone when
+                    not (navigation_active navigation)
+                    && (currentModifiers.control
+                        || (currentModifiers.shift && Option.isNone navigation.routing.shift_right_click)
+                        || (currentModifiers.alt && Option.isNone navigation.routing.alt_right_click))
+                    ->
+                    state.gesture <- NativeModifiedGesture
+                    false
                 | ValueNone -> false
                 | ValueSome captured ->
                     state.button_ownership <- Owned
@@ -313,10 +355,13 @@ let dispatch_entry (state: RightClickState) (entry: FlyEntry) =
 let update (navigation: State) (state: RightClickState) (commandActive: bool) =
     match state.gesture with
     | Idle -> ()
+    | NativeModifiedGesture -> ()
     | FlightDispatched entry ->
         if navigation.lifecycle <> Available || entry_timed_out entry then
             clear_action state
     | ButtonDown(NavigateView _) -> ()
+    | ButtonDown(PanParallel _) -> ()
+    | ButtonDown(ZoomParallel _) -> ()
     | ButtonDown(EnterFlight entry) ->
         if navigation.lifecycle <> Available || entry_timed_out entry then
             clear_action state
@@ -345,6 +390,8 @@ let update (navigation: State) (state: RightClickState) (commandActive: bool) =
             | Error error -> Debug.WriteLine $"RhinosCanFly right-click navigation: {error}"
 
         clear_action state
+    | ButtonReleased(PanParallel _) -> clear_action state
+    | ButtonReleased(ZoomParallel _) -> clear_action state
     | ButtonReleased(EnterFlight entry) ->
         if navigation.lifecycle <> Available || entry_timed_out entry then
             clear_action state
@@ -367,6 +414,49 @@ let prune_released_button (state: RightClickState) =
             clear_action state
         else
             state.button_ownership <- ReleaseObserved
+
+let parallel_zoom_host (state: RightClickState) =
+    match state.gesture with
+    | ButtonDown(ZoomParallel host) ->
+        match state.button_ownership with
+        | Owned
+        | ReleaseObserved -> ValueSome host
+        | NotOwned -> ValueNone
+    | Idle
+    | NativeModifiedGesture
+    | ButtonDown _
+    | ButtonReleased _
+    | FlightDispatched _ -> ValueNone
+
+let parallel_pan_host (state: RightClickState) =
+    match state.gesture with
+    | ButtonDown(PanParallel host) ->
+        match state.button_ownership with
+        | Owned
+        | ReleaseObserved -> ValueSome host
+        | NotOwned -> ValueNone
+    | Idle
+    | NativeModifiedGesture
+    | ButtonDown _
+    | ButtonReleased _
+    | FlightDispatched _ -> ValueNone
+
+let direct_navigation_host (state: RightClickState) =
+    match parallel_zoom_host state with
+    | ValueSome host -> ValueSome host
+    | ValueNone -> parallel_pan_host state
+
+let clear_direct_navigation (state: RightClickState) =
+    match state.gesture with
+    | ButtonDown(PanParallel _)
+    | ButtonDown(ZoomParallel _)
+    | ButtonReleased(PanParallel _)
+    | ButtonReleased(ZoomParallel _) -> clear_action state
+    | Idle
+    | NativeModifiedGesture
+    | ButtonDown _
+    | ButtonReleased _
+    | FlightDispatched _ -> ()
 
 let reset (state: RightClickState) =
     state.gesture <- Idle

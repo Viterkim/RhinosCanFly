@@ -150,6 +150,11 @@ let alt_down () =
     || Win32Native.GetAsyncKeyState Win32Native.VK_LMENU < 0s
     || Win32Native.GetAsyncKeyState Win32Native.VK_RMENU < 0s
 
+let control_down () =
+    Win32Native.GetAsyncKeyState Win32Native.VK_CONTROL < 0s
+    || Win32Native.GetAsyncKeyState Win32Native.VK_LCONTROL < 0s
+    || Win32Native.GetAsyncKeyState Win32Native.VK_RCONTROL < 0s
+
 let transition_timed_out (session: ViewLatchSession) =
     let elapsedTicks = Stopwatch.GetTimestamp() - session.started_at
     float elapsedTicks / float Stopwatch.Frequency >= TRANSITION_TIMEOUT_SECONDS

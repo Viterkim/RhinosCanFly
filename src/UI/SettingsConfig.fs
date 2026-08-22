@@ -15,7 +15,8 @@ type NumberValues =
       key_pivot_speed_multiplier: float
       mouse_pivot_multiplier: float
       mouse_pan_multiplier: float
-      view_target_distance_multiplier: float
+      perspective_view_target_distance_multiplier: float
+      parallel_view_target_distance_multiplier: float
       parallel_mouse_sensitivity: float
       parallel_mouse_pivot_multiplier: float
       parallel_mouse_pan_multiplier: float
@@ -76,7 +77,10 @@ let parse_numbers (fields: SettingsFields.NumberFields) =
           key_pivot_speed_multiplier = required "Key pivot speed multiplier" fields.key_pivot_speed_multiplier
           mouse_pivot_multiplier = required "Pivot multiplier" fields.mouse_pivot_multiplier
           mouse_pan_multiplier = required "Pan multiplier" fields.mouse_pan_multiplier
-          view_target_distance_multiplier = required "Target distance multiplier" fields.view_target_distance_multiplier
+          perspective_view_target_distance_multiplier =
+            required "Perspective fallback distance multiplier" fields.perspective_view_target_distance_multiplier
+          parallel_view_target_distance_multiplier =
+            required "Parallel fallback distance multiplier" fields.parallel_view_target_distance_multiplier
           parallel_mouse_sensitivity = required "Parallel sensitivity" fields.parallel_mouse_sensitivity
           parallel_mouse_pivot_multiplier = required "Parallel pivot multiplier" fields.parallel_mouse_pivot_multiplier
           parallel_mouse_pan_multiplier = required "Parallel pan multiplier" fields.parallel_mouse_pan_multiplier
@@ -131,7 +135,12 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     numbers.key_pivot_speed_multiplier.Text <- ConfigSchema.format_number config.key_pivot_speed_multiplier
     numbers.mouse_pivot_multiplier.Text <- ConfigSchema.format_number config.mouse_pivot_multiplier
     numbers.mouse_pan_multiplier.Text <- ConfigSchema.format_number config.mouse_pan_multiplier
-    numbers.view_target_distance_multiplier.Text <- ConfigSchema.format_number config.view_target_distance_multiplier
+
+    numbers.perspective_view_target_distance_multiplier.Text <-
+        ConfigSchema.format_number config.perspective_view_target_distance_multiplier
+
+    numbers.parallel_view_target_distance_multiplier.Text <-
+        ConfigSchema.format_number config.parallel_view_target_distance_multiplier
 
     numbers.parallel_mouse_sensitivity.Text <- ConfigSchema.format_number config.parallel_mouse_sensitivity
     numbers.parallel_mouse_pivot_multiplier.Text <- ConfigSchema.format_number config.parallel_mouse_pivot_multiplier
@@ -226,7 +235,8 @@ let read (fields: SettingsFields.ConfigFields) =
               key_pivot_speed_multiplier = numbers.key_pivot_speed_multiplier
               mouse_pivot_multiplier = numbers.mouse_pivot_multiplier
               mouse_pan_multiplier = numbers.mouse_pan_multiplier
-              view_target_distance_multiplier = numbers.view_target_distance_multiplier
+              perspective_view_target_distance_multiplier = numbers.perspective_view_target_distance_multiplier
+              parallel_view_target_distance_multiplier = numbers.parallel_view_target_distance_multiplier
               parallel_mouse_sensitivity = numbers.parallel_mouse_sensitivity
               parallel_mouse_pivot_multiplier = numbers.parallel_mouse_pivot_multiplier
               parallel_mouse_pan_multiplier = numbers.parallel_mouse_pan_multiplier

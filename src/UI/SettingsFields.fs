@@ -39,7 +39,8 @@ type NumberFields =
       key_pivot_speed_multiplier: TextBox
       mouse_pivot_multiplier: TextBox
       mouse_pan_multiplier: TextBox
-      view_target_distance_multiplier: TextBox
+      perspective_view_target_distance_multiplier: TextBox
+      parallel_view_target_distance_multiplier: TextBox
       parallel_mouse_sensitivity: TextBox
       parallel_mouse_pivot_multiplier: TextBox
       parallel_mouse_pan_multiplier: TextBox
@@ -227,7 +228,8 @@ let create () =
               key_pivot_speed_multiplier = text_box ()
               mouse_pivot_multiplier = text_box ()
               mouse_pan_multiplier = text_box ()
-              view_target_distance_multiplier = text_box ()
+              perspective_view_target_distance_multiplier = text_box ()
+              parallel_view_target_distance_multiplier = text_box ()
               parallel_mouse_sensitivity = text_box ()
               parallel_mouse_pivot_multiplier = text_box ()
               parallel_mouse_pan_multiplier = text_box ()

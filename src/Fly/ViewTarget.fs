@@ -129,7 +129,12 @@ let try_object_center_target (view: RhinoView) (viewport: RhinoViewport) =
         None
 
 let distance_target (config: ViewTargetConfig) (speed: float) (viewport: RhinoViewport) =
-    let (ViewTargetDistanceMultiplier multiplier) = config.distance_multiplier
+    let (ViewTargetDistanceMultiplier multiplier) =
+        if viewport.IsParallelProjection then
+            config.parallel_distance_multiplier
+        else
+            config.perspective_distance_multiplier
+
     let distance = speed * multiplier
     let mutable direction = viewport.CameraDirection
 

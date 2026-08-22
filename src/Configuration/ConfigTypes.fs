@@ -172,7 +172,8 @@ type FlyConfigFile =
       right_click_entry_mode: RightClickEntryMode
       default_flight_mode: DefaultFlightMode
       view_target_mode: ViewTargetMode
-      view_target_distance_multiplier: float
+      perspective_view_target_distance_multiplier: float
+      parallel_view_target_distance_multiplier: float
       set_view_target_on_restored_flights: bool
       commands_do_not_repeat: bool
       mouse4_pivot_mode: MouseButtonPivotMode

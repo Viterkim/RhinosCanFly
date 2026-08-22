@@ -51,7 +51,8 @@ type SettingsControl() as self =
         let enabled =
             SettingsFields.selected_mode modes.view_target_mode <> ViewTargetMode.Off
 
-        numbers.view_target_distance_multiplier.Enabled <- enabled
+        numbers.perspective_view_target_distance_multiplier.Enabled <- enabled
+        numbers.parallel_view_target_distance_multiplier.Enabled <- enabled
         options.set_view_target_on_restored_flights.Enabled <- enabled
 
     let refresh_parallel_view_controls () =
@@ -115,7 +116,7 @@ type SettingsControl() as self =
             SettingsLayout.note
                 "When switching parallel -> perspective we don't have the lens, manually set a non zero value:"
 
-        numbers.perspective_lens_length_after_parallel_mm.Width <- 230
+        numbers.perspective_lens_length_after_parallel_mm.Width <- 220
 
         layout.Rows.Add(
             SettingsLayout.row
@@ -180,23 +181,6 @@ type SettingsControl() as self =
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Target"))
-
-        SettingsLayout.grid
-            2
-            [ SettingsLayout.item "Mode" modes.view_target_mode.control
-              SettingsLayout.item "Distance multiplier" numbers.view_target_distance_multiplier
-              options.set_view_target_on_restored_flights ]
-        |> SettingsLayout.full_width
-        |> mainTable.Rows.Add
-
-        mainTable.Rows.Add(
-            SettingsLayout.full_width (
-                SettingsLayout.note
-                    "Used when flight ends or pivot or pan starts (distance is affected by flight speed and multiplier)"
-            )
-        )
-
         mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.spacer 2))
 
         SettingsLayout.grid
@@ -204,29 +188,9 @@ type SettingsControl() as self =
             [ SettingsLayout.item "Mouse X" modes.mouse_x_mode.control
               SettingsLayout.item "Mouse Y" modes.mouse_y_mode.control
               SettingsLayout.item "Middle mouse" modes.middle_mouse_while_flying.control
-              SettingsLayout.item "Mouse sensitivity" numbers.mouse_sensitivity ]
+              SettingsLayout.item "Perspective mouse sens" numbers.mouse_sensitivity ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
-
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Mouse 4/5 behaviour"))
-
-        SettingsLayout.grid
-            2
-            [ SettingsLayout.item "Mouse 4" modes.mouse4_pivot_mode.control
-              options.mouse4_pivot_in_flight
-              SettingsLayout.item "Mouse 5" modes.mouse5_pivot_mode.control
-              options.mouse5_pivot_in_flight ]
-        |> SettingsLayout.full_width
-        |> mainTable.Rows.Add
-
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.spacer 2))
-
-        mainTable.Rows.Add(
-            SettingsLayout.full_width (
-                SettingsLayout.note
-                    "Toggle pivots stop with the same button. While flying uses the same hold or toggle mode when enabled."
-            )
-        )
 
         mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Controls"))
 
@@ -244,13 +208,13 @@ type SettingsControl() as self =
               SettingsLayout.item "Hold pivot" (binding_editor bindings.pivot_hold defaults.pivot_hold)
               SettingsLayout.item "Toggle pan" (binding_editor bindings.pan_toggle defaults.pan_toggle)
               SettingsLayout.item "Hold pan" (binding_editor bindings.pan_hold defaults.pan_hold)
-              SettingsLayout.item
-                  "Toggle projection"
-                  (binding_editor bindings.toggle_projection defaults.toggle_projection)
               SettingsLayout.item "Exit" (binding_editor bindings.exit_key defaults.exit_key)
               SettingsLayout.item
                   "Cancel flight and go back"
-                  (binding_editor bindings.cancel_flight_and_restore defaults.cancel_flight_and_restore) ]
+                  (binding_editor bindings.cancel_flight_and_restore defaults.cancel_flight_and_restore)
+              SettingsLayout.item
+                  "Toggle projection"
+                  (binding_editor bindings.toggle_projection defaults.toggle_projection) ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
@@ -321,6 +285,42 @@ type SettingsControl() as self =
                   numbers.perspective_lens_length_delta_during_flight_mm ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
+
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Target"))
+
+        SettingsLayout.grid
+            2
+            [ SettingsLayout.item "Mode" modes.view_target_mode.control
+              options.set_view_target_on_restored_flights
+              SettingsLayout.item "Perspective fallback multi" numbers.perspective_view_target_distance_multiplier
+              SettingsLayout.item "Parallel fallback multi" numbers.parallel_view_target_distance_multiplier ]
+        |> SettingsLayout.full_width
+        |> mainTable.Rows.Add
+
+        mainTable.Rows.Add(
+            SettingsLayout.full_width (
+                SettingsLayout.note
+                    "Used when flight ends or pivot or pan starts (distance is affected by flight speed and multiplier)"
+            )
+        )
+
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Mouse 4/5 behaviour"))
+
+        SettingsLayout.grid
+            2
+            [ SettingsLayout.item "Mouse 4" modes.mouse4_pivot_mode.control
+              options.mouse4_pivot_in_flight
+              SettingsLayout.item "Mouse 5" modes.mouse5_pivot_mode.control
+              options.mouse5_pivot_in_flight ]
+        |> SettingsLayout.full_width
+        |> mainTable.Rows.Add
+
+        mainTable.Rows.Add(
+            SettingsLayout.full_width (
+                SettingsLayout.note
+                    "Toggle pivots stop with the same button. While flying uses the same hold or toggle mode when enabled."
+            )
+        )
 
         mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Other"))
 

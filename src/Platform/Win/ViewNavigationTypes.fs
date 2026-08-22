@@ -10,7 +10,8 @@ type ViewNavigationRequest =
     | StopNavigation
 
 type RoutingConfig =
-    { mouse4: MouseButtonPivotMode
+    { runtime_enabled: bool
+      mouse4: MouseButtonPivotMode
       mouse5: MouseButtonPivotMode
       right_click_entry: RightClickEntryMode
       default_flight_mode: DefaultFlightMode
@@ -94,7 +95,8 @@ let POLL_TIMER_WATCHDOG_INTERVAL_MILLISECONDS = 250
 let TRANSITION_TIMEOUT_SECONDS = 2.
 
 let empty_routing =
-    { mouse4 = MouseButtonPivotMode.Off
+    { runtime_enabled = false
+      mouse4 = MouseButtonPivotMode.Off
       mouse5 = MouseButtonPivotMode.Off
       right_click_entry = RightClickEntryMode.Off
       default_flight_mode = DefaultFlightMode.Normal

@@ -64,7 +64,8 @@ type FlyingMouseConfig =
 
 type ViewTargetConfig =
     { mode: ViewTargetMode
-      distance_multiplier: ViewTargetDistanceMultiplier
+      perspective_distance_multiplier: ViewTargetDistanceMultiplier
+      parallel_distance_multiplier: ViewTargetDistanceMultiplier
       set_on_restored_flights: bool }
 
 type FlightBehavior =

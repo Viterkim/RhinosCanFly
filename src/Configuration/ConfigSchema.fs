@@ -58,7 +58,8 @@ let defaults: FlyConfigFile =
       right_click_entry_mode = RightClickEntryMode.ClickToFlyDuringCommands
       default_flight_mode = DefaultFlightMode.Normal
       view_target_mode = ViewTargetMode.ObjectCenterThenDistance
-      view_target_distance_multiplier = 1.
+      perspective_view_target_distance_multiplier = 0.9
+      parallel_view_target_distance_multiplier = 0.6
       set_view_target_on_restored_flights = false
       commands_do_not_repeat = true
       mouse4_pivot_mode = MouseButtonPivotMode.Off
@@ -124,7 +125,9 @@ let normalize (source: FlyConfigFile) =
         mouse_pivot_multiplier = normalize_number source.mouse_pivot_multiplier
         mouse_pan_multiplier = normalize_number source.mouse_pan_multiplier
         mouse_sensitivity = normalize_number source.mouse_sensitivity
-        view_target_distance_multiplier = normalize_number source.view_target_distance_multiplier
+        perspective_view_target_distance_multiplier =
+            normalize_number source.perspective_view_target_distance_multiplier
+        parallel_view_target_distance_multiplier = normalize_number source.parallel_view_target_distance_multiplier
         vertical_speed_multiplier = normalize_number source.vertical_speed_multiplier
         parallel_mouse_sensitivity = normalize_number source.parallel_mouse_sensitivity
         parallel_mouse_pivot_multiplier = normalize_number source.parallel_mouse_pivot_multiplier
@@ -193,7 +196,8 @@ let compile (source: FlyConfigFile) =
       "mouse_pivot_multiplier", source.mouse_pivot_multiplier
       "mouse_pan_multiplier", source.mouse_pan_multiplier
       "mouse_sensitivity", source.mouse_sensitivity
-      "view_target_distance_multiplier", source.view_target_distance_multiplier
+      "perspective_view_target_distance_multiplier", source.perspective_view_target_distance_multiplier
+      "parallel_view_target_distance_multiplier", source.parallel_view_target_distance_multiplier
       "vertical_speed_multiplier", source.vertical_speed_multiplier
       "parallel_mouse_sensitivity", source.parallel_mouse_sensitivity
       "parallel_mouse_pivot_multiplier", source.parallel_mouse_pivot_multiplier
@@ -267,7 +271,9 @@ let compile (source: FlyConfigFile) =
           "key pivot angular speed", source.key_pivot_speed_multiplier * Math.PI / 6.
           "mouse pivot sensitivity", source.mouse_sensitivity * source.mouse_pivot_multiplier
           "mouse pan sensitivity", source.mouse_sensitivity * source.mouse_pan_multiplier
-          "maximum target distance", source.maximum_speed * source.view_target_distance_multiplier ]
+          "maximum perspective target distance",
+          source.maximum_speed * source.perspective_view_target_distance_multiplier
+          "maximum parallel target distance", source.maximum_speed * source.parallel_view_target_distance_multiplier ]
 
     for name, value in derivedValues do
         if Double.IsNaN value || Double.IsInfinity value then
@@ -346,7 +352,10 @@ let compile (source: FlyConfigFile) =
               flight_pivot_uses_gumball = source.flight_pivot_uses_gumball
               view_target =
                 { mode = source.view_target_mode
-                  distance_multiplier = ViewTargetDistanceMultiplier source.view_target_distance_multiplier
+                  perspective_distance_multiplier =
+                    ViewTargetDistanceMultiplier source.perspective_view_target_distance_multiplier
+                  parallel_distance_multiplier =
+                    ViewTargetDistanceMultiplier source.parallel_view_target_distance_multiplier
                   set_on_restored_flights = source.set_view_target_on_restored_flights }
               save_speed_to_document = source.save_speed_to_document
               load_speed_from_document = source.load_speed_from_document
