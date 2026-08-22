@@ -44,10 +44,12 @@ type ViewNavigationMode =
     | Pan
 
 type MouseOverrideConfig =
-    { mouse4: MouseButtonPivotMode
+    { runtime_enabled: bool
+      mouse4: MouseButtonPivotMode
       mouse5: MouseButtonPivotMode
       right_click_entry: RightClickEntryMode
       default_flight_mode: DefaultFlightMode
+      parallel_view_flying: ParallelViewFlying
       shift_right_click: ModifiedRightClickMode
       alt_right_click: ModifiedRightClickMode
       exit_binding: KeyBinding option

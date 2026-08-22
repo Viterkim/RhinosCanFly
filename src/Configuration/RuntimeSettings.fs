@@ -48,20 +48,24 @@ let apply_live (loaded: ConfigLoadResult) =
 
         let mouseOverrides: MouseOverrideConfig =
             if runtime_enabled_for config then
-                { mouse4 = config.mouse4_pivot_mode
+                { runtime_enabled = true
+                  mouse4 = config.mouse4_pivot_mode
                   mouse5 = config.mouse5_pivot_mode
                   right_click_entry = config.right_click_entry_mode
                   default_flight_mode = config.default_flight_mode
+                  parallel_view_flying = loaded.config.movement.parallel_view.flying
                   shift_right_click = config.shift_right_click_mode
                   alt_right_click = config.alt_right_click_mode
                   exit_binding = Some loaded.config.bindings.exit_key
                   exit_on_right = config.exit_on_mouse_right
                   prepare_navigation = NavigationTarget.prepare loaded }
             else
-                { mouse4 = MouseButtonPivotMode.Off
+                { runtime_enabled = false
+                  mouse4 = MouseButtonPivotMode.Off
                   mouse5 = MouseButtonPivotMode.Off
                   right_click_entry = RightClickEntryMode.Off
                   default_flight_mode = config.default_flight_mode
+                  parallel_view_flying = ParallelViewFlying.DisabledAll
                   shift_right_click = ModifiedRightClickMode.Off
                   alt_right_click = ModifiedRightClickMode.Off
                   exit_binding = None
@@ -153,7 +157,7 @@ let complete_input_recovery () =
         current () |> Result.bind apply_live
 
 let candidate (config: FlyConfigFile) =
-    let source = ConfigSchema.normalize_numbers config
+    let source = ConfigSchema.normalize config
 
     match ConfigSchema.compile source with
     | Error error -> Error error

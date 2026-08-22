@@ -4,7 +4,7 @@ open Eto.Drawing
 open Eto.Forms
 
 [<Literal>]
-let ITEM_LABEL_WIDTH = 140
+let ITEM_LABEL_WIDTH = 155
 
 let row (cells: TableCell list) =
     let result = new TableRow()
@@ -50,7 +50,7 @@ let heading (text: string) =
 
 let subheading (text: string) =
     let label =
-        new Label(Text = text, Font = SystemFonts.Bold(System.Nullable(), FontDecoration.None))
+        new Label(Text = text, Font = SystemFonts.Bold(System.Nullable 10.f, FontDecoration.None))
 
     new Panel(Content = label, Padding = Padding(0, 4, 0, 0)) :> Control
 

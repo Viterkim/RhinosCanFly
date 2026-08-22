@@ -1,10 +1,10 @@
 name: RhinosCanFly
-version: 0.3.3
+version: 0.3.4
 authors:
     - Viterkim
 
 description: >
-    Rhinos Can Fly, WASD flying camera controls with custom mouse and keyboard binds for Rhino perspective views.
+    Rhinos Can Fly, WASD flying camera controls with custom mouse and keyboard binds for Rhino perspective and parallel views.
 
 url: "https://github.com/Viterkim/RhinosCanFly"
 icon: icon.png
@@ -12,17 +12,15 @@ icon: icon.png
 keywords:
     - WASD
     - keybinds
-    - keymaps
-    - mouse-control
     - custom-movement
     - fly
     - camera
     - viewport
     - navigation
     - perspective
+    - parallel
     - game-controls
     - FPS-controls
-    - mouse-look
     - mouse
     - Rhino
     - game-engine-controls

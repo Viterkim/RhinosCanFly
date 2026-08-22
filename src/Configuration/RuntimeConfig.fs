@@ -23,7 +23,16 @@ type FlightBindings =
       speed_increase: KeyBinding option
       speed_decrease: KeyBinding option
       exit_key: KeyBinding
-      cancel_flight_and_restore: KeyBinding }
+      cancel_flight_and_restore: KeyBinding
+      toggle_projection: KeyBinding option }
+
+type ParallelViewConfig =
+    { flying: ParallelViewFlying
+      mouse_sensitivity: RuntimeMouseSensitivity
+      mouse_pivot_multiplier: MousePivotMultiplier
+      mouse_pan_multiplier: MousePanMultiplier
+      zoom_speed_multiplier: float
+      up_down_multiplier: float }
 
 type MovementConfig =
     { base_speed: float
@@ -36,7 +45,8 @@ type MovementConfig =
       normalize_diagonal_movement: bool
       wheel_speed_mode: MouseWheelSpeedMode
       boost_mode: KeyActivationMode
-      slow_mode: KeyActivationMode }
+      slow_mode: KeyActivationMode
+      parallel_view: ParallelViewConfig }
 
 type FlyingMouseConfig =
     { pivot_multiplier: MousePivotMultiplier
@@ -54,7 +64,8 @@ type FlyingMouseConfig =
 
 type ViewTargetConfig =
     { mode: ViewTargetMode
-      distance_multiplier: ViewTargetDistanceMultiplier
+      perspective_distance_multiplier: ViewTargetDistanceMultiplier
+      parallel_distance_multiplier: ViewTargetDistanceMultiplier
       set_on_restored_flights: bool }
 
 type FlightBehavior =
@@ -63,7 +74,7 @@ type FlightBehavior =
       view_target: ViewTargetConfig
       save_speed_to_document: bool
       load_speed_from_document: bool
-      lens_adjustment: LensAdjustment
+      perspective_lens: PerspectiveLensConfig
       viewport_paint_mode: ViewportPaintMode }
 
 type FlyConfig =

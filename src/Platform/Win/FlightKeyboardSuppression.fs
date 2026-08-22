@@ -1,7 +1,9 @@
 module RhinosCanFly.Platform.Win.FlightKeyboardSuppression
 
+open System
 open System.Collections.Generic
 open System.Diagnostics
+open System.Threading
 open RhinosCanFly
 
 type ConfiguredKeys =
@@ -15,6 +17,8 @@ type State =
       passthrough_keys_down: HashSet<int>
       suppressed_keys_down: HashSet<int>
       key_is_down: bool array
+      mutable input_available: Action option
+      mutable revision: int64
       mutable active: bool }
 
 let state =
@@ -26,6 +30,8 @@ let state =
       passthrough_keys_down = HashSet<int>()
       suppressed_keys_down = HashSet<int>()
       key_is_down = Array.zeroCreate 256
+      input_available = None
+      revision = 0L
       active = false }
 
 let mutable keyboardHook: Win32Native.WindowsHook option = None
@@ -72,7 +78,7 @@ let add_passthrough_if_down (physicalKey: int) =
         state.passthrough_keys_down.Add physicalKey |> ignore
         state.key_is_down[physicalKey] <- true
 
-let configure (bindings: FlightBindings) =
+let configure (bindings: FlightBindings) (inputAvailable: Action) =
     let releasedKeys = ResizeArray<int>()
 
     System.Array.Clear(state.key_is_down, 0, state.key_is_down.Length)
@@ -104,6 +110,7 @@ let configure (bindings: FlightBindings) =
     add_optional_binding bindings.speed_decrease
     add_binding bindings.exit_key
     add_binding bindings.cancel_flight_and_restore
+    add_optional_binding bindings.toggle_projection
 
     state.passthrough_keys_down.Clear()
 
@@ -122,10 +129,12 @@ let configure (bindings: FlightBindings) =
         add_passthrough_if_down Win32Native.VK_LMENU
         add_passthrough_if_down Win32Native.VK_RMENU
 
+    state.input_available <- Some inputAvailable
     state.active <- true
 
 let stop () =
     state.active <- false
+    state.input_available <- None
     clear_configured ()
     state.passthrough_keys_down.Clear()
     System.Array.Clear(state.key_is_down, 0, state.key_is_down.Length)
@@ -200,11 +209,20 @@ let hook_event (event: Win32.KeyboardHookEvent) =
     let mutable swallow = false
 
     try
+        let wasDown = state.key_is_down[event.physical_key]
         swallow <- handle_event event
+
+        if wasDown <> state.key_is_down[event.physical_key] then
+            Interlocked.Increment(&state.revision) |> ignore
+
+            state.input_available
+            |> Option.iter (fun (available: Action) -> available.Invoke())
     with error ->
         Debug.WriteLine $"RhinosCanFly keyboard suppression failed: {error}"
 
     swallow
+
+let revision () = Volatile.Read(&state.revision)
 
 let ensure_hook () =
     match keyboardHook with
@@ -216,12 +234,12 @@ let ensure_hook () =
             Ok()
         | Error error -> Error error
 
-let start (bindings: FlightBindings) =
+let start (bindings: FlightBindings) (inputAvailable: Action) =
     match ensure_hook () with
     | Error error -> Error error
     | Ok() ->
         try
-            configure bindings
+            configure bindings inputAvailable
             Ok()
         with error ->
             stop ()

@@ -85,7 +85,6 @@ let viewport_host_is_active (identity: ViewportHostIdentity) (view: RhinoView) =
                 && activeView.RuntimeSerialNumber = identity.view_serial_number
                 && activeView.Handle = expectedHandle
                 && activeView.ActiveViewportID = identity.viewport_id
-                && activeView.ActiveViewport.IsPerspectiveProjection
     with _ ->
         false
 
@@ -202,10 +201,12 @@ let raw_input_runtime_failed (session: RawInputSession) = RawInputThread.runtime
 
 let retry_raw_input_cleanup () = RawInputThread.retry_recovery ()
 
-let suppress_flight_keyboard (bindings: FlightBindings) =
-    FlightKeyboardSuppression.start bindings
+let suppress_flight_keyboard (bindings: FlightBindings) (inputAvailable: Action) =
+    FlightKeyboardSuppression.start bindings inputAvailable
 
 let release_flight_keyboard () = FlightKeyboardSuppression.stop ()
+
+let flight_keyboard_revision () = FlightKeyboardSuppression.revision ()
 
 let shutdown_flight_keyboard () = FlightKeyboardSuppression.shutdown ()
 

@@ -16,6 +16,7 @@ type SettingsControl() as self =
     let numbers = fields.config.numbers
     let modes = fields.config.modes
     let options = fields.config.options
+    let parallelViewNames = fields.config.parallel_view_names
     let status = fields.status
     let rawJson = fields.raw_json
     let actions = fields.actions
@@ -50,8 +51,31 @@ type SettingsControl() as self =
         let enabled =
             SettingsFields.selected_mode modes.view_target_mode <> ViewTargetMode.Off
 
-        numbers.view_target_distance_multiplier.Enabled <- enabled
+        numbers.perspective_view_target_distance_multiplier.Enabled <- enabled
+        numbers.parallel_view_target_distance_multiplier.Enabled <- enabled
         options.set_view_target_on_restored_flights.Enabled <- enabled
+
+    let refresh_parallel_view_controls () =
+        let mode = SettingsFields.selected_mode modes.parallel_view_flying
+
+        let parallelFlyingPossible = mode <> ParallelViewFlyingMode.DisabledAll
+
+        let usesList =
+            mode = ParallelViewFlyingMode.EnabledSome
+            || mode = ParallelViewFlyingMode.DisabledSome
+
+        parallelViewNames.Enabled <- usesList
+        bindings.toggle_projection.Enabled <- parallelFlyingPossible
+
+        numbers.parallel_mouse_sensitivity.Enabled <- parallelFlyingPossible
+
+        numbers.parallel_mouse_pivot_multiplier.Enabled <- parallelFlyingPossible
+
+        numbers.parallel_mouse_pan_multiplier.Enabled <- parallelFlyingPossible
+
+        numbers.parallel_zoom_speed_multiplier.Enabled <- parallelFlyingPossible
+
+        numbers.parallel_up_down_multiplier.Enabled <- parallelFlyingPossible
 
     let binding_editor (field: TextBox) (defaultValue: string) =
         BindingCapture.editor bindingCapture field defaultValue
@@ -84,6 +108,23 @@ type SettingsControl() as self =
         layout
 
     let rawJsonPanel = new Panel(Content = rawJsonLayout, Visible = false)
+
+    let parallelLensLayout =
+        let layout = new TableLayout(Spacing = Size(16, 0))
+
+        let description =
+            SettingsLayout.note
+                "When switching parallel -> perspective we don't have the lens, manually set a non zero value:"
+
+        numbers.perspective_lens_length_after_parallel_mm.Width <- 220
+
+        layout.Rows.Add(
+            SettingsLayout.row
+                [ new TableCell(description, true)
+                  new TableCell(numbers.perspective_lens_length_after_parallel_mm, false) ]
+        )
+
+        layout :> Control
 
     let refresh_raw () =
         match ConfigStorage.read_raw () with
@@ -140,23 +181,6 @@ type SettingsControl() as self =
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Target"))
-
-        SettingsLayout.grid
-            2
-            [ SettingsLayout.item "Mode" modes.view_target_mode.control
-              SettingsLayout.item "Distance multiplier" numbers.view_target_distance_multiplier
-              options.set_view_target_on_restored_flights ]
-        |> SettingsLayout.full_width
-        |> mainTable.Rows.Add
-
-        mainTable.Rows.Add(
-            SettingsLayout.full_width (
-                SettingsLayout.note
-                    "Used when flight ends or pivot or pan starts (distance is affected by flight speed and multiplier)"
-            )
-        )
-
         mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.spacer 2))
 
         SettingsLayout.grid
@@ -164,29 +188,9 @@ type SettingsControl() as self =
             [ SettingsLayout.item "Mouse X" modes.mouse_x_mode.control
               SettingsLayout.item "Mouse Y" modes.mouse_y_mode.control
               SettingsLayout.item "Middle mouse" modes.middle_mouse_while_flying.control
-              SettingsLayout.item "Mouse sensitivity" numbers.mouse_sensitivity ]
+              SettingsLayout.item "Perspective mouse sens" numbers.mouse_sensitivity ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
-
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Mouse 4/5 behaviour"))
-
-        SettingsLayout.grid
-            2
-            [ SettingsLayout.item "Mouse 4" modes.mouse4_pivot_mode.control
-              options.mouse4_pivot_in_flight
-              SettingsLayout.item "Mouse 5" modes.mouse5_pivot_mode.control
-              options.mouse5_pivot_in_flight ]
-        |> SettingsLayout.full_width
-        |> mainTable.Rows.Add
-
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.spacer 2))
-
-        mainTable.Rows.Add(
-            SettingsLayout.full_width (
-                SettingsLayout.note
-                    "Toggle pivots stop with the same button. While flying uses the same hold or toggle mode when enabled."
-            )
-        )
 
         mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Controls"))
 
@@ -207,7 +211,10 @@ type SettingsControl() as self =
               SettingsLayout.item "Exit" (binding_editor bindings.exit_key defaults.exit_key)
               SettingsLayout.item
                   "Cancel flight and go back"
-                  (binding_editor bindings.cancel_flight_and_restore defaults.cancel_flight_and_restore) ]
+                  (binding_editor bindings.cancel_flight_and_restore defaults.cancel_flight_and_restore)
+              SettingsLayout.item
+                  "Toggle projection"
+                  (binding_editor bindings.toggle_projection defaults.toggle_projection) ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
@@ -250,14 +257,72 @@ type SettingsControl() as self =
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Parallel projection"))
+
+        SettingsLayout.grid
+            2
+            [ SettingsLayout.item "Parallel flying" modes.parallel_view_flying.control
+              SettingsLayout.item "Viewports (comma list)" parallelViewNames
+              SettingsLayout.item "Parallel sensitivity" numbers.parallel_mouse_sensitivity
+              SettingsLayout.item "Parallel zoom speed" numbers.parallel_zoom_speed_multiplier
+              SettingsLayout.item "Parallel up/down multi" numbers.parallel_up_down_multiplier
+              SettingsLayout.item "Parallel pivot multi" numbers.parallel_mouse_pivot_multiplier
+              SettingsLayout.item "Parallel pan multi" numbers.parallel_mouse_pan_multiplier ]
+        |> SettingsLayout.full_width
+        |> mainTable.Rows.Add
+
+        mainTable.Rows.Add(SettingsLayout.full_width parallelLensLayout)
+
         mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Viewport"))
 
         SettingsLayout.grid
             2
-            [ SettingsLayout.item "Force lens length" numbers.forced_lens_length_mm
-              SettingsLayout.item "Force lens length delta" numbers.lens_length_delta_mm ]
+            [ SettingsLayout.item
+                  "Forced perspective lens on flight start"
+                  numbers.forced_perspective_lens_length_on_flight_start_mm
+              SettingsLayout.item
+                  "Perspective lens diff during flight"
+                  numbers.perspective_lens_length_delta_during_flight_mm ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
+
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Target"))
+
+        SettingsLayout.grid
+            2
+            [ SettingsLayout.item "Mode" modes.view_target_mode.control
+              options.set_view_target_on_restored_flights
+              SettingsLayout.item "Perspective fallback multi" numbers.perspective_view_target_distance_multiplier
+              SettingsLayout.item "Parallel fallback multi" numbers.parallel_view_target_distance_multiplier ]
+        |> SettingsLayout.full_width
+        |> mainTable.Rows.Add
+
+        mainTable.Rows.Add(
+            SettingsLayout.full_width (
+                SettingsLayout.note
+                    "Used when flight ends or pivot or pan starts (distance is affected by flight speed and multiplier)"
+            )
+        )
+
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Mouse 4/5 behaviour"))
+
+        SettingsLayout.grid
+            2
+            [ SettingsLayout.item "Mouse 4" modes.mouse4_pivot_mode.control
+              options.mouse4_pivot_in_flight
+              SettingsLayout.item "Mouse 5" modes.mouse5_pivot_mode.control
+              options.mouse5_pivot_in_flight ]
+        |> SettingsLayout.full_width
+        |> mainTable.Rows.Add
+
+        mainTable.Rows.Add(
+            SettingsLayout.full_width (
+                SettingsLayout.note
+                    "Toggle pivots stop with the same button. While flying uses the same hold or toggle mode when enabled."
+            )
+        )
+
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Other"))
 
         mainTable.Rows.Add(
             SettingsLayout.full_width (SettingsLayout.item "Redraw mode" modes.viewport_paint_mode.control)
@@ -288,6 +353,9 @@ type SettingsControl() as self =
         modes.mouse4_pivot_mode.control.SelectedIndexChanged.Add(fun (_: EventArgs) ->
             refresh_side_button_flight_controls ())
 
+        modes.parallel_view_flying.control.SelectedIndexChanged.Add(fun (_: EventArgs) ->
+            refresh_parallel_view_controls ())
+
         modes.mouse5_pivot_mode.control.SelectedIndexChanged.Add(fun (_: EventArgs) ->
             refresh_side_button_flight_controls ())
 
@@ -295,6 +363,7 @@ type SettingsControl() as self =
 
         refresh_side_button_flight_controls ()
         refresh_view_target_controls ()
+        refresh_parallel_view_controls ()
 
         actions.raw_json_toggle.Click.Add(fun (_: EventArgs) ->
             rawJsonPanel.Visible <- not rawJsonPanel.Visible
@@ -366,5 +435,6 @@ type SettingsControl() as self =
         SettingsConfig.load fields.config config
         refresh_side_button_flight_controls ()
         refresh_view_target_controls ()
+        refresh_parallel_view_controls ()
 
     member _.ReadConfig() = SettingsConfig.read fields.config

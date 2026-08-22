@@ -17,13 +17,16 @@ let run (sessionMode: FlightSessionMode) (document: RhinoDoc) =
     elif isNull view then
         RhinoApp.WriteLine "RhinosCanFly: no active view."
         Result.Failure
-    elif not view.ActiveViewport.IsPerspectiveProjection then
-        RhinoApp.WriteLine "RhinosCanFly: use a perspective viewport."
-        Result.Cancel
     else
         CurrentConfig.with_loaded (fun (loaded: ConfigLoadResult) ->
             if not (RuntimeSettings.runtime_enabled ()) then
                 RhinoApp.WriteLine "RhinosCanFly is disabled."
+                Result.Cancel
+            elif
+                view.ActiveViewport.IsParallelProjection
+                && not (ParallelViewFlying.allows view.ActiveViewport.Name loaded.config.movement.parallel_view.flying)
+            then
+                RhinoApp.WriteLine "RhinosCanFly: parallel flying is disabled for this viewport."
                 Result.Cancel
             else
                 match FlightSession.run view loaded.config sessionMode with

@@ -36,7 +36,7 @@ let path () =
     Path.Combine(settings_directory (), "rhinos-can-fly-config.json")
 
 let to_object (value: FlyConfigFile) =
-    JsonSerializer.SerializeToNode(ConfigSchema.normalize_numbers value, options).AsObject()
+    JsonSerializer.SerializeToNode(ConfigSchema.normalize value, options).AsObject()
 
 let json_content (json: JsonObject) =
     json.ToJsonString options + Environment.NewLine
@@ -114,6 +114,42 @@ let merge_known_values (target: JsonObject) (source: FlyConfigFile) =
             else
                 property.Value.DeepClone()
 
+let deserialize (json: JsonObject) =
+    try
+        let value = JsonSerializer.Deserialize<FlyConfigFile>(json.ToJsonString(), options)
+
+        if isNull (box value) then
+            Error "the config is empty"
+        else
+            Ok value
+    with error ->
+        Error error.Message
+
+let repair_malformed_values (json: JsonObject) (defaults: JsonObject) =
+    match deserialize json with
+    | Ok _ -> 0
+    | Error _ ->
+        let mutable repaired = 0
+
+        for property: Collections.Generic.KeyValuePair<string, JsonNode> in defaults do
+            let candidate = defaults.DeepClone().AsObject()
+            let sourceValue = json[property.Key]
+
+            candidate[property.Key] <- if isNull sourceValue then null else sourceValue.DeepClone()
+
+            match deserialize candidate with
+            | Ok _ -> ()
+            | Error _ ->
+                json[property.Key] <-
+                    if isNull property.Value then
+                        null
+                    else
+                        property.Value.DeepClone()
+
+                repaired <- repaired + 1
+
+        repaired
+
 let load () =
     try
         let configPath = path ()
@@ -149,6 +185,7 @@ let load () =
         | None -> ()
 
         let mutable changed = created || malformed
+
         let beforeRepair = json.ToJsonString()
 
         if created then
@@ -212,21 +249,18 @@ let load () =
         if added > 0 then
             messages.Add $"added {added} missing setting(s)"
 
-        let parsed =
-            try
-                let value = JsonSerializer.Deserialize<FlyConfigFile>(json.ToJsonString(), options)
+        let repairedMalformedValues = repair_malformed_values json defaults
 
-                if isNull (box value) then
-                    Error "the config is empty"
-                else
-                    Ok value
-            with error ->
-                Error error.Message
+        if repairedMalformedValues > 0 then
+            changed <- true
+            messages.Add $"replaced {repairedMalformedValues} malformed setting(s)"
+
+        let parsed = deserialize json
 
         let source, config =
             match parsed with
             | Ok source ->
-                let source = ConfigSchema.normalize_numbers source
+                let source = ConfigSchema.normalize source
 
                 match ConfigSchema.compile source with
                 | Ok config -> source, config
@@ -282,7 +316,7 @@ let save (source: FlyConfigFile) =
     match saveBlocked with
     | Some error -> Error error
     | None ->
-        let normalizedSource = ConfigSchema.normalize_numbers source
+        let normalizedSource = ConfigSchema.normalize source
 
         match ConfigSchema.compile normalizedSource with
         | Error error -> Error error
