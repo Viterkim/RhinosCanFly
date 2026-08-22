@@ -39,7 +39,8 @@ type EntryPreparation =
 [<Struct>]
 type RightClickViewport =
     { host: ViewportHostIdentity
-      is_perspective: bool }
+      is_perspective: bool
+      is_parallel: bool }
 
 [<Struct>]
 type Modifiers = { shift: bool; alt: bool }
@@ -170,7 +171,8 @@ let action (navigation: State) (viewport: RightClickViewport) (modifiers: Modifi
             )
         | ValueNone when
             entry_enabled navigation
-            && viewport.is_perspective
+            && (viewport.is_perspective
+                || (viewport.is_parallel && navigation.routing.parallel_views_enabled))
             && (entry_during_commands navigation.routing.right_click_entry || not commandActive)
             && not modifiers.shift
             && not modifiers.alt

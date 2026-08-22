@@ -22,7 +22,7 @@ https://github.com/user-attachments/assets/52dc3237-e12b-4a54-8776-88f6b6475fac
 
 ## Main Commands
 
-`RhinosCanFly` main command, fly around in perspective view, exit on right click and escape, keep the current camera position. (default flying behaviour, usually done with right click)
+`RhinosCanFly` main command, fly around in perspective view or an enabled parallel view, exit on right click and escape, keep the current camera position. (default flying behaviour, usually done with right click)
 
 `RhinosCanFlyOptions` pops up a panel where you can change keybindings / features (same menu is also in Tools -> Options... -> Rhinos Can Fly).
 

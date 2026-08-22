@@ -48,6 +48,7 @@ type MouseOverrideConfig =
       mouse5: MouseButtonPivotMode
       right_click_entry: RightClickEntryMode
       default_flight_mode: DefaultFlightMode
+      parallel_views_enabled: bool
       shift_right_click: ModifiedRightClickMode
       alt_right_click: ModifiedRightClickMode
       exit_binding: KeyBinding option

@@ -27,6 +27,7 @@ let defaults: FlyConfigFile =
       speed_decrease = "Minus"
       exit_key = "Escape"
       cancel_flight_and_restore = "T"
+      toggle_projection = "H"
       base_speed = 36.
       minimum_speed = 1.
       maximum_speed = 100000.
@@ -63,6 +64,12 @@ let defaults: FlyConfigFile =
       boost_mode = KeyActivationMode.Toggle
       slow_mode = KeyActivationMode.Toggle
       vertical_speed_multiplier = 0.7
+      enable_parallel_views = true
+      parallel_mouse_sensitivity = 25.
+      parallel_mouse_pivot_multiplier = 1.
+      parallel_mouse_pan_multiplier = 1.
+      parallel_speed_multiplier = 1.
+      parallel_up_down_multiplier = 0.7
       forced_lens_length_mm = 0.
       lens_length_delta_mm = 0.
       viewport_paint_mode = ViewportPaintMode.Queued }
@@ -90,6 +97,11 @@ let normalize_numbers (source: FlyConfigFile) =
         mouse_sensitivity = normalize_number source.mouse_sensitivity
         view_target_distance_multiplier = normalize_number source.view_target_distance_multiplier
         vertical_speed_multiplier = normalize_number source.vertical_speed_multiplier
+        parallel_mouse_sensitivity = normalize_number source.parallel_mouse_sensitivity
+        parallel_mouse_pivot_multiplier = normalize_number source.parallel_mouse_pivot_multiplier
+        parallel_mouse_pan_multiplier = normalize_number source.parallel_mouse_pan_multiplier
+        parallel_speed_multiplier = normalize_number source.parallel_speed_multiplier
+        parallel_up_down_multiplier = normalize_number source.parallel_up_down_multiplier
         forced_lens_length_mm = normalize_number source.forced_lens_length_mm
         lens_length_delta_mm = normalize_number source.lens_length_delta_mm }
 
@@ -125,7 +137,12 @@ let compile (source: FlyConfigFile) =
       "mouse_pan_multiplier", source.mouse_pan_multiplier
       "mouse_sensitivity", source.mouse_sensitivity
       "view_target_distance_multiplier", source.view_target_distance_multiplier
-      "vertical_speed_multiplier", source.vertical_speed_multiplier ]
+      "vertical_speed_multiplier", source.vertical_speed_multiplier
+      "parallel_mouse_sensitivity", source.parallel_mouse_sensitivity
+      "parallel_mouse_pivot_multiplier", source.parallel_mouse_pivot_multiplier
+      "parallel_mouse_pan_multiplier", source.parallel_mouse_pan_multiplier
+      "parallel_speed_multiplier", source.parallel_speed_multiplier
+      "parallel_up_down_multiplier", source.parallel_up_down_multiplier ]
     |> List.iter (fun (name: string, value: float) -> positive name value)
 
     if source.maximum_speed < source.minimum_speed then
@@ -175,6 +192,17 @@ let compile (source: FlyConfigFile) =
           source.maximum_speed
           * maximumMovementMultiplier
           * source.vertical_speed_multiplier
+          "maximum parallel up/down speed",
+          source.maximum_speed
+          * maximumMovementMultiplier
+          * source.parallel_up_down_multiplier
+          "maximum parallel zoom speed",
+          source.maximum_speed
+          * maximumMovementMultiplier
+          * source.parallel_speed_multiplier
+          "maximum parallel mouse sensitivity",
+          source.parallel_mouse_sensitivity
+          * max 1. (max source.parallel_mouse_pivot_multiplier source.parallel_mouse_pan_multiplier)
           "key pivot angular speed", source.key_pivot_speed_multiplier * Math.PI / 6.
           "mouse pivot sensitivity", source.mouse_sensitivity * source.mouse_pivot_multiplier
           "mouse pan sensitivity", source.mouse_sensitivity * source.mouse_pan_multiplier
@@ -206,7 +234,12 @@ let compile (source: FlyConfigFile) =
               speed_increase = optional "speed_increase" source.speed_increase
               speed_decrease = optional "speed_decrease" source.speed_decrease
               exit_key = required "exit_key" source.exit_key
-              cancel_flight_and_restore = required "cancel_flight_and_restore" source.cancel_flight_and_restore }
+              cancel_flight_and_restore = required "cancel_flight_and_restore" source.cancel_flight_and_restore
+              toggle_projection =
+                if source.enable_parallel_views then
+                    optional "toggle_projection" source.toggle_projection
+                else
+                    None }
           movement =
             { base_speed = source.base_speed
               speed_range =
@@ -220,7 +253,17 @@ let compile (source: FlyConfigFile) =
               normalize_diagonal_movement = source.normalize_diagonal_movement
               wheel_speed_mode = source.wheel_speed_mode
               boost_mode = source.boost_mode
-              slow_mode = source.slow_mode }
+              slow_mode = source.slow_mode
+              parallel_view =
+                { enabled = source.enable_parallel_views
+                  mouse_sensitivity =
+                    source.parallel_mouse_sensitivity
+                    |> ConfigMouseSensitivity
+                    |> MouseSensitivity.to_runtime
+                  mouse_pivot_multiplier = MousePivotMultiplier source.parallel_mouse_pivot_multiplier
+                  mouse_pan_multiplier = MousePanMultiplier source.parallel_mouse_pan_multiplier
+                  speed_multiplier = source.parallel_speed_multiplier
+                  up_down_multiplier = source.parallel_up_down_multiplier } }
           mouse =
             { pivot_multiplier = MousePivotMultiplier source.mouse_pivot_multiplier
               pan_multiplier = MousePanMultiplier source.mouse_pan_multiplier

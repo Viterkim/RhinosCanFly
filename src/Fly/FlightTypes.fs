@@ -11,7 +11,6 @@ type FlyState =
       session_mode: FlightSessionMode
       original_cursor: CursorPosition
       original_camera: CameraSnapshot
-      original_lens_length: float
       gumball_pivot_target: Point3d option
       mutable key_pivot_target: Point3d
       mutable key_pivot_direction: KeyPivotDirection
@@ -21,6 +20,10 @@ type FlyState =
       mutable keyboard_held_mouse_navigation: MouseNavigationMode
       mutable keyboard_pivot_toggle_was_down: bool
       mutable keyboard_pan_toggle_was_down: bool
+      mutable keyboard_projection_toggle_was_down: bool
+      mutable projection: ViewProjectionKind
+      mutable last_perspective_projection: ViewProjectionKind
+      mutable last_perspective_lens_length: float
       mutable exit_reason: FlightExitReason option
       mutable restore_camera_on_exit: bool
       mutable camera: CameraState

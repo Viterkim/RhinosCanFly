@@ -41,6 +41,9 @@ let loopSource =
 let sessionSource =
     File.ReadAllText(Path.Combine(sourceRoot, "src", "Fly", "FlightSession.fs"))
 
+let keyboardSource =
+    File.ReadAllText(Path.Combine(sourceRoot, "src", "Platform", "Win", "FlightKeyboardSuppression.fs"))
+
 if not (wakeSource.Contains("PostMessage", StringComparison.Ordinal)) then
     fail "RawInputWake must wake Rhino through its native message loop."
 
@@ -60,6 +63,9 @@ let revisionIndex =
 let stateDrainIndex =
     loopSource.IndexOf("FlightControls.update_state", StringComparison.Ordinal)
 
+let keyboardRevisionIndex =
+    loopSource.IndexOf("let observedKeyboardRevision", StringComparison.Ordinal)
+
 let discardIndex =
     loopSource.IndexOf("InputAccumulator.discard_transient_input", StringComparison.Ordinal)
 
@@ -72,15 +78,21 @@ let acknowledgeIndex =
 let recheckIndex =
     loopSource.IndexOf("InputAccumulator.work_pending_since", StringComparison.Ordinal)
 
+let keyboardRecheckIndex =
+    loopSource.LastIndexOf("PlatformInput.flight_keyboard_revision", StringComparison.Ordinal)
+
 if
     revisionIndex < 0
+    || keyboardRevisionIndex < revisionIndex
     || stateDrainIndex < revisionIndex
+    || stateDrainIndex < keyboardRevisionIndex
     || discardIndex < stateDrainIndex
     || mouseDrainIndex < discardIndex
     || acknowledgeIndex < mouseDrainIndex
     || recheckIndex < acknowledgeIndex
+    || keyboardRecheckIndex < acknowledgeIndex
 then
-    fail "FlightLoop must observe work, drain it, acknowledge the wake, then recheck work."
+    fail "FlightLoop must observe raw and keyboard work, drain it, acknowledge the wake, then recheck work."
 
 let startingIndex =
     sessionSource.IndexOf("let process_starting", StringComparison.Ordinal)
@@ -99,6 +111,19 @@ if
     || startingWakeIndex < startingAcknowledgeIndex
 then
     fail "The viewport-capture wait must acknowledge each coalesced wake before scheduling another check."
+
+if
+    not (keyboardSource.Contains("wasDown <> state.key_is_down[event.physical_key]", StringComparison.Ordinal))
+    || not (keyboardSource.Contains("available.Invoke()", StringComparison.Ordinal))
+    || not (keyboardSource.Contains("Interlocked.Increment(&state.revision)", StringComparison.Ordinal))
+    || not (loopSource.Contains("PlatformInput.flight_keyboard_revision", StringComparison.Ordinal))
+    || not (sessionSource.Contains("input_available = PlatformInput.raw_input_wake_action", StringComparison.Ordinal))
+    || sessionSource.IndexOf("session.input_available", StringComparison.Ordinal) = sessionSource.LastIndexOf(
+        "session.input_available",
+        StringComparison.Ordinal
+    )
+then
+    fail "Suppressed keyboard state changes must wake the flight loop immediately."
 
 let model =
     { pending = 0

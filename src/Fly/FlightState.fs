@@ -28,12 +28,29 @@ let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyCo
         | Error error -> failwith error
 
     let cameraLocation = viewport.CameraLocation
-    let cameraDirection = viewport.CameraDirection
+
+    let struct (cameraDirection, cameraUp) =
+        Movement.camera_basis viewport.CameraDirection viewport.CameraY
 
     let cameraTarget =
         Movement.target_on_camera_axis cameraLocation viewport.CameraTarget cameraDirection
 
-    let struct (yaw, pitch) = Movement.angles_from_direction cameraDirection
+    let camera =
+        { position = cameraLocation
+          target = cameraTarget
+          direction = cameraDirection
+          up = cameraUp }
+
+    if not (CameraState.valid camera) then
+        failwith "The active viewport has an invalid camera."
+
+    let originalCamera = CameraSnapshot.capture viewport
+
+    let lastPerspectiveProjection =
+        match originalCamera.projection with
+        | ViewProjectionKind.TwoPointPerspective -> ViewProjectionKind.TwoPointPerspective
+        | ViewProjectionKind.Parallel
+        | ViewProjectionKind.Perspective -> ViewProjectionKind.Perspective
 
     { view = view
       viewport = viewport
@@ -41,10 +58,9 @@ let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyCo
       host_identity = hostIdentity
       session_mode = sessionMode
       original_cursor = originalCursor
-      original_camera = CameraSnapshot.capture viewport
-      original_lens_length = viewport.Camera35mmLensLength
+      original_camera = originalCamera
       gumball_pivot_target = gumballPivotTarget
-      key_pivot_target = viewport.CameraTarget
+      key_pivot_target = camera.target
       key_pivot_direction = NoKeyPivot
       key_pivot_input_state = WaitingForNeutralKeyPivotInput
       active_mouse_navigation = MouseLook
@@ -52,13 +68,13 @@ let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyCo
       keyboard_held_mouse_navigation = LookNavigation
       keyboard_pivot_toggle_was_down = FlightControls.is_optional_down mouseNavigationBindings.pivot.toggle
       keyboard_pan_toggle_was_down = FlightControls.is_optional_down mouseNavigationBindings.pan.toggle
+      keyboard_projection_toggle_was_down = FlightControls.is_optional_down bindings.toggle_projection
+      projection = originalCamera.projection
+      last_perspective_projection = lastPerspectiveProjection
+      last_perspective_lens_length = viewport.Camera35mmLensLength
       exit_reason = None
       restore_camera_on_exit = sessionMode.flight_mode = FlightMode.Temporary
-      camera =
-        { position = cameraLocation
-          target = cameraTarget
-          yaw = yaw
-          pitch = pitch }
+      camera = camera
       speed =
         FlightSpeed.current view.Document behavior.load_speed_from_document movement.speed_range movement.base_speed
       boost_enabled = false

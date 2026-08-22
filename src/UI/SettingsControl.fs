@@ -53,6 +53,19 @@ type SettingsControl() as self =
         numbers.view_target_distance_multiplier.Enabled <- enabled
         options.set_view_target_on_restored_flights.Enabled <- enabled
 
+    let refresh_parallel_view_controls () =
+        bindings.toggle_projection.Enabled <- SettingsConfig.is_checked options.enable_parallel_views
+
+        numbers.parallel_mouse_sensitivity.Enabled <- SettingsConfig.is_checked options.enable_parallel_views
+
+        numbers.parallel_mouse_pivot_multiplier.Enabled <- SettingsConfig.is_checked options.enable_parallel_views
+
+        numbers.parallel_mouse_pan_multiplier.Enabled <- SettingsConfig.is_checked options.enable_parallel_views
+
+        numbers.parallel_speed_multiplier.Enabled <- SettingsConfig.is_checked options.enable_parallel_views
+
+        numbers.parallel_up_down_multiplier.Enabled <- SettingsConfig.is_checked options.enable_parallel_views
+
     let binding_editor (field: TextBox) (defaultValue: string) =
         BindingCapture.editor bindingCapture field defaultValue
 
@@ -204,6 +217,9 @@ type SettingsControl() as self =
               SettingsLayout.item "Hold pivot" (binding_editor bindings.pivot_hold defaults.pivot_hold)
               SettingsLayout.item "Toggle pan" (binding_editor bindings.pan_toggle defaults.pan_toggle)
               SettingsLayout.item "Hold pan" (binding_editor bindings.pan_hold defaults.pan_hold)
+              SettingsLayout.item
+                  "Toggle projection"
+                  (binding_editor bindings.toggle_projection defaults.toggle_projection)
               SettingsLayout.item "Exit" (binding_editor bindings.exit_key defaults.exit_key)
               SettingsLayout.item
                   "Cancel flight and go back"
@@ -250,6 +266,19 @@ type SettingsControl() as self =
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Parallel Viewport"))
+
+        SettingsLayout.grid
+            2
+            [ options.enable_parallel_views
+              SettingsLayout.item "Parallel sensitivity" numbers.parallel_mouse_sensitivity
+              SettingsLayout.item "Parallel speed" numbers.parallel_speed_multiplier
+              SettingsLayout.item "Parallel up/down multi" numbers.parallel_up_down_multiplier
+              SettingsLayout.item "Parallel pivot multi" numbers.parallel_mouse_pivot_multiplier
+              SettingsLayout.item "Parallel pan multi" numbers.parallel_mouse_pan_multiplier ]
+        |> SettingsLayout.full_width
+        |> mainTable.Rows.Add
+
         mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Viewport"))
 
         SettingsLayout.grid
@@ -258,6 +287,8 @@ type SettingsControl() as self =
               SettingsLayout.item "Force lens length delta" numbers.lens_length_delta_mm ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
+
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Other"))
 
         mainTable.Rows.Add(
             SettingsLayout.full_width (SettingsLayout.item "Redraw mode" modes.viewport_paint_mode.control)
@@ -288,6 +319,8 @@ type SettingsControl() as self =
         modes.mouse4_pivot_mode.control.SelectedIndexChanged.Add(fun (_: EventArgs) ->
             refresh_side_button_flight_controls ())
 
+        options.enable_parallel_views.CheckedChanged.Add(fun (_: EventArgs) -> refresh_parallel_view_controls ())
+
         modes.mouse5_pivot_mode.control.SelectedIndexChanged.Add(fun (_: EventArgs) ->
             refresh_side_button_flight_controls ())
 
@@ -295,6 +328,7 @@ type SettingsControl() as self =
 
         refresh_side_button_flight_controls ()
         refresh_view_target_controls ()
+        refresh_parallel_view_controls ()
 
         actions.raw_json_toggle.Click.Add(fun (_: EventArgs) ->
             rawJsonPanel.Visible <- not rawJsonPanel.Visible
@@ -366,5 +400,6 @@ type SettingsControl() as self =
         SettingsConfig.load fields.config config
         refresh_side_button_flight_controls ()
         refresh_view_target_controls ()
+        refresh_parallel_view_controls ()
 
     member _.ReadConfig() = SettingsConfig.read fields.config

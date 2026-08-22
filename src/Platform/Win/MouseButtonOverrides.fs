@@ -158,7 +158,8 @@ let capture_viewport_host (view: RhinoView) =
 
 let capture_right_click_viewport (view: RhinoView) : RightClickTransitions.RightClickViewport =
     { host = capture_viewport_host view
-      is_perspective = view.ActiveViewport.IsPerspectiveProjection }
+      is_perspective = view.ActiveViewport.IsPerspectiveProjection
+      is_parallel = view.ActiveViewport.IsParallelProjection }
 
 let update_right_click_viewport (view: RhinoView) =
     let updated = capture_right_click_viewport view
@@ -777,6 +778,7 @@ let apply (config: MouseOverrideConfig) =
                   mouse5 = config.mouse5
                   right_click_entry = config.right_click_entry
                   default_flight_mode = config.default_flight_mode
+                  parallel_views_enabled = config.parallel_views_enabled
                   shift_right_click = ViewLatchTransitions.configured_mode config.shift_right_click
                   alt_right_click = ViewLatchTransitions.configured_mode config.alt_right_click
                   exit = config.exit_binding

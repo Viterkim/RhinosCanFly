@@ -25,7 +25,8 @@ type BindingFields =
       speed_increase: TextBox
       speed_decrease: TextBox
       exit_key: TextBox
-      cancel_flight_and_restore: TextBox }
+      cancel_flight_and_restore: TextBox
+      toggle_projection: TextBox }
 
 type NumberFields =
     { base_speed: TextBox
@@ -39,6 +40,11 @@ type NumberFields =
       mouse_pivot_multiplier: TextBox
       mouse_pan_multiplier: TextBox
       view_target_distance_multiplier: TextBox
+      parallel_mouse_sensitivity: TextBox
+      parallel_mouse_pivot_multiplier: TextBox
+      parallel_mouse_pan_multiplier: TextBox
+      parallel_speed_multiplier: TextBox
+      parallel_up_down_multiplier: TextBox
       mouse_sensitivity: TextBox
       forced_lens_length_mm: TextBox
       lens_length_delta_mm: TextBox }
@@ -65,6 +71,7 @@ type OptionFields =
       hide_gumball_while_flying: CheckBox
       flight_pivot_uses_gumball: CheckBox
       set_view_target_on_restored_flights: CheckBox
+      enable_parallel_views: CheckBox
       save_speed_to_document: CheckBox
       load_speed_from_document: CheckBox
       exit_on_mouse_left: CheckBox
@@ -199,7 +206,8 @@ let create () =
               speed_increase = text_box ()
               speed_decrease = text_box ()
               exit_key = text_box ()
-              cancel_flight_and_restore = text_box () }
+              cancel_flight_and_restore = text_box ()
+              toggle_projection = text_box () }
           numbers =
             { base_speed = text_box ()
               minimum_speed = text_box ()
@@ -212,6 +220,11 @@ let create () =
               mouse_pivot_multiplier = text_box ()
               mouse_pan_multiplier = text_box ()
               view_target_distance_multiplier = text_box ()
+              parallel_mouse_sensitivity = text_box ()
+              parallel_mouse_pivot_multiplier = text_box ()
+              parallel_mouse_pan_multiplier = text_box ()
+              parallel_speed_multiplier = text_box ()
+              parallel_up_down_multiplier = text_box ()
               mouse_sensitivity = text_box ()
               forced_lens_length_mm = text_box ()
               lens_length_delta_mm = text_box () }
@@ -236,6 +249,7 @@ let create () =
               hide_gumball_while_flying = new CheckBox(Text = "Hide gumball while flying")
               flight_pivot_uses_gumball = new CheckBox(Text = "Use gumball as flight pivot target")
               set_view_target_on_restored_flights = new CheckBox(Text = "Set target on restored flights")
+              enable_parallel_views = new CheckBox(Text = "Fly in parallel views")
               save_speed_to_document = new CheckBox(Text = "Save current speed to document")
               load_speed_from_document = new CheckBox(Text = "Load speed from document")
               exit_on_mouse_left = new CheckBox(Text = "Left click exits flight")

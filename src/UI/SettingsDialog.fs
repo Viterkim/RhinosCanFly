@@ -84,7 +84,7 @@ type RhinosCanFlySettingsDialog() as self =
 
         cancelButton.Click.Add(fun (_: EventArgs) -> self.Close())
 
-        self.Shown.Add(fun (_: EventArgs) -> control.SetScrollPosition SettingsScrollPosition.command_dialog)
+        self.LoadComplete.Add(fun (_: EventArgs) -> control.SetScrollPosition SettingsScrollPosition.command_dialog)
 
         self.Closed.Add(fun (_: EventArgs) ->
             SettingsDialogPlacement.last_location <- Some self.Location

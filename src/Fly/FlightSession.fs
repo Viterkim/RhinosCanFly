@@ -5,7 +5,6 @@ open System.Diagnostics
 open Rhino
 open Rhino.ApplicationSettings
 open Rhino.Display
-open Rhino.Geometry
 
 type StartingSession =
     { view: RhinoView
@@ -20,6 +19,7 @@ type ActiveSession =
     { state: FlyState
       raw_input: InputAccumulator.State
       input_wake: PlatformInput.RawInputWake
+      input_available: Action
       override_suspension: InputSuspensionLease
       cleanup_errors: ResizeArray<string>
       original_tooltips_enabled: bool
@@ -29,7 +29,6 @@ type ActiveSession =
       mutable cursor_hidden: bool
       mutable tooltips_changed: bool
       mutable gumball_changed: bool
-      mutable camera_mutated: bool
       mutable lens_changed: bool
       mutable flight_entered: bool
       mutable keyboard_suppressed: bool
@@ -226,9 +225,7 @@ let finish_active (session: ActiveSession) (activeResult: Result<unit, string>) 
         if not restored then
             session.input_safe <- false
 
-    let restoreCamera =
-        state.restore_camera_on_exit
-        || (session.camera_mutated && not session.flight_entered)
+    let restoreCamera = state.restore_camera_on_exit
 
     let hostExists = PlatformInput.viewport_host_exists state.host_identity state.view
 
@@ -243,7 +240,7 @@ let finish_active (session: ActiveSession) (activeResult: Result<unit, string>) 
 
     if session.lens_changed && hostExists then
         attempt_cleanup cleanupErrors "lens" (fun () ->
-            state.viewport.Camera35mmLensLength <- state.original_lens_length)
+            state.viewport.Camera35mmLensLength <- state.original_camera.lens_length_mm)
         |> ignore
 
     let viewTargetRequested =
@@ -341,7 +338,7 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
 
     PlatformInput.focus_view state.view
 
-    match PlatformInput.suppress_flight_keyboard state.config.bindings with
+    match PlatformInput.suppress_flight_keyboard state.config.bindings session.input_available with
     | Ok() -> session.keyboard_suppressed <- true
     | Error error -> failwith $"Could not suppress flight keys: {error}"
 
@@ -356,11 +353,7 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
 
     let raw =
         try
-            PlatformInput.open_raw_input
-                rawInputConfig
-                sessionMode
-                session.raw_input
-                (PlatformInput.raw_input_wake_action session.input_wake)
+            PlatformInput.open_raw_input rawInputConfig sessionMode session.raw_input session.input_available
         with error ->
             FlyState.request_exit (SessionFailure(error.ToString())) state
 
@@ -402,13 +395,10 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
         | Ok lease -> session.cursor_clip <- Some lease
         | Error error -> failwith error
 
-        session.camera_mutated <- true
-        state.viewport.CameraUp <- Vector3d.ZAxis
         session.cursor_hidden <- true
         PlatformInput.hide_cursor ()
 
-        let adjustment = state.config.behavior.lens_adjustment
-        session.lens_changed <- Option.isSome adjustment.forced_length_mm || adjustment.delta_mm <> 0.
+        session.lens_changed <- FlightCamera.entry_lens_changes state
         FlightCamera.apply_entry_lens state
         state.view.Redraw()
         session.flight_entered <- true
@@ -424,6 +414,7 @@ let begin_active (starting: StartingSession) =
             { state = state
               raw_input = InputAccumulator.create ()
               input_wake = starting.input_wake
+              input_available = PlatformInput.raw_input_wake_action starting.input_wake
               override_suspension = starting.override_suspension
               cleanup_errors = ResizeArray<string>()
               original_tooltips_enabled = CursorTooltipSettings.TooltipsEnabled
@@ -433,7 +424,6 @@ let begin_active (starting: StartingSession) =
               cursor_hidden = false
               tooltips_changed = false
               gumball_changed = false
-              camera_mutated = false
               lens_changed = false
               flight_entered = false
               keyboard_suppressed = false

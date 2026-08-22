@@ -81,6 +81,13 @@ let update_toggles (state: FlyState) =
 
     state.speed_decrease_was_down <- decrease
 
+    let toggleProjection = is_optional_down bindings.toggle_projection
+
+    if toggleProjection && not state.keyboard_projection_toggle_was_down then
+        FlightCamera.toggle_projection state
+
+    state.keyboard_projection_toggle_was_down <- toggleProjection
+
 let read_movement (state: FlyState) =
     let bindings = state.config.bindings
     let movement = state.config.movement
@@ -132,7 +139,7 @@ let apply_wheel_input (input: InputAccumulator.State) (state: FlyState) =
     let wheel = state.wheel_remainder + InputAccumulator.drain_wheel input
 
     if wheel = 0L then
-        NoCameraChange
+        ViewChange.none
     else
         let wheelSteps = wheel / PlatformInput.wheel_delta
         state.wheel_remainder <- wheel - wheelSteps * PlatformInput.wheel_delta
@@ -153,7 +160,7 @@ let apply_wheel_input (input: InputAccumulator.State) (state: FlyState) =
             elif wheelSteps <> 0L then
                 speed_steps state (direction * wheelSteps)
 
-            NoCameraChange
+            ViewChange.none
 
 let update_state (now: float) (input: InputAccumulator.State) (state: FlyState) =
     let cancelAndRestore =

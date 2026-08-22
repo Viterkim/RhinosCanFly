@@ -108,6 +108,7 @@ type FlyConfigFile =
       speed_decrease: string
       exit_key: string
       cancel_flight_and_restore: string
+      toggle_projection: string
       base_speed: float
       minimum_speed: float
       maximum_speed: float
@@ -144,6 +145,12 @@ type FlyConfigFile =
       boost_mode: KeyActivationMode
       slow_mode: KeyActivationMode
       vertical_speed_multiplier: float
+      enable_parallel_views: bool
+      parallel_mouse_sensitivity: float
+      parallel_mouse_pivot_multiplier: float
+      parallel_mouse_pan_multiplier: float
+      parallel_speed_multiplier: float
+      parallel_up_down_multiplier: float
       forced_lens_length_mm: float
       lens_length_delta_mm: float
       viewport_paint_mode: ViewportPaintMode }
