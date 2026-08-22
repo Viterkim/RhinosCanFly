@@ -96,7 +96,7 @@ type MousePanUnitsPerRadian = MousePanUnitsPerRadian of units_per_radian: float
 type ActiveMouseNavigation =
     | MouseLook
     | MousePivot of target: Point3d
-    | MousePan of units_per_radian: MousePanUnitsPerRadian
+    | MousePan of target: Point3d * units_per_radian: MousePanUnitsPerRadian
 
 [<Struct>]
 type InputSnapshot =

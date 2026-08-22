@@ -1,6 +1,7 @@
 module RhinosCanFly.FlightCamera
 
 open Rhino
+open Rhino.ApplicationSettings
 open Rhino.Display
 open Rhino.Geometry
 
@@ -48,6 +49,12 @@ let update_navigation_mode (input: InputAccumulator.State) (state: FlyState) =
         else
             state.latched_mouse_navigation
 
+    let previousNavigation =
+        match state.active_mouse_navigation with
+        | MouseLook -> LookNavigation
+        | MousePivot _ -> PivotNavigation
+        | MousePan _ -> PanNavigation
+
     state.active_mouse_navigation <-
         match requestedNavigation with
         | LookNavigation -> MouseLook
@@ -73,7 +80,49 @@ let update_navigation_mode (input: InputAccumulator.State) (state: FlyState) =
                     else
                         1.
 
-                MousePan(MousePanUnitsPerRadian unitsPerRadian)
+                MousePan(panTarget, MousePanUnitsPerRadian unitsPerRadian)
+
+    if previousNavigation <> requestedNavigation then
+        InputAccumulator.drain_mouse input |> ignore
+
+let apply_navigation_wheel (steps: int64) (state: FlyState) =
+    if steps = 0L then
+        NoCameraChange
+    else
+        match state.active_mouse_navigation with
+        | MouseLook -> NoCameraChange
+        | MousePivot target
+        | MousePan(target, _) ->
+            let zoomScale = ViewSettings.ZoomScale
+
+            if not (RhinoMath.IsValidDouble zoomScale) || zoomScale <= RhinoMath.ZeroTolerance then
+                NoCameraChange
+            else
+                let magnification = System.Math.Pow(1. / zoomScale, float steps)
+                let previousPosition = state.camera.position
+                state.camera <- Movement.dolly_towards target magnification state.camera
+
+                if state.camera.position = previousPosition then
+                    NoCameraChange
+                else
+                    match state.active_mouse_navigation with
+                    | MousePan(panTarget, _) ->
+                        let targetDistance = state.camera.position.DistanceTo panTarget
+
+                        let unitsPerRadian =
+                            if
+                                RhinoMath.IsValidDouble targetDistance
+                                && targetDistance > RhinoMath.ZeroTolerance
+                            then
+                                targetDistance
+                            else
+                                1.
+
+                        state.active_mouse_navigation <- MousePan(panTarget, MousePanUnitsPerRadian unitsPerRadian)
+                    | MouseLook
+                    | MousePivot _ -> ()
+
+                    PositionChanged
 
 let apply_mouse_input (input: InputAccumulator.State) (state: FlyState) =
     let struct (dx, dy) = InputAccumulator.drain_mouse input
@@ -109,8 +158,13 @@ let apply_mouse_input (input: InputAccumulator.State) (state: FlyState) =
                     DirectionChanged
                 else
                     NoCameraChange
-            | MousePan unitsPerRadian ->
+            | MousePan(panTarget, unitsPerRadian) ->
                 state.camera <- Movement.mouse_pan state.config.mouse unitsPerRadian dx dy state.camera
+
+                let translation = state.camera.position - previous.position
+
+                if not translation.IsZero then
+                    state.active_mouse_navigation <- MousePan(panTarget + translation, unitsPerRadian)
 
                 if state.camera.position <> previous.position then
                     PositionChanged

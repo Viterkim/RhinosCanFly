@@ -26,6 +26,7 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
         let frameSeconds = clock.Elapsed.TotalSeconds
         let observedRevision = InputAccumulator.work_revision rawInput
         FlightControls.update_state frameSeconds rawInput state
+        let mutable wheelChange = NoCameraChange
         let mutable mouseChange = NoCameraChange
 
         if not (FlyState.is_running state) then
@@ -33,6 +34,7 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
         else
             FlightControls.update_keyboard_navigation_input state
             FlightCamera.update_navigation_mode rawInput state
+            wheelChange <- FlightControls.apply_wheel_input rawInput state
             mouseChange <- FlightCamera.apply_mouse_input rawInput state
 
         PlatformInput.acknowledge_raw_input_wake inputWake
@@ -40,18 +42,28 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
 
         if FlyState.is_running state then
             let mutable movementChanged =
-                match mouseChange with
+                match wheelChange with
                 | PositionChanged
                 | PositionAndDirectionChanged -> true
                 | DirectionChanged
-                | NoCameraChange -> false
+                | NoCameraChange ->
+                    match mouseChange with
+                    | PositionChanged
+                    | PositionAndDirectionChanged -> true
+                    | DirectionChanged
+                    | NoCameraChange -> false
 
             let mutable directionChanged =
-                match mouseChange with
+                match wheelChange with
                 | DirectionChanged
                 | PositionAndDirectionChanged -> true
                 | PositionChanged
-                | NoCameraChange -> false
+                | NoCameraChange ->
+                    match mouseChange with
+                    | DirectionChanged
+                    | PositionAndDirectionChanged -> true
+                    | PositionChanged
+                    | NoCameraChange -> false
 
             let input = FlightControls.read_movement state
             let requestedPivotDirection = FlightInput.key_pivot_direction input
@@ -97,8 +109,15 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
                         MousePivot(
                             Movement.orbit_point state.key_pivot_target movementStep.key_pivot_angle translatedCenter
                         )
-                | MouseLook
-                | MousePan _ -> ()
+                | MousePan(panTarget, unitsPerRadian) ->
+                    let translatedTarget = panTarget + movementStep.translation
+
+                    state.active_mouse_navigation <-
+                        MousePan(
+                            Movement.orbit_point state.key_pivot_target movementStep.key_pivot_angle translatedTarget,
+                            unitsPerRadian
+                        )
+                | MouseLook -> ()
 
                 if nextCamera.position <> previousCamera.position then
                     movementChanged <- true

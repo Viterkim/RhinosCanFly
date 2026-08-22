@@ -128,6 +128,33 @@ let reconcile_held_side_button_navigation (input: InputAccumulator.State) (state
     if mouse4Configured || mouse5Configured then
         InputAccumulator.set_pivot_held (mouse4Held || mouse5Held) input
 
+let apply_wheel_input (input: InputAccumulator.State) (state: FlyState) =
+    let wheel = state.wheel_remainder + InputAccumulator.drain_wheel input
+
+    if wheel = 0L then
+        NoCameraChange
+    else
+        let wheelSteps = wheel / PlatformInput.wheel_delta
+        state.wheel_remainder <- wheel - wheelSteps * PlatformInput.wheel_delta
+
+        match state.active_mouse_navigation with
+        | MousePivot _
+        | MousePan _ -> FlightCamera.apply_navigation_wheel wheelSteps state
+        | MouseLook ->
+            let direction =
+                match state.config.movement.wheel_speed_mode with
+                | MouseWheelSpeedMode.Off -> 0L
+                | MouseWheelSpeedMode.Normal -> 1L
+                | MouseWheelSpeedMode.Reversed -> -1L
+                | _ -> 0L
+
+            if direction = 0L then
+                state.wheel_remainder <- 0L
+            elif wheelSteps <> 0L then
+                speed_steps state (direction * wheelSteps)
+
+            NoCameraChange
+
 let update_state (now: float) (input: InputAccumulator.State) (state: FlyState) =
     let cancelAndRestore =
         PlatformInput.flight_binding_down state.config.bindings.cancel_flight_and_restore
@@ -176,23 +203,5 @@ let update_state (now: float) (input: InputAccumulator.State) (state: FlyState) 
     | None ->
         if periodicValidationDue then
             reconcile_held_side_button_navigation input state
-
-        let wheel = state.wheel_remainder + InputAccumulator.drain_wheel input
-
-        if wheel <> 0L then
-            let wheelSteps = wheel / PlatformInput.wheel_delta
-            state.wheel_remainder <- wheel - wheelSteps * PlatformInput.wheel_delta
-
-            let direction =
-                match state.config.movement.wheel_speed_mode with
-                | MouseWheelSpeedMode.Off -> 0L
-                | MouseWheelSpeedMode.Normal -> 1L
-                | MouseWheelSpeedMode.Reversed -> -1L
-                | _ -> 0L
-
-            if direction = 0L then
-                state.wheel_remainder <- 0L
-            elif wheelSteps <> 0L then
-                speed_steps state (direction * wheelSteps)
 
         update_toggles state

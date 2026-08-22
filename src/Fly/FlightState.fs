@@ -27,7 +27,13 @@ let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyCo
         | Ok point -> point
         | Error error -> failwith error
 
-    let struct (yaw, pitch) = Movement.angles_from_direction viewport.CameraDirection
+    let cameraLocation = viewport.CameraLocation
+    let cameraDirection = viewport.CameraDirection
+
+    let cameraTarget =
+        Movement.target_on_camera_axis cameraLocation viewport.CameraTarget cameraDirection
+
+    let struct (yaw, pitch) = Movement.angles_from_direction cameraDirection
 
     { view = view
       viewport = viewport
@@ -49,8 +55,8 @@ let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyCo
       exit_reason = None
       restore_camera_on_exit = sessionMode.flight_mode = FlightMode.Temporary
       camera =
-        { position = viewport.CameraLocation
-          target = viewport.CameraTarget
+        { position = cameraLocation
+          target = cameraTarget
           yaw = yaw
           pitch = pitch }
       speed =

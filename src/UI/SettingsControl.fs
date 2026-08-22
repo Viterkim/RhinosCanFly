@@ -100,6 +100,9 @@ type SettingsControl() as self =
 
     let mainTable = new TableLayout(Padding = Padding 12, Spacing = Size(0, 4))
 
+    let scrollable =
+        new Scrollable(Border = BorderType.None, ExpandContentWidth = true, Content = mainTable)
+
     do
         mainTable.Rows.Add(SettingsLayout.full_width (title_row ()))
         mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "General behaviour"))
@@ -273,9 +276,6 @@ type SettingsControl() as self =
         mainTable.Rows.Add(SettingsLayout.full_width actions.raw_json_toggle)
         mainTable.Rows.Add(SettingsLayout.full_width rawJsonPanel)
 
-        let scrollable =
-            new Scrollable(Border = BorderType.None, ExpandContentWidth = true, Content = mainTable)
-
         let host = new TableLayout(Spacing = Size.Empty)
         host.Rows.Add(SettingsLayout.row [ new TableCell(bindingCapture.focus_sink, false) ])
 
@@ -357,6 +357,10 @@ type SettingsControl() as self =
     member _.RefreshRawIfVisible() = refresh_raw_if_visible ()
 
     member _.CancelBindingCapture() = BindingCapture.cancel bindingCapture
+
+    member _.ReadScrollPosition() = scrollable.ScrollPosition
+
+    member _.SetScrollPosition(position: Point) = scrollable.ScrollPosition <- position
 
     member _.LoadConfig(config: FlyConfigFile) =
         SettingsConfig.load fields.config config
