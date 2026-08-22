@@ -96,7 +96,10 @@ let toggle_projection (state: FlyState) =
                     struct (ViewProjectionKind.TwoPointPerspective, viewport.ChangeToTwoPointPerspectiveProjection lens)
                 | ViewProjectionKind.Parallel
                 | ViewProjectionKind.Perspective ->
-                    struct (ViewProjectionKind.Perspective, viewport.ChangeToPerspectiveProjection(false, lens))
+                    let targetDistance = Movement.target_distance state.camera
+
+                    struct (ViewProjectionKind.Perspective,
+                            viewport.ChangeToPerspectiveProjection(targetDistance, false, lens))
             else
                 state.perspective_projection <- state.projection
                 struct (ViewProjectionKind.Parallel, viewport.ChangeToParallelProjection false)
