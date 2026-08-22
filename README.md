@@ -42,6 +42,8 @@ https://github.com/user-attachments/assets/52dc3237-e12b-4a54-8776-88f6b6475fac
 
 ![image](./docs/img/options1.jpg)
 
+![image](./docs/img/options2.jpg)
+
 ## Main Install (Package Manager / Yak)
 
 Install in Rhino itself, run `PackageManager` and search for `RhinosCanFly`, click install and restart Rhino.
