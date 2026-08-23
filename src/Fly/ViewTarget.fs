@@ -3,6 +3,7 @@ module RhinosCanFly.ViewTarget
 open System
 open System.Diagnostics
 open Rhino
+open Rhino.ApplicationSettings
 open Rhino.DocObjects
 open Rhino.Display
 open Rhino.Geometry
@@ -47,15 +48,12 @@ let object_gumball_target (viewport: RhinoViewport) (rhinoObject: RhinoObject) =
     if isNull rhinoObject then
         None
     else
-        let geometry = rhinoObject.Geometry
+        let mutable bounds = BoundingBox.Unset
 
-        let bounds =
-            if isNull geometry then
-                BoundingBox.Unset
-            else
-                geometry.GetBoundingBox(true)
-
-        if not bounds.IsValid then
+        if
+            not (RhinoObject.GetTightBoundingBox([| rhinoObject |], &bounds))
+            || not bounds.IsValid
+        then
             None
         else
             use gumball = new GumballObject()
@@ -70,7 +68,7 @@ let object_gumball_target (viewport: RhinoViewport) (rhinoObject: RhinoObject) =
             else
                 None
 
-let try_object_center_target (view: RhinoView) (viewport: RhinoViewport) =
+let try_filtered_target (view: RhinoView) (viewport: RhinoViewport) =
     try
         if isNull view || isNull view.Document then
             None
@@ -125,6 +123,22 @@ let try_object_center_target (view: RhinoView) (viewport: RhinoViewport) =
                             if not (isNull reference) then
                                 reference.Dispose()
     with error ->
+        Debug.WriteLine $"RhinosCanFly filtered target: {error}"
+        None
+
+let try_object_center_target (view: RhinoView) (viewport: RhinoViewport) =
+    try
+        let selectionFilter = SelectionFilterSettings.GetCurrentState()
+
+        try
+            SelectionFilterSettings.GlobalGeometryFilter <- ObjectType.AnyObject
+            SelectionFilterSettings.OneShotGeometryFilter <- ObjectType.AnyObject
+            SelectionFilterSettings.Enabled <- false
+            SelectionFilterSettings.SubObjectSelect <- false
+            try_filtered_target view viewport
+        finally
+            SelectionFilterSettings.UpdateFromState selectionFilter
+    with error ->
         Debug.WriteLine $"RhinosCanFly object center target: {error}"
         None
 
@@ -157,6 +171,10 @@ let selected_target (config: ViewTargetConfig) (speed: float) (view: RhinoView) 
     | ViewTargetMode.Distance -> distance_target config speed viewport
     | ViewTargetMode.GeometryThenDistance ->
         match try_geometry_target viewport with
+        | Some target -> Some target
+        | None -> distance_target config speed viewport
+    | ViewTargetMode.TargetThenDistance ->
+        match try_filtered_target view viewport with
         | Some target -> Some target
         | None -> distance_target config speed viewport
     | ViewTargetMode.ObjectCenterThenDistance ->

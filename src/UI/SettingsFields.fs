@@ -192,6 +192,7 @@ let create () =
         [| ViewTargetMode.Off, "Off"
            ViewTargetMode.Distance, "Distance"
            ViewTargetMode.GeometryThenDistance, "Geometry, then distance"
+           ViewTargetMode.TargetThenDistance, "Target, then distance"
            ViewTargetMode.ObjectCenterThenDistance, "Object center, then distance" |]
 
     let paintModes =
