@@ -28,6 +28,7 @@ type FlightBindings =
 
 type ParallelViewConfig =
     { flying: ParallelViewFlying
+      right_click_entry: bool
       mouse_sensitivity: RuntimeMouseSensitivity
       mouse_pivot_multiplier: MousePivotMultiplier
       mouse_pan_multiplier: MousePanMultiplier

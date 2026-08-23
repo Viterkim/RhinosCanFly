@@ -89,6 +89,7 @@ type OptionFields =
       wheel_changes_speed_during_flight_navigation: CheckBox
       mouse4_action_while_flying: CheckBox
       mouse5_action_while_flying: CheckBox
+      right_click_enters_parallel_views: CheckBox
       exit_on_mouse_left: CheckBox
       exit_on_mouse_right: CheckBox
       commands_do_not_repeat: CheckBox }
@@ -290,6 +291,7 @@ let create () =
                 new CheckBox(Text = "MWheel changes speed during pan/pivot")
               mouse4_action_while_flying = new CheckBox(Text = "Also while flying")
               mouse5_action_while_flying = new CheckBox(Text = "Also while flying")
+              right_click_enters_parallel_views = new CheckBox(Text = "Enable right click to enter in parallel")
               exit_on_mouse_left = new CheckBox(Text = "Left click exits flight / navigation")
               exit_on_mouse_right = new CheckBox(Text = "Right click exits flight / navigation")
               commands_do_not_repeat = new CheckBox(Text = "Don't repeat flight commands") }

@@ -210,6 +210,7 @@ type FlyConfigFile =
       slow_mode: KeyActivationMode
       vertical_speed_multiplier: float
       parallel_view_flying: ParallelViewFlyingFile
+      right_click_enters_parallel_views: bool
       parallel_mouse_sensitivity: float
       parallel_mouse_pivot_multiplier: float
       parallel_mouse_pan_multiplier: float

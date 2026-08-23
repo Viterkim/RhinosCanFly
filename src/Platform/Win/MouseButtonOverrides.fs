@@ -934,6 +934,7 @@ let apply (config: MouseOverrideConfig) =
                   right_click_entry = config.right_click_entry
                   default_flight_mode = config.default_flight_mode
                   parallel_view_flying = config.parallel_view_flying
+                  parallel_right_click_entry = config.parallel_right_click_entry
                   shift_right_click = config.shift_right_click
                   alt_right_click = config.alt_right_click
                   ctrl_right_click = config.ctrl_right_click

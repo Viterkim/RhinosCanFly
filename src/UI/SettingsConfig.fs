@@ -201,6 +201,7 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     set_checked options.wheel_changes_speed_during_flight_navigation config.wheel_changes_speed_during_flight_navigation
     set_checked options.mouse4_action_while_flying config.mouse4_action_while_flying
     set_checked options.mouse5_action_while_flying config.mouse5_action_while_flying
+    set_checked options.right_click_enters_parallel_views config.right_click_enters_parallel_views
     set_checked options.exit_on_mouse_left config.exit_on_mouse_left
     set_checked options.exit_on_mouse_right config.exit_on_mouse_right
     set_checked options.commands_do_not_repeat config.commands_do_not_repeat
@@ -277,6 +278,7 @@ let read (fields: SettingsFields.ConfigFields) =
               middle_mouse_while_flying = SettingsFields.selected_mode modes.middle_mouse_while_flying
               mouse4_action_while_flying = is_checked options.mouse4_action_while_flying
               mouse5_action_while_flying = is_checked options.mouse5_action_while_flying
+              right_click_enters_parallel_views = is_checked options.right_click_enters_parallel_views
               right_click_entry_mode = SettingsFields.selected_mode modes.right_click_entry_mode
               default_flight_mode = SettingsFields.selected_mode modes.default_flight_mode
               shift_right_click_retarget = SettingsFields.selected_mode modes.shift_right_click_retarget

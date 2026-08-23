@@ -54,6 +54,7 @@ let apply_live (loaded: ConfigLoadResult) =
                   right_click_entry = config.right_click_entry_mode
                   default_flight_mode = config.default_flight_mode
                   parallel_view_flying = loaded.config.movement.parallel_view.flying
+                  parallel_right_click_entry = loaded.config.movement.parallel_view.right_click_entry
                   shift_right_click =
                     RoutedMouseAction.create config.shift_right_click_action config.shift_right_click_retarget
                   alt_right_click =
@@ -72,6 +73,7 @@ let apply_live (loaded: ConfigLoadResult) =
                   right_click_entry = RightClickEntryMode.Off
                   default_flight_mode = config.default_flight_mode
                   parallel_view_flying = ParallelViewFlying.DisabledAll
+                  parallel_right_click_entry = false
                   shift_right_click = RoutedMouseAction.Off
                   alt_right_click = RoutedMouseAction.Off
                   ctrl_right_click = RoutedMouseAction.Off

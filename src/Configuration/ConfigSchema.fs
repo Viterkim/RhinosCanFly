@@ -81,6 +81,7 @@ let defaults: FlyConfigFile =
       slow_mode = KeyActivationMode.Toggle
       vertical_speed_multiplier = 0.7
       parallel_view_flying = default_parallel_view_flying ()
+      right_click_enters_parallel_views = true
       parallel_mouse_sensitivity = 20.
       parallel_mouse_pivot_multiplier = 2.
       parallel_mouse_pan_multiplier = 2.
@@ -345,6 +346,7 @@ let compile (source: FlyConfigFile) =
               slow_mode = source.slow_mode
               parallel_view =
                 { flying = parallelViewFlying
+                  right_click_entry = source.right_click_enters_parallel_views
                   mouse_sensitivity =
                     source.parallel_mouse_sensitivity
                     |> ConfigMouseSensitivity

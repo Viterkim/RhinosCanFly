@@ -13,6 +13,7 @@ type RoutingConfig =
       right_click_entry: RightClickEntryMode
       default_flight_mode: DefaultFlightMode
       parallel_view_flying: ParallelViewFlying
+      parallel_right_click_entry: bool
       shift_right_click: RoutedMouseAction
       alt_right_click: RoutedMouseAction
       ctrl_right_click: RoutedMouseAction
@@ -115,6 +116,7 @@ let empty_routing =
       right_click_entry = RightClickEntryMode.Off
       default_flight_mode = DefaultFlightMode.Normal
       parallel_view_flying = ParallelViewFlying.DisabledAll
+      parallel_right_click_entry = false
       shift_right_click = RoutedMouseAction.Off
       alt_right_click = RoutedMouseAction.Off
       ctrl_right_click = RoutedMouseAction.Off

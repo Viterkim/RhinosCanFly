@@ -49,6 +49,7 @@ type MouseOverrideConfig =
       right_click_entry: RightClickEntryMode
       default_flight_mode: DefaultFlightMode
       parallel_view_flying: ParallelViewFlying
+      parallel_right_click_entry: bool
       shift_right_click: RoutedMouseAction
       alt_right_click: RoutedMouseAction
       ctrl_right_click: RoutedMouseAction

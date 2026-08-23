@@ -202,6 +202,7 @@ let action
         entry_enabled navigation
         && (viewport.is_perspective
             || (viewport.is_parallel
+                && navigation.routing.parallel_right_click_entry
                 && ParallelViewFlying.allows viewport.name navigation.routing.parallel_view_flying))
         && (entry_during_commands navigation.routing.right_click_entry || not commandActive)
         && not modifiers.shift

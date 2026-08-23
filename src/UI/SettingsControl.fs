@@ -102,6 +102,7 @@ type SettingsControl() as self =
 
         parallelViewNames.Enabled <- usesList
         bindings.toggle_projection.Enabled <- parallelFlyingPossible
+        options.right_click_enters_parallel_views.Enabled <- parallelFlyingPossible
 
         numbers.parallel_mouse_sensitivity.Enabled <- parallelFlyingPossible
 
@@ -359,10 +360,23 @@ type SettingsControl() as self =
 
         mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Parallel projection"))
 
+        modes.parallel_view_flying.control.Width <- 180
+
+        let parallelFlyingLayout = new TableLayout(Spacing = Size(8, 0))
+
+        parallelFlyingLayout.Rows.Add(
+            SettingsLayout.row
+                [ new TableCell(new Label(Text = "Parallel flying", Width = SettingsLayout.ITEM_LABEL_WIDTH), false)
+                  new TableCell(modes.parallel_view_flying.control, false)
+                  new TableCell(options.right_click_enters_parallel_views, true) ]
+        )
+
+        mainTable.Rows.Add(SettingsLayout.full_width parallelFlyingLayout)
+
         SettingsLayout.grid
             2
-            [ SettingsLayout.item "Parallel flying" modes.parallel_view_flying.control
-              SettingsLayout.item "Viewports (comma list)" parallelViewNames
+            [ SettingsLayout.item "Viewports (comma list)" parallelViewNames
+              new Panel() :> Control
               SettingsLayout.item "Parallel zoom speed" numbers.parallel_zoom_speed_multiplier
               SettingsLayout.item "Parallel up/down multi" numbers.parallel_up_down_multiplier
               SettingsLayout.item "Parallel pivot multi" numbers.parallel_mouse_pivot_multiplier
