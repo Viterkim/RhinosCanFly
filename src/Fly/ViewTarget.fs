@@ -142,12 +142,12 @@ let try_object_center_target (view: RhinoView) (viewport: RhinoViewport) =
         Debug.WriteLine $"RhinosCanFly object center target: {error}"
         None
 
-let distance_target (config: ViewTargetConfig) (speed: float) (viewport: RhinoViewport) =
-    let (ViewTargetDistanceMultiplier multiplier) =
+let distance_target (config: RetargetConfig) (speed: float) (viewport: RhinoViewport) =
+    let (RetargetFallbackMultiplier multiplier) =
         if viewport.IsParallelProjection then
-            config.parallel_distance_multiplier
+            config.parallel_fallback_multiplier
         else
-            config.perspective_distance_multiplier
+            config.perspective_fallback_multiplier
 
     let distance = speed * multiplier
     let mutable direction = viewport.CameraDirection
@@ -166,25 +166,31 @@ let distance_target (config: ViewTargetConfig) (speed: float) (viewport: RhinoVi
         else
             None
 
-let selected_target (config: ViewTargetConfig) (speed: float) (view: RhinoView) (viewport: RhinoViewport) =
-    match config.mode with
-    | ViewTargetMode.Distance -> distance_target config speed viewport
-    | ViewTargetMode.GeometryThenDistance ->
+let selected_target
+    (config: RetargetConfig)
+    (mode: RetargetMode)
+    (speed: float)
+    (view: RhinoView)
+    (viewport: RhinoViewport)
+    =
+    match mode with
+    | RetargetMode.Distance -> distance_target config speed viewport
+    | RetargetMode.GeometryThenDistance ->
         match try_geometry_target viewport with
         | Some target -> Some target
         | None -> distance_target config speed viewport
-    | ViewTargetMode.TargetThenDistance ->
+    | RetargetMode.TargetThenDistance ->
         match try_filtered_target view viewport with
         | Some target -> Some target
         | None -> distance_target config speed viewport
-    | ViewTargetMode.ObjectCenterThenDistance ->
+    | RetargetMode.ObjectCenterThenDistance ->
         match try_object_center_target view viewport with
         | Some target -> Some target
         | None -> distance_target config speed viewport
-    | ViewTargetMode.Off
+    | RetargetMode.Off
     | _ -> None
 
-let apply (config: ViewTargetConfig) (speed: float) (view: RhinoView) (viewport: RhinoViewport) =
-    match selected_target config speed view viewport with
+let apply (config: RetargetConfig) (mode: RetargetMode) (speed: float) (view: RhinoView) (viewport: RhinoViewport) =
+    match selected_target config mode speed view viewport with
     | Some target -> viewport.SetCameraTarget(target, false)
     | None -> ()

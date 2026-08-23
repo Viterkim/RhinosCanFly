@@ -13,20 +13,18 @@ type MouseWheelSpeedMode =
     | Normal = 1
     | Reversed = 2
 
-type MouseButtonPivotMode =
+type MouseGestureAction =
     | Off = 0
-    | Hold = 1
-    | Toggle = 2
+    | TogglePivot = 1
+    | HoldPivot = 2
+    | TogglePan = 3
+    | HoldPan = 4
+    | Retarget = 5
 
 type FlyingMiddleMouseMode =
     | Off = 0
     | ExitFlight = 1
     | TogglePivot = 2
-
-type ModifiedRightClickMode =
-    | Off = 0
-    | Pivot = 1
-    | Pan = 2
 
 type RightClickEntryMode =
     | Off = 0
@@ -81,7 +79,7 @@ type DefaultFlightMode =
     | Temporary = 1
     | TemporaryIncludingNavigationCommands = 2
 
-type ViewTargetMode =
+type RetargetMode =
     | Off = 0
     | Distance = 1
     | GeometryThenDistance = 2
@@ -89,7 +87,7 @@ type ViewTargetMode =
     | TargetThenDistance = 4
 
 [<Struct>]
-type ViewTargetDistanceMultiplier = ViewTargetDistanceMultiplier of float
+type RetargetFallbackMultiplier = RetargetFallbackMultiplier of float
 
 module DefaultFlightMode =
     let flight_mode (mode: DefaultFlightMode) =
@@ -169,20 +167,27 @@ type FlyConfigFile =
       exit_on_mouse_left: bool
       exit_on_mouse_right: bool
       middle_mouse_while_flying: FlyingMiddleMouseMode
-      mouse4_pivot_in_flight: bool
-      mouse5_pivot_in_flight: bool
+      mouse4_action_while_flying: bool
+      mouse5_action_while_flying: bool
       right_click_entry_mode: RightClickEntryMode
       default_flight_mode: DefaultFlightMode
-      view_target_mode: ViewTargetMode
-      perspective_view_target_distance_multiplier: float
-      parallel_view_target_distance_multiplier: float
-      set_view_target_on_restored_flights: bool
+      shift_right_click_retarget: RetargetMode
+      alt_right_click_retarget: RetargetMode
+      ctrl_right_click_retarget: RetargetMode
+      mouse4_retarget: RetargetMode
+      mouse5_retarget: RetargetMode
+      retarget_on_pivot: RetargetMode
+      retarget_on_pan: RetargetMode
+      retarget_on_flight_exit: RetargetMode
+      retarget_on_restored_flight_exit: RetargetMode
+      perspective_retarget_fallback_multiplier: float
+      parallel_retarget_fallback_multiplier: float
       commands_do_not_repeat: bool
-      mouse4_pivot_mode: MouseButtonPivotMode
-      mouse5_pivot_mode: MouseButtonPivotMode
-      shift_right_click_mode: ModifiedRightClickMode
-      alt_right_click_mode: ModifiedRightClickMode
-      ctrl_right_click_mode: ModifiedRightClickMode
+      mouse4_action: MouseGestureAction
+      mouse5_action: MouseGestureAction
+      shift_right_click_action: MouseGestureAction
+      alt_right_click_action: MouseGestureAction
+      ctrl_right_click_action: MouseGestureAction
       boost_mode: KeyActivationMode
       slow_mode: KeyActivationMode
       vertical_speed_multiplier: float

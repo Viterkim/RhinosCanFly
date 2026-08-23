@@ -89,7 +89,11 @@ type ViewNavigationCallback() =
             | ValueNone ->
                 match RightClickTransitions.parallel_pan_host right_click with
                 | ValueSome _ -> ValueSome DirectParallelPan
-                | ValueNone when ViewNavigationState.side_button_navigation_active state -> ValueSome DirectPivot
+                | ValueNone when ViewNavigationState.side_button_navigation_active state ->
+                    match ViewNavigationState.side_button_navigation_mode state with
+                    | ValueSome ViewNavigationMode.Pivot -> ValueSome DirectPivot
+                    | ValueSome ViewNavigationMode.Pan -> ValueSome DirectPan
+                    | ValueNone -> ValueNone
                 | ValueNone ->
                     match state.view_latch with
                     | PivotActive _ -> ValueSome DirectPivot
@@ -426,7 +430,7 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
                 elif
                     not hookActive
                     || state.lifecycle <> Available
-                    || ViewNavigationState.mode_for state button = MouseButtonPivotMode.Off
+                    || ViewNavigationState.mode_for state button = MouseGestureAction.Off
                 then
                     false
                 elif isDown then
@@ -833,9 +837,9 @@ let apply (config: MouseOverrideConfig) =
                   right_click_entry = config.right_click_entry
                   default_flight_mode = config.default_flight_mode
                   parallel_view_flying = config.parallel_view_flying
-                  shift_right_click = ViewLatchTransitions.configured_mode config.shift_right_click
-                  alt_right_click = ViewLatchTransitions.configured_mode config.alt_right_click
-                  ctrl_right_click = ViewLatchTransitions.configured_mode config.ctrl_right_click
+                  shift_right_click = config.shift_right_click
+                  alt_right_click = config.alt_right_click
+                  ctrl_right_click = config.ctrl_right_click
                   exit = config.exit_binding
                   exit_on_mouse_right = config.exit_on_right
                   prepare_navigation = config.prepare_navigation }

@@ -40,20 +40,54 @@ type SettingsControl() as self =
 
         status.runtime_line.Text <- $"Current Speed: {speedText}  |  Current Lens: {lensText}"
 
-    let refresh_side_button_flight_controls () =
-        options.mouse4_pivot_in_flight.Enabled <-
-            SettingsFields.selected_mode modes.mouse4_pivot_mode <> MouseButtonPivotMode.Off
+    let refresh_retarget_controls () =
+        let shiftEnabled =
+            SettingsFields.selected_mode modes.shift_right_click_action = MouseGestureAction.Retarget
 
-        options.mouse5_pivot_in_flight.Enabled <-
-            SettingsFields.selected_mode modes.mouse5_pivot_mode <> MouseButtonPivotMode.Off
+        let altEnabled =
+            SettingsFields.selected_mode modes.alt_right_click_action = MouseGestureAction.Retarget
 
-    let refresh_view_target_controls () =
-        let enabled =
-            SettingsFields.selected_mode modes.view_target_mode <> ViewTargetMode.Off
+        let ctrlEnabled =
+            SettingsFields.selected_mode modes.ctrl_right_click_action = MouseGestureAction.Retarget
 
-        numbers.perspective_view_target_distance_multiplier.Enabled <- enabled
-        numbers.parallel_view_target_distance_multiplier.Enabled <- enabled
-        options.set_view_target_on_restored_flights.Enabled <- enabled
+        let mouse4Enabled =
+            SettingsFields.selected_mode modes.mouse4_action = MouseGestureAction.Retarget
+
+        let mouse5Enabled =
+            SettingsFields.selected_mode modes.mouse5_action = MouseGestureAction.Retarget
+
+        modes.shift_right_click_retarget.control.Enabled <- shiftEnabled
+        modes.alt_right_click_retarget.control.Enabled <- altEnabled
+        modes.ctrl_right_click_retarget.control.Enabled <- ctrlEnabled
+        modes.mouse4_retarget.control.Enabled <- mouse4Enabled
+        modes.mouse5_retarget.control.Enabled <- mouse5Enabled
+
+        options.mouse4_action_while_flying.Enabled <-
+            SettingsFields.selected_mode modes.mouse4_action <> MouseGestureAction.Off
+
+        options.mouse5_action_while_flying.Enabled <-
+            SettingsFields.selected_mode modes.mouse5_action <> MouseGestureAction.Off
+
+        let fallbackEnabled =
+            (shiftEnabled
+             && SettingsFields.selected_mode modes.shift_right_click_retarget
+                <> RetargetMode.Off)
+            || (altEnabled
+                && SettingsFields.selected_mode modes.alt_right_click_retarget <> RetargetMode.Off)
+            || (ctrlEnabled
+                && SettingsFields.selected_mode modes.ctrl_right_click_retarget <> RetargetMode.Off)
+            || (mouse4Enabled
+                && SettingsFields.selected_mode modes.mouse4_retarget <> RetargetMode.Off)
+            || (mouse5Enabled
+                && SettingsFields.selected_mode modes.mouse5_retarget <> RetargetMode.Off)
+            || SettingsFields.selected_mode modes.retarget_on_pivot <> RetargetMode.Off
+            || SettingsFields.selected_mode modes.retarget_on_pan <> RetargetMode.Off
+            || SettingsFields.selected_mode modes.retarget_on_flight_exit <> RetargetMode.Off
+            || SettingsFields.selected_mode modes.retarget_on_restored_flight_exit
+               <> RetargetMode.Off
+
+        numbers.perspective_retarget_fallback_multiplier.Enabled <- fallbackEnabled
+        numbers.parallel_retarget_fallback_multiplier.Enabled <- fallbackEnabled
 
     let refresh_wheel_speed_controls () =
         options.wheel_changes_speed_during_flight_navigation.Enabled <-
@@ -163,15 +197,35 @@ type SettingsControl() as self =
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Non flying behaviour"))
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Mouse actions"))
 
         SettingsLayout.grid
             2
             [ SettingsLayout.item "Right click" modes.right_click_entry_mode.control
               SettingsLayout.item "Default flight mode" modes.default_flight_mode.control
-              SettingsLayout.item "Shift + right click" modes.shift_right_click_mode.control
-              SettingsLayout.item "Alt + right click" modes.alt_right_click_mode.control
-              SettingsLayout.item "Ctrl + right click" modes.ctrl_right_click_mode.control ]
+              SettingsLayout.item "Shift + right click" modes.shift_right_click_action.control
+              SettingsLayout.item "Alt + right click" modes.alt_right_click_action.control
+              SettingsLayout.item "Ctrl + right click" modes.ctrl_right_click_action.control ]
+        |> SettingsLayout.full_width
+        |> mainTable.Rows.Add
+
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Mouse 4/5"))
+
+        SettingsLayout.grid
+            2
+            [ SettingsLayout.item "Mouse 4" modes.mouse4_action.control
+              options.mouse4_action_while_flying
+              SettingsLayout.item "Mouse 5" modes.mouse5_action.control
+              options.mouse5_action_while_flying ]
+        |> SettingsLayout.full_width
+        |> mainTable.Rows.Add
+
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Sensitivity"))
+
+        SettingsLayout.grid
+            2
+            [ SettingsLayout.item "Perspective" numbers.mouse_sensitivity
+              SettingsLayout.item "Parallel" numbers.parallel_mouse_sensitivity ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
@@ -193,7 +247,6 @@ type SettingsControl() as self =
             [ SettingsLayout.item "Mouse X" modes.mouse_x_mode.control
               SettingsLayout.item "Mouse Y" modes.mouse_y_mode.control
               SettingsLayout.item "Middle mouse" modes.middle_mouse_while_flying.control
-              SettingsLayout.item "Perspective mouse sens" numbers.mouse_sensitivity
               SettingsLayout.item "MWheel changes speed" modes.wheel_speed_mode.control
               options.wheel_changes_speed_during_flight_navigation ]
         |> SettingsLayout.full_width
@@ -263,13 +316,46 @@ type SettingsControl() as self =
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Retarget"))
+
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Automatic retarget"))
+
+        SettingsLayout.grid
+            2
+            [ SettingsLayout.item "On pivot" modes.retarget_on_pivot.control
+              SettingsLayout.item "On pan" modes.retarget_on_pan.control
+              SettingsLayout.item "On flight exit" modes.retarget_on_flight_exit.control
+              SettingsLayout.item "On restored flight exit" modes.retarget_on_restored_flight_exit.control ]
+        |> SettingsLayout.full_width
+        |> mainTable.Rows.Add
+
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Mouse inputs"))
+
+        SettingsLayout.grid
+            2
+            [ SettingsLayout.item "Mouse 4" modes.mouse4_retarget.control
+              SettingsLayout.item "Mouse 5" modes.mouse5_retarget.control
+              SettingsLayout.item "Shift + right click" modes.shift_right_click_retarget.control
+              SettingsLayout.item "Alt + right click" modes.alt_right_click_retarget.control
+              SettingsLayout.item "Ctrl + right click" modes.ctrl_right_click_retarget.control ]
+        |> SettingsLayout.full_width
+        |> mainTable.Rows.Add
+
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Fallback distance"))
+
+        SettingsLayout.grid
+            2
+            [ SettingsLayout.item "Perspective multiplier" numbers.perspective_retarget_fallback_multiplier
+              SettingsLayout.item "Parallel multiplier" numbers.parallel_retarget_fallback_multiplier ]
+        |> SettingsLayout.full_width
+        |> mainTable.Rows.Add
+
         mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Parallel projection"))
 
         SettingsLayout.grid
             2
             [ SettingsLayout.item "Parallel flying" modes.parallel_view_flying.control
               SettingsLayout.item "Viewports (comma list)" parallelViewNames
-              SettingsLayout.item "Parallel sensitivity" numbers.parallel_mouse_sensitivity
               SettingsLayout.item "Parallel zoom speed" numbers.parallel_zoom_speed_multiplier
               SettingsLayout.item "Parallel up/down multi" numbers.parallel_up_down_multiplier
               SettingsLayout.item "Parallel pivot multi" numbers.parallel_mouse_pivot_multiplier
@@ -291,42 +377,6 @@ type SettingsControl() as self =
                   numbers.perspective_lens_length_delta_during_flight_mm ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
-
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Target"))
-
-        SettingsLayout.grid
-            2
-            [ SettingsLayout.item "Mode" modes.view_target_mode.control
-              options.set_view_target_on_restored_flights
-              SettingsLayout.item "Perspective fallback multi" numbers.perspective_view_target_distance_multiplier
-              SettingsLayout.item "Parallel fallback multi" numbers.parallel_view_target_distance_multiplier ]
-        |> SettingsLayout.full_width
-        |> mainTable.Rows.Add
-
-        mainTable.Rows.Add(
-            SettingsLayout.full_width (
-                SettingsLayout.note
-                    "Used when flight ends or pivot or pan starts (distance is affected by flight speed and multiplier)"
-            )
-        )
-
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Mouse 4/5 behaviour"))
-
-        SettingsLayout.grid
-            2
-            [ SettingsLayout.item "Mouse 4" modes.mouse4_pivot_mode.control
-              options.mouse4_pivot_in_flight
-              SettingsLayout.item "Mouse 5" modes.mouse5_pivot_mode.control
-              options.mouse5_pivot_in_flight ]
-        |> SettingsLayout.full_width
-        |> mainTable.Rows.Add
-
-        mainTable.Rows.Add(
-            SettingsLayout.full_width (
-                SettingsLayout.note
-                    "Toggle pivots stop with the same button. While flying uses the same hold or toggle mode when enabled."
-            )
-        )
 
         mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Other"))
 
@@ -356,21 +406,29 @@ type SettingsControl() as self =
 
         self.Content <- host
 
-        modes.mouse4_pivot_mode.control.SelectedIndexChanged.Add(fun (_: EventArgs) ->
-            refresh_side_button_flight_controls ())
-
         modes.parallel_view_flying.control.SelectedIndexChanged.Add(fun (_: EventArgs) ->
             refresh_parallel_view_controls ())
 
-        modes.mouse5_pivot_mode.control.SelectedIndexChanged.Add(fun (_: EventArgs) ->
-            refresh_side_button_flight_controls ())
-
-        modes.view_target_mode.control.SelectedIndexChanged.Add(fun (_: EventArgs) -> refresh_view_target_controls ())
+        [ modes.shift_right_click_action.control
+          modes.alt_right_click_action.control
+          modes.ctrl_right_click_action.control
+          modes.mouse4_action.control
+          modes.mouse5_action.control
+          modes.shift_right_click_retarget.control
+          modes.alt_right_click_retarget.control
+          modes.ctrl_right_click_retarget.control
+          modes.mouse4_retarget.control
+          modes.mouse5_retarget.control
+          modes.retarget_on_pivot.control
+          modes.retarget_on_pan.control
+          modes.retarget_on_flight_exit.control
+          modes.retarget_on_restored_flight_exit.control ]
+        |> List.iter (fun (control: DropDown) ->
+            control.SelectedIndexChanged.Add(fun (_: EventArgs) -> refresh_retarget_controls ()))
 
         modes.wheel_speed_mode.control.SelectedIndexChanged.Add(fun (_: EventArgs) -> refresh_wheel_speed_controls ())
 
-        refresh_side_button_flight_controls ()
-        refresh_view_target_controls ()
+        refresh_retarget_controls ()
         refresh_wheel_speed_controls ()
         refresh_parallel_view_controls ()
 
@@ -442,8 +500,7 @@ type SettingsControl() as self =
 
     member _.LoadConfig(config: FlyConfigFile) =
         SettingsConfig.load fields.config config
-        refresh_side_button_flight_controls ()
-        refresh_view_target_controls ()
+        refresh_retarget_controls ()
         refresh_wheel_speed_controls ()
         refresh_parallel_view_controls ()
 

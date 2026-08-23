@@ -37,10 +37,9 @@ type RawInputReceiver
     [<Literal>]
     let MOUSE5_PIVOT_BIT = 2
 
-    let initial_held_pivot_bit (enabled: bool) (mode: MouseButtonPivotMode) (virtualKey: int) (buttonBit: int) =
+    let initial_held_pivot_bit (action: MouseGestureAction) (virtualKey: int) (buttonBit: int) =
         if
-            enabled
-            && mode = MouseButtonPivotMode.Hold
+            action = MouseGestureAction.HoldPivot
             && Win32Native.GetAsyncKeyState virtualKey < 0s
         then
             buttonBit
@@ -49,32 +48,23 @@ type RawInputReceiver
 
     let current_held_pivot_buttons () =
         let mouse4 =
-            initial_held_pivot_bit
-                config.mouse4_pivot_in_flight
-                config.mouse4_pivot_mode
-                Win32Native.VK_XBUTTON1
-                MOUSE4_PIVOT_BIT
+            initial_held_pivot_bit config.mouse4_action Win32Native.VK_XBUTTON1 MOUSE4_PIVOT_BIT
 
         let mouse5 =
-            initial_held_pivot_bit
-                config.mouse5_pivot_in_flight
-                config.mouse5_pivot_mode
-                Win32Native.VK_XBUTTON2
-                MOUSE5_PIVOT_BIT
+            initial_held_pivot_bit config.mouse5_action Win32Native.VK_XBUTTON2 MOUSE5_PIVOT_BIT
 
         mouse4 ||| mouse5
 
     let mutable heldPivotButtons = 0
 
     let update_held_pivot
-        (enabled: bool)
-        (mode: MouseButtonPivotMode)
+        (action: MouseGestureAction)
         (buttonBit: int)
         (downFlag: uint16)
         (upFlag: uint16)
         (flags: uint16)
         =
-        if enabled && mode = MouseButtonPivotMode.Hold then
+        if action = MouseGestureAction.HoldPivot then
             if flags &&& downFlag <> 0us then
                 heldPivotButtons <- heldPivotButtons ||| buttonBit
 
@@ -181,19 +171,16 @@ type RawInputReceiver
             && flags &&& RawInputNative.MIDDLE_BUTTON_DOWN <> 0us
 
         let mouse4PivotRequested =
-            config.mouse4_pivot_in_flight
-            && config.mouse4_pivot_mode = MouseButtonPivotMode.Toggle
+            config.mouse4_action = MouseGestureAction.TogglePivot
             && flags &&& RawInputNative.BUTTON_4_DOWN <> 0us
 
         let mouse5PivotRequested =
-            config.mouse5_pivot_in_flight
-            && config.mouse5_pivot_mode = MouseButtonPivotMode.Toggle
+            config.mouse5_action = MouseGestureAction.TogglePivot
             && flags &&& RawInputNative.BUTTON_5_DOWN <> 0us
 
         let mouse4HeldChanged =
             update_held_pivot
-                config.mouse4_pivot_in_flight
-                config.mouse4_pivot_mode
+                config.mouse4_action
                 MOUSE4_PIVOT_BIT
                 RawInputNative.BUTTON_4_DOWN
                 RawInputNative.BUTTON_4_UP
@@ -201,8 +188,7 @@ type RawInputReceiver
 
         let mouse5HeldChanged =
             update_held_pivot
-                config.mouse5_pivot_in_flight
-                config.mouse5_pivot_mode
+                config.mouse5_action
                 MOUSE5_PIVOT_BIT
                 RawInputNative.BUTTON_5_DOWN
                 RawInputNative.BUTTON_5_UP

@@ -3,14 +3,19 @@ module RhinosCanFly.NavigationTarget
 open Rhino
 open Rhino.Display
 
-let apply (loaded: ConfigLoadResult) (view: RhinoView) =
+let apply (loaded: ConfigLoadResult) (mode: ViewNavigationMode) (view: RhinoView) =
     try
         if isNull view || isNull view.Document then
             Error "The navigation viewport is unavailable."
         else
             let behavior = loaded.config.behavior
 
-            if behavior.view_target.mode <> ViewTargetMode.Off then
+            let retargetMode =
+                match mode with
+                | ViewNavigationMode.Pivot -> behavior.retarget.on_pivot
+                | ViewNavigationMode.Pan -> behavior.retarget.on_pan
+
+            if retargetMode <> RetargetMode.Off then
                 let movement = loaded.config.movement
 
                 let speed =
@@ -20,13 +25,13 @@ let apply (loaded: ConfigLoadResult) (view: RhinoView) =
                         movement.speed_range
                         movement.base_speed
 
-                ViewTarget.apply behavior.view_target speed view view.ActiveViewport
+                ViewTarget.apply behavior.retarget retargetMode speed view view.ActiveViewport
 
             Ok()
     with error ->
         Error $"Could not set the navigation target: {error.Message}"
 
-let prepare (loaded: ConfigLoadResult) (host: ViewportHostIdentity) (_: ViewNavigationMode) =
+let prepare (loaded: ConfigLoadResult) (host: ViewportHostIdentity) (mode: ViewNavigationMode) =
     try
         let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
 
@@ -57,7 +62,7 @@ let prepare (loaded: ConfigLoadResult) (host: ViewportHostIdentity) (_: ViewNavi
                     && currentHost.view_window = host.view_window
                     && currentHost.root_window = host.root_window
                 then
-                    match apply loaded view with
+                    match apply loaded mode view with
                     | Ok() -> Ok currentHost
                     | Error error -> Error error
                 else

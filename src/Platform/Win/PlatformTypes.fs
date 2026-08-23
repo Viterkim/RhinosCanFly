@@ -34,10 +34,8 @@ type RawInputConfig =
     { exit_on_mouse_left: bool
       exit_on_mouse_right: bool
       middle_mouse_while_flying: FlyingMiddleMouseMode
-      mouse4_pivot_mode: MouseButtonPivotMode
-      mouse5_pivot_mode: MouseButtonPivotMode
-      mouse4_pivot_in_flight: bool
-      mouse5_pivot_in_flight: bool }
+      mouse4_action: MouseGestureAction
+      mouse5_action: MouseGestureAction }
 
 type ViewNavigationMode =
     | Pivot
@@ -45,14 +43,14 @@ type ViewNavigationMode =
 
 type MouseOverrideConfig =
     { runtime_enabled: bool
-      mouse4: MouseButtonPivotMode
-      mouse5: MouseButtonPivotMode
+      mouse4: MouseGestureAction
+      mouse5: MouseGestureAction
       right_click_entry: RightClickEntryMode
       default_flight_mode: DefaultFlightMode
       parallel_view_flying: ParallelViewFlying
-      shift_right_click: ModifiedRightClickMode
-      alt_right_click: ModifiedRightClickMode
-      ctrl_right_click: ModifiedRightClickMode
+      shift_right_click: MouseGestureAction
+      alt_right_click: MouseGestureAction
+      ctrl_right_click: MouseGestureAction
       exit_binding: KeyBinding option
       exit_on_right: bool
       prepare_navigation: ViewportHostIdentity -> ViewNavigationMode -> Result<ViewportHostIdentity, string> }

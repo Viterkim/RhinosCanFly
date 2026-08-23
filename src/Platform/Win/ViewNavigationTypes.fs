@@ -11,14 +11,14 @@ type ViewNavigationRequest =
 
 type RoutingConfig =
     { runtime_enabled: bool
-      mouse4: MouseButtonPivotMode
-      mouse5: MouseButtonPivotMode
+      mouse4: MouseGestureAction
+      mouse5: MouseGestureAction
       right_click_entry: RightClickEntryMode
       default_flight_mode: DefaultFlightMode
       parallel_view_flying: ParallelViewFlying
-      shift_right_click: ViewNavigationMode option
-      alt_right_click: ViewNavigationMode option
-      ctrl_right_click: ViewNavigationMode option
+      shift_right_click: MouseGestureAction
+      alt_right_click: MouseGestureAction
+      ctrl_right_click: MouseGestureAction
       exit: KeyBinding option
       exit_on_mouse_right: bool
       prepare_navigation: ViewportHostIdentity -> ViewNavigationMode -> Result<ViewportHostIdentity, string> }
@@ -43,7 +43,6 @@ type SideButtonHookCapture =
 
 type SideButtonState =
     | Released
-    | HoldActive of host: ViewportHostIdentity
     | TogglePressed of host: ViewportHostIdentity
     | ToggleLatched of host: ViewportHostIdentity
     | ToggleReleasePressed
@@ -97,14 +96,14 @@ let TRANSITION_TIMEOUT_SECONDS = 2.
 
 let empty_routing =
     { runtime_enabled = false
-      mouse4 = MouseButtonPivotMode.Off
-      mouse5 = MouseButtonPivotMode.Off
+      mouse4 = MouseGestureAction.Off
+      mouse5 = MouseGestureAction.Off
       right_click_entry = RightClickEntryMode.Off
       default_flight_mode = DefaultFlightMode.Normal
       parallel_view_flying = ParallelViewFlying.DisabledAll
-      shift_right_click = None
-      alt_right_click = None
-      ctrl_right_click = None
+      shift_right_click = MouseGestureAction.Off
+      alt_right_click = MouseGestureAction.Off
+      ctrl_right_click = MouseGestureAction.Off
       exit = None
       exit_on_mouse_right = false
       prepare_navigation = fun (host: ViewportHostIdentity) (_: ViewNavigationMode) -> Ok host }

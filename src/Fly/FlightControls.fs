@@ -120,13 +120,9 @@ let read_movement (state: FlyState) =
 let reconcile_held_side_button_navigation (input: InputAccumulator.State) (state: FlyState) =
     let mouse = state.config.mouse
 
-    let mouse4Configured =
-        mouse.mouse4_pivot_in_flight
-        && mouse.mouse4_pivot_mode = MouseButtonPivotMode.Hold
+    let mouse4Configured = mouse.mouse4 = MouseGestureAction.HoldPivot
 
-    let mouse5Configured =
-        mouse.mouse5_pivot_in_flight
-        && mouse.mouse5_pivot_mode = MouseButtonPivotMode.Hold
+    let mouse5Configured = mouse.mouse5 = MouseGestureAction.HoldPivot
 
     let mouse4Held = mouse4Configured && PlatformInput.mouse4_button_down ()
 

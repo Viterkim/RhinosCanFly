@@ -109,11 +109,14 @@ let update (state: State) =
             | Ok() -> ()
             | Error error -> Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
 
-let configured_mode (mode: ModifiedRightClickMode) =
-    match mode with
-    | ModifiedRightClickMode.Off -> None
-    | ModifiedRightClickMode.Pivot -> Some Pivot
-    | ModifiedRightClickMode.Pan -> Some Pan
+let configured_mode (action: MouseGestureAction) =
+    match action with
+    | MouseGestureAction.TogglePivot
+    | MouseGestureAction.HoldPivot -> Some Pivot
+    | MouseGestureAction.TogglePan
+    | MouseGestureAction.HoldPan -> Some Pan
+    | MouseGestureAction.Off
+    | MouseGestureAction.Retarget
     | _ -> None
 
 let current_mode (state: State) =

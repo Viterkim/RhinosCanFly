@@ -49,19 +49,24 @@ let mode_for (state: State) (button: SideButton) =
 
 let side_button_routing_enabled (state: State) =
     match state.routing.mouse4 with
-    | MouseButtonPivotMode.Hold
-    | MouseButtonPivotMode.Toggle -> true
-    | MouseButtonPivotMode.Off
+    | MouseGestureAction.TogglePivot
+    | MouseGestureAction.HoldPivot
+    | MouseGestureAction.TogglePan
+    | MouseGestureAction.HoldPan
+    | MouseGestureAction.Retarget -> true
+    | MouseGestureAction.Off
     | _ ->
         match state.routing.mouse5 with
-        | MouseButtonPivotMode.Hold
-        | MouseButtonPivotMode.Toggle -> true
-        | MouseButtonPivotMode.Off
+        | MouseGestureAction.TogglePivot
+        | MouseGestureAction.HoldPivot
+        | MouseGestureAction.TogglePan
+        | MouseGestureAction.HoldPan
+        | MouseGestureAction.Retarget -> true
+        | MouseGestureAction.Off
         | _ -> false
 
 let button_navigation_active (buttonState: SideButtonState) =
     match buttonState with
-    | HoldActive _
     | TogglePressed _
     | ToggleLatched _ -> true
     | Released
@@ -70,15 +75,31 @@ let button_navigation_active (buttonState: SideButtonState) =
 let side_button_navigation_active (state: State) =
     button_navigation_active state.mouse4 || button_navigation_active state.mouse5
 
+let side_button_navigation_mode (state: State) =
+    let configured_mode (action: MouseGestureAction) =
+        match action with
+        | MouseGestureAction.TogglePivot
+        | MouseGestureAction.HoldPivot -> ValueSome ViewNavigationMode.Pivot
+        | MouseGestureAction.TogglePan
+        | MouseGestureAction.HoldPan -> ValueSome ViewNavigationMode.Pan
+        | MouseGestureAction.Off
+        | MouseGestureAction.Retarget
+        | _ -> ValueNone
+
+    if button_navigation_active state.mouse4 then
+        configured_mode state.routing.mouse4
+    elif button_navigation_active state.mouse5 then
+        configured_mode state.routing.mouse5
+    else
+        ValueNone
+
 let any_button_engaged (state: State) =
     match state.mouse4 with
-    | HoldActive _
     | TogglePressed _
     | ToggleLatched _
     | ToggleReleasePressed -> true
     | Released ->
         match state.mouse5 with
-        | HoldActive _
         | TogglePressed _
         | ToggleLatched _
         | ToggleReleasePressed -> true
@@ -216,13 +237,11 @@ let navigation_host (state: State) =
         // Keep this boring instead of matching a tuple. This runs on the
         // navigation timer, and the tuple form allocates every time.
         match state.mouse4 with
-        | HoldActive host
         | TogglePressed host
         | ToggleLatched host -> ValueSome host
         | Released
         | ToggleReleasePressed ->
             match state.mouse5 with
-            | HoldActive host
             | TogglePressed host
             | ToggleLatched host -> ValueSome host
             | Released

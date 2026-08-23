@@ -54,20 +54,27 @@ let defaults: FlyConfigFile =
       exit_on_mouse_left = false
       exit_on_mouse_right = true
       middle_mouse_while_flying = FlyingMiddleMouseMode.Off
-      mouse4_pivot_in_flight = false
-      mouse5_pivot_in_flight = false
+      mouse4_action_while_flying = false
+      mouse5_action_while_flying = false
       right_click_entry_mode = RightClickEntryMode.ClickToFlyDuringCommands
       default_flight_mode = DefaultFlightMode.Normal
-      view_target_mode = ViewTargetMode.ObjectCenterThenDistance
-      perspective_view_target_distance_multiplier = 0.9
-      parallel_view_target_distance_multiplier = 0.6
-      set_view_target_on_restored_flights = false
+      shift_right_click_retarget = RetargetMode.ObjectCenterThenDistance
+      alt_right_click_retarget = RetargetMode.ObjectCenterThenDistance
+      ctrl_right_click_retarget = RetargetMode.ObjectCenterThenDistance
+      mouse4_retarget = RetargetMode.ObjectCenterThenDistance
+      mouse5_retarget = RetargetMode.ObjectCenterThenDistance
+      retarget_on_pivot = RetargetMode.ObjectCenterThenDistance
+      retarget_on_pan = RetargetMode.ObjectCenterThenDistance
+      retarget_on_flight_exit = RetargetMode.ObjectCenterThenDistance
+      retarget_on_restored_flight_exit = RetargetMode.Off
+      perspective_retarget_fallback_multiplier = 0.9
+      parallel_retarget_fallback_multiplier = 0.6
       commands_do_not_repeat = true
-      mouse4_pivot_mode = MouseButtonPivotMode.Off
-      mouse5_pivot_mode = MouseButtonPivotMode.Off
-      shift_right_click_mode = ModifiedRightClickMode.Off
-      alt_right_click_mode = ModifiedRightClickMode.Off
-      ctrl_right_click_mode = ModifiedRightClickMode.Off
+      mouse4_action = MouseGestureAction.Off
+      mouse5_action = MouseGestureAction.Off
+      shift_right_click_action = MouseGestureAction.Off
+      alt_right_click_action = MouseGestureAction.Off
+      ctrl_right_click_action = MouseGestureAction.Off
       boost_mode = KeyActivationMode.Toggle
       slow_mode = KeyActivationMode.Toggle
       vertical_speed_multiplier = 0.7
@@ -127,9 +134,8 @@ let normalize (source: FlyConfigFile) =
         mouse_pivot_multiplier = normalize_number source.mouse_pivot_multiplier
         mouse_pan_multiplier = normalize_number source.mouse_pan_multiplier
         mouse_sensitivity = normalize_number source.mouse_sensitivity
-        perspective_view_target_distance_multiplier =
-            normalize_number source.perspective_view_target_distance_multiplier
-        parallel_view_target_distance_multiplier = normalize_number source.parallel_view_target_distance_multiplier
+        perspective_retarget_fallback_multiplier = normalize_number source.perspective_retarget_fallback_multiplier
+        parallel_retarget_fallback_multiplier = normalize_number source.parallel_retarget_fallback_multiplier
         vertical_speed_multiplier = normalize_number source.vertical_speed_multiplier
         parallel_mouse_sensitivity = normalize_number source.parallel_mouse_sensitivity
         parallel_mouse_pivot_multiplier = normalize_number source.parallel_mouse_pivot_multiplier
@@ -144,6 +150,9 @@ let normalize (source: FlyConfigFile) =
 
 let compile (source: FlyConfigFile) =
     let errors = ResizeArray<string>()
+
+    let while_flying (enabled: bool) (action: MouseGestureAction) =
+        if enabled then action else MouseGestureAction.Off
 
     let parallelViewFlying =
         let sourceValue = source.parallel_view_flying
@@ -198,8 +207,8 @@ let compile (source: FlyConfigFile) =
       "mouse_pivot_multiplier", source.mouse_pivot_multiplier
       "mouse_pan_multiplier", source.mouse_pan_multiplier
       "mouse_sensitivity", source.mouse_sensitivity
-      "perspective_view_target_distance_multiplier", source.perspective_view_target_distance_multiplier
-      "parallel_view_target_distance_multiplier", source.parallel_view_target_distance_multiplier
+      "perspective_retarget_fallback_multiplier", source.perspective_retarget_fallback_multiplier
+      "parallel_retarget_fallback_multiplier", source.parallel_retarget_fallback_multiplier
       "vertical_speed_multiplier", source.vertical_speed_multiplier
       "parallel_mouse_sensitivity", source.parallel_mouse_sensitivity
       "parallel_mouse_pivot_multiplier", source.parallel_mouse_pivot_multiplier
@@ -273,9 +282,10 @@ let compile (source: FlyConfigFile) =
           "key pivot angular speed", source.key_pivot_speed_multiplier * Math.PI / 6.
           "mouse pivot sensitivity", source.mouse_sensitivity * source.mouse_pivot_multiplier
           "mouse pan sensitivity", source.mouse_sensitivity * source.mouse_pan_multiplier
-          "maximum perspective target distance",
-          source.maximum_speed * source.perspective_view_target_distance_multiplier
-          "maximum parallel target distance", source.maximum_speed * source.parallel_view_target_distance_multiplier ]
+          "maximum perspective retarget fallback distance",
+          source.maximum_speed * source.perspective_retarget_fallback_multiplier
+          "maximum parallel retarget fallback distance",
+          source.maximum_speed * source.parallel_retarget_fallback_multiplier ]
 
     for name, value in derivedValues do
         if Double.IsNaN value || Double.IsInfinity value then
@@ -346,20 +356,24 @@ let compile (source: FlyConfigFile) =
               exit_on_left = source.exit_on_mouse_left
               exit_on_right = source.exit_on_mouse_right
               middle_button = source.middle_mouse_while_flying
-              mouse4_pivot_in_flight = source.mouse4_pivot_in_flight
-              mouse5_pivot_in_flight = source.mouse5_pivot_in_flight
-              mouse4_pivot_mode = source.mouse4_pivot_mode
-              mouse5_pivot_mode = source.mouse5_pivot_mode }
+              mouse4 = while_flying source.mouse4_action_while_flying source.mouse4_action
+              mouse5 = while_flying source.mouse5_action_while_flying source.mouse5_action }
           behavior =
             { hide_gumball = source.hide_gumball_while_flying
               flight_pivot_uses_gumball = source.flight_pivot_uses_gumball
-              view_target =
-                { mode = source.view_target_mode
-                  perspective_distance_multiplier =
-                    ViewTargetDistanceMultiplier source.perspective_view_target_distance_multiplier
-                  parallel_distance_multiplier =
-                    ViewTargetDistanceMultiplier source.parallel_view_target_distance_multiplier
-                  set_on_restored_flights = source.set_view_target_on_restored_flights }
+              retarget =
+                { shift_right_click = source.shift_right_click_retarget
+                  alt_right_click = source.alt_right_click_retarget
+                  ctrl_right_click = source.ctrl_right_click_retarget
+                  mouse4 = source.mouse4_retarget
+                  mouse5 = source.mouse5_retarget
+                  on_pivot = source.retarget_on_pivot
+                  on_pan = source.retarget_on_pan
+                  on_flight_exit = source.retarget_on_flight_exit
+                  on_restored_flight_exit = source.retarget_on_restored_flight_exit
+                  perspective_fallback_multiplier =
+                    RetargetFallbackMultiplier source.perspective_retarget_fallback_multiplier
+                  parallel_fallback_multiplier = RetargetFallbackMultiplier source.parallel_retarget_fallback_multiplier }
               save_speed_to_document = source.save_speed_to_document
               load_speed_from_document = source.load_speed_from_document
               perspective_lens =

@@ -111,9 +111,9 @@ let owns_button (state: RightClickState) =
     | ReleaseObserved -> true
 
 let modified_navigation_enabled (navigation: State) =
-    Option.isSome navigation.routing.shift_right_click
-    || Option.isSome navigation.routing.alt_right_click
-    || Option.isSome navigation.routing.ctrl_right_click
+    navigation.routing.shift_right_click <> MouseGestureAction.Off
+    || navigation.routing.alt_right_click <> MouseGestureAction.Off
+    || navigation.routing.ctrl_right_click <> MouseGestureAction.Off
 
 let navigation_active (navigation: State) =
     ViewNavigationState.any_button_engaged navigation
@@ -140,8 +140,8 @@ let modifiers () =
       alt = ViewNavigationState.alt_down ()
       control = ViewNavigationState.control_down () }
 
-let requested_navigation_mode (navigation: State) (modifiers: Modifiers) =
-    let configuredMode =
+let requested_gesture_action (navigation: State) (modifiers: Modifiers) =
+    let configuredAction =
         if modifiers.shift && not modifiers.alt && not modifiers.control then
             navigation.routing.shift_right_click
         elif modifiers.alt && not modifiers.shift && not modifiers.control then
@@ -149,11 +149,12 @@ let requested_navigation_mode (navigation: State) (modifiers: Modifiers) =
         elif modifiers.control && not modifiers.shift && not modifiers.alt then
             navigation.routing.ctrl_right_click
         else
-            None
+            MouseGestureAction.Off
 
-    match configuredMode with
-    | Some mode -> ValueSome mode
-    | None -> ValueNone
+    if configuredAction = MouseGestureAction.Off then
+        ValueNone
+    else
+        ValueSome configuredAction
 
 let action (navigation: State) (viewport: RightClickViewport) (modifiers: Modifiers) (commandActive: bool) =
     let host = viewport.host
@@ -168,13 +169,16 @@ let action (navigation: State) (viewport: RightClickViewport) (modifiers: Modifi
         else
             ValueNone
     else
-        match requested_navigation_mode navigation modifiers with
-        | ValueSome mode ->
-            ValueSome(
-                NavigateView
-                    { host = host
-                      request = StartNavigation mode }
-            )
+        match requested_gesture_action navigation modifiers with
+        | ValueSome gestureAction ->
+            match ViewLatchTransitions.configured_mode gestureAction with
+            | Some mode ->
+                ValueSome(
+                    NavigateView
+                        { host = host
+                          request = StartNavigation mode }
+                )
+            | None -> ValueNone
         | ValueNone when
             navigation.routing.runtime_enabled
             && viewport.is_parallel
