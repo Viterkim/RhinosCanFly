@@ -15,6 +15,11 @@ type RetargetSelection =
     { target: Point3d
       bounds: BoundingBox voption }
 
+[<Struct>]
+type SelectedObjectPick =
+    | BoundsWhenNothingElsePicked
+    | ExactUnderCursor
+
 let target_is_in_front (viewport: RhinoViewport) (target: Point3d) =
     let mutable direction = viewport.CameraDirection
     let offset = target - viewport.CameraLocation
@@ -87,7 +92,12 @@ let selection_filter_allows (enabled: bool) (filter: ObjectType) (rhinoObject: R
         filter = ObjectType.AnyObject
         || (rhinoObject.ObjectType &&& filter) <> ObjectType.None
 
-let try_filtered_selection_at (view: RhinoView) (viewport: RhinoViewport) (point: ViewportClientPoint) =
+let try_filtered_selection_at_internal
+    (selectedObjectPick: SelectedObjectPick)
+    (view: RhinoView)
+    (viewport: RhinoViewport)
+    (point: ViewportClientPoint)
+    =
     try
         if isNull view || isNull view.Document then
             None
@@ -140,53 +150,61 @@ let try_filtered_selection_at (view: RhinoView) (viewport: RhinoViewport) (point
                                                 selected <- Some objectSelection
                                             | None -> ()
 
-                        let geometryTarget = try_geometry_target_at viewport point
+                        let exactSelectedHit = selectedObjectPick = ExactUnderCursor
+                        let checkSelectedObjects = exactSelectedHit || Option.isNone selected
+
+                        let geometryTarget =
+                            if checkSelectedObjects && exactSelectedHit then
+                                try_geometry_target_at viewport point
+                            else
+                                None
 
                         let geometryDepth =
                             match geometryTarget with
                             | Some target -> Vector3d.Multiply(target - cameraLocation, cameraDirection)
                             | None -> Double.PositiveInfinity
 
-                        for rhinoObject in view.Document.Objects.GetSelectedObjects(false, false) do
-                            if
-                                not (isNull rhinoObject)
-                                && rhinoObject.Visible
-                                && selection_filter_allows filterEnabled geometryFilter rhinoObject
-                            then
-                                match object_selection viewport rhinoObject with
-                                | Some objectSelection ->
-                                    match objectSelection.bounds with
-                                    | ValueSome bounds ->
-                                        let containsGeometry =
-                                            match geometryTarget with
-                                            | Some target -> bounds.Contains target
-                                            | None -> false
+                        if checkSelectedObjects then
+                            for rhinoObject in view.Document.Objects.GetSelectedObjects(false, false) do
+                                if
+                                    not (isNull rhinoObject)
+                                    && rhinoObject.Visible
+                                    && selection_filter_allows filterEnabled geometryFilter rhinoObject
+                                then
+                                    match object_selection viewport rhinoObject with
+                                    | Some objectSelection ->
+                                        match objectSelection.bounds with
+                                        | ValueSome bounds ->
+                                            let containsGeometry =
+                                                match geometryTarget with
+                                                | Some target -> bounds.Contains target
+                                                | None -> false
 
-                                        let mutable completelyInside = false
+                                            let mutable completelyInside = false
 
-                                        let boundsHit =
-                                            match geometryTarget with
-                                            | Some _ -> containsGeometry
-                                            | None -> context.PickFrustumTest(bounds, &completelyInside)
+                                            let boundsHit =
+                                                match geometryTarget with
+                                                | Some _ -> containsGeometry
+                                                | None -> context.PickFrustumTest(bounds, &completelyInside)
 
-                                        if boundsHit then
-                                            let centerDepth =
-                                                Vector3d.Multiply(
-                                                    objectSelection.target - cameraLocation,
-                                                    cameraDirection
-                                                )
+                                            if boundsHit then
+                                                let centerDepth =
+                                                    Vector3d.Multiply(
+                                                        objectSelection.target - cameraLocation,
+                                                        cameraDirection
+                                                    )
 
-                                            let depth =
-                                                if containsGeometry && geometryDepth > RhinoMath.ZeroTolerance then
-                                                    geometryDepth
-                                                else
-                                                    centerDepth
+                                                let depth =
+                                                    if containsGeometry && geometryDepth > RhinoMath.ZeroTolerance then
+                                                        geometryDepth
+                                                    else
+                                                        centerDepth
 
-                                            if depth > RhinoMath.ZeroTolerance && depth < nearestDepth then
-                                                nearestDepth <- depth
-                                                selected <- Some objectSelection
-                                    | ValueNone -> ()
-                                | None -> ()
+                                                if depth > RhinoMath.ZeroTolerance && depth < nearestDepth then
+                                                    nearestDepth <- depth
+                                                    selected <- Some objectSelection
+                                        | ValueNone -> ()
+                                    | None -> ()
 
                     selected
                 finally
@@ -198,15 +216,23 @@ let try_filtered_selection_at (view: RhinoView) (viewport: RhinoViewport) (point
         Debug.WriteLine $"RhinosCanFly filtered target: {error}"
         None
 
+let try_filtered_selection_at (view: RhinoView) (viewport: RhinoViewport) (point: ViewportClientPoint) =
+    try_filtered_selection_at_internal ExactUnderCursor view viewport point
+
 let try_filtered_target_at (view: RhinoView) (viewport: RhinoViewport) (point: ViewportClientPoint) =
-    match try_filtered_selection_at view viewport point with
+    match try_filtered_selection_at_internal BoundsWhenNothingElsePicked view viewport point with
     | Some selection -> Some selection.target
     | None -> None
 
 let try_filtered_target (view: RhinoView) (viewport: RhinoViewport) =
     try_filtered_target_at view viewport (viewport_center viewport)
 
-let try_object_center_selection_at (view: RhinoView) (viewport: RhinoViewport) (point: ViewportClientPoint) =
+let try_object_center_at
+    (select: RhinoView -> RhinoViewport -> ViewportClientPoint -> 'Target option)
+    (view: RhinoView)
+    (viewport: RhinoViewport)
+    (point: ViewportClientPoint)
+    =
     try
         let selectionFilter = SelectionFilterSettings.GetCurrentState()
 
@@ -215,17 +241,18 @@ let try_object_center_selection_at (view: RhinoView) (viewport: RhinoViewport) (
             SelectionFilterSettings.OneShotGeometryFilter <- ObjectType.AnyObject
             SelectionFilterSettings.Enabled <- false
             SelectionFilterSettings.SubObjectSelect <- false
-            try_filtered_selection_at view viewport point
+            select view viewport point
         finally
             SelectionFilterSettings.UpdateFromState selectionFilter
     with error ->
         Debug.WriteLine $"RhinosCanFly object center selection: {error}"
         None
 
+let try_object_center_selection_at (view: RhinoView) (viewport: RhinoViewport) (point: ViewportClientPoint) =
+    try_object_center_at try_filtered_selection_at view viewport point
+
 let try_object_center_target_at (view: RhinoView) (viewport: RhinoViewport) (point: ViewportClientPoint) =
-    match try_object_center_selection_at view viewport point with
-    | Some selection -> Some selection.target
-    | None -> None
+    try_object_center_at try_filtered_target_at view viewport point
 
 let try_object_center_target (view: RhinoView) (viewport: RhinoViewport) =
     try_object_center_target_at view viewport (viewport_center viewport)

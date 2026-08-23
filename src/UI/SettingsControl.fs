@@ -222,8 +222,8 @@ type SettingsControl() as self =
 
         SettingsLayout.grid
             2
-            [ SettingsLayout.item "Perspective" numbers.mouse_sensitivity
-              SettingsLayout.item "Parallel" numbers.parallel_mouse_sensitivity ]
+            [ SettingsLayout.item "Perspective sens" numbers.mouse_sensitivity
+              SettingsLayout.item "Parallel sens" numbers.parallel_mouse_sensitivity ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 

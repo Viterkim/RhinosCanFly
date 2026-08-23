@@ -22,6 +22,8 @@ let coordinate (origin: int) (delta: int64) =
     elif value < int64 Int32.MinValue then Int32.MinValue
     else int value
 
+let wheel_coordinate (origin: int) (steps: int64) = coordinate origin (-steps * 12L)
+
 let view_matches_host (host: ViewportHostIdentity) (view: RhinoView) =
     if isNull view || isNull view.Document then
         false
@@ -76,6 +78,7 @@ type Session
     let mutable clipReleased = false
     let mutable cursorRestored = false
     let mutable wakeDisposed = false
+    let mutable wheelRemainder = 0L
 
     let mainLoopHandler = EventHandler(fun (_: obj) (_: EventArgs) -> self.Drain())
 
@@ -90,11 +93,13 @@ type Session
                 let observedRevision = InputAccumulator.work_revision input
                 let struct (dx, dy) = InputAccumulator.drain_mouse input
                 let buttons = InputAccumulator.drain_raw_mouse_button_events input
-                InputAccumulator.drain_wheel input |> ignore
+                let wheel = wheelRemainder + InputAccumulator.drain_wheel input
+                let wheelSteps = wheel / int64 Win32Native.WHEEL_DELTA
+                wheelRemainder <- wheel - wheelSteps * int64 Win32Native.WHEEL_DELTA
 
                 if RawInputThread.runtime_failed raw then
                     this.NotifyFailure()
-                elif dx <> 0L || dy <> 0L then
+                elif dx <> 0L || dy <> 0L || wheelSteps <> 0L then
                     let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
 
                     if not (view_matches_host host view) then
@@ -105,13 +110,23 @@ type Session
                         let center = Point(bounds.Width / 2, bounds.Height / 2)
                         let current = Point(coordinate center.X dx, coordinate center.Y dy)
 
-                        let changed =
-                            match mode with
-                            | Mode.Pivot -> viewport.MouseRotateAroundTarget(center, current)
-                            | Mode.Pan -> viewport.MouseLateralDolly(center, current)
-                            | Mode.ParallelZoom -> zoom_parallel viewport dy
+                        let movementChanged =
+                            if dx = 0L && dy = 0L then
+                                false
+                            else
+                                match mode with
+                                | Mode.Pivot -> viewport.MouseRotateAroundTarget(center, current)
+                                | Mode.Pan -> viewport.MouseLateralDolly(center, current)
+                                | Mode.ParallelZoom -> zoom_parallel viewport dy
 
-                        if changed then
+                        let wheelChanged =
+                            if wheelSteps = 0L then
+                                false
+                            else
+                                let wheelPoint = Point(center.X, wheel_coordinate center.Y wheelSteps)
+                                viewport.MouseDollyZoom(center, wheelPoint)
+
+                        if movementChanged || wheelChanged then
                             view.Redraw()
 
                 if buttons <> RawMouseButtonEvents.None then

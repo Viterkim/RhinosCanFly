@@ -209,7 +209,10 @@ let start_raw_navigation (desired: DesiredRawNavigation) =
             handle_raw_navigation_buttons desired.host events point)
 
     match RawViewNavigation.start desired.host desired.mode buttonEvents failed with
-    | Error error -> Error error
+    | Error error ->
+        match GestureNavigationTransitions.rollback_start state with
+        | Ok() -> Error error
+        | Error rollbackError -> Error $"{error}; {rollbackError}"
     | Ok session ->
         raw_navigation <- Some session
         Ok()
@@ -222,7 +225,10 @@ let reconcile_raw_navigation () =
         | Some current when current.Matches(desired.host, desired.mode) -> Ok()
         | Some _ ->
             match stop_raw_navigation () with
-            | Error error -> Error error
+            | Error error ->
+                match GestureNavigationTransitions.rollback_start state with
+                | Ok() -> Error error
+                | Error rollbackError -> Error $"{error}; {rollbackError}"
             | Ok() -> start_raw_navigation desired
         | None -> start_raw_navigation desired
 

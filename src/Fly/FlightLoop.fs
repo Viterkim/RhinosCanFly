@@ -7,6 +7,15 @@ open Rhino
 [<Literal>]
 let MAXIMUM_FRAME_DELTA_SECONDS = 0.05
 
+let keyboard_input_age_seconds () =
+    let changedAt = PlatformInput.flight_keyboard_change_timestamp ()
+
+    if changedAt <= 0L then
+        0.
+    else
+        let elapsedTicks = Stopwatch.GetTimestamp() - changedAt
+        max 0. (float elapsedTicks / float Stopwatch.Frequency)
+
 let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.State) (state: FlyState) =
     let clock = Stopwatch.StartNew()
     let mutable previousFrameSeconds = clock.Elapsed.TotalSeconds
@@ -24,6 +33,10 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
         RhinoApp.Wait()
 
         let frameSeconds = clock.Elapsed.TotalSeconds
+
+        let initialMovementElapsed =
+            if movementActive then 0. else keyboard_input_age_seconds ()
+
         let observedRawRevision = InputAccumulator.work_revision rawInput
         let observedKeyboardRevision = PlatformInput.flight_keyboard_revision ()
         FlightControls.update_state frameSeconds rawInput state
@@ -72,8 +85,14 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
 
             state.key_pivot_direction <- pivotDirection
 
-            if movementActive && currentlyMoving then
-                let dt = min (now - previousFrameSeconds) MAXIMUM_FRAME_DELTA_SECONDS
+            if currentlyMoving then
+                let elapsed =
+                    if movementActive then
+                        now - previousFrameSeconds
+                    else
+                        initialMovementElapsed
+
+                let dt = min elapsed MAXIMUM_FRAME_DELTA_SECONDS
                 let previousCamera = state.camera
                 let parallelView = state.config.movement.parallel_view
 

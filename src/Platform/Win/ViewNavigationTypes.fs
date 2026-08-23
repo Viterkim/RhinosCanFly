@@ -55,7 +55,8 @@ type GestureNavigationSession =
     { owner: GestureOwner
       host: ViewportHostIdentity
       mode: ViewNavigationMode
-      lifetime: GestureLifetime }
+      lifetime: GestureLifetime
+      original_target: Rhino.Geometry.Point3d voption }
 
 type GestureNavigation =
     | NoGestureNavigation

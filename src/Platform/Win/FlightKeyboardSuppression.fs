@@ -19,6 +19,7 @@ type State =
       key_is_down: bool array
       mutable input_available: Action option
       mutable revision: int64
+      mutable last_change_timestamp: int64
       mutable active: bool }
 
 let state =
@@ -32,6 +33,7 @@ let state =
       key_is_down = Array.zeroCreate 256
       input_available = None
       revision = 0L
+      last_change_timestamp = 0L
       active = false }
 
 let mutable keyboardHook: Win32Native.WindowsHook option = None
@@ -130,6 +132,7 @@ let configure (bindings: FlightBindings) (inputAvailable: Action) =
         add_passthrough_if_down Win32Native.VK_RMENU
 
     state.input_available <- Some inputAvailable
+    Volatile.Write(&state.last_change_timestamp, Stopwatch.GetTimestamp())
     state.active <- true
 
 let stop () =
@@ -213,6 +216,7 @@ let hook_event (event: Win32.KeyboardHookEvent) =
         swallow <- handle_event event
 
         if wasDown <> state.key_is_down[event.physical_key] then
+            Volatile.Write(&state.last_change_timestamp, Stopwatch.GetTimestamp())
             Interlocked.Increment(&state.revision) |> ignore
 
             state.input_available
@@ -223,6 +227,9 @@ let hook_event (event: Win32.KeyboardHookEvent) =
     swallow
 
 let revision () = Volatile.Read(&state.revision)
+
+let last_change_timestamp () =
+    Volatile.Read(&state.last_change_timestamp)
 
 let ensure_hook () =
     match keyboardHook with

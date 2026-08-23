@@ -15,6 +15,36 @@ let stop (state: State) =
     state.gesture_navigation <- NoGestureNavigation
     ViewNavigationState.stop_timer_if_idle state
 
+let rollback_start (state: State) =
+    let session =
+        match state.gesture_navigation with
+        | GestureNavigationActive active -> ValueSome active
+        | NoGestureNavigation -> ValueNone
+
+    stop state
+
+    match session with
+    | ValueSome active ->
+        match active.original_target with
+        | ValueSome target ->
+            try
+                let view = RhinoView.FromRuntimeSerialNumber active.host.view_serial_number
+
+                if
+                    not (isNull view)
+                    && not (isNull view.Document)
+                    && view.Document.RuntimeSerialNumber = active.host.document_serial_number
+                    && view.ActiveViewportID = active.host.viewport_id
+                then
+                    view.ActiveViewport.SetCameraTarget(target, false)
+                    view.Redraw()
+
+                Ok()
+            with error ->
+                Error $"Could not restore the navigation target: {error.Message}"
+        | ValueNone -> Ok()
+    | ValueNone -> Ok()
+
 let begin_navigation
     (state: State)
     (owner: GestureOwner)
@@ -41,6 +71,14 @@ let begin_navigation
         match complete_view_latch state with
         | Error error -> Error error
         | Ok() ->
+            let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
+
+            let originalTarget =
+                if isNull view || isNull view.Document then
+                    ValueNone
+                else
+                    ValueSome view.ActiveViewport.CameraTarget
+
             match state.routing.prepare_navigation host mode with
             | Error error -> Error error
             | Ok prepared ->
@@ -49,7 +87,8 @@ let begin_navigation
                         { owner = owner
                           host = prepared
                           mode = mode
-                          lifetime = lifetime }
+                          lifetime = lifetime
+                          original_target = originalTarget }
 
                 ViewNavigationState.keep_timer_running state
                 Ok()
