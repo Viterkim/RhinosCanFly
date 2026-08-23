@@ -169,6 +169,7 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     SettingsFields.set_mode modes.view_target_mode config.view_target_mode
     SettingsFields.set_mode modes.shift_right_click_mode config.shift_right_click_mode
     SettingsFields.set_mode modes.alt_right_click_mode config.alt_right_click_mode
+    SettingsFields.set_mode modes.ctrl_right_click_mode config.ctrl_right_click_mode
     SettingsFields.set_mode modes.mouse4_pivot_mode config.mouse4_pivot_mode
     SettingsFields.set_mode modes.mouse5_pivot_mode config.mouse5_pivot_mode
     SettingsFields.set_mode modes.middle_mouse_while_flying config.middle_mouse_while_flying
@@ -271,6 +272,7 @@ let read (fields: SettingsFields.ConfigFields) =
               mouse5_pivot_mode = SettingsFields.selected_mode modes.mouse5_pivot_mode
               shift_right_click_mode = SettingsFields.selected_mode modes.shift_right_click_mode
               alt_right_click_mode = SettingsFields.selected_mode modes.alt_right_click_mode
+              ctrl_right_click_mode = SettingsFields.selected_mode modes.ctrl_right_click_mode
               boost_mode = SettingsFields.selected_mode modes.boost_mode
               slow_mode = SettingsFields.selected_mode modes.slow_mode
               vertical_speed_multiplier = numbers.vertical_speed_multiplier

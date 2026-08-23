@@ -22,6 +22,7 @@ let input_released () =
     Win32Native.GetAsyncKeyState Win32Native.VK_RBUTTON >= 0s
     && not (ViewNavigationState.shift_down ())
     && not (ViewNavigationState.alt_down ())
+    && not (ViewNavigationState.control_down ())
 
 let start (state: State) (host: ViewportHostIdentity) (mode: ViewNavigationMode) (completion: Action option) =
     state.view_latch <-

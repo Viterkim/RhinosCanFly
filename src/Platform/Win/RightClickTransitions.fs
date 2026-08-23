@@ -113,6 +113,7 @@ let owns_button (state: RightClickState) =
 let modified_navigation_enabled (navigation: State) =
     Option.isSome navigation.routing.shift_right_click
     || Option.isSome navigation.routing.alt_right_click
+    || Option.isSome navigation.routing.ctrl_right_click
 
 let navigation_active (navigation: State) =
     ViewNavigationState.any_button_engaged navigation
@@ -140,24 +141,19 @@ let modifiers () =
       control = ViewNavigationState.control_down () }
 
 let requested_navigation_mode (navigation: State) (modifiers: Modifiers) =
-    let shiftMode =
-        if modifiers.shift then
+    let configuredMode =
+        if modifiers.shift && not modifiers.alt && not modifiers.control then
             navigation.routing.shift_right_click
-        else
-            None
-
-    let altMode =
-        if modifiers.alt then
+        elif modifiers.alt && not modifiers.shift && not modifiers.control then
             navigation.routing.alt_right_click
+        elif modifiers.control && not modifiers.shift && not modifiers.alt then
+            navigation.routing.ctrl_right_click
         else
             None
 
-    if shiftMode = Some Pan || altMode = Some Pan then
-        ValueSome Pan
-    elif shiftMode = Some Pivot || altMode = Some Pivot then
-        ValueSome Pivot
-    else
-        ValueNone
+    match configuredMode with
+    | Some mode -> ValueSome mode
+    | None -> ValueNone
 
 let action (navigation: State) (viewport: RightClickViewport) (modifiers: Modifiers) (commandActive: bool) =
     let host = viewport.host
@@ -273,9 +269,7 @@ let rec handle_event
                 match action navigation pointViewport currentModifiers commandActive with
                 | ValueNone when
                     not (navigation_active navigation)
-                    && (currentModifiers.control
-                        || (currentModifiers.shift && Option.isNone navigation.routing.shift_right_click)
-                        || (currentModifiers.alt && Option.isNone navigation.routing.alt_right_click))
+                    && (currentModifiers.shift || currentModifiers.alt || currentModifiers.control)
                     ->
                     state.gesture <- NativeModifiedGesture
                     false

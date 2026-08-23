@@ -181,6 +181,7 @@ type FlyConfigFile =
       mouse5_pivot_mode: MouseButtonPivotMode
       shift_right_click_mode: ModifiedRightClickMode
       alt_right_click_mode: ModifiedRightClickMode
+      ctrl_right_click_mode: ModifiedRightClickMode
       boost_mode: KeyActivationMode
       slow_mode: KeyActivationMode
       vertical_speed_multiplier: float

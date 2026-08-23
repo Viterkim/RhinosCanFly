@@ -63,6 +63,7 @@ type ModeFields =
       view_target_mode: ModeField<ViewTargetMode>
       shift_right_click_mode: ModeField<ModifiedRightClickMode>
       alt_right_click_mode: ModeField<ModifiedRightClickMode>
+      ctrl_right_click_mode: ModeField<ModifiedRightClickMode>
       mouse4_pivot_mode: ModeField<MouseButtonPivotMode>
       mouse5_pivot_mode: ModeField<MouseButtonPivotMode>
       middle_mouse_while_flying: ModeField<FlyingMiddleMouseMode>
@@ -252,6 +253,7 @@ let create () =
               view_target_mode = mode_field viewTargetModes ViewTargetMode.ObjectCenterThenDistance
               shift_right_click_mode = mode_field modifiedRightClickModes ModifiedRightClickMode.Off
               alt_right_click_mode = mode_field modifiedRightClickModes ModifiedRightClickMode.Off
+              ctrl_right_click_mode = mode_field modifiedRightClickModes ModifiedRightClickMode.Off
               mouse4_pivot_mode = mode_field mousePivotModes MouseButtonPivotMode.Off
               mouse5_pivot_mode = mode_field mousePivotModes MouseButtonPivotMode.Off
               middle_mouse_while_flying = mode_field flyingMiddleMouseModes FlyingMiddleMouseMode.Off

@@ -170,7 +170,8 @@ type SettingsControl() as self =
             [ SettingsLayout.item "Right click" modes.right_click_entry_mode.control
               SettingsLayout.item "Default flight mode" modes.default_flight_mode.control
               SettingsLayout.item "Shift + right click" modes.shift_right_click_mode.control
-              SettingsLayout.item "Alt + right click" modes.alt_right_click_mode.control ]
+              SettingsLayout.item "Alt + right click" modes.alt_right_click_mode.control
+              SettingsLayout.item "Ctrl + right click" modes.ctrl_right_click_mode.control ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 

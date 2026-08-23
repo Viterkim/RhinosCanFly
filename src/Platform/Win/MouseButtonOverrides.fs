@@ -835,6 +835,7 @@ let apply (config: MouseOverrideConfig) =
                   parallel_view_flying = config.parallel_view_flying
                   shift_right_click = ViewLatchTransitions.configured_mode config.shift_right_click
                   alt_right_click = ViewLatchTransitions.configured_mode config.alt_right_click
+                  ctrl_right_click = ViewLatchTransitions.configured_mode config.ctrl_right_click
                   exit = config.exit_binding
                   exit_on_mouse_right = config.exit_on_right
                   prepare_navigation = config.prepare_navigation }

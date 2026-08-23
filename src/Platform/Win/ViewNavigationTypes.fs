@@ -18,6 +18,7 @@ type RoutingConfig =
       parallel_view_flying: ParallelViewFlying
       shift_right_click: ViewNavigationMode option
       alt_right_click: ViewNavigationMode option
+      ctrl_right_click: ViewNavigationMode option
       exit: KeyBinding option
       exit_on_mouse_right: bool
       prepare_navigation: ViewportHostIdentity -> ViewNavigationMode -> Result<ViewportHostIdentity, string> }
@@ -103,6 +104,7 @@ let empty_routing =
       parallel_view_flying = ParallelViewFlying.DisabledAll
       shift_right_click = None
       alt_right_click = None
+      ctrl_right_click = None
       exit = None
       exit_on_mouse_right = false
       prepare_navigation = fun (host: ViewportHostIdentity) (_: ViewNavigationMode) -> Ok host }

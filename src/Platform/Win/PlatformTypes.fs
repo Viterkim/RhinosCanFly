@@ -52,6 +52,7 @@ type MouseOverrideConfig =
       parallel_view_flying: ParallelViewFlying
       shift_right_click: ModifiedRightClickMode
       alt_right_click: ModifiedRightClickMode
+      ctrl_right_click: ModifiedRightClickMode
       exit_binding: KeyBinding option
       exit_on_right: bool
       prepare_navigation: ViewportHostIdentity -> ViewNavigationMode -> Result<ViewportHostIdentity, string> }

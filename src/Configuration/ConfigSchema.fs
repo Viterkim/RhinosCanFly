@@ -67,6 +67,7 @@ let defaults: FlyConfigFile =
       mouse5_pivot_mode = MouseButtonPivotMode.Off
       shift_right_click_mode = ModifiedRightClickMode.Off
       alt_right_click_mode = ModifiedRightClickMode.Off
+      ctrl_right_click_mode = ModifiedRightClickMode.Off
       boost_mode = KeyActivationMode.Toggle
       slow_mode = KeyActivationMode.Toggle
       vertical_speed_multiplier = 0.7
