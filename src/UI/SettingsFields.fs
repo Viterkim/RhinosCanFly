@@ -76,6 +76,7 @@ type OptionFields =
       set_view_target_on_restored_flights: CheckBox
       save_speed_to_document: CheckBox
       load_speed_from_document: CheckBox
+      wheel_changes_speed_during_flight_navigation: CheckBox
       exit_on_mouse_left: CheckBox
       exit_on_mouse_right: CheckBox
       mouse4_pivot_in_flight: CheckBox
@@ -263,6 +264,8 @@ let create () =
               set_view_target_on_restored_flights = new CheckBox(Text = "Set target on restored flights")
               save_speed_to_document = new CheckBox(Text = "Save current speed to document")
               load_speed_from_document = new CheckBox(Text = "Load speed from document")
+              wheel_changes_speed_during_flight_navigation =
+                new CheckBox(Text = "MWheel changes speed during pan/pivot")
               exit_on_mouse_left = new CheckBox(Text = "Left click exits flight")
               exit_on_mouse_right = new CheckBox(Text = "Right click exits flight / navigation")
               mouse4_pivot_in_flight = new CheckBox(Text = "Mouse 4 pivots while flying")

@@ -144,23 +144,30 @@ let apply_wheel_input (input: InputAccumulator.State) (state: FlyState) =
         let wheelSteps = wheel / PlatformInput.wheel_delta
         state.wheel_remainder <- wheel - wheelSteps * PlatformInput.wheel_delta
 
-        match state.active_mouse_navigation with
-        | MousePivot _
-        | MousePan _ -> FlightCamera.apply_navigation_wheel wheelSteps state
-        | MouseLook ->
-            let direction =
-                match state.config.movement.wheel_speed_mode with
-                | MouseWheelSpeedMode.Off -> 0L
-                | MouseWheelSpeedMode.Normal -> 1L
-                | MouseWheelSpeedMode.Reversed -> -1L
-                | _ -> 0L
+        let direction =
+            match state.config.movement.wheel_speed_mode with
+            | MouseWheelSpeedMode.Off -> 0L
+            | MouseWheelSpeedMode.Normal -> 1L
+            | MouseWheelSpeedMode.Reversed -> -1L
+            | _ -> 0L
 
+        let changeSpeed =
+            match state.active_mouse_navigation with
+            | MouseLook -> true
+            | MousePivot _
+            | MousePan _ ->
+                state.config.movement.wheel_changes_speed_during_flight_navigation
+                && direction <> 0L
+
+        if changeSpeed then
             if direction = 0L then
                 state.wheel_remainder <- 0L
             elif wheelSteps <> 0L then
                 speed_steps state (direction * wheelSteps)
 
             ViewChange.none
+        else
+            FlightCamera.apply_navigation_wheel wheelSteps state
 
 let update_state (now: float) (input: InputAccumulator.State) (state: FlyState) =
     let cancelAndRestore =

@@ -44,6 +44,7 @@ type MovementConfig =
       vertical_speed_multiplier: float
       normalize_diagonal_movement: bool
       wheel_speed_mode: MouseWheelSpeedMode
+      wheel_changes_speed_during_flight_navigation: bool
       boost_mode: KeyActivationMode
       slow_mode: KeyActivationMode
       parallel_view: ParallelViewConfig }

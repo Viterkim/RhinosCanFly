@@ -164,6 +164,7 @@ type FlyConfigFile =
       save_speed_to_document: bool
       load_speed_from_document: bool
       wheel_speed_mode: MouseWheelSpeedMode
+      wheel_changes_speed_during_flight_navigation: bool
       exit_on_mouse_left: bool
       exit_on_mouse_right: bool
       middle_mouse_while_flying: FlyingMiddleMouseMode

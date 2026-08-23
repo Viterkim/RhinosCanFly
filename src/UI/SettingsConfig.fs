@@ -182,6 +182,7 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     set_checked options.set_view_target_on_restored_flights config.set_view_target_on_restored_flights
     set_checked options.save_speed_to_document config.save_speed_to_document
     set_checked options.load_speed_from_document config.load_speed_from_document
+    set_checked options.wheel_changes_speed_during_flight_navigation config.wheel_changes_speed_during_flight_navigation
     set_checked options.exit_on_mouse_left config.exit_on_mouse_left
     set_checked options.exit_on_mouse_right config.exit_on_mouse_right
     set_checked options.mouse4_pivot_in_flight config.mouse4_pivot_in_flight
@@ -251,6 +252,8 @@ let read (fields: SettingsFields.ConfigFields) =
               save_speed_to_document = is_checked options.save_speed_to_document
               load_speed_from_document = is_checked options.load_speed_from_document
               wheel_speed_mode = SettingsFields.selected_mode modes.wheel_speed_mode
+              wheel_changes_speed_during_flight_navigation =
+                is_checked options.wheel_changes_speed_during_flight_navigation
               exit_on_mouse_left = is_checked options.exit_on_mouse_left
               exit_on_mouse_right = is_checked options.exit_on_mouse_right
               middle_mouse_while_flying = SettingsFields.selected_mode modes.middle_mouse_while_flying

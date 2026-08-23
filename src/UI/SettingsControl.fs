@@ -55,6 +55,10 @@ type SettingsControl() as self =
         numbers.parallel_view_target_distance_multiplier.Enabled <- enabled
         options.set_view_target_on_restored_flights.Enabled <- enabled
 
+    let refresh_wheel_speed_controls () =
+        options.wheel_changes_speed_during_flight_navigation.Enabled <-
+            SettingsFields.selected_mode modes.wheel_speed_mode <> MouseWheelSpeedMode.Off
+
     let refresh_parallel_view_controls () =
         let mode = SettingsFields.selected_mode modes.parallel_view_flying
 
@@ -188,7 +192,9 @@ type SettingsControl() as self =
             [ SettingsLayout.item "Mouse X" modes.mouse_x_mode.control
               SettingsLayout.item "Mouse Y" modes.mouse_y_mode.control
               SettingsLayout.item "Middle mouse" modes.middle_mouse_while_flying.control
-              SettingsLayout.item "Perspective mouse sens" numbers.mouse_sensitivity ]
+              SettingsLayout.item "Perspective mouse sens" numbers.mouse_sensitivity
+              SettingsLayout.item "MWheel changes speed" modes.wheel_speed_mode.control
+              options.wheel_changes_speed_during_flight_navigation ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
@@ -224,8 +230,7 @@ type SettingsControl() as self =
         SettingsLayout.grid
             2
             [ SettingsLayout.item "Boost behaviour" modes.boost_mode.control
-              SettingsLayout.item "Slow behaviour" modes.slow_mode.control
-              SettingsLayout.item "MWheel changes speed" modes.wheel_speed_mode.control ]
+              SettingsLayout.item "Slow behaviour" modes.slow_mode.control ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
@@ -361,8 +366,11 @@ type SettingsControl() as self =
 
         modes.view_target_mode.control.SelectedIndexChanged.Add(fun (_: EventArgs) -> refresh_view_target_controls ())
 
+        modes.wheel_speed_mode.control.SelectedIndexChanged.Add(fun (_: EventArgs) -> refresh_wheel_speed_controls ())
+
         refresh_side_button_flight_controls ()
         refresh_view_target_controls ()
+        refresh_wheel_speed_controls ()
         refresh_parallel_view_controls ()
 
         actions.raw_json_toggle.Click.Add(fun (_: EventArgs) ->
@@ -435,6 +443,7 @@ type SettingsControl() as self =
         SettingsConfig.load fields.config config
         refresh_side_button_flight_controls ()
         refresh_view_target_controls ()
+        refresh_wheel_speed_controls ()
         refresh_parallel_view_controls ()
 
     member _.ReadConfig() = SettingsConfig.read fields.config
