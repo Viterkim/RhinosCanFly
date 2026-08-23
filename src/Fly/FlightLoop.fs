@@ -34,9 +34,10 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
             InputAccumulator.discard_transient_input rawInput
         else
             FlightControls.update_keyboard_navigation_input state
-            FlightCamera.update_navigation_mode rawInput state
+            let navigationChange = FlightCamera.update_navigation_mode rawInput state
             wheelChange <- FlightControls.apply_wheel_input rawInput state
             mouseChange <- FlightCamera.apply_mouse_input rawInput state
+            mouseChange <- ViewChange.combine navigationChange mouseChange
 
         PlatformInput.acknowledge_raw_input_wake inputWake
 

@@ -1,5 +1,8 @@
 module RhinosCanFly.FlightCamera
 
+// Rhino 9 deprecates GetViewList(bool, bool), but Rhino 7 has no replacement.
+#nowarn "44"
+
 open System
 open Rhino
 open Rhino.ApplicationSettings
@@ -122,13 +125,77 @@ let toggle_projection (state: FlyState) =
         state.wheel_remainder <- 0L
         redraw state
 
+let sync_other_views_to_target (state: FlyState) (target: Point3d) =
+    for view in state.view.Document.Views.GetViewList(true, false) do
+        if not (isNull view) && view.RuntimeSerialNumber <> state.view.RuntimeSerialNumber then
+            let viewport = view.ActiveViewport
+            let mutable direction = viewport.CameraDirection
+            let up = viewport.CameraY
+
+            match ViewTarget.retarget_distance state.config.behavior.retarget state.speed viewport with
+            | Some distance when direction.Unitize() ->
+                let magnification =
+                    ViewTarget.parallel_magnification_to_distance viewport target distance
+
+                viewport.SetCameraLocations(target, target - direction * distance)
+                viewport.CameraUp <- up
+
+                if magnification <> 1. then
+                    viewport.Magnify(magnification, true) |> ignore
+
+                view.Redraw()
+            | Some _
+            | None -> ()
+
+let apply_retarget_request (mode: RetargetMode) (state: FlyState) =
+    if mode = RetargetMode.Off then
+        ViewChange.none
+    else
+        match ViewTarget.selected_target state.config.behavior.retarget mode state.speed state.view state.viewport with
+        | None -> ViewChange.none
+        | Some target ->
+            let direction = state.camera.direction
+
+            match ViewTarget.retarget_distance state.config.behavior.retarget state.speed state.viewport with
+            | None -> ViewChange.none
+            | Some distance ->
+                let previous = state.camera
+
+                let magnification =
+                    ViewTarget.parallel_magnification_to_distance state.viewport target distance
+
+                state.camera <-
+                    { position = target - direction * distance
+                      target = target
+                      direction = direction
+                      up = state.camera.up }
+
+                match state.active_mouse_navigation with
+                | MousePivot _ -> state.active_mouse_navigation <- MousePivot target
+                | MousePan _ ->
+                    state.active_mouse_navigation <- MousePan(target, pan_units_per_radian target state.camera)
+                | MouseLook -> ()
+
+                sync_other_views_to_target state target
+
+                { camera_changed = state.camera <> previous
+                  parallel_magnification = magnification }
+
 let update_navigation_mode (input: InputAccumulator.State) (state: FlyState) =
     if InputAccumulator.drain_pivot_toggles input % 2 <> 0 then
         state.latched_mouse_navigation <- MouseNavigationMode.toggle PivotNavigation state.latched_mouse_navigation
 
+    if InputAccumulator.drain_pan_toggles input % 2 <> 0 then
+        state.latched_mouse_navigation <- MouseNavigationMode.toggle PanNavigation state.latched_mouse_navigation
+
+    let retargetChange =
+        apply_retarget_request (InputAccumulator.drain_retarget_request input) state
+
     let requestedNavigation =
         if state.keyboard_held_mouse_navigation <> LookNavigation then
             state.keyboard_held_mouse_navigation
+        elif InputAccumulator.pan_held input then
+            PanNavigation
         elif InputAccumulator.pivot_held input then
             PivotNavigation
         else
@@ -159,6 +226,8 @@ let update_navigation_mode (input: InputAccumulator.State) (state: FlyState) =
     if previousNavigation <> requestedNavigation then
         InputAccumulator.drain_mouse input |> ignore
         state.wheel_remainder <- 0L
+
+    retargetChange
 
 let apply_navigation_wheel (steps: int64) (state: FlyState) =
     if steps = 0L then

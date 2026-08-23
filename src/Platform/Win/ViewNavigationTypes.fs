@@ -2,26 +2,24 @@ module RhinosCanFly.Platform.Win.ViewNavigationTypes
 
 open System
 open System.Collections.Generic
+open System.Drawing
 open System.Windows.Forms
 open RhinosCanFly
 
-type ViewNavigationRequest =
-    | StartNavigation of ViewNavigationMode
-    | StopNavigation
-
 type RoutingConfig =
     { runtime_enabled: bool
-      mouse4: MouseGestureAction
-      mouse5: MouseGestureAction
+      mouse4: RoutedMouseAction
+      mouse5: RoutedMouseAction
       right_click_entry: RightClickEntryMode
       default_flight_mode: DefaultFlightMode
       parallel_view_flying: ParallelViewFlying
-      shift_right_click: MouseGestureAction
-      alt_right_click: MouseGestureAction
-      ctrl_right_click: MouseGestureAction
+      shift_right_click: RoutedMouseAction
+      alt_right_click: RoutedMouseAction
+      ctrl_right_click: RoutedMouseAction
       exit: KeyBinding option
       exit_on_mouse_right: bool
-      prepare_navigation: ViewportHostIdentity -> ViewNavigationMode -> Result<ViewportHostIdentity, string> }
+      prepare_navigation: ViewportHostIdentity -> ViewNavigationMode -> Result<ViewportHostIdentity, string>
+      retarget: ViewportHostIdentity -> ViewportClientPoint -> RetargetMode -> Result<unit, string> }
 
 type SideButton =
     | Mouse4
@@ -29,7 +27,7 @@ type SideButton =
 
 [<Struct>]
 type SideButtonHookEvent =
-    | ButtonDown of button: SideButton * host: ViewportHostIdentity
+    | ButtonDown of button: SideButton * host: ViewportHostIdentity * screen_point: Point
     | ButtonUp of button: SideButton
 
 type HookButtonOwnership =
@@ -41,11 +39,26 @@ type SideButtonHookCapture =
     { mutable mouse4: HookButtonOwnership
       mutable mouse5: HookButtonOwnership }
 
-type SideButtonState =
-    | Released
-    | TogglePressed of host: ViewportHostIdentity
-    | ToggleLatched of host: ViewportHostIdentity
-    | ToggleReleasePressed
+[<RequireQualifiedAccess>]
+type GestureOwner =
+    | ModifiedRightClick
+    | Mouse4
+    | Mouse5
+
+[<RequireQualifiedAccess>]
+type GestureLifetime =
+    | Toggle
+    | Hold
+
+type GestureNavigationSession =
+    { owner: GestureOwner
+      host: ViewportHostIdentity
+      mode: ViewNavigationMode
+      lifetime: GestureLifetime }
+
+type GestureNavigation =
+    | NoGestureNavigation
+    | GestureNavigationActive of GestureNavigationSession
 
 type ViewLatchSession =
     { host: ViewportHostIdentity
@@ -74,8 +87,7 @@ type PollRequirement =
 type State =
     { mutable routing: RoutingConfig
       mutable lifecycle: OverrideLifecycle
-      mutable mouse4: SideButtonState
-      mutable mouse5: SideButtonState
+      mutable gesture_navigation: GestureNavigation
       mutable view_latch: ViewLatch
       pending_side_button_events: Queue<SideButtonHookEvent>
       side_button_hook_capture: SideButtonHookCapture
@@ -96,23 +108,23 @@ let TRANSITION_TIMEOUT_SECONDS = 2.
 
 let empty_routing =
     { runtime_enabled = false
-      mouse4 = MouseGestureAction.Off
-      mouse5 = MouseGestureAction.Off
+      mouse4 = RoutedMouseAction.Off
+      mouse5 = RoutedMouseAction.Off
       right_click_entry = RightClickEntryMode.Off
       default_flight_mode = DefaultFlightMode.Normal
       parallel_view_flying = ParallelViewFlying.DisabledAll
-      shift_right_click = MouseGestureAction.Off
-      alt_right_click = MouseGestureAction.Off
-      ctrl_right_click = MouseGestureAction.Off
+      shift_right_click = RoutedMouseAction.Off
+      alt_right_click = RoutedMouseAction.Off
+      ctrl_right_click = RoutedMouseAction.Off
       exit = None
       exit_on_mouse_right = false
-      prepare_navigation = fun (host: ViewportHostIdentity) (_: ViewNavigationMode) -> Ok host }
+      prepare_navigation = fun (host: ViewportHostIdentity) (_: ViewNavigationMode) -> Ok host
+      retarget = fun (_: ViewportHostIdentity) (_: ViewportClientPoint) (_: RetargetMode) -> Ok() }
 
 let create_state () =
     { routing = empty_routing
       lifecycle = Resuming
-      mouse4 = Released
-      mouse5 = Released
+      gesture_navigation = NoGestureNavigation
       view_latch = NoViewLatch
       pending_side_button_events = Queue<SideButtonHookEvent>(16)
       side_button_hook_capture = { mouse4 = NotOwned; mouse5 = NotOwned }

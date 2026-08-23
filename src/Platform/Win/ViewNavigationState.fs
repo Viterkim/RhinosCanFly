@@ -4,16 +4,6 @@ open System.Diagnostics
 open RhinosCanFly
 open RhinosCanFly.Platform.Win.ViewNavigationTypes
 
-let get_button_state (state: State) (button: SideButton) =
-    match button with
-    | Mouse4 -> state.mouse4
-    | Mouse5 -> state.mouse5
-
-let set_button_state (state: State) (button: SideButton) (buttonState: SideButtonState) =
-    match button with
-    | Mouse4 -> state.mouse4 <- buttonState
-    | Mouse5 -> state.mouse5 <- buttonState
-
 let hook_button_ownership (state: State) (button: SideButton) =
     match button with
     | Mouse4 -> state.side_button_hook_capture.mouse4
@@ -33,77 +23,35 @@ let set_hook_button_ownership (state: State) (button: SideButton) (ownership: Ho
 let observe_hook_button_released (state: State) (button: SideButton) =
     match hook_button_ownership state button with
     | NotOwned -> ()
-    | Owned ->
-        match button with
-        | Mouse4 -> state.side_button_hook_capture.mouse4 <- ReleaseObserved
-        | Mouse5 -> state.side_button_hook_capture.mouse5 <- ReleaseObserved
+    | Owned -> set_hook_button_ownership state button ReleaseObserved
     | ReleaseObserved -> set_hook_button_ownership state button NotOwned
 
 let hook_owns_any_button (state: State) =
     hook_owns_button state Mouse4 || hook_owns_button state Mouse5
 
-let mode_for (state: State) (button: SideButton) =
+let action_for (state: State) (button: SideButton) =
     match button with
     | Mouse4 -> state.routing.mouse4
     | Mouse5 -> state.routing.mouse5
 
 let side_button_routing_enabled (state: State) =
-    match state.routing.mouse4 with
-    | MouseGestureAction.TogglePivot
-    | MouseGestureAction.HoldPivot
-    | MouseGestureAction.TogglePan
-    | MouseGestureAction.HoldPan
-    | MouseGestureAction.Retarget -> true
-    | MouseGestureAction.Off
-    | _ ->
-        match state.routing.mouse5 with
-        | MouseGestureAction.TogglePivot
-        | MouseGestureAction.HoldPivot
-        | MouseGestureAction.TogglePan
-        | MouseGestureAction.HoldPan
-        | MouseGestureAction.Retarget -> true
-        | MouseGestureAction.Off
-        | _ -> false
+    RoutedMouseAction.enabled state.routing.mouse4
+    || RoutedMouseAction.enabled state.routing.mouse5
 
-let button_navigation_active (buttonState: SideButtonState) =
-    match buttonState with
-    | TogglePressed _
-    | ToggleLatched _ -> true
-    | Released
-    | ToggleReleasePressed -> false
+let gesture_navigation_engaged (state: State) =
+    match state.gesture_navigation with
+    | NoGestureNavigation -> false
+    | GestureNavigationActive _ -> true
 
-let side_button_navigation_active (state: State) =
-    button_navigation_active state.mouse4 || button_navigation_active state.mouse5
+let gesture_navigation_host (state: State) =
+    match state.gesture_navigation with
+    | NoGestureNavigation -> ValueNone
+    | GestureNavigationActive session -> ValueSome session.host
 
-let side_button_navigation_mode (state: State) =
-    let configured_mode (action: MouseGestureAction) =
-        match action with
-        | MouseGestureAction.TogglePivot
-        | MouseGestureAction.HoldPivot -> ValueSome ViewNavigationMode.Pivot
-        | MouseGestureAction.TogglePan
-        | MouseGestureAction.HoldPan -> ValueSome ViewNavigationMode.Pan
-        | MouseGestureAction.Off
-        | MouseGestureAction.Retarget
-        | _ -> ValueNone
-
-    if button_navigation_active state.mouse4 then
-        configured_mode state.routing.mouse4
-    elif button_navigation_active state.mouse5 then
-        configured_mode state.routing.mouse5
-    else
-        ValueNone
-
-let any_button_engaged (state: State) =
-    match state.mouse4 with
-    | TogglePressed _
-    | ToggleLatched _
-    | ToggleReleasePressed -> true
-    | Released ->
-        match state.mouse5 with
-        | TogglePressed _
-        | ToggleLatched _
-        | ToggleReleasePressed -> true
-        | Released -> false
+let gesture_navigation_mode (state: State) =
+    match state.gesture_navigation with
+    | NoGestureNavigation -> ValueNone
+    | GestureNavigationActive session -> ValueSome session.mode
 
 let view_latch_engaged (state: State) =
     match state.view_latch with
@@ -196,10 +144,10 @@ let fast_poll_required (state: State) =
     state.pending_side_button_events.Count > 0
     || state.navigation_exit_requested
     || (state.lifecycle = Available
-        && (any_button_engaged state || view_latch_engaged state))
+        && (gesture_navigation_engaged state || view_latch_engaged state))
 
 let stop_timer_if_idle (state: State) =
-    if not (any_button_engaged state) && not (view_latch_engaged state) then
+    if not (gesture_navigation_engaged state) && not (view_latch_engaged state) then
         state.poll_timer.Stop()
 
 let root_window (window: nativeint) =
@@ -225,27 +173,21 @@ let try_bring_root_window_to_foreground (window: RootWindow) =
 let same_host (left: ViewportHostIdentity) (right: ViewportHostIdentity) =
     left.view_serial_number = right.view_serial_number
     && left.document_serial_number = right.document_serial_number
+    && left.viewport_id = right.viewport_id
     && left.view_window = right.view_window
     && left.root_window = right.root_window
 
 let navigation_host (state: State) =
-    match state.view_latch with
-    | WaitingForRelease session
-    | PivotActive session
-    | PanActive session -> ValueSome session.host
-    | NoViewLatch ->
-        // Keep this boring instead of matching a tuple. This runs on the
-        // navigation timer, and the tuple form allocates every time.
-        match state.mouse4 with
-        | TogglePressed host
-        | ToggleLatched host -> ValueSome host
-        | Released
-        | ToggleReleasePressed ->
-            match state.mouse5 with
-            | TogglePressed host
-            | ToggleLatched host -> ValueSome host
-            | Released
-            | ToggleReleasePressed -> ValueNone
+    // Keep this boring instead of matching a tuple. This runs on the
+    // navigation timer, and the tuple form allocates every time.
+    match state.gesture_navigation with
+    | GestureNavigationActive session -> ValueSome session.host
+    | NoGestureNavigation ->
+        match state.view_latch with
+        | WaitingForRelease session
+        | PivotActive session
+        | PanActive session -> ValueSome session.host
+        | NoViewLatch -> ValueNone
 
 let view_latch_completion (latch: ViewLatch) =
     match latch with
@@ -267,8 +209,7 @@ let complete_view_latch (latch: ViewLatch) =
 let clear_navigation (state: State) =
     let previousViewLatch = state.view_latch
 
-    state.mouse4 <- Released
-    state.mouse5 <- Released
+    state.gesture_navigation <- NoGestureNavigation
     state.view_latch <- NoViewLatch
     state.navigation_exit_requested <- false
     state.pending_side_button_events.Clear()

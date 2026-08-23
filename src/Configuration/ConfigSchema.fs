@@ -151,8 +151,11 @@ let normalize (source: FlyConfigFile) =
 let compile (source: FlyConfigFile) =
     let errors = ResizeArray<string>()
 
-    let while_flying (enabled: bool) (action: MouseGestureAction) =
-        if enabled then action else MouseGestureAction.Off
+    let while_flying (enabled: bool) (action: MouseGestureAction) (retargetMode: RetargetMode) =
+        if enabled then
+            RoutedMouseAction.create action retargetMode
+        else
+            RoutedMouseAction.Off
 
     let parallelViewFlying =
         let sourceValue = source.parallel_view_flying
@@ -356,8 +359,8 @@ let compile (source: FlyConfigFile) =
               exit_on_left = source.exit_on_mouse_left
               exit_on_right = source.exit_on_mouse_right
               middle_button = source.middle_mouse_while_flying
-              mouse4 = while_flying source.mouse4_action_while_flying source.mouse4_action
-              mouse5 = while_flying source.mouse5_action_while_flying source.mouse5_action }
+              mouse4 = while_flying source.mouse4_action_while_flying source.mouse4_action source.mouse4_retarget
+              mouse5 = while_flying source.mouse5_action_while_flying source.mouse5_action source.mouse5_retarget }
           behavior =
             { hide_gumball = source.hide_gumball_while_flying
               flight_pivot_uses_gumball = source.flight_pivot_uses_gumball

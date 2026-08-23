@@ -5,38 +5,20 @@ module RhinosCanFly.Platform.Win.MouseButtonOverrides
 
 open System
 open System.Diagnostics
-open System.Drawing
 open Rhino
 open Rhino.ApplicationSettings
 open Rhino.Commands
 open Rhino.Display
-open Rhino.UI
 open RhinosCanFly
 open RhinosCanFly.Platform.Win.ViewNavigationTypes
 
 let state = create_state ()
 let right_click = RightClickTransitions.create ()
-
-let release_navigation () =
-    RightClickTransitions.clear_direct_navigation right_click
-    ViewNavigationState.release_all state
+let mutable raw_navigation: RawViewNavigation.Session option = None
 
 let request_navigation_exit () =
     state.navigation_exit_requested <- true
     ViewNavigationState.keep_timer_running state
-
-[<Struct>]
-type DirectNavigationMode =
-    | DirectPivot
-    | DirectPan
-    | DirectParallelPan
-    | DirectParallelZoom
-
-[<Struct>]
-type NavigationSample =
-    { view_serial_number: uint32
-      mode: DirectNavigationMode
-      point: Point }
 
 type HookState =
     | HookAbsent
@@ -75,127 +57,98 @@ let active_navigation_host () =
     | ValueSome host -> ValueSome host
     | ValueNone -> ViewNavigationState.navigation_host state
 
-type ViewNavigationCallback() =
-    inherit MouseCallback()
+[<Struct>]
+type DesiredRawNavigation =
+    { host: ViewportHostIdentity
+      mode: RawViewNavigation.Mode }
 
-    let mutable previousNavigationSample: NavigationSample voption = ValueNone
-
-    let active_navigation_mode () =
-        if state.lifecycle <> Available then
-            ValueNone
-        else
-            match RightClickTransitions.parallel_zoom_host right_click with
-            | ValueSome _ -> ValueSome DirectParallelZoom
-            | ValueNone ->
-                match RightClickTransitions.parallel_pan_host right_click with
-                | ValueSome _ -> ValueSome DirectParallelPan
-                | ValueNone when ViewNavigationState.side_button_navigation_active state ->
-                    match ViewNavigationState.side_button_navigation_mode state with
-                    | ValueSome ViewNavigationMode.Pivot -> ValueSome DirectPivot
-                    | ValueSome ViewNavigationMode.Pan -> ValueSome DirectPan
+let desired_raw_navigation () =
+    if state.lifecycle <> Available then
+        ValueNone
+    else
+        match RightClickTransitions.parallel_zoom_host right_click with
+        | ValueSome host ->
+            ValueSome
+                { host = host
+                  mode = RawViewNavigation.Mode.ParallelZoom }
+        | ValueNone ->
+            match RightClickTransitions.parallel_pan_host right_click with
+            | ValueSome host ->
+                ValueSome
+                    { host = host
+                      mode = RawViewNavigation.Mode.Pan }
+            | ValueNone when ViewNavigationState.gesture_navigation_engaged state ->
+                match ViewNavigationState.gesture_navigation_host state with
+                | ValueSome host ->
+                    match ViewNavigationState.gesture_navigation_mode state with
+                    | ValueSome ViewNavigationMode.Pivot ->
+                        ValueSome
+                            { host = host
+                              mode = RawViewNavigation.Mode.Pivot }
+                    | ValueSome ViewNavigationMode.Pan ->
+                        ValueSome
+                            { host = host
+                              mode = RawViewNavigation.Mode.Pan }
                     | ValueNone -> ValueNone
-                | ValueNone ->
+                | ValueNone -> ValueNone
+            | ValueNone ->
+                match ViewNavigationState.navigation_host state with
+                | ValueSome host ->
                     match state.view_latch with
-                    | PivotActive _ -> ValueSome DirectPivot
-                    | PanActive _ -> ValueSome DirectPan
+                    | PivotActive _ ->
+                        ValueSome
+                            { host = host
+                              mode = RawViewNavigation.Mode.Pivot }
+                    | PanActive _ ->
+                        ValueSome
+                            { host = host
+                              mode = RawViewNavigation.Mode.Pan }
                     | NoViewLatch
                     | WaitingForRelease _ -> ValueNone
+                | ValueNone -> ValueNone
 
-    let navigation_host (mode: DirectNavigationMode) =
-        match mode with
-        | DirectParallelZoom -> RightClickTransitions.parallel_zoom_host right_click
-        | DirectParallelPan -> RightClickTransitions.parallel_pan_host right_click
-        | DirectPivot
-        | DirectPan -> ViewNavigationState.navigation_host state
+let stop_raw_navigation () =
+    match raw_navigation with
+    | None -> Ok()
+    | Some session ->
+        match session.Stop() with
+        | Ok() ->
+            raw_navigation <- None
+            Ok()
+        | Error error -> Error error
 
-    let parallel_zoom (viewport: RhinoViewport) (previous: Point) (current: Point) =
-        let zoomScale = ViewSettings.ZoomScale
+let start_raw_navigation (desired: DesiredRawNavigation) =
+    let failed = Action request_navigation_exit
 
-        if
-            current.Y <> previous.Y
-            && not (Double.IsNaN zoomScale)
-            && not (Double.IsInfinity zoomScale)
-            && zoomScale > 0.
-            && zoomScale <> 1.
-        then
-            let steps = float (previous.Y - current.Y) / 12.
-            let rawExponent = steps * Math.Log(1. / zoomScale)
-            let exponent = max -0.25 (min 0.25 rawExponent)
-            viewport.Magnify(Math.Exp exponent, true)
-        else
-            false
+    match RawViewNavigation.start desired.host desired.mode failed with
+    | Error error -> Error error
+    | Ok session ->
+        raw_navigation <- Some session
+        Ok()
 
-    override _.OnMouseMove(event: MouseCallbackEventArgs) =
-        try
-            match active_navigation_mode () with
-            | ValueNone -> previousNavigationSample <- ValueNone
-            | ValueSome mode ->
-                let view = event.View
+let reconcile_raw_navigation () =
+    match desired_raw_navigation () with
+    | ValueNone -> stop_raw_navigation ()
+    | ValueSome desired ->
+        match raw_navigation with
+        | Some current when current.Matches(desired.host, desired.mode) -> Ok()
+        | Some _ ->
+            match stop_raw_navigation () with
+            | Error error -> Error error
+            | Ok() -> start_raw_navigation desired
+        | None -> start_raw_navigation desired
 
-                if Object.ReferenceEquals(view, null) then
-                    previousNavigationSample <- ValueNone
-                else
-                    match navigation_host mode with
-                    | ValueSome expected when view_matches_host expected view ->
-                        let current =
-                            { view_serial_number = view.RuntimeSerialNumber
-                              mode = mode
-                              point = event.ViewportPoint }
+let release_navigation () =
+    RightClickTransitions.clear_direct_navigation right_click
+    let viewResult = ViewNavigationState.release_all state
+    let rawResult = stop_raw_navigation ()
 
-                        match previousNavigationSample with
-                        | ValueSome previous when
-                            previous.view_serial_number = current.view_serial_number
-                            && previous.mode = current.mode
-                            ->
-                            let changed =
-                                match mode with
-                                | DirectPivot ->
-                                    view.ActiveViewport.MouseRotateAroundTarget(previous.point, current.point)
-                                | DirectPan
-                                | DirectParallelPan ->
-                                    view.ActiveViewport.MouseLateralDolly(previous.point, current.point)
-                                | DirectParallelZoom -> parallel_zoom view.ActiveViewport previous.point current.point
-
-                            if changed then
-                                view.Redraw()
-                        | ValueSome _
-                        | ValueNone -> ()
-
-                        previousNavigationSample <- ValueSome current
-                        event.Cancel <- true
-                    | ValueSome _
-                    | ValueNone ->
-                        previousNavigationSample <- ValueNone
-                        request_navigation_exit ()
-        with error ->
-            previousNavigationSample <- ValueNone
-            log_exception "direct view navigation" error
-
-            try
-                request_navigation_exit ()
-            with exitError ->
-                log_exception "direct view navigation exit" exitError
-
-    member _.NavigationActive = ValueOption.isSome (active_navigation_mode ())
-    member _.ResetNavigation() = previousNavigationSample <- ValueNone
-
-let view_navigation_callback = ViewNavigationCallback()
-
-let refresh_callback_enabled () =
-    let navigationActive = view_navigation_callback.NavigationActive
-    let shouldEnable = state.lifecycle = Available && navigationActive
-
-    if not navigationActive then
-        view_navigation_callback.ResetNavigation()
-
-    if view_navigation_callback.Enabled <> shouldEnable then
-        view_navigation_callback.Enabled <- shouldEnable
-
-let try_refresh_callback_enabled () =
-    try
-        refresh_callback_enabled ()
-    with error ->
-        log_exception "mouse override callback refresh" error
+    match viewResult with
+    | Error error ->
+        match rawResult with
+        | Error rawError -> Error $"{error}; raw navigation: {rawError}"
+        | Ok() -> Error error
+    | Ok() -> rawResult
 
 let mutable right_click_viewports: RightClickTransitions.RightClickViewport array =
     Array.empty
@@ -430,7 +383,7 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
                 elif
                     not hookActive
                     || state.lifecycle <> Available
-                    || ViewNavigationState.mode_for state button = MouseGestureAction.Off
+                    || not (RoutedMouseAction.enabled (ViewNavigationState.action_for state button))
                 then
                     false
                 elif isDown then
@@ -443,7 +396,11 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
                             ->
                             swallow <- true
                             ViewNavigationState.set_hook_button_ownership state button Owned
-                            state.pending_side_button_events.Enqueue(ButtonDown(button, pointViewport.host))
+
+                            state.pending_side_button_events.Enqueue(
+                                ButtonDown(button, pointViewport.host, event.screen_point)
+                            )
+
                             ViewNavigationState.keep_timer_running state
                             true
                         | ValueSome _
@@ -569,8 +526,6 @@ let release_after_timer_error (error: exn) =
     | Ok() -> ()
     | Error cleanupError -> Debug.WriteLine $"RhinosCanFly mouse override timer cleanup: {cleanupError}"
 
-    try_refresh_callback_enabled ()
-
 let hook_removal_pending () =
     match mouse_hook_state with
     | HookRemovalPending _ -> true
@@ -600,6 +555,7 @@ let poll_requirement () =
          | ShutDown -> false)
         || ViewNavigationState.hook_owns_any_button state
         || RightClickTransitions.owns_button right_click
+        || Option.isSome raw_navigation
         || hook_removal_pending ()
         || mouse_hook_needs_reconciliation ()
     then
@@ -618,10 +574,9 @@ let apply_poll_requirement () =
 let activate_degraded (error: string) =
     state.lifecycle <- Degraded error
 
-    try
-        view_navigation_callback.Enabled <- false
-    with callbackError ->
-        log_exception "mouse override callback disable" callbackError
+    match stop_raw_navigation () with
+    | Ok() -> ()
+    | Error cleanupError -> Debug.WriteLine $"RhinosCanFly raw navigation cleanup: {cleanupError}"
 
     try
         apply_poll_requirement ()
@@ -630,10 +585,16 @@ let activate_degraded (error: string) =
 
 let activate_available () =
     try
-        refresh_callback_enabled ()
-        apply_poll_requirement ()
         state.lifecycle <- Available
-        Ok()
+
+        match reconcile_raw_navigation () with
+        | Error error ->
+            let message = $"Could not activate mouse button overrides: {error}"
+            activate_degraded message
+            Error message
+        | Ok() ->
+            apply_poll_requirement ()
+            Ok()
     with error ->
         let message = $"Could not activate mouse button overrides: {error.Message}"
         activate_degraded message
@@ -642,7 +603,7 @@ let activate_available () =
 let poll_timer_elapsed () =
     try
         let navigationWasActive =
-            ViewNavigationState.any_button_engaged state
+            ViewNavigationState.gesture_navigation_engaged state
             || ViewNavigationState.view_latch_engaged state
             || ValueOption.isSome (RightClickTransitions.direct_navigation_host right_click)
 
@@ -668,16 +629,17 @@ let poll_timer_elapsed () =
                 | Ok() -> ()
                 | Error error -> Debug.WriteLine $"RhinosCanFly mouse override exit: {error}"
             else
-                SideButtonTransitions.poll state Mouse4
-                SideButtonTransitions.poll state Mouse5
+                SideButtonTransitions.poll state
 
                 ViewLatchTransitions.update state
 
-            refresh_callback_enabled ()
+            match reconcile_raw_navigation () with
+            | Ok() -> ()
+            | Error error -> failwith error
 
             if
                 navigationWasActive
-                && not (ViewNavigationState.any_button_engaged state)
+                && not (ViewNavigationState.gesture_navigation_engaged state)
                 && not (ViewNavigationState.view_latch_engaged state)
                 && ValueOption.isNone (RightClickTransitions.direct_navigation_host right_click)
             then
@@ -703,12 +665,20 @@ let poll_timer_elapsed () =
             | Ok() -> ()
             | Error error -> Debug.WriteLine $"RhinosCanFly mouse override hook: {error}"
 
-            match state.lifecycle, mouseResult with
-            | Degraded _, Ok() when state.suspension_ids.Count = 0 ->
-                match activate_available () with
-                | Ok() -> ()
-                | Error error -> Debug.WriteLine $"RhinosCanFly mouse override activation: {error}"
-            | _ -> apply_poll_requirement ()
+            // This poll runs during navigation. Keep reference tuples out of it.
+            match state.lifecycle with
+            | Degraded _ when state.suspension_ids.Count = 0 ->
+                match mouseResult with
+                | Ok() ->
+                    match activate_available () with
+                    | Ok() -> ()
+                    | Error error -> Debug.WriteLine $"RhinosCanFly mouse override activation: {error}"
+                | Error _ -> apply_poll_requirement ()
+            | Available
+            | Suspended
+            | Resuming
+            | Degraded _
+            | ShutDown -> apply_poll_requirement ()
         else
             apply_poll_requirement ()
     with error ->
@@ -737,14 +707,15 @@ let command_began =
                 && state.lifecycle = Available
                 && (state.pending_side_button_events.Count > 0
                     || ViewNavigationState.hook_owns_any_button state
-                    || ViewNavigationState.any_button_engaged state
-                    || ViewNavigationState.view_latch_engaged state)
+                    || RightClickTransitions.owns_button right_click
+                    || ViewNavigationState.gesture_navigation_engaged state
+                    || ViewNavigationState.view_latch_engaged state
+                    || Option.isSome raw_navigation)
             then
                 match release_navigation () with
                 | Ok() -> ()
                 | Error error -> Debug.WriteLine $"RhinosCanFly command navigation cleanup: {error}"
 
-                try_refresh_callback_enabled ()
                 apply_poll_requirement ()
                 request_ui_redraw ()
         with error ->
@@ -784,14 +755,23 @@ let start_view_latch (view: RhinoView) (mode: ViewNavigationMode) (completion: A
         match ViewLatchTransitions.start_or_switch state host mode completion with
         | Error error -> Error error
         | Ok() ->
-            match refresh_mouse_hook () with
+            let activation =
+                match reconcile_raw_navigation () with
+                | Error error -> Error error
+                | Ok() -> refresh_mouse_hook ()
+
+            match activation with
             | Ok() -> Ok()
-            | Error hookError ->
-                let mutable error = hookError
+            | Error activationError ->
+                let mutable error = activationError
 
                 match ViewLatchTransitions.release state with
                 | Ok() -> ()
                 | Error cleanupError -> error <- $"{error}; cleanup failed: {cleanupError}"
+
+                match reconcile_raw_navigation () with
+                | Ok() -> ()
+                | Error cleanupError -> error <- $"{error}; raw cleanup failed: {cleanupError}"
 
                 try
                     if view_matches_host host view then
@@ -803,8 +783,16 @@ let start_view_latch (view: RhinoView) (mode: ViewNavigationMode) (completion: A
 
 let stop_view_latch (mode: ViewNavigationMode) =
     let wasActive = ViewLatchTransitions.is_mode state mode
-    let result = ViewLatchTransitions.stop state mode
-    try_refresh_callback_enabled ()
+    let navigationResult = ViewLatchTransitions.stop state mode
+    let rawResult = reconcile_raw_navigation ()
+
+    let result =
+        match navigationResult with
+        | Error error ->
+            match rawResult with
+            | Error rawError -> Error $"{error}; raw cleanup failed: {rawError}"
+            | Ok() -> Error error
+        | Ok() -> rawResult
 
     match refresh_mouse_hook () with
     | Ok() -> ()
@@ -842,7 +830,8 @@ let apply (config: MouseOverrideConfig) =
                   ctrl_right_click = config.ctrl_right_click
                   exit = config.exit_binding
                   exit_on_mouse_right = config.exit_on_right
-                  prepare_navigation = config.prepare_navigation }
+                  prepare_navigation = config.prepare_navigation
+                  retarget = config.retarget }
 
             if state.lifecycle = Suspended then
                 Ok()
@@ -850,8 +839,6 @@ let apply (config: MouseOverrideConfig) =
                 state.lifecycle <- Resuming
 
                 try
-                    refresh_callback_enabled ()
-
                     match refresh_mouse_hook () with
                     | Error error ->
                         activate_degraded error
@@ -879,12 +866,6 @@ let suspend () =
         let errors = ResizeArray<string>()
         state.lifecycle <- Suspended
         RightClickTransitions.clear_action right_click
-
-        try
-            view_navigation_callback.Enabled <- false
-        with error ->
-            log_exception "mouse override callback suspension" error
-            errors.Add error.Message
 
         try
             match release_navigation () with
@@ -929,8 +910,6 @@ let resume (lease: InputSuspensionLease) =
         state.lifecycle <- Resuming
 
         try
-            refresh_callback_enabled ()
-
             match refresh_mouse_hook () with
             | Error error ->
                 activate_degraded error
@@ -997,7 +976,6 @@ let shutdown () =
         attempt "command handler" (fun () -> Command.BeginCommand.RemoveHandler command_began)
         attempt "command end handler" (fun () -> Command.EndCommand.RemoveHandler command_ended)
         attempt "application initialized handler" (fun () -> RhinoApp.Initialized.RemoveHandler application_initialized)
-        attempt "callback" (fun () -> view_navigation_callback.Enabled <- false)
 
         attempt "view navigation" (fun () ->
             match release_navigation () with

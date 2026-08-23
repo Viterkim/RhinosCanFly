@@ -35,40 +35,8 @@ let start (state: State) (host: ViewportHostIdentity) (mode: ViewNavigationMode)
     ViewNavigationState.keep_timer_running state
     Ok()
 
-let apply_right_click_request (state: State) (host: ViewportHostIdentity) (request: ViewNavigationRequest) =
-    match request with
-    | StopNavigation when
-        ViewNavigationState.any_button_engaged state
-        || ViewNavigationState.view_latch_engaged state
-        ->
-        state.navigation_exit_requested <- true
-        ViewNavigationState.keep_timer_running state
-        Ok()
-    | StartNavigation mode ->
-        match state.view_latch with
-        | PivotActive _
-        | PanActive _
-        | WaitingForRelease _ -> Ok()
-        | NoViewLatch ->
-            if state.lifecycle = Available then
-                let released =
-                    if ViewNavigationState.any_button_engaged state then
-                        ViewNavigationState.release_all state
-                    else
-                        Ok()
-
-                match released with
-                | Error error -> Error error
-                | Ok() ->
-                    match state.routing.prepare_navigation host mode with
-                    | Error error -> Error error
-                    | Ok prepared -> start state prepared mode None
-            else
-                Ok()
-    | StopNavigation -> Ok()
-
 let activate (state: State) (session: ViewLatchSession) =
-    if ViewNavigationState.side_button_navigation_active state then
+    if ViewNavigationState.gesture_navigation_engaged state then
         Error "Another view navigation mode is already active."
     else
         state.view_latch <-
@@ -109,16 +77,6 @@ let update (state: State) =
             | Ok() -> ()
             | Error error -> Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
 
-let configured_mode (action: MouseGestureAction) =
-    match action with
-    | MouseGestureAction.TogglePivot
-    | MouseGestureAction.HoldPivot -> Some Pivot
-    | MouseGestureAction.TogglePan
-    | MouseGestureAction.HoldPan -> Some Pan
-    | MouseGestureAction.Off
-    | MouseGestureAction.Retarget
-    | _ -> None
-
 let current_mode (state: State) =
     match state.view_latch with
     | NoViewLatch -> None
@@ -134,7 +92,7 @@ let start_or_switch (state: State) (host: ViewportHostIdentity) (mode: ViewNavig
     else
         match current_mode state with
         | Some current when current = mode -> Ok()
-        | None when not (ViewNavigationState.side_button_navigation_active state) ->
+        | None when not (ViewNavigationState.gesture_navigation_engaged state) ->
             match state.routing.prepare_navigation host mode with
             | Error error -> Error error
             | Ok prepared -> start state prepared mode completion

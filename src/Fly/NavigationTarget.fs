@@ -1,5 +1,8 @@
 module RhinosCanFly.NavigationTarget
 
+// Rhino 9 deprecates GetViewList(bool, bool), but Rhino 7 has no replacement.
+#nowarn "44"
+
 open Rhino
 open Rhino.Display
 
@@ -59,6 +62,7 @@ let prepare (loaded: ConfigLoadResult) (host: ViewportHostIdentity) (mode: ViewN
                 if
                     currentHost.document_serial_number = host.document_serial_number
                     && currentHost.view_serial_number = host.view_serial_number
+                    && currentHost.viewport_id = host.viewport_id
                     && currentHost.view_window = host.view_window
                     && currentHost.root_window = host.root_window
                 then
@@ -69,3 +73,80 @@ let prepare (loaded: ConfigLoadResult) (host: ViewportHostIdentity) (mode: ViewN
                     Error "The navigation viewport changed before it could be activated."
     with error ->
         Error $"Could not prepare view navigation: {error.Message}"
+
+let move_view_to_target (retarget: RetargetConfig) (speed: float) (target: Rhino.Geometry.Point3d) (view: RhinoView) =
+    if not (isNull view) then
+        let viewport = view.ActiveViewport
+        let mutable direction = viewport.CameraDirection
+        let up = viewport.CameraY
+
+        match ViewTarget.retarget_distance retarget speed viewport with
+        | Some distance when direction.Unitize() ->
+            let magnification =
+                ViewTarget.parallel_magnification_to_distance viewport target distance
+
+            viewport.SetCameraLocations(target, target - direction * distance)
+            viewport.CameraUp <- up
+
+            if magnification <> 1. then
+                viewport.Magnify(magnification, true) |> ignore
+
+            view.Redraw()
+        | Some _
+        | None -> ()
+
+let retarget
+    (loaded: ConfigLoadResult)
+    (host: ViewportHostIdentity)
+    (clientPoint: ViewportClientPoint)
+    (mode: RetargetMode)
+    =
+    try
+        let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
+
+        if isNull view || isNull view.Document then
+            Error "The retarget viewport is unavailable."
+        elif
+            not (PlatformInput.viewport_host_exists host view)
+            || not (PlatformInput.viewport_id_matches host view)
+            || PlatformInput.foreground_root_window () <> host.root_window
+        then
+            Error "The retarget viewport is no longer active."
+        else
+            let document = view.Document
+            let activeDocument = RhinoDoc.ActiveDoc
+
+            if
+                isNull activeDocument
+                || activeDocument.RuntimeSerialNumber <> host.document_serial_number
+            then
+                Error "The retarget document is no longer active."
+            else
+                let activeView = document.Views.ActiveView
+
+                if isNull activeView || activeView.RuntimeSerialNumber <> view.RuntimeSerialNumber then
+                    document.Views.ActiveView <- view
+
+                let viewport = view.ActiveViewport
+                let behavior = loaded.config.behavior
+                let movement = loaded.config.movement
+
+                let speed =
+                    FlightSpeed.current
+                        document
+                        behavior.load_speed_from_document
+                        movement.speed_range
+                        movement.base_speed
+
+                match ViewTarget.selected_target_at behavior.retarget mode speed view viewport clientPoint with
+                | None -> Ok()
+                | Some target ->
+                    move_view_to_target behavior.retarget speed target view
+
+                    for other in document.Views.GetViewList(true, false) do
+                        if not (isNull other) && other.RuntimeSerialNumber <> view.RuntimeSerialNumber then
+                            move_view_to_target behavior.retarget speed target other
+
+                    Ok()
+    with error ->
+        Error $"Could not retarget the viewports: {error.Message}"

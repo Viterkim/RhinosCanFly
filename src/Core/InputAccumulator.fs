@@ -6,7 +6,10 @@ type State =
     { mutable mouse_xy: int64
       mutable wheel_delta: int64
       mutable pivot_toggle_requests: int
+      mutable pan_toggle_requests: int
       mutable pivot_held: int
+      mutable pan_held: int
+      mutable retarget_request: int
       mutable exit_reason: FlightExitReason option
       mutable work_revision: int64 }
 
@@ -17,7 +20,10 @@ let create () =
     { mouse_xy = 0L
       wheel_delta = 0L
       pivot_toggle_requests = 0
+      pan_toggle_requests = 0
       pivot_held = 0
+      pan_held = 0
+      retarget_request = int RetargetMode.Off
       exit_reason = None
       work_revision = 0L }
 
@@ -57,10 +63,25 @@ let request_pivot_toggle (state: State) =
     Interlocked.Increment(&state.pivot_toggle_requests) |> ignore
     mark_work_available state
 
+let request_pan_toggle (state: State) =
+    Interlocked.Increment(&state.pan_toggle_requests) |> ignore
+    mark_work_available state
+
 let set_pivot_held (held: bool) (state: State) =
     let value = if held then 1 else 0
 
     if Interlocked.Exchange(&state.pivot_held, value) <> value then
+        mark_work_available state
+
+let set_pan_held (held: bool) (state: State) =
+    let value = if held then 1 else 0
+
+    if Interlocked.Exchange(&state.pan_held, value) <> value then
+        mark_work_available state
+
+let request_retarget (mode: RetargetMode) (state: State) =
+    if mode <> RetargetMode.Off then
+        Interlocked.Exchange(&state.retarget_request, int mode) |> ignore
         mark_work_available state
 
 let drain_mouse (state: State) =
@@ -73,7 +94,15 @@ let drain_wheel (state: State) =
 let drain_pivot_toggles (state: State) =
     Interlocked.Exchange(&state.pivot_toggle_requests, 0)
 
+let drain_pan_toggles (state: State) =
+    Interlocked.Exchange(&state.pan_toggle_requests, 0)
+
 let pivot_held (state: State) = Volatile.Read(&state.pivot_held) <> 0
+
+let pan_held (state: State) = Volatile.Read(&state.pan_held) <> 0
+
+let drain_retarget_request (state: State) =
+    enum<RetargetMode> (Interlocked.Exchange(&state.retarget_request, int RetargetMode.Off))
 
 let exit_reason (state: State) = Volatile.Read(&state.exit_reason)
 
@@ -88,3 +117,5 @@ let discard_transient_input (state: State) =
     Interlocked.Exchange(&state.mouse_xy, 0L) |> ignore
     Interlocked.Exchange(&state.wheel_delta, 0L) |> ignore
     Interlocked.Exchange(&state.pivot_toggle_requests, 0) |> ignore
+    Interlocked.Exchange(&state.pan_toggle_requests, 0) |> ignore
+    Interlocked.Exchange(&state.retarget_request, int RetargetMode.Off) |> ignore

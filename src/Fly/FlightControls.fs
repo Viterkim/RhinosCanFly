@@ -120,16 +120,21 @@ let read_movement (state: FlyState) =
 let reconcile_held_side_button_navigation (input: InputAccumulator.State) (state: FlyState) =
     let mouse = state.config.mouse
 
-    let mouse4Configured = mouse.mouse4 = MouseGestureAction.HoldPivot
+    let mouse4PivotConfigured = RoutedMouseAction.holds_pivot mouse.mouse4
+    let mouse5PivotConfigured = RoutedMouseAction.holds_pivot mouse.mouse5
+    let mouse4PanConfigured = RoutedMouseAction.holds_pan mouse.mouse4
+    let mouse5PanConfigured = RoutedMouseAction.holds_pan mouse.mouse5
 
-    let mouse5Configured = mouse.mouse5 = MouseGestureAction.HoldPivot
+    let mouse4Held = PlatformInput.mouse4_button_down ()
+    let mouse5Held = PlatformInput.mouse5_button_down ()
 
-    let mouse4Held = mouse4Configured && PlatformInput.mouse4_button_down ()
+    if mouse4PivotConfigured || mouse5PivotConfigured then
+        InputAccumulator.set_pivot_held
+            ((mouse4PivotConfigured && mouse4Held) || (mouse5PivotConfigured && mouse5Held))
+            input
 
-    let mouse5Held = mouse5Configured && PlatformInput.mouse5_button_down ()
-
-    if mouse4Configured || mouse5Configured then
-        InputAccumulator.set_pivot_held (mouse4Held || mouse5Held) input
+    if mouse4PanConfigured || mouse5PanConfigured then
+        InputAccumulator.set_pan_held ((mouse4PanConfigured && mouse4Held) || (mouse5PanConfigured && mouse5Held)) input
 
 let apply_wheel_input (input: InputAccumulator.State) (state: FlyState) =
     let wheel = state.wheel_remainder + InputAccumulator.drain_wheel input

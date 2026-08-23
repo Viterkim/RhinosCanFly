@@ -32,44 +32,69 @@ type RawInputReceiver
     let mutable registrationRetryTimerDisposed = false
 
     [<Literal>]
-    let MOUSE4_PIVOT_BIT = 1
+    let MOUSE4_BUTTON_BIT = 1
 
     [<Literal>]
-    let MOUSE5_PIVOT_BIT = 2
+    let MOUSE5_BUTTON_BIT = 2
 
-    let initial_held_pivot_bit (action: MouseGestureAction) (virtualKey: int) (buttonBit: int) =
-        if
-            action = MouseGestureAction.HoldPivot
-            && Win32Native.GetAsyncKeyState virtualKey < 0s
-        then
+    // Decode these once. The raw packet path below stays on flat bools and ints.
+    let mouse4TogglePivot = RoutedMouseAction.toggles_pivot config.mouse4_action
+    let mouse5TogglePivot = RoutedMouseAction.toggles_pivot config.mouse5_action
+    let mouse4HoldPivot = RoutedMouseAction.holds_pivot config.mouse4_action
+    let mouse5HoldPivot = RoutedMouseAction.holds_pivot config.mouse5_action
+    let mouse4TogglePan = RoutedMouseAction.toggles_pan config.mouse4_action
+    let mouse5TogglePan = RoutedMouseAction.toggles_pan config.mouse5_action
+    let mouse4HoldPan = RoutedMouseAction.holds_pan config.mouse4_action
+    let mouse5HoldPan = RoutedMouseAction.holds_pan config.mouse5_action
+    let mouse4RetargetMode = int (RoutedMouseAction.retarget_mode config.mouse4_action)
+    let mouse5RetargetMode = int (RoutedMouseAction.retarget_mode config.mouse5_action)
+
+    let initial_held_bit (configured: bool) (virtualKey: int) (buttonBit: int) =
+        if configured && Win32Native.GetAsyncKeyState virtualKey < 0s then
             buttonBit
         else
             0
 
     let current_held_pivot_buttons () =
         let mouse4 =
-            initial_held_pivot_bit config.mouse4_action Win32Native.VK_XBUTTON1 MOUSE4_PIVOT_BIT
+            initial_held_bit mouse4HoldPivot Win32Native.VK_XBUTTON1 MOUSE4_BUTTON_BIT
 
         let mouse5 =
-            initial_held_pivot_bit config.mouse5_action Win32Native.VK_XBUTTON2 MOUSE5_PIVOT_BIT
+            initial_held_bit mouse5HoldPivot Win32Native.VK_XBUTTON2 MOUSE5_BUTTON_BIT
+
+        mouse4 ||| mouse5
+
+    let current_held_pan_buttons () =
+        let mouse4 =
+            initial_held_bit mouse4HoldPan Win32Native.VK_XBUTTON1 MOUSE4_BUTTON_BIT
+
+        let mouse5 =
+            initial_held_bit mouse5HoldPan Win32Native.VK_XBUTTON2 MOUSE5_BUTTON_BIT
 
         mouse4 ||| mouse5
 
     let mutable heldPivotButtons = 0
+    let mutable heldPanButtons = 0
 
-    let update_held_pivot
-        (action: MouseGestureAction)
-        (buttonBit: int)
-        (downFlag: uint16)
-        (upFlag: uint16)
-        (flags: uint16)
-        =
-        if action = MouseGestureAction.HoldPivot then
+    let update_held_pivot (configured: bool) (buttonBit: int) (downFlag: uint16) (upFlag: uint16) (flags: uint16) =
+        if configured then
             if flags &&& downFlag <> 0us then
                 heldPivotButtons <- heldPivotButtons ||| buttonBit
 
             if flags &&& upFlag <> 0us then
                 heldPivotButtons <- heldPivotButtons &&& (~~~buttonBit)
+
+            flags &&& (downFlag ||| upFlag) <> 0us
+        else
+            false
+
+    let update_held_pan (configured: bool) (buttonBit: int) (downFlag: uint16) (upFlag: uint16) (flags: uint16) =
+        if configured then
+            if flags &&& downFlag <> 0us then
+                heldPanButtons <- heldPanButtons ||| buttonBit
+
+            if flags &&& upFlag <> 0us then
+                heldPanButtons <- heldPanButtons &&& (~~~buttonBit)
 
             flags &&& (downFlag ||| upFlag) <> 0us
         else
@@ -170,26 +195,42 @@ type RawInputReceiver
             config.middle_mouse_while_flying = FlyingMiddleMouseMode.TogglePivot
             && flags &&& RawInputNative.MIDDLE_BUTTON_DOWN <> 0us
 
-        let mouse4PivotRequested =
-            config.mouse4_action = MouseGestureAction.TogglePivot
-            && flags &&& RawInputNative.BUTTON_4_DOWN <> 0us
+        let mouse4Down = flags &&& RawInputNative.BUTTON_4_DOWN <> 0us
+        let mouse5Down = flags &&& RawInputNative.BUTTON_5_DOWN <> 0us
 
-        let mouse5PivotRequested =
-            config.mouse5_action = MouseGestureAction.TogglePivot
-            && flags &&& RawInputNative.BUTTON_5_DOWN <> 0us
+        let mouse4PivotRequested = mouse4TogglePivot && mouse4Down
+        let mouse5PivotRequested = mouse5TogglePivot && mouse5Down
+        let mouse4PanRequested = mouse4TogglePan && mouse4Down
+        let mouse5PanRequested = mouse5TogglePan && mouse5Down
 
         let mouse4HeldChanged =
             update_held_pivot
-                config.mouse4_action
-                MOUSE4_PIVOT_BIT
+                mouse4HoldPivot
+                MOUSE4_BUTTON_BIT
                 RawInputNative.BUTTON_4_DOWN
                 RawInputNative.BUTTON_4_UP
                 flags
 
         let mouse5HeldChanged =
             update_held_pivot
-                config.mouse5_action
-                MOUSE5_PIVOT_BIT
+                mouse5HoldPivot
+                MOUSE5_BUTTON_BIT
+                RawInputNative.BUTTON_5_DOWN
+                RawInputNative.BUTTON_5_UP
+                flags
+
+        let mouse4PanHeldChanged =
+            update_held_pan
+                mouse4HoldPan
+                MOUSE4_BUTTON_BIT
+                RawInputNative.BUTTON_4_DOWN
+                RawInputNative.BUTTON_4_UP
+                flags
+
+        let mouse5PanHeldChanged =
+            update_held_pan
+                mouse5HoldPan
+                MOUSE5_BUTTON_BIT
                 RawInputNative.BUTTON_5_DOWN
                 RawInputNative.BUTTON_5_UP
                 flags
@@ -197,11 +238,29 @@ type RawInputReceiver
         if mouse4HeldChanged || mouse5HeldChanged then
             InputAccumulator.set_pivot_held (heldPivotButtons <> 0) input
 
+        if mouse4PanHeldChanged || mouse5PanHeldChanged then
+            InputAccumulator.set_pan_held (heldPanButtons <> 0) input
+
         let pivotToggleRequested =
             middlePivotRequested || mouse4PivotRequested || mouse5PivotRequested
 
         if pivotToggleRequested then
             InputAccumulator.request_pivot_toggle input
+
+        let panToggleRequested = mouse4PanRequested || mouse5PanRequested
+
+        if panToggleRequested then
+            InputAccumulator.request_pan_toggle input
+
+        let mutable retargetRequested = false
+
+        if mouse4Down && mouse4RetargetMode <> int RetargetMode.Off then
+            InputAccumulator.request_retarget (enum<RetargetMode> mouse4RetargetMode) input
+            retargetRequested <- true
+
+        if mouse5Down && mouse5RetargetMode <> int RetargetMode.Off then
+            InputAccumulator.request_retarget (enum<RetargetMode> mouse5RetargetMode) input
+            retargetRequested <- true
 
         let heldEntryReleased =
             sessionMode.lifetime = FlightLifetime.WhileRightMouseHeld
@@ -236,7 +295,11 @@ type RawInputReceiver
             || wheelDelta <> 0
             || mouse4HeldChanged
             || mouse5HeldChanged
+            || mouse4PanHeldChanged
+            || mouse5PanHeldChanged
             || pivotToggleRequested
+            || panToggleRequested
+            || retargetRequested
             || Option.isSome exitReason
         then
             inputAvailable.Invoke()
@@ -263,7 +326,9 @@ type RawInputReceiver
                 registrationLease <- Some lease
                 registrationReady.Invoke lease
                 heldPivotButtons <- current_held_pivot_buttons ()
+                heldPanButtons <- current_held_pan_buttons ()
                 InputAccumulator.set_pivot_held (heldPivotButtons <> 0) input
+                InputAccumulator.set_pan_held (heldPanButtons <> 0) input
             | RawInputNative.Failed error -> startupError <- Some(InvalidOperationException error)
             | RawInputNative.CleanupPending(error, lease) ->
                 registrationLease <- Some lease

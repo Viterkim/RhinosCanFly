@@ -3,6 +3,84 @@ namespace RhinosCanFly
 open Rhino.DocObjects
 open Rhino.Geometry
 
+[<Struct>]
+type ViewportClientPoint = { x: int; y: int }
+
+[<Struct; RequireQualifiedAccess>]
+type RoutedMouseAction =
+    | Off
+    | TogglePivot
+    | HoldPivot
+    | TogglePan
+    | HoldPan
+    | Retarget of RetargetMode
+
+module RoutedMouseAction =
+    let create (action: MouseGestureAction) (retargetMode: RetargetMode) =
+        match action with
+        | MouseGestureAction.TogglePivot -> RoutedMouseAction.TogglePivot
+        | MouseGestureAction.HoldPivot -> RoutedMouseAction.HoldPivot
+        | MouseGestureAction.TogglePan -> RoutedMouseAction.TogglePan
+        | MouseGestureAction.HoldPan -> RoutedMouseAction.HoldPan
+        | MouseGestureAction.Retarget when retargetMode <> RetargetMode.Off -> RoutedMouseAction.Retarget retargetMode
+        | MouseGestureAction.Retarget
+        | MouseGestureAction.Off
+        | _ -> RoutedMouseAction.Off
+
+    let enabled (action: RoutedMouseAction) =
+        match action with
+        | RoutedMouseAction.Off -> false
+        | RoutedMouseAction.TogglePivot
+        | RoutedMouseAction.HoldPivot
+        | RoutedMouseAction.TogglePan
+        | RoutedMouseAction.HoldPan
+        | RoutedMouseAction.Retarget _ -> true
+
+    let toggles_pivot (action: RoutedMouseAction) =
+        match action with
+        | RoutedMouseAction.TogglePivot -> true
+        | RoutedMouseAction.Off
+        | RoutedMouseAction.HoldPivot
+        | RoutedMouseAction.TogglePan
+        | RoutedMouseAction.HoldPan
+        | RoutedMouseAction.Retarget _ -> false
+
+    let holds_pivot (action: RoutedMouseAction) =
+        match action with
+        | RoutedMouseAction.HoldPivot -> true
+        | RoutedMouseAction.Off
+        | RoutedMouseAction.TogglePivot
+        | RoutedMouseAction.TogglePan
+        | RoutedMouseAction.HoldPan
+        | RoutedMouseAction.Retarget _ -> false
+
+    let toggles_pan (action: RoutedMouseAction) =
+        match action with
+        | RoutedMouseAction.TogglePan -> true
+        | RoutedMouseAction.Off
+        | RoutedMouseAction.TogglePivot
+        | RoutedMouseAction.HoldPivot
+        | RoutedMouseAction.HoldPan
+        | RoutedMouseAction.Retarget _ -> false
+
+    let holds_pan (action: RoutedMouseAction) =
+        match action with
+        | RoutedMouseAction.HoldPan -> true
+        | RoutedMouseAction.Off
+        | RoutedMouseAction.TogglePivot
+        | RoutedMouseAction.HoldPivot
+        | RoutedMouseAction.TogglePan
+        | RoutedMouseAction.Retarget _ -> false
+
+    let retarget_mode (action: RoutedMouseAction) =
+        match action with
+        | RoutedMouseAction.Retarget mode -> mode
+        | RoutedMouseAction.Off
+        | RoutedMouseAction.TogglePivot
+        | RoutedMouseAction.HoldPivot
+        | RoutedMouseAction.TogglePan
+        | RoutedMouseAction.HoldPan -> RetargetMode.Off
+
 type FlightExitReason =
     | ExplicitKeepCamera
     | ExplicitRestoreCamera

@@ -58,8 +58,8 @@ type FlyingMouseConfig =
       exit_on_left: bool
       exit_on_right: bool
       middle_button: FlyingMiddleMouseMode
-      mouse4: MouseGestureAction
-      mouse5: MouseGestureAction }
+      mouse4: RoutedMouseAction
+      mouse5: RoutedMouseAction }
 
 type RetargetConfig =
     { shift_right_click: RetargetMode

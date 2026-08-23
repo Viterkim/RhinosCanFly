@@ -49,30 +49,35 @@ let apply_live (loaded: ConfigLoadResult) =
         let mouseOverrides: MouseOverrideConfig =
             if runtime_enabled_for config then
                 { runtime_enabled = true
-                  mouse4 = config.mouse4_action
-                  mouse5 = config.mouse5_action
+                  mouse4 = RoutedMouseAction.create config.mouse4_action config.mouse4_retarget
+                  mouse5 = RoutedMouseAction.create config.mouse5_action config.mouse5_retarget
                   right_click_entry = config.right_click_entry_mode
                   default_flight_mode = config.default_flight_mode
                   parallel_view_flying = loaded.config.movement.parallel_view.flying
-                  shift_right_click = config.shift_right_click_action
-                  alt_right_click = config.alt_right_click_action
-                  ctrl_right_click = config.ctrl_right_click_action
+                  shift_right_click =
+                    RoutedMouseAction.create config.shift_right_click_action config.shift_right_click_retarget
+                  alt_right_click =
+                    RoutedMouseAction.create config.alt_right_click_action config.alt_right_click_retarget
+                  ctrl_right_click =
+                    RoutedMouseAction.create config.ctrl_right_click_action config.ctrl_right_click_retarget
                   exit_binding = Some loaded.config.bindings.exit_key
                   exit_on_right = config.exit_on_mouse_right
-                  prepare_navigation = NavigationTarget.prepare loaded }
+                  prepare_navigation = NavigationTarget.prepare loaded
+                  retarget = NavigationTarget.retarget loaded }
             else
                 { runtime_enabled = false
-                  mouse4 = MouseGestureAction.Off
-                  mouse5 = MouseGestureAction.Off
+                  mouse4 = RoutedMouseAction.Off
+                  mouse5 = RoutedMouseAction.Off
                   right_click_entry = RightClickEntryMode.Off
                   default_flight_mode = config.default_flight_mode
                   parallel_view_flying = ParallelViewFlying.DisabledAll
-                  shift_right_click = MouseGestureAction.Off
-                  alt_right_click = MouseGestureAction.Off
-                  ctrl_right_click = MouseGestureAction.Off
+                  shift_right_click = RoutedMouseAction.Off
+                  alt_right_click = RoutedMouseAction.Off
+                  ctrl_right_click = RoutedMouseAction.Off
                   exit_binding = None
                   exit_on_right = false
-                  prepare_navigation = NavigationTarget.prepare loaded }
+                  prepare_navigation = NavigationTarget.prepare loaded
+                  retarget = NavigationTarget.retarget loaded }
 
         match PlatformInput.apply_mouse_button_overrides mouseOverrides with
         | Error error -> Error error
