@@ -360,7 +360,8 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
     | Error error -> failwith $"Could not suppress flight keys: {error}"
 
     let rawInputConfig: RawInputConfig =
-        { exit_on_mouse_left = state.config.mouse.exit_on_left
+        { capture_button_events = false
+          exit_on_mouse_left = state.config.mouse.exit_on_left
           exit_on_mouse_right = state.config.mouse.exit_on_right
           middle_mouse_while_flying = state.config.mouse.middle_button
           mouse4_action = state.config.mouse.mouse4

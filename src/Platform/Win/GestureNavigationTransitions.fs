@@ -25,7 +25,11 @@ let begin_navigation
     let mutable canStart = true
 
     match state.gesture_navigation with
-    | GestureNavigationActive current when current.owner = owner && current.lifetime = GestureLifetime.Toggle ->
+    | GestureNavigationActive current when
+        current.owner = owner
+        && current.mode = mode
+        && current.lifetime = GestureLifetime.Toggle
+        ->
         stop state
         canStart <- false
     | GestureNavigationActive _ -> stop state

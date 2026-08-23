@@ -70,21 +70,19 @@ type SettingsControl() as self =
 
         let fallbackEnabled =
             (shiftEnabled
-             && SettingsFields.selected_mode modes.shift_right_click_retarget
-                <> RetargetMode.Off)
+             && RetargetMode.uses_distance (SettingsFields.selected_mode modes.shift_right_click_retarget))
             || (altEnabled
-                && SettingsFields.selected_mode modes.alt_right_click_retarget <> RetargetMode.Off)
+                && RetargetMode.uses_distance (SettingsFields.selected_mode modes.alt_right_click_retarget))
             || (ctrlEnabled
-                && SettingsFields.selected_mode modes.ctrl_right_click_retarget <> RetargetMode.Off)
+                && RetargetMode.uses_distance (SettingsFields.selected_mode modes.ctrl_right_click_retarget))
             || (mouse4Enabled
-                && SettingsFields.selected_mode modes.mouse4_retarget <> RetargetMode.Off)
+                && RetargetMode.uses_distance (SettingsFields.selected_mode modes.mouse4_retarget))
             || (mouse5Enabled
-                && SettingsFields.selected_mode modes.mouse5_retarget <> RetargetMode.Off)
-            || SettingsFields.selected_mode modes.retarget_on_pivot <> RetargetMode.Off
-            || SettingsFields.selected_mode modes.retarget_on_pan <> RetargetMode.Off
-            || SettingsFields.selected_mode modes.retarget_on_flight_exit <> RetargetMode.Off
-            || SettingsFields.selected_mode modes.retarget_on_restored_flight_exit
-               <> RetargetMode.Off
+                && RetargetMode.uses_distance (SettingsFields.selected_mode modes.mouse5_retarget))
+            || RetargetMode.uses_distance (SettingsFields.selected_mode modes.retarget_on_pivot)
+            || RetargetMode.uses_distance (SettingsFields.selected_mode modes.retarget_on_pan)
+            || RetargetMode.uses_distance (SettingsFields.selected_mode modes.retarget_on_flight_exit)
+            || RetargetMode.uses_distance (SettingsFields.selected_mode modes.retarget_on_restored_flight_exit)
 
         numbers.perspective_retarget_fallback_multiplier.Enabled <- fallbackEnabled
         numbers.parallel_retarget_fallback_multiplier.Enabled <- fallbackEnabled
@@ -338,6 +336,15 @@ type SettingsControl() as self =
               SettingsLayout.item "Shift + right click" modes.shift_right_click_retarget.control
               SettingsLayout.item "Alt + right click" modes.alt_right_click_retarget.control
               SettingsLayout.item "Ctrl + right click" modes.ctrl_right_click_retarget.control ]
+        |> SettingsLayout.full_width
+        |> mainTable.Rows.Add
+
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Direct retarget zoom"))
+
+        SettingsLayout.grid
+            2
+            [ SettingsLayout.item "Perspective border" numbers.perspective_retarget_zoom_border
+              SettingsLayout.item "Parallel border" numbers.parallel_retarget_zoom_border ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 

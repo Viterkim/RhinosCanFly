@@ -182,6 +182,35 @@ type RawInputReceiver
 
         let flags = RawInputNative.button_flags mouse
 
+        let mutable rawButtonEvents = int RawMouseButtonEvents.None
+
+        if config.capture_button_events then
+            if flags &&& RawInputNative.LEFT_BUTTON_DOWN <> 0us then
+                rawButtonEvents <- rawButtonEvents ||| int RawMouseButtonEvents.LeftDown
+
+            if flags &&& RawInputNative.LEFT_BUTTON_UP <> 0us then
+                rawButtonEvents <- rawButtonEvents ||| int RawMouseButtonEvents.LeftUp
+
+            if flags &&& RawInputNative.RIGHT_BUTTON_DOWN <> 0us then
+                rawButtonEvents <- rawButtonEvents ||| int RawMouseButtonEvents.RightDown
+
+            if flags &&& RawInputNative.RIGHT_BUTTON_UP <> 0us then
+                rawButtonEvents <- rawButtonEvents ||| int RawMouseButtonEvents.RightUp
+
+            if flags &&& RawInputNative.BUTTON_4_DOWN <> 0us then
+                rawButtonEvents <- rawButtonEvents ||| int RawMouseButtonEvents.Mouse4Down
+
+            if flags &&& RawInputNative.BUTTON_4_UP <> 0us then
+                rawButtonEvents <- rawButtonEvents ||| int RawMouseButtonEvents.Mouse4Up
+
+            if flags &&& RawInputNative.BUTTON_5_DOWN <> 0us then
+                rawButtonEvents <- rawButtonEvents ||| int RawMouseButtonEvents.Mouse5Down
+
+            if flags &&& RawInputNative.BUTTON_5_UP <> 0us then
+                rawButtonEvents <- rawButtonEvents ||| int RawMouseButtonEvents.Mouse5Up
+
+            InputAccumulator.add_raw_mouse_button_events (enum<RawMouseButtonEvents> rawButtonEvents) input
+
         let wheelDelta =
             if flags &&& RawInputNative.MOUSE_WHEEL <> 0us then
                 RawInputNative.signed_button_data mouse
@@ -300,6 +329,7 @@ type RawInputReceiver
             || pivotToggleRequested
             || panToggleRequested
             || retargetRequested
+            || rawButtonEvents <> int RawMouseButtonEvents.None
             || Option.isSome exitReason
         then
             inputAvailable.Invoke()

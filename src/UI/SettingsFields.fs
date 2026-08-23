@@ -41,6 +41,8 @@ type NumberFields =
       mouse_pan_multiplier: TextBox
       perspective_retarget_fallback_multiplier: TextBox
       parallel_retarget_fallback_multiplier: TextBox
+      perspective_retarget_zoom_border: TextBox
+      parallel_retarget_zoom_border: TextBox
       parallel_mouse_sensitivity: TextBox
       parallel_mouse_pivot_multiplier: TextBox
       parallel_mouse_pan_multiplier: TextBox
@@ -197,8 +199,11 @@ let create () =
         [| RetargetMode.Off, "Off"
            RetargetMode.Distance, "Distance"
            RetargetMode.GeometryThenDistance, "Geometry, then distance"
+           RetargetMode.Geometry, "Geometry, no fallback"
            RetargetMode.TargetThenDistance, "Target, then distance"
-           RetargetMode.ObjectCenterThenDistance, "Object center, then distance" |]
+           RetargetMode.Target, "Target, no fallback"
+           RetargetMode.ObjectCenterThenDistance, "Object center, then distance"
+           RetargetMode.ObjectCenter, "Object center, no fallback" |]
 
     let paintModes =
         [| ViewportPaintMode.Queued, "Normal Rhino redraw (default)"
@@ -238,6 +243,8 @@ let create () =
               mouse_pan_multiplier = text_box ()
               perspective_retarget_fallback_multiplier = text_box ()
               parallel_retarget_fallback_multiplier = text_box ()
+              perspective_retarget_zoom_border = text_box ()
+              parallel_retarget_zoom_border = text_box ()
               parallel_mouse_sensitivity = text_box ()
               parallel_mouse_pivot_multiplier = text_box ()
               parallel_mouse_pan_multiplier = text_box ()
@@ -256,14 +263,14 @@ let create () =
               parallel_view_flying = mode_field parallelViewFlyingModes ParallelViewFlyingMode.DisabledAll
               right_click_entry_mode = mode_field rightClickEntryModes RightClickEntryMode.ClickToFlyDuringCommands
               default_flight_mode = mode_field flightModes DefaultFlightMode.Normal
-              shift_right_click_retarget = mode_field retargetModes RetargetMode.ObjectCenterThenDistance
-              alt_right_click_retarget = mode_field retargetModes RetargetMode.ObjectCenterThenDistance
-              ctrl_right_click_retarget = mode_field retargetModes RetargetMode.ObjectCenterThenDistance
-              mouse4_retarget = mode_field retargetModes RetargetMode.ObjectCenterThenDistance
-              mouse5_retarget = mode_field retargetModes RetargetMode.ObjectCenterThenDistance
-              retarget_on_pivot = mode_field retargetModes RetargetMode.ObjectCenterThenDistance
-              retarget_on_pan = mode_field retargetModes RetargetMode.ObjectCenterThenDistance
-              retarget_on_flight_exit = mode_field retargetModes RetargetMode.ObjectCenterThenDistance
+              shift_right_click_retarget = mode_field retargetModes RetargetMode.ObjectCenter
+              alt_right_click_retarget = mode_field retargetModes RetargetMode.ObjectCenter
+              ctrl_right_click_retarget = mode_field retargetModes RetargetMode.ObjectCenter
+              mouse4_retarget = mode_field retargetModes RetargetMode.ObjectCenter
+              mouse5_retarget = mode_field retargetModes RetargetMode.ObjectCenter
+              retarget_on_pivot = mode_field retargetModes RetargetMode.ObjectCenter
+              retarget_on_pan = mode_field retargetModes RetargetMode.ObjectCenter
+              retarget_on_flight_exit = mode_field retargetModes RetargetMode.ObjectCenter
               retarget_on_restored_flight_exit = mode_field retargetModes RetargetMode.Off
               shift_right_click_action = mode_field mouseGestureActions MouseGestureAction.Off
               alt_right_click_action = mode_field mouseGestureActions MouseGestureAction.Off
@@ -283,7 +290,7 @@ let create () =
                 new CheckBox(Text = "MWheel changes speed during pan/pivot")
               mouse4_action_while_flying = new CheckBox(Text = "Also while flying")
               mouse5_action_while_flying = new CheckBox(Text = "Also while flying")
-              exit_on_mouse_left = new CheckBox(Text = "Left click exits flight")
+              exit_on_mouse_left = new CheckBox(Text = "Left click exits flight / navigation")
               exit_on_mouse_right = new CheckBox(Text = "Right click exits flight / navigation")
               commands_do_not_repeat = new CheckBox(Text = "Don't repeat flight commands") }
           parallel_view_names = text_box () }

@@ -17,6 +17,8 @@ type NumberValues =
       mouse_pan_multiplier: float
       perspective_retarget_fallback_multiplier: float
       parallel_retarget_fallback_multiplier: float
+      perspective_retarget_zoom_border: float
+      parallel_retarget_zoom_border: float
       parallel_mouse_sensitivity: float
       parallel_mouse_pivot_multiplier: float
       parallel_mouse_pan_multiplier: float
@@ -81,6 +83,8 @@ let parse_numbers (fields: SettingsFields.NumberFields) =
             required "Perspective fallback multiplier" fields.perspective_retarget_fallback_multiplier
           parallel_retarget_fallback_multiplier =
             required "Parallel fallback multiplier" fields.parallel_retarget_fallback_multiplier
+          perspective_retarget_zoom_border = required "Perspective zoom border" fields.perspective_retarget_zoom_border
+          parallel_retarget_zoom_border = required "Parallel zoom border" fields.parallel_retarget_zoom_border
           parallel_mouse_sensitivity = required "Parallel sensitivity" fields.parallel_mouse_sensitivity
           parallel_mouse_pivot_multiplier = required "Parallel pivot multiplier" fields.parallel_mouse_pivot_multiplier
           parallel_mouse_pan_multiplier = required "Parallel pan multiplier" fields.parallel_mouse_pan_multiplier
@@ -141,6 +145,10 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
 
     numbers.parallel_retarget_fallback_multiplier.Text <-
         ConfigSchema.format_number config.parallel_retarget_fallback_multiplier
+
+    numbers.perspective_retarget_zoom_border.Text <- ConfigSchema.format_number config.perspective_retarget_zoom_border
+
+    numbers.parallel_retarget_zoom_border.Text <- ConfigSchema.format_number config.parallel_retarget_zoom_border
 
     numbers.parallel_mouse_sensitivity.Text <- ConfigSchema.format_number config.parallel_mouse_sensitivity
     numbers.parallel_mouse_pivot_multiplier.Text <- ConfigSchema.format_number config.parallel_mouse_pivot_multiplier
@@ -246,6 +254,8 @@ let read (fields: SettingsFields.ConfigFields) =
               mouse_pan_multiplier = numbers.mouse_pan_multiplier
               perspective_retarget_fallback_multiplier = numbers.perspective_retarget_fallback_multiplier
               parallel_retarget_fallback_multiplier = numbers.parallel_retarget_fallback_multiplier
+              perspective_retarget_zoom_border = numbers.perspective_retarget_zoom_border
+              parallel_retarget_zoom_border = numbers.parallel_retarget_zoom_border
               parallel_mouse_sensitivity = numbers.parallel_mouse_sensitivity
               parallel_mouse_pivot_multiplier = numbers.parallel_mouse_pivot_multiplier
               parallel_mouse_pan_multiplier = numbers.parallel_mouse_pan_multiplier

@@ -10,6 +10,7 @@ type State =
       mutable pivot_held: int
       mutable pan_held: int
       mutable retarget_request: int
+      mutable raw_mouse_button_events: int
       mutable exit_reason: FlightExitReason option
       mutable work_revision: int64 }
 
@@ -24,6 +25,7 @@ let create () =
       pivot_held = 0
       pan_held = 0
       retarget_request = int RetargetMode.Off
+      raw_mouse_button_events = int RawMouseButtonEvents.None
       exit_reason = None
       work_revision = 0L }
 
@@ -84,6 +86,19 @@ let request_retarget (mode: RetargetMode) (state: State) =
         Interlocked.Exchange(&state.retarget_request, int mode) |> ignore
         mark_work_available state
 
+let add_raw_mouse_button_events (events: RawMouseButtonEvents) (state: State) =
+    let requested = int events
+
+    if requested <> int RawMouseButtonEvents.None then
+        let mutable updated = false
+
+        while not updated do
+            let current = Volatile.Read(&state.raw_mouse_button_events)
+            let next = current ||| requested
+            updated <- Interlocked.CompareExchange(&state.raw_mouse_button_events, next, current) = current
+
+        mark_work_available state
+
 let drain_mouse (state: State) =
     let struct (x, y) = unpack_mouse (Interlocked.Exchange(&state.mouse_xy, 0L))
     struct (int64 x, int64 y)
@@ -104,6 +119,9 @@ let pan_held (state: State) = Volatile.Read(&state.pan_held) <> 0
 let drain_retarget_request (state: State) =
     enum<RetargetMode> (Interlocked.Exchange(&state.retarget_request, int RetargetMode.Off))
 
+let drain_raw_mouse_button_events (state: State) =
+    enum<RawMouseButtonEvents> (Interlocked.Exchange(&state.raw_mouse_button_events, int RawMouseButtonEvents.None))
+
 let exit_reason (state: State) = Volatile.Read(&state.exit_reason)
 
 let work_revision (state: State) =
@@ -119,3 +137,6 @@ let discard_transient_input (state: State) =
     Interlocked.Exchange(&state.pivot_toggle_requests, 0) |> ignore
     Interlocked.Exchange(&state.pan_toggle_requests, 0) |> ignore
     Interlocked.Exchange(&state.retarget_request, int RetargetMode.Off) |> ignore
+
+    Interlocked.Exchange(&state.raw_mouse_button_events, int RawMouseButtonEvents.None)
+    |> ignore

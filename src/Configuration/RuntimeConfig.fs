@@ -72,7 +72,9 @@ type RetargetConfig =
       on_flight_exit: RetargetMode
       on_restored_flight_exit: RetargetMode
       perspective_fallback_multiplier: RetargetFallbackMultiplier
-      parallel_fallback_multiplier: RetargetFallbackMultiplier }
+      parallel_fallback_multiplier: RetargetFallbackMultiplier
+      perspective_zoom_border: float
+      parallel_zoom_border: float }
 
 type FlightBehavior =
     { hide_gumball: bool

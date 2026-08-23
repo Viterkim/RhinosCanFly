@@ -4,7 +4,9 @@ module RhinosCanFly.NavigationTarget
 #nowarn "44"
 
 open Rhino
+open Rhino.ApplicationSettings
 open Rhino.Display
+open Rhino.Geometry
 
 let apply (loaded: ConfigLoadResult) (mode: ViewNavigationMode) (view: RhinoView) =
     try
@@ -95,6 +97,61 @@ let move_view_to_target (retarget: RetargetConfig) (speed: float) (target: Rhino
         | Some _
         | None -> ()
 
+let zoom_view_to_selection (target: Point3d) (bounds: BoundingBox) (view: RhinoView) =
+    if not (isNull view) then
+        let viewport = view.ActiveViewport
+        let up = viewport.CameraY
+
+        if viewport.ZoomBoundingBox bounds then
+            let offset = target - viewport.CameraTarget
+            viewport.SetCameraLocations(target, viewport.CameraLocation + offset)
+            viewport.CameraUp <- up
+            view.Redraw()
+
+let zoom_views_to_selection (retarget: RetargetConfig) (target: Point3d) (bounds: BoundingBox) (view: RhinoView) =
+    let previousPerspectiveBorder = ViewSettings.ZoomExtentsPerspectiveViewBorder
+    let previousParallelBorder = ViewSettings.ZoomExtentsParallelViewBorder
+
+    try
+        ViewSettings.ZoomExtentsPerspectiveViewBorder <- retarget.perspective_zoom_border
+        ViewSettings.ZoomExtentsParallelViewBorder <- retarget.parallel_zoom_border
+
+        zoom_view_to_selection target bounds view
+
+        for other in view.Document.Views.GetViewList(true, false) do
+            if not (isNull other) && other.RuntimeSerialNumber <> view.RuntimeSerialNumber then
+                zoom_view_to_selection target bounds other
+    finally
+        ViewSettings.ZoomExtentsPerspectiveViewBorder <- previousPerspectiveBorder
+        ViewSettings.ZoomExtentsParallelViewBorder <- previousParallelBorder
+
+let set_view_target (target: Point3d) (view: RhinoView) =
+    if not (isNull view) then
+        view.ActiveViewport.SetCameraTarget(target, false)
+        view.Redraw()
+
+let apply_selection
+    (retarget: RetargetConfig)
+    (mode: RetargetMode)
+    (speed: float)
+    (selection: ViewTarget.RetargetSelection)
+    (view: RhinoView)
+    =
+    match selection.bounds with
+    | ValueSome bounds -> zoom_views_to_selection retarget selection.target bounds view
+    | ValueNone when RetargetMode.uses_distance mode ->
+        move_view_to_target retarget speed selection.target view
+
+        for other in view.Document.Views.GetViewList(true, false) do
+            if not (isNull other) && other.RuntimeSerialNumber <> view.RuntimeSerialNumber then
+                move_view_to_target retarget speed selection.target other
+    | ValueNone ->
+        set_view_target selection.target view
+
+        for other in view.Document.Views.GetViewList(true, false) do
+            if not (isNull other) && other.RuntimeSerialNumber <> view.RuntimeSerialNumber then
+                set_view_target selection.target other
+
 let retarget
     (loaded: ConfigLoadResult)
     (host: ViewportHostIdentity)
@@ -138,15 +195,10 @@ let retarget
                         movement.speed_range
                         movement.base_speed
 
-                match ViewTarget.selected_target_at behavior.retarget mode speed view viewport clientPoint with
+                match ViewTarget.selected_selection_at behavior.retarget mode speed view viewport clientPoint with
                 | None -> Ok()
-                | Some target ->
-                    move_view_to_target behavior.retarget speed target view
-
-                    for other in document.Views.GetViewList(true, false) do
-                        if not (isNull other) && other.RuntimeSerialNumber <> view.RuntimeSerialNumber then
-                            move_view_to_target behavior.retarget speed target other
-
+                | Some selection ->
+                    apply_selection behavior.retarget mode speed selection view
                     Ok()
     with error ->
         Error $"Could not retarget the viewports: {error.Message}"

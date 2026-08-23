@@ -5,6 +5,7 @@ module RhinosCanFly.Platform.Win.MouseButtonOverrides
 
 open System
 open System.Diagnostics
+open System.Drawing
 open Rhino
 open Rhino.ApplicationSettings
 open Rhino.Commands
@@ -117,10 +118,97 @@ let stop_raw_navigation () =
             Ok()
         | Error error -> Error error
 
+let raw_button_event (events: RawMouseButtonEvents) (requested: RawMouseButtonEvents) =
+    events &&& requested <> RawMouseButtonEvents.None
+
+let handle_raw_right_down (host: ViewportHostIdentity) (screenPoint: Point) =
+    right_click.button_ownership <- Owned
+
+    match RightClickTransitions.requested_gesture_action state (RightClickTransitions.modifiers ()) with
+    | ValueSome action ->
+        GestureNavigationTransitions.press_or_log state GestureOwner.ModifiedRightClick action host screenPoint
+    | ValueNone when state.routing.exit_on_mouse_right -> request_navigation_exit ()
+    | ValueNone -> ()
+
+let handle_raw_right_up () =
+    right_click.button_ownership <- NotOwned
+    RightClickTransitions.clear_action right_click
+    GestureNavigationTransitions.release state GestureOwner.ModifiedRightClick
+
+let handle_raw_side_down (button: SideButton) (host: ViewportHostIdentity) (screenPoint: Point) =
+    ViewNavigationState.set_hook_button_ownership state button Owned
+
+    GestureNavigationTransitions.press_or_log
+        state
+        (SideButtonTransitions.owner button)
+        (ViewNavigationState.action_for state button)
+        host
+        screenPoint
+
+let handle_raw_side_up (button: SideButton) =
+    ViewNavigationState.set_hook_button_ownership state button NotOwned
+    GestureNavigationTransitions.release state (SideButtonTransitions.owner button)
+
+let handle_raw_navigation_buttons (host: ViewportHostIdentity) (events: RawMouseButtonEvents) (screenPoint: Point) =
+    try
+        if
+            raw_button_event events RawMouseButtonEvents.LeftUp
+            && state.routing.exit_on_mouse_left
+        then
+            request_navigation_exit ()
+
+        let rightDown = raw_button_event events RawMouseButtonEvents.RightDown
+        let rightUp = raw_button_event events RawMouseButtonEvents.RightUp
+
+        if rightDown && rightUp && Win32Native.GetAsyncKeyState Win32Native.VK_RBUTTON < 0s then
+            handle_raw_right_up ()
+            handle_raw_right_down host screenPoint
+        else
+            if rightDown then
+                handle_raw_right_down host screenPoint
+
+            if rightUp then
+                handle_raw_right_up ()
+
+        let mouse4Down = raw_button_event events RawMouseButtonEvents.Mouse4Down
+        let mouse4Up = raw_button_event events RawMouseButtonEvents.Mouse4Up
+
+        if mouse4Down && mouse4Up && SideButtonTransitions.is_down Mouse4 then
+            handle_raw_side_up Mouse4
+            handle_raw_side_down Mouse4 host screenPoint
+        else
+            if mouse4Down then
+                handle_raw_side_down Mouse4 host screenPoint
+
+            if mouse4Up then
+                handle_raw_side_up Mouse4
+
+        let mouse5Down = raw_button_event events RawMouseButtonEvents.Mouse5Down
+        let mouse5Up = raw_button_event events RawMouseButtonEvents.Mouse5Up
+
+        if mouse5Down && mouse5Up && SideButtonTransitions.is_down Mouse5 then
+            handle_raw_side_up Mouse5
+            handle_raw_side_down Mouse5 host screenPoint
+        else
+            if mouse5Down then
+                handle_raw_side_down Mouse5 host screenPoint
+
+            if mouse5Up then
+                handle_raw_side_up Mouse5
+
+        ViewNavigationState.keep_timer_running state
+    with error ->
+        log_exception "raw navigation buttons" error
+        request_navigation_exit ()
+
 let start_raw_navigation (desired: DesiredRawNavigation) =
     let failed = Action request_navigation_exit
 
-    match RawViewNavigation.start desired.host desired.mode failed with
+    let buttonEvents =
+        Action<RawMouseButtonEvents, Point>(fun (events: RawMouseButtonEvents) (point: Point) ->
+            handle_raw_navigation_buttons desired.host events point)
+
+    match RawViewNavigation.start desired.host desired.mode buttonEvents failed with
     | Error error -> Error error
     | Ok session ->
         raw_navigation <- Some session
@@ -323,13 +411,28 @@ let side_button_from_data (mouseData: uint32) =
     | Win32Native.XBUTTON2 -> ValueSome Mouse5
     | _ -> ValueNone
 
+let raw_navigation_active () =
+    match raw_navigation with
+    | Some session -> session.IsActive
+    | None -> false
+
+let raw_navigation_button_message (message: int) =
+    message = Win32Native.WM_RBUTTONDOWN
+    || message = Win32Native.WM_RBUTTONUP
+    || message = Win32Native.WM_RBUTTONDBLCLK
+    || message = Win32Native.WM_XBUTTONDOWN
+    || message = Win32Native.WM_XBUTTONUP
+    || message = Win32Native.WM_XBUTTONDBLCLK
+
 let handle_mouse_event (event: Win32.MouseHookEvent) =
     let mutable swallow = false
     let mutable rightClickEvent = false
     let mutable rightClickWasOwned = false
 
     try
-        if
+        if raw_navigation_active () && raw_navigation_button_message event.message then
+            true
+        elif
             event.message = Win32Native.WM_RBUTTONDOWN
             || event.message = Win32Native.WM_RBUTTONUP
             || event.message = Win32Native.WM_RBUTTONDBLCLK
@@ -829,6 +932,7 @@ let apply (config: MouseOverrideConfig) =
                   alt_right_click = config.alt_right_click
                   ctrl_right_click = config.ctrl_right_click
                   exit = config.exit_binding
+                  exit_on_mouse_left = config.exit_on_left
                   exit_on_mouse_right = config.exit_on_right
                   prepare_navigation = config.prepare_navigation
                   retarget = config.retarget }

@@ -58,17 +58,19 @@ let defaults: FlyConfigFile =
       mouse5_action_while_flying = false
       right_click_entry_mode = RightClickEntryMode.ClickToFlyDuringCommands
       default_flight_mode = DefaultFlightMode.Normal
-      shift_right_click_retarget = RetargetMode.ObjectCenterThenDistance
-      alt_right_click_retarget = RetargetMode.ObjectCenterThenDistance
-      ctrl_right_click_retarget = RetargetMode.ObjectCenterThenDistance
-      mouse4_retarget = RetargetMode.ObjectCenterThenDistance
-      mouse5_retarget = RetargetMode.ObjectCenterThenDistance
-      retarget_on_pivot = RetargetMode.ObjectCenterThenDistance
-      retarget_on_pan = RetargetMode.ObjectCenterThenDistance
-      retarget_on_flight_exit = RetargetMode.ObjectCenterThenDistance
+      shift_right_click_retarget = RetargetMode.ObjectCenter
+      alt_right_click_retarget = RetargetMode.ObjectCenter
+      ctrl_right_click_retarget = RetargetMode.ObjectCenter
+      mouse4_retarget = RetargetMode.ObjectCenter
+      mouse5_retarget = RetargetMode.ObjectCenter
+      retarget_on_pivot = RetargetMode.ObjectCenter
+      retarget_on_pan = RetargetMode.ObjectCenter
+      retarget_on_flight_exit = RetargetMode.ObjectCenter
       retarget_on_restored_flight_exit = RetargetMode.Off
       perspective_retarget_fallback_multiplier = 0.9
       parallel_retarget_fallback_multiplier = 0.6
+      perspective_retarget_zoom_border = 1.6
+      parallel_retarget_zoom_border = 2.
       commands_do_not_repeat = true
       mouse4_action = MouseGestureAction.Off
       mouse5_action = MouseGestureAction.Off
@@ -136,6 +138,8 @@ let normalize (source: FlyConfigFile) =
         mouse_sensitivity = normalize_number source.mouse_sensitivity
         perspective_retarget_fallback_multiplier = normalize_number source.perspective_retarget_fallback_multiplier
         parallel_retarget_fallback_multiplier = normalize_number source.parallel_retarget_fallback_multiplier
+        perspective_retarget_zoom_border = normalize_number source.perspective_retarget_zoom_border
+        parallel_retarget_zoom_border = normalize_number source.parallel_retarget_zoom_border
         vertical_speed_multiplier = normalize_number source.vertical_speed_multiplier
         parallel_mouse_sensitivity = normalize_number source.parallel_mouse_sensitivity
         parallel_mouse_pivot_multiplier = normalize_number source.parallel_mouse_pivot_multiplier
@@ -212,6 +216,8 @@ let compile (source: FlyConfigFile) =
       "mouse_sensitivity", source.mouse_sensitivity
       "perspective_retarget_fallback_multiplier", source.perspective_retarget_fallback_multiplier
       "parallel_retarget_fallback_multiplier", source.parallel_retarget_fallback_multiplier
+      "perspective_retarget_zoom_border", source.perspective_retarget_zoom_border
+      "parallel_retarget_zoom_border", source.parallel_retarget_zoom_border
       "vertical_speed_multiplier", source.vertical_speed_multiplier
       "parallel_mouse_sensitivity", source.parallel_mouse_sensitivity
       "parallel_mouse_pivot_multiplier", source.parallel_mouse_pivot_multiplier
@@ -376,7 +382,9 @@ let compile (source: FlyConfigFile) =
                   on_restored_flight_exit = source.retarget_on_restored_flight_exit
                   perspective_fallback_multiplier =
                     RetargetFallbackMultiplier source.perspective_retarget_fallback_multiplier
-                  parallel_fallback_multiplier = RetargetFallbackMultiplier source.parallel_retarget_fallback_multiplier }
+                  parallel_fallback_multiplier = RetargetFallbackMultiplier source.parallel_retarget_fallback_multiplier
+                  perspective_zoom_border = source.perspective_retarget_zoom_border
+                  parallel_zoom_border = source.parallel_retarget_zoom_border }
               save_speed_to_document = source.save_speed_to_document
               load_speed_from_document = source.load_speed_from_document
               perspective_lens =

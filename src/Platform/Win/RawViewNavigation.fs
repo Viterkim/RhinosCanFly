@@ -64,6 +64,7 @@ type Session
         raw: RawInputThread.Session,
         originalCursor: Point,
         cursorClip: CursorClipLease,
+        buttonEvents: Action<RawMouseButtonEvents, Point>,
         failed: Action
     ) as self =
 
@@ -88,6 +89,7 @@ type Session
             try
                 let observedRevision = InputAccumulator.work_revision input
                 let struct (dx, dy) = InputAccumulator.drain_mouse input
+                let buttons = InputAccumulator.drain_raw_mouse_button_events input
                 InputAccumulator.drain_wheel input |> ignore
 
                 if RawInputThread.runtime_failed raw then
@@ -111,6 +113,9 @@ type Session
 
                         if changed then
                             view.Redraw()
+
+                if buttons <> RawMouseButtonEvents.None then
+                    buttonEvents.Invoke(buttons, originalCursor)
 
                 RawInputWake.acknowledge wake
 
@@ -196,7 +201,12 @@ type Session
         else
             Error(String.Join("; ", errors))
 
-let start (host: ViewportHostIdentity) (mode: Mode) (failed: Action) =
+let start
+    (host: ViewportHostIdentity)
+    (mode: Mode)
+    (buttonEvents: Action<RawMouseButtonEvents, Point>)
+    (failed: Action)
+    =
     let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
 
     if not (view_matches_host host view) then
@@ -210,7 +220,8 @@ let start (host: ViewportHostIdentity) (mode: Mode) (failed: Action) =
             let inputAvailable = Action(fun () -> RawInputWake.signal wake)
 
             let rawConfig: RawInputConfig =
-                { exit_on_mouse_left = false
+                { capture_button_events = true
+                  exit_on_mouse_left = false
                   exit_on_mouse_right = false
                   middle_mouse_while_flying = FlyingMiddleMouseMode.Off
                   mouse4_action = RoutedMouseAction.Off
@@ -235,7 +246,7 @@ let start (host: ViewportHostIdentity) (mode: Mode) (failed: Action) =
                 match cursorClip with
                 | Some lease ->
                     let session =
-                        Session(host, mode, input, wake, createdRaw, originalCursor, lease, failed)
+                        Session(host, mode, input, wake, createdRaw, originalCursor, lease, buttonEvents, failed)
 
                     session.Attach()
                     Ok session

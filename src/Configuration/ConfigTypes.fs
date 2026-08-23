@@ -85,6 +85,22 @@ type RetargetMode =
     | GeometryThenDistance = 2
     | ObjectCenterThenDistance = 3
     | TargetThenDistance = 4
+    | Geometry = 5
+    | ObjectCenter = 6
+    | Target = 7
+
+module RetargetMode =
+    let uses_distance (mode: RetargetMode) =
+        match mode with
+        | RetargetMode.Distance
+        | RetargetMode.GeometryThenDistance
+        | RetargetMode.ObjectCenterThenDistance
+        | RetargetMode.TargetThenDistance -> true
+        | RetargetMode.Off
+        | RetargetMode.Geometry
+        | RetargetMode.ObjectCenter
+        | RetargetMode.Target
+        | _ -> false
 
 [<Struct>]
 type RetargetFallbackMultiplier = RetargetFallbackMultiplier of float
@@ -182,6 +198,8 @@ type FlyConfigFile =
       retarget_on_restored_flight_exit: RetargetMode
       perspective_retarget_fallback_multiplier: float
       parallel_retarget_fallback_multiplier: float
+      perspective_retarget_zoom_border: float
+      parallel_retarget_zoom_border: float
       commands_do_not_repeat: bool
       mouse4_action: MouseGestureAction
       mouse5_action: MouseGestureAction

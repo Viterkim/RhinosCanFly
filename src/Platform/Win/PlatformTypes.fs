@@ -31,7 +31,8 @@ type InputSuspensionLease =
       cleanup_error: string option }
 
 type RawInputConfig =
-    { exit_on_mouse_left: bool
+    { capture_button_events: bool
+      exit_on_mouse_left: bool
       exit_on_mouse_right: bool
       middle_mouse_while_flying: FlyingMiddleMouseMode
       mouse4_action: RoutedMouseAction
@@ -52,6 +53,7 @@ type MouseOverrideConfig =
       alt_right_click: RoutedMouseAction
       ctrl_right_click: RoutedMouseAction
       exit_binding: KeyBinding option
+      exit_on_left: bool
       exit_on_right: bool
       prepare_navigation: ViewportHostIdentity -> ViewNavigationMode -> Result<ViewportHostIdentity, string>
       retarget: ViewportHostIdentity -> ViewportClientPoint -> RetargetMode -> Result<unit, string> }

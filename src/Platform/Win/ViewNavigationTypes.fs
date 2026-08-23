@@ -17,6 +17,7 @@ type RoutingConfig =
       alt_right_click: RoutedMouseAction
       ctrl_right_click: RoutedMouseAction
       exit: KeyBinding option
+      exit_on_mouse_left: bool
       exit_on_mouse_right: bool
       prepare_navigation: ViewportHostIdentity -> ViewNavigationMode -> Result<ViewportHostIdentity, string>
       retarget: ViewportHostIdentity -> ViewportClientPoint -> RetargetMode -> Result<unit, string> }
@@ -117,6 +118,7 @@ let empty_routing =
       alt_right_click = RoutedMouseAction.Off
       ctrl_right_click = RoutedMouseAction.Off
       exit = None
+      exit_on_mouse_left = false
       exit_on_mouse_right = false
       prepare_navigation = fun (host: ViewportHostIdentity) (_: ViewNavigationMode) -> Ok host
       retarget = fun (_: ViewportHostIdentity) (_: ViewportClientPoint) (_: RetargetMode) -> Ok() }

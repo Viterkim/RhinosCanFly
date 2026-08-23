@@ -61,6 +61,7 @@ let apply_live (loaded: ConfigLoadResult) =
                   ctrl_right_click =
                     RoutedMouseAction.create config.ctrl_right_click_action config.ctrl_right_click_retarget
                   exit_binding = Some loaded.config.bindings.exit_key
+                  exit_on_left = config.exit_on_mouse_left
                   exit_on_right = config.exit_on_mouse_right
                   prepare_navigation = NavigationTarget.prepare loaded
                   retarget = NavigationTarget.retarget loaded }
@@ -75,6 +76,7 @@ let apply_live (loaded: ConfigLoadResult) =
                   alt_right_click = RoutedMouseAction.Off
                   ctrl_right_click = RoutedMouseAction.Off
                   exit_binding = None
+                  exit_on_left = false
                   exit_on_right = false
                   prepare_navigation = NavigationTarget.prepare loaded
                   retarget = NavigationTarget.retarget loaded }

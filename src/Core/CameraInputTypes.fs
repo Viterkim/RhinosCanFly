@@ -6,6 +6,18 @@ open Rhino.Geometry
 [<Struct>]
 type ViewportClientPoint = { x: int; y: int }
 
+[<System.Flags>]
+type RawMouseButtonEvents =
+    | None = 0
+    | LeftDown = 1
+    | LeftUp = 2
+    | RightDown = 4
+    | RightUp = 8
+    | Mouse4Down = 16
+    | Mouse4Up = 32
+    | Mouse5Down = 64
+    | Mouse5Up = 128
+
 [<Struct; RequireQualifiedAccess>]
 type RoutedMouseAction =
     | Off

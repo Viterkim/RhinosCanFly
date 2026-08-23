@@ -41,7 +41,13 @@ let ERROR_INSUFFICIENT_BUFFER = 122
 let MOUSE_MOVE_ABSOLUTE = 0x0001us
 
 [<Literal>]
+let LEFT_BUTTON_DOWN = 0x0001us
+
+[<Literal>]
 let LEFT_BUTTON_UP = 0x0002us
+
+[<Literal>]
+let RIGHT_BUTTON_DOWN = 0x0004us
 
 [<Literal>]
 let RIGHT_BUTTON_UP = 0x0008us
