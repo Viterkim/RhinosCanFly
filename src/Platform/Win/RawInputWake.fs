@@ -22,8 +22,12 @@ let create (window: RootWindow) =
 let acknowledge (state: State) =
     Interlocked.Exchange(&state.pending, 0) |> ignore
 
+let acknowledge_if_pending (state: State) =
+    Volatile.Read(&state.pending) <> 0
+    && Interlocked.Exchange(&state.pending, 0) <> 0
+
 let signal (state: State) =
-    // One posted message is enough until the UI acknowledges the accumulated work.
+    // Only post again after the UI has acknowledged the current work.
     if
         Volatile.Read(&state.disposed) = 0
         && Volatile.Read(&state.pending) = 0

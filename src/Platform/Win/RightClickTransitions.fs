@@ -354,8 +354,9 @@ let try_prepare_entry_view (entry: FlyEntry) =
 let dispatch_entry (state: RightClickState) (entry: FlyEntry) =
     state.gesture <- FlightDispatched entry
 
-    RhinoApp.RunScript(entry.host.document_serial_number, entry_command entry, false)
-    |> ignore
+    if not (RhinoApp.RunScript(entry.host.document_serial_number, entry_command entry, false)) then
+        Debug.WriteLine "RhinosCanFly right-click flight command was rejected by Rhino."
+        clear_action state
 
 let apply_navigation_click (navigation: State) (click: NavigationClick) =
     if

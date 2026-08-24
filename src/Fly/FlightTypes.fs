@@ -13,7 +13,6 @@ type FlyState =
       original_camera: CameraSnapshot
       gumball_pivot_target: Point3d option
       mutable key_pivot_target: Point3d
-      mutable key_pivot_direction: KeyPivotDirection
       mutable key_pivot_input_state: KeyPivotInputState
       mutable active_mouse_navigation: ActiveMouseNavigation
       mutable latched_mouse_navigation: MouseNavigationMode

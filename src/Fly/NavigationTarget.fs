@@ -87,13 +87,10 @@ let move_view_to_target (retarget: RetargetConfig) (speed: float) (target: Rhino
             let magnification =
                 ViewTarget.parallel_magnification_to_distance viewport target distance
 
-            viewport.SetCameraLocations(target, target - direction * distance)
-            viewport.CameraUp <- up
-
-            if magnification <> 1. then
-                viewport.Magnify(magnification, true) |> ignore
-
-            view.Redraw()
+            if magnification = 1. || viewport.Magnify(magnification, true) then
+                viewport.SetCameraLocations(target, target - direction * distance)
+                viewport.CameraUp <- up
+                view.Redraw()
         | Some _
         | None -> ()
 

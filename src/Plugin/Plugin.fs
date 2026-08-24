@@ -37,6 +37,11 @@ type RhinosCanFlyPlugin() as self =
             report $"RhinosCanFly flight shutdown failed: {error.Message}"
 
         try
+            PlatformInput.shutdown_mouse_button_overrides ()
+        with error ->
+            report $"RhinosCanFly mouse override shutdown failed: {error.Message}"
+
+        try
             match PlatformInput.shutdown_flight_keyboard () with
             | Ok() -> ()
             | Error error -> report $"RhinosCanFly keyboard hook shutdown failed: {error}"
@@ -74,8 +79,3 @@ type RhinosCanFlyPlugin() as self =
             RuntimeSettings.shutdown ()
         with error ->
             report $"RhinosCanFly settings lifecycle shutdown failed: {error.Message}"
-
-        try
-            PlatformInput.shutdown_mouse_button_overrides ()
-        with error ->
-            report $"RhinosCanFly mouse override shutdown failed: {error.Message}"

@@ -33,7 +33,6 @@ type Session =
       result: ThreadResult
       registration: RawInputNative.MouseRegistrationLease
       stop_gate: obj
-      mutable stop_requested: int
       mutable stopped_disposed: bool
       mutable stop_outcome: StopOutcome option }
 
@@ -167,8 +166,7 @@ let run_thread
             | Some error -> startup.result.startup_error <- Some error
             | None -> ()
 
-            // Publish before Set so a waiting thread cannot dispose the event
-            // while this thread still classifies failures as startup failures.
+            // Publish before Set so the waiter cannot dispose the event while startup can still fail.
             readyPublished <- true
             startup.ready.Set()
 
@@ -337,13 +335,10 @@ let start
           result = result
           registration = registration
           stop_gate = obj ()
-          stop_requested = 0
           stopped_disposed = false
           stop_outcome = None }
 
 let request_stop (session: Session) =
-    Interlocked.CompareExchange(&session.stop_requested, 1, 0) |> ignore
-
     if not session.stopped.IsSet then
         post_stop session.window_handle
     else

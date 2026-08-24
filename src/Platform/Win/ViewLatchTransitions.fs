@@ -24,17 +24,6 @@ let input_released () =
     && not (ViewNavigationState.alt_down ())
     && not (ViewNavigationState.control_down ())
 
-let start (state: State) (host: ViewportHostIdentity) (mode: ViewNavigationMode) (completion: Action option) =
-    state.view_latch <-
-        WaitingForRelease
-            { host = host
-              mode = mode
-              started_at = Stopwatch.GetTimestamp()
-              completion = completion }
-
-    ViewNavigationState.keep_timer_running state
-    Ok()
-
 let activate (state: State) (session: ViewLatchSession) =
     if ViewNavigationState.gesture_navigation_engaged state then
         Error "Another view navigation mode is already active."
@@ -44,6 +33,20 @@ let activate (state: State) (session: ViewLatchSession) =
             | Pivot -> PivotActive session
             | Pan -> PanActive session
 
+        ViewNavigationState.keep_timer_running state
+        Ok()
+
+let start (state: State) (host: ViewportHostIdentity) (mode: ViewNavigationMode) (completion: Action option) =
+    let session =
+        { host = host
+          mode = mode
+          started_at = Stopwatch.GetTimestamp()
+          completion = completion }
+
+    if input_released () then
+        activate state session
+    else
+        state.view_latch <- WaitingForRelease session
         ViewNavigationState.keep_timer_running state
         Ok()
 

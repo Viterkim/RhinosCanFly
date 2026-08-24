@@ -19,6 +19,11 @@ type SelectedObjectPick =
     | BoundsWhenNothingElsePicked
     | ExactUnderCursor
 
+[<Struct>]
+type SelectedObjectCandidate =
+    { rhino_object: RhinoObject
+      estimated_target: Point3d }
+
 let target_is_in_front (viewport: RhinoViewport) (target: Point3d) =
     let mutable direction = viewport.CameraDirection
     let offset = target - viewport.CameraLocation
@@ -91,7 +96,7 @@ let selection_filter_allows (enabled: bool) (filter: ObjectType) (rhinoObject: R
         filter = ObjectType.AnyObject
         || (rhinoObject.ObjectType &&& filter) <> ObjectType.None
 
-let try_filtered_selection_at_internal
+let try_filtered_object_at_internal
     (selectedObjectPick: SelectedObjectPick)
     (view: RhinoView)
     (viewport: RhinoViewport)
@@ -131,6 +136,7 @@ let try_filtered_selection_at_internal
                 let mutable cameraDirection = viewport.CameraDirection
                 let mutable nearestDepth = Double.PositiveInfinity
                 let mutable selectedObject: RhinoObject = null
+                let mutable estimatedTarget = Point3d.Unset
 
                 try
                     if cameraDirection.Unitize() then
@@ -153,6 +159,7 @@ let try_filtered_selection_at_internal
                                                 if centerDepth > RhinoMath.ZeroTolerance then
                                                     nearestDepth <- depth
                                                     selectedObject <- rhinoObject
+                                                    estimatedTarget <- bounds.Center
                                             | ValueNone -> ()
 
                         let exactSelectedHit = selectedObjectPick = ExactUnderCursor
@@ -204,14 +211,15 @@ let try_filtered_selection_at_internal
                                                 if depth > RhinoMath.ZeroTolerance && depth < nearestDepth then
                                                     nearestDepth <- depth
                                                     selectedObject <- rhinoObject
+                                                    estimatedTarget <- center
                                     | ValueNone -> ()
 
-                    if isNull selectedObject then
+                    if isNull selectedObject || not (target_is_in_front viewport estimatedTarget) then
                         None
                     else
-                        // Candidate rejection uses Rhino's cached estimate. Compute the tight box once,
-                        // after the nearest object is known.
-                        object_selection viewport selectedObject
+                        Some
+                            { rhino_object = selectedObject
+                              estimated_target = estimatedTarget }
                 finally
                     if not (isNull picked) then
                         for reference in picked do
@@ -222,11 +230,15 @@ let try_filtered_selection_at_internal
         None
 
 let try_filtered_selection_at (view: RhinoView) (viewport: RhinoViewport) (point: ViewportClientPoint) =
-    try_filtered_selection_at_internal ExactUnderCursor view viewport point
+    match try_filtered_object_at_internal ExactUnderCursor view viewport point with
+    | Some candidate ->
+        // Framing needs the full box. Navigation can use the cached centre.
+        object_selection viewport candidate.rhino_object
+    | None -> None
 
 let try_filtered_target_at (view: RhinoView) (viewport: RhinoViewport) (point: ViewportClientPoint) =
-    match try_filtered_selection_at_internal BoundsWhenNothingElsePicked view viewport point with
-    | Some selection -> Some selection.target
+    match try_filtered_object_at_internal BoundsWhenNothingElsePicked view viewport point with
+    | Some candidate -> Some candidate.estimated_target
     | None -> None
 
 let try_filtered_target (view: RhinoView) (viewport: RhinoViewport) =
@@ -391,8 +403,7 @@ let apply_for_navigation
             match navigationMode with
             | ViewNavigationMode.Pivot -> selectedTarget
             | ViewNavigationMode.Pan ->
-                // Pan only needs the picked depth. An off-axis camera target would turn the view
-                // before Rhino applies the first lateral dolly, making that first frame jump.
+                // Keep the picked depth on the camera axis so the first pan frame does not turn the view.
                 Movement.target_on_camera_axis viewport.CameraLocation selectedTarget viewport.CameraDirection
 
         viewport.SetCameraTarget(target, false)

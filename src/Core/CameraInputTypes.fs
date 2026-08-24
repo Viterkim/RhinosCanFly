@@ -6,17 +6,23 @@ open Rhino.Geometry
 [<Struct>]
 type ViewportClientPoint = { x: int; y: int }
 
-[<System.Flags>]
-type RawMouseButtonEvents =
+type RawMouseButtonEvent =
     | None = 0
     | LeftDown = 1
     | LeftUp = 2
-    | RightDown = 4
-    | RightUp = 8
-    | Mouse4Down = 16
-    | Mouse4Up = 32
-    | Mouse5Down = 64
-    | Mouse5Up = 128
+    | RightDown = 3
+    | RightUp = 4
+    | MiddleDown = 5
+    | MiddleUp = 6
+    | Mouse4Down = 7
+    | Mouse4Up = 8
+    | Mouse5Down = 9
+    | Mouse5Up = 10
+
+[<Struct>]
+type RawMouseButtonTransition =
+    { event: RawMouseButtonEvent
+      timestamp: int64 }
 
 [<Struct; RequireQualifiedAccess>]
 type RoutedMouseAction =
@@ -232,6 +238,7 @@ type KeyPivotDirection =
 type KeyPivotInputState =
     | WaitingForNeutralKeyPivotInput
     | KeyPivotInputArmed
+    | KeyPivotInputActive
 
 type MouseNavigationMode =
     | LookNavigation

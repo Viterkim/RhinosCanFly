@@ -264,15 +264,8 @@ let load () =
 
                 match ConfigSchema.compile source with
                 | Ok config -> source, config
-                | Error _ ->
-                    json.Clear()
-                    merge_known_values json ConfigSchema.defaults
-                    changed <- true
-                    messages.Add "reset invalid settings to defaults"
-
-                    match ConfigSchema.compile ConfigSchema.defaults with
-                    | Ok config -> ConfigSchema.defaults, config
-                    | Error error -> failwith error
+                | Error error ->
+                    failwith $"The settings are invalid and the file was left unchanged:{Environment.NewLine}{error}"
             | Error _ ->
                 json.Clear()
                 merge_known_values json ConfigSchema.defaults

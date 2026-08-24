@@ -31,8 +31,7 @@ type InputSuspensionLease =
       cleanup_error: string option }
 
 type RawInputConfig =
-    { capture_button_events: bool
-      exit_on_mouse_left: bool
+    { exit_on_mouse_left: bool
       exit_on_mouse_right: bool
       middle_mouse_while_flying: FlyingMiddleMouseMode
       mouse4_action: RoutedMouseAction

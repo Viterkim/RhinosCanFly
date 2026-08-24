@@ -211,6 +211,9 @@ let flight_keyboard_revision () = FlightKeyboardSuppression.revision ()
 let flight_keyboard_change_timestamp () =
     FlightKeyboardSuppression.last_change_timestamp ()
 
+let apply_flight_mouse_button_transition (transition: RawMouseButtonTransition) =
+    FlightKeyboardSuppression.apply_raw_mouse_button_transition transition
+
 let shutdown_flight_keyboard () = FlightKeyboardSuppression.shutdown ()
 
 let flight_binding_down (binding: KeyBinding) =

@@ -36,7 +36,7 @@ type RawInputReceiver
     [<Literal>]
     let MOUSE5_BUTTON_BIT = 2
 
-    // Decode these once. The raw packet path below stays on flat bools and ints.
+    // Decode these once so the packet path stays on flat values.
     let mouse4TogglePivot = RoutedMouseAction.toggles_pivot config.mouse4_action
     let mouse5TogglePivot = RoutedMouseAction.toggles_pivot config.mouse5_action
     let mouse4HoldPivot = RoutedMouseAction.holds_pivot config.mouse4_action
@@ -47,6 +47,18 @@ type RawInputReceiver
     let mouse5HoldPan = RoutedMouseAction.holds_pan config.mouse5_action
     let mouse4RetargetMode = int (RoutedMouseAction.retarget_mode config.mouse4_action)
     let mouse5RetargetMode = int (RoutedMouseAction.retarget_mode config.mouse5_action)
+
+    let rawMouseButtonTransitionFlags =
+        RawInputNative.LEFT_BUTTON_DOWN
+        ||| RawInputNative.LEFT_BUTTON_UP
+        ||| RawInputNative.RIGHT_BUTTON_DOWN
+        ||| RawInputNative.RIGHT_BUTTON_UP
+        ||| RawInputNative.MIDDLE_BUTTON_DOWN
+        ||| RawInputNative.MIDDLE_BUTTON_UP
+        ||| RawInputNative.BUTTON_4_DOWN
+        ||| RawInputNative.BUTTON_4_UP
+        ||| RawInputNative.BUTTON_5_DOWN
+        ||| RawInputNative.BUTTON_5_UP
 
     let initial_held_bit (configured: bool) (virtualKey: int) (buttonBit: int) =
         if configured && Win32Native.GetAsyncKeyState virtualKey < 0s then
@@ -181,34 +193,53 @@ type RawInputReceiver
 
         let flags = RawInputNative.button_flags mouse
 
-        let mutable rawButtonEvents = int RawMouseButtonEvents.None
+        let buttonTimestamp =
+            if flags &&& rawMouseButtonTransitionFlags <> 0us then
+                Stopwatch.GetTimestamp()
+            else
+                0L
 
-        if config.capture_button_events then
-            if flags &&& RawInputNative.LEFT_BUTTON_DOWN <> 0us then
-                rawButtonEvents <- rawButtonEvents ||| int RawMouseButtonEvents.LeftDown
+        let mutable rawButtonEventAdded = false
 
-            if flags &&& RawInputNative.LEFT_BUTTON_UP <> 0us then
-                rawButtonEvents <- rawButtonEvents ||| int RawMouseButtonEvents.LeftUp
+        if flags &&& RawInputNative.LEFT_BUTTON_DOWN <> 0us then
+            InputAccumulator.add_raw_mouse_button_event RawMouseButtonEvent.LeftDown buttonTimestamp input
+            rawButtonEventAdded <- true
 
-            if flags &&& RawInputNative.RIGHT_BUTTON_DOWN <> 0us then
-                rawButtonEvents <- rawButtonEvents ||| int RawMouseButtonEvents.RightDown
+        if flags &&& RawInputNative.LEFT_BUTTON_UP <> 0us then
+            InputAccumulator.add_raw_mouse_button_event RawMouseButtonEvent.LeftUp buttonTimestamp input
+            rawButtonEventAdded <- true
 
-            if flags &&& RawInputNative.RIGHT_BUTTON_UP <> 0us then
-                rawButtonEvents <- rawButtonEvents ||| int RawMouseButtonEvents.RightUp
+        if flags &&& RawInputNative.RIGHT_BUTTON_DOWN <> 0us then
+            InputAccumulator.add_raw_mouse_button_event RawMouseButtonEvent.RightDown buttonTimestamp input
+            rawButtonEventAdded <- true
 
-            if flags &&& RawInputNative.BUTTON_4_DOWN <> 0us then
-                rawButtonEvents <- rawButtonEvents ||| int RawMouseButtonEvents.Mouse4Down
+        if flags &&& RawInputNative.RIGHT_BUTTON_UP <> 0us then
+            InputAccumulator.add_raw_mouse_button_event RawMouseButtonEvent.RightUp buttonTimestamp input
+            rawButtonEventAdded <- true
 
-            if flags &&& RawInputNative.BUTTON_4_UP <> 0us then
-                rawButtonEvents <- rawButtonEvents ||| int RawMouseButtonEvents.Mouse4Up
+        if flags &&& RawInputNative.MIDDLE_BUTTON_DOWN <> 0us then
+            InputAccumulator.add_raw_mouse_button_event RawMouseButtonEvent.MiddleDown buttonTimestamp input
+            rawButtonEventAdded <- true
 
-            if flags &&& RawInputNative.BUTTON_5_DOWN <> 0us then
-                rawButtonEvents <- rawButtonEvents ||| int RawMouseButtonEvents.Mouse5Down
+        if flags &&& RawInputNative.MIDDLE_BUTTON_UP <> 0us then
+            InputAccumulator.add_raw_mouse_button_event RawMouseButtonEvent.MiddleUp buttonTimestamp input
+            rawButtonEventAdded <- true
 
-            if flags &&& RawInputNative.BUTTON_5_UP <> 0us then
-                rawButtonEvents <- rawButtonEvents ||| int RawMouseButtonEvents.Mouse5Up
+        if flags &&& RawInputNative.BUTTON_4_DOWN <> 0us then
+            InputAccumulator.add_raw_mouse_button_event RawMouseButtonEvent.Mouse4Down buttonTimestamp input
+            rawButtonEventAdded <- true
 
-            InputAccumulator.add_raw_mouse_button_events (enum<RawMouseButtonEvents> rawButtonEvents) input
+        if flags &&& RawInputNative.BUTTON_4_UP <> 0us then
+            InputAccumulator.add_raw_mouse_button_event RawMouseButtonEvent.Mouse4Up buttonTimestamp input
+            rawButtonEventAdded <- true
+
+        if flags &&& RawInputNative.BUTTON_5_DOWN <> 0us then
+            InputAccumulator.add_raw_mouse_button_event RawMouseButtonEvent.Mouse5Down buttonTimestamp input
+            rawButtonEventAdded <- true
+
+        if flags &&& RawInputNative.BUTTON_5_UP <> 0us then
+            InputAccumulator.add_raw_mouse_button_event RawMouseButtonEvent.Mouse5Up buttonTimestamp input
+            rawButtonEventAdded <- true
 
         let wheelDelta =
             if flags &&& RawInputNative.MOUSE_WHEEL <> 0us then
@@ -327,7 +358,7 @@ type RawInputReceiver
         || pivotToggleRequested
         || panToggleRequested
         || retargetRequested
-        || rawButtonEvents <> int RawMouseButtonEvents.None
+        || rawButtonEventAdded
         || Option.isSome exitReason
 
     let grow_input_buffer (minimumCapacity: uint32) =
@@ -388,7 +419,7 @@ type RawInputReceiver
                 let mutable index = 0u
                 let mutable offset = 0
 
-                // This is the high polling-rate path. Keep it on structs, ints and the reused buffer.
+                // Keep this path on structs, ints and the reused buffer.
                 while index < count do
                     if offset < 0 || offset > inputBuffer.Capacity - int RawInputNative.headerSize then
                         invalidOp "GetRawInputBuffer returned a record outside its buffer."

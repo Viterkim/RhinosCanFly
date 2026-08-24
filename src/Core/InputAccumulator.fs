@@ -1,6 +1,10 @@
 module RhinosCanFly.InputAccumulator
 
+open System
 open System.Threading
+
+[<Literal>]
+let RAW_MOUSE_BUTTON_EVENT_CAPACITY = 64
 
 type State =
     { mutable mouse_xy: int64
@@ -10,7 +14,10 @@ type State =
       mutable pivot_held: int
       mutable pan_held: int
       mutable retarget_request: int
-      mutable raw_mouse_button_events: int
+      raw_mouse_button_events: RawMouseButtonTransition array
+      mutable raw_mouse_button_event_write: int64
+      mutable raw_mouse_button_event_read: int64
+      mutable raw_mouse_button_event_overflow: int
       mutable exit_reason: FlightExitReason option
       mutable work_revision: int64 }
 
@@ -25,7 +32,10 @@ let create () =
       pivot_held = 0
       pan_held = 0
       retarget_request = int RetargetMode.Off
-      raw_mouse_button_events = int RawMouseButtonEvents.None
+      raw_mouse_button_events = Array.zeroCreate RAW_MOUSE_BUTTON_EVENT_CAPACITY
+      raw_mouse_button_event_write = 0L
+      raw_mouse_button_event_read = 0L
+      raw_mouse_button_event_overflow = 0
       exit_reason = None
       work_revision = 0L }
 
@@ -38,6 +48,13 @@ let pack_mouse (x: int32) (y: int32) =
 let unpack_mouse (packed: int64) =
     struct (int32 (uint32 packed), int32 (uint32 (uint64 packed >>> 32)))
 
+let saturating_add (current: int32) (delta: int32) =
+    let sum = int64 current + int64 delta
+
+    if sum > int64 Int32.MaxValue then Int32.MaxValue
+    elif sum < int64 Int32.MinValue then Int32.MinValue
+    else int32 sum
+
 let add_mouse (dx: int) (dy: int) (state: State) =
     if dx <> 0 || dy <> 0 then
         let mutable updated = false
@@ -45,7 +62,10 @@ let add_mouse (dx: int) (dy: int) (state: State) =
         while not updated do
             let current = Volatile.Read(&state.mouse_xy)
             let struct (currentX, currentY) = unpack_mouse current
-            let next = pack_mouse (currentX + int32 dx) (currentY + int32 dy)
+
+            let next =
+                pack_mouse (saturating_add currentX (int32 dx)) (saturating_add currentY (int32 dy))
+
             updated <- Interlocked.CompareExchange(&state.mouse_xy, next, current) = current
 
         mark_work_available state
@@ -86,16 +106,19 @@ let request_retarget (mode: RetargetMode) (state: State) =
         Interlocked.Exchange(&state.retarget_request, int mode) |> ignore
         mark_work_available state
 
-let add_raw_mouse_button_events (events: RawMouseButtonEvents) (state: State) =
-    let requested = int events
+let add_raw_mouse_button_event (event: RawMouseButtonEvent) (timestamp: int64) (state: State) =
+    if event <> RawMouseButtonEvent.None then
+        // One raw worker fills each slot before the UI can see the new write position.
+        let write = Volatile.Read(&state.raw_mouse_button_event_write)
+        let read = Volatile.Read(&state.raw_mouse_button_event_read)
 
-    if requested <> int RawMouseButtonEvents.None then
-        let mutable updated = false
+        if write - read >= int64 state.raw_mouse_button_events.Length then
+            Interlocked.Exchange(&state.raw_mouse_button_event_overflow, 1) |> ignore
+        else
+            let index = int (write % int64 state.raw_mouse_button_events.Length)
+            state.raw_mouse_button_events[index] <- { event = event; timestamp = timestamp }
 
-        while not updated do
-            let current = Volatile.Read(&state.raw_mouse_button_events)
-            let next = current ||| requested
-            updated <- Interlocked.CompareExchange(&state.raw_mouse_button_events, next, current) = current
+            Volatile.Write(&state.raw_mouse_button_event_write, write + 1L)
 
         mark_work_available state
 
@@ -119,8 +142,22 @@ let pan_held (state: State) = Volatile.Read(&state.pan_held) <> 0
 let drain_retarget_request (state: State) =
     enum<RetargetMode> (Interlocked.Exchange(&state.retarget_request, int RetargetMode.Off))
 
-let drain_raw_mouse_button_events (state: State) =
-    enum<RawMouseButtonEvents> (Interlocked.Exchange(&state.raw_mouse_button_events, int RawMouseButtonEvents.None))
+let try_drain_raw_mouse_button_event (state: State) =
+    let read = Volatile.Read(&state.raw_mouse_button_event_read)
+
+    if read >= Volatile.Read(&state.raw_mouse_button_event_write) then
+        ValueNone
+    else
+        let index = int (read % int64 state.raw_mouse_button_events.Length)
+        let transition = state.raw_mouse_button_events[index]
+        Volatile.Write(&state.raw_mouse_button_event_read, read + 1L)
+        ValueSome transition
+
+let drain_raw_mouse_button_event_overflow (state: State) =
+    Interlocked.Exchange(&state.raw_mouse_button_event_overflow, 0) <> 0
+
+let raw_mouse_button_event_pending (state: State) =
+    Volatile.Read(&state.raw_mouse_button_event_read) < Volatile.Read(&state.raw_mouse_button_event_write)
 
 let exit_reason (state: State) = Volatile.Read(&state.exit_reason)
 
@@ -130,6 +167,8 @@ let work_revision (state: State) =
 let work_pending_since (WorkRevision observed: WorkRevision) (state: State) =
     Option.isSome (exit_reason state)
     || Volatile.Read(&state.work_revision) <> observed
+    || raw_mouse_button_event_pending state
+    || Volatile.Read(&state.raw_mouse_button_event_overflow) <> 0
 
 let discard_transient_input (state: State) =
     Interlocked.Exchange(&state.mouse_xy, 0L) |> ignore
@@ -138,5 +177,6 @@ let discard_transient_input (state: State) =
     Interlocked.Exchange(&state.pan_toggle_requests, 0) |> ignore
     Interlocked.Exchange(&state.retarget_request, int RetargetMode.Off) |> ignore
 
-    Interlocked.Exchange(&state.raw_mouse_button_events, int RawMouseButtonEvents.None)
-    |> ignore
+    let buttonWrite = Volatile.Read(&state.raw_mouse_button_event_write)
+    Volatile.Write(&state.raw_mouse_button_event_read, buttonWrite)
+    Interlocked.Exchange(&state.raw_mouse_button_event_overflow, 0) |> ignore
