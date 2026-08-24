@@ -1,31 +1,26 @@
 module RhinosCanFly.ConfigStorage
 
 open System
+open System.Globalization
 open System.IO
 open System.Text
-open System.Text.Json
-open System.Text.Json.Nodes
-open System.Text.Json.Serialization
 
-let options =
-    let value =
-        JsonSerializerOptions(
-            PropertyNameCaseInsensitive = true,
-            AllowTrailingCommas = true,
-            ReadCommentHandling = JsonCommentHandling.Skip,
-            WriteIndented = true
-        )
+[<Literal>]
+let AUTOMATIC_BACKUP_LIMIT = 2
 
-    value.Converters.Add(new JsonStringEnumConverter(null, false))
-    value
+[<Literal>]
+let BACKUP_TIMESTAMP_FORMAT = "yyyyMMdd-HHmmss-fff"
 
 let mutable settingsRoot: string option = None
-let mutable saveBlocked: string option = None
+
+[<RequireQualifiedAccess>]
+type BackupRequirement =
+    | NotRequired
+    | Required
 
 let initialize (directory: string) =
     Directory.CreateDirectory directory |> ignore
     settingsRoot <- Some directory
-    saveBlocked <- None
 
 let settings_directory () =
     match settingsRoot with
@@ -35,58 +30,19 @@ let settings_directory () =
 let path () =
     Path.Combine(settings_directory (), "rhinos-can-fly-config.json")
 
-let to_object (value: FlyConfigFile) =
-    JsonSerializer.SerializeToNode(ConfigSchema.normalize value, options).AsObject()
+let with_lock (configPath: string) (action: unit -> 'Value) =
+    let lockPath = configPath + ".lock"
 
-let json_content (json: JsonObject) =
-    json.ToJsonString options + Environment.NewLine
+    use _saveLock =
+        new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)
 
-let documentOptions =
-    JsonDocumentOptions(AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip)
-
-let config_version (json: JsonObject) =
-    let mutable maximum = None
-
-    for property: Collections.Generic.KeyValuePair<string, JsonNode> in json do
-        if
-            String.Equals(property.Key, "config_version", StringComparison.OrdinalIgnoreCase)
-            && not (isNull property.Value)
-        then
-            try
-                let version = property.Value.GetValue<int>()
-
-                maximum <-
-                    match maximum with
-                    | Some current -> Some(max current version)
-                    | None -> Some version
-            with _ ->
-                ()
-
-    maximum
-
-let current_file_version (configPath: string) =
-    if not (File.Exists configPath) then
-        None
-    else
-        try
-            let content = File.ReadAllText configPath
-
-            match JsonNode.Parse(content, Nullable<JsonNodeOptions>(), documentOptions) with
-            | :? JsonObject as json -> config_version json
-            | _ -> None
-        with _ ->
-            None
-
-let future_version_error (version: int) =
-    $"The config version {version} is newer than this RhinosCanFly build supports ({ConfigSchema.CURRENT_VERSION}). The file was left unchanged."
+    action ()
 
 let write_atomic (configPath: string) (content: string) =
     let directory = Path.GetDirectoryName configPath
 
     let temporaryPath =
         Path.Combine(directory, $".{Path.GetFileName configPath}.{Guid.NewGuid():N}.tmp")
-
-    let backupPath = configPath + ".bak"
 
     try
         let bytes = UTF8Encoding(false).GetBytes content
@@ -99,269 +55,173 @@ let write_atomic (configPath: string) (content: string) =
             stream.Flush true
 
         if File.Exists configPath then
-            File.Replace(temporaryPath, configPath, backupPath, true)
+            File.Replace(temporaryPath, configPath, null, true)
         else
             File.Move(temporaryPath, configPath)
     finally
         if File.Exists temporaryPath then
             File.Delete temporaryPath
 
-let merge_known_values (target: JsonObject) (source: FlyConfigFile) =
-    for property in to_object source do
-        target[property.Key] <-
-            if isNull property.Value then
-                null
-            else
-                property.Value.DeepClone()
+let backup_pattern (configPath: string) =
+    $"{Path.GetFileNameWithoutExtension configPath}.backup-*.json"
 
-let deserialize (json: JsonObject) =
-    try
-        let value = JsonSerializer.Deserialize<FlyConfigFile>(json.ToJsonString(), options)
+let rec available_backup_path
+    (directory: string)
+    (baseName: string)
+    (attempt: int)
+    =
+    let suffix = if attempt = 0 then "" else $"-{attempt}"
+    let candidate = Path.Combine(directory, $"{baseName}{suffix}.json")
 
-        if isNull (box value) then
-            Error "the config is empty"
+    if File.Exists candidate then
+        available_backup_path directory baseName (attempt + 1)
+    else
+        candidate
+
+let create_dated_backup (configPath: string) =
+    let directory = Path.GetDirectoryName configPath
+    let timestamp = DateTimeOffset.Now.ToString(BACKUP_TIMESTAMP_FORMAT, CultureInfo.InvariantCulture)
+
+    let baseName =
+        $"{Path.GetFileNameWithoutExtension configPath}.backup-{timestamp}"
+
+    let backupPath = available_backup_path directory baseName 0
+    File.Copy(configPath, backupPath, false)
+    backupPath
+
+let prune_automatic_backups (configPath: string) =
+    let directory = Path.GetDirectoryName configPath
+
+    Directory.EnumerateFiles(directory, backup_pattern configPath)
+    |> Seq.sortWith (fun (left: string) (right: string) ->
+        let byCreation = compare (File.GetCreationTimeUtc right) (File.GetCreationTimeUtc left)
+
+        if byCreation <> 0 then
+            byCreation
         else
-            Ok value
-    with error ->
-        Error error.Message
+            StringComparer.Ordinal.Compare(right, left))
+    |> Seq.skip AUTOMATIC_BACKUP_LIMIT
+    |> Seq.iter File.Delete
 
-let repair_malformed_values (json: JsonObject) (defaults: JsonObject) =
-    match deserialize json with
-    | Ok _ -> 0
-    | Error _ ->
-        let mutable repaired = 0
+let backup_requirement (configPath: string) =
+    if not (File.Exists configPath) then
+        Ok BackupRequirement.NotRequired
+    else
+        let content = File.ReadAllText configPath
 
-        for property: Collections.Generic.KeyValuePair<string, JsonNode> in defaults do
-            let candidate = defaults.DeepClone().AsObject()
-            let sourceValue = json[property.Key]
+        match ConfigDocument.parse content with
+        | Error _ -> Ok BackupRequirement.Required
+        | Ok json ->
+            match ConfigRepair.repair_document json with
+            | Error error -> Error error
+            | Ok repaired ->
+                Ok(if repaired.changed then BackupRequirement.Required else BackupRequirement.NotRequired)
 
-            candidate[property.Key] <- if isNull sourceValue then null else sourceValue.DeepClone()
+let load_existing (configPath: string) =
+    let content = File.ReadAllText configPath
 
-            match deserialize candidate with
-            | Ok _ -> ()
-            | Error _ ->
-                json[property.Key] <-
-                    if isNull property.Value then
-                        null
-                    else
-                        property.Value.DeepClone()
+    match ConfigDocument.parse content with
+    | Ok json -> ConfigRepair.repair_document json
+    | Error _ -> Ok(ConfigRepair.reset_to_defaults "reset malformed settings to defaults")
 
-                repaired <- repaired + 1
+let load_locked (configPath: string) =
+    let created = not (File.Exists configPath)
 
-        repaired
+    let prepared =
+        if created then
+            Ok(ConfigRepair.reset_to_defaults $"created config at {configPath}")
+        else
+            load_existing configPath
+
+    match prepared with
+    | Error error ->
+        Error error
+    | Ok repaired ->
+        let messages = ResizeArray<string>(repaired.messages)
+
+        if repaired.changed then
+            if not created then
+                let backupPath = create_dated_backup configPath
+                messages.Add $"backed up previous config to {backupPath}"
+
+            write_atomic configPath (ConfigDocument.content repaired.document)
+
+            try
+                prune_automatic_backups configPath
+            with error ->
+                messages.Add $"could not prune old config backups: {error.Message}"
+
+        Ok
+            { config_file = repaired.config_file
+              config = repaired.config
+              messages = List.ofSeq messages }
 
 let load () =
     try
         let configPath = path ()
-        let created = not (File.Exists configPath)
-        let messages = ResizeArray<string>()
-        let mutable malformed = false
-
-        let json =
-            if created then
-                to_object ConfigSchema.defaults
-            else
-                let content = File.ReadAllText configPath
-
-                try
-                    match JsonNode.Parse(content, Nullable<JsonNodeOptions>(), documentOptions) with
-                    | :? JsonObject as value -> value
-                    | _ ->
-                        malformed <- true
-                        to_object ConfigSchema.defaults
-                with :? JsonException ->
-                    malformed <- true
-                    to_object ConfigSchema.defaults
-
-        let futureVersion = config_version json
-
-        match futureVersion with
-        | Some version when version > ConfigSchema.CURRENT_VERSION ->
-            let error = future_version_error version
-
-            saveBlocked <- Some error
-            failwith error
-        | Some _
-        | None -> ()
-
-        let mutable changed = created || malformed
-
-        let beforeRepair = json.ToJsonString()
-
-        if created then
-            messages.Add $"created config at {configPath}"
-        elif malformed then
-            messages.Add "reset malformed settings to defaults"
-
-        let defaults = to_object ConfigSchema.defaults
-
-        let knownNames =
-            let names =
-                Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-
-            for property in defaults do
-                names[property.Key] <- property.Key
-
-            names
-
-        let sourceNames =
-            json
-            |> Seq.map (fun (property: Collections.Generic.KeyValuePair<string, JsonNode>) -> property.Key)
-            |> List.ofSeq
-
-        let mutable removed = 0
-        let mutable renamed = 0
-
-        for name in sourceNames do
-            let mutable canonicalName = ""
-
-            if not (knownNames.TryGetValue(name, &canonicalName)) then
-                json.Remove name |> ignore
-                removed <- removed + 1
-                changed <- true
-            elif not (String.Equals(name, canonicalName, StringComparison.Ordinal)) then
-                if not (json.ContainsKey canonicalName) then
-                    let value = json[name]
-                    json[canonicalName] <- if isNull value then null else value.DeepClone()
-
-                json.Remove name |> ignore
-                renamed <- renamed + 1
-                changed <- true
-
-        if removed > 0 then
-            messages.Add $"removed {removed} unknown setting(s)"
-
-        if renamed > 0 then
-            messages.Add $"normalized {renamed} setting name(s)"
-
-        json["config_version"] <- JsonValue.Create ConfigSchema.CURRENT_VERSION
-        let mutable added = 0
-
-        for property in defaults do
-            if not (json.ContainsKey property.Key) then
-                json[property.Key] <- property.Value.DeepClone()
-                added <- added + 1
-                changed <- true
-
-        if json.ToJsonString() <> beforeRepair then
-            changed <- true
-
-        if added > 0 then
-            messages.Add $"added {added} missing setting(s)"
-
-        let repairedMalformedValues = repair_malformed_values json defaults
-
-        if repairedMalformedValues > 0 then
-            changed <- true
-            messages.Add $"replaced {repairedMalformedValues} malformed setting(s)"
-
-        let parsed = deserialize json
-
-        let source, config =
-            match parsed with
-            | Ok source ->
-                let source = ConfigSchema.normalize source
-
-                match ConfigSchema.compile source with
-                | Ok config -> source, config
-                | Error error ->
-                    failwith $"The settings are invalid and the file was left unchanged:{Environment.NewLine}{error}"
-            | Error _ ->
-                json.Clear()
-                merge_known_values json ConfigSchema.defaults
-                changed <- true
-                messages.Add "reset malformed settings to defaults"
-
-                match ConfigSchema.compile ConfigSchema.defaults with
-                | Ok config -> ConfigSchema.defaults, config
-                | Error error -> failwith error
-
-        let beforeNumberNormalization = json.ToJsonString()
-        merge_known_values json source
-
-        if json.ToJsonString() <> beforeNumberNormalization then
-            changed <- true
-
-        if changed then
-            let lockPath = configPath + ".lock"
-
-            use _saveLock =
-                new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)
-
-            match current_file_version configPath with
-            | Some version when version > ConfigSchema.CURRENT_VERSION ->
-                let error = future_version_error version
-                saveBlocked <- Some error
-                failwith error
-            | Some _
-            | None -> write_atomic configPath (json_content json)
-
-        saveBlocked <- None
-
-        Ok
-            { config_file = source
-              config = config
-              messages = List.ofSeq messages }
+        with_lock configPath (fun () -> load_locked configPath)
     with error ->
         Error error.Message
 
-let save (source: FlyConfigFile) =
-    match saveBlocked with
-    | Some error -> Error error
-    | None ->
-        let normalizedSource = ConfigSchema.normalize source
+let save_locked (configPath: string) (source: FlyConfigFile) (config: FlyConfig) =
+    match backup_requirement configPath with
+    | Error error -> Error error
+    | Ok backupRequirement ->
+        let configFile =
+            { source with
+                config_version = ConfigSchema.CURRENT_VERSION }
 
-        match ConfigSchema.compile normalizedSource with
-        | Error error -> Error error
-        | Ok config ->
-            try
-                let configPath = path ()
-                let lockPath = configPath + ".lock"
+        let content = configFile |> ConfigDocument.to_object |> ConfigDocument.content
 
-                use _saveLock =
-                    new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)
-
-                match current_file_version configPath with
-                | Some version when version > ConfigSchema.CURRENT_VERSION ->
-                    let error = future_version_error version
-                    saveBlocked <- Some error
-                    failwith error
-                | Some _
-                | None -> saveBlocked <- None
-
-                let configFile =
-                    { normalizedSource with
-                        config_version = ConfigSchema.CURRENT_VERSION }
-
-                let json = to_object configFile
-                let content = json_content json
-
-                let existing =
-                    if File.Exists configPath then
-                        File.ReadAllText configPath
-                    else
-                        ""
-
-                if existing <> content then
-                    write_atomic configPath content
-
-                Ok
-                    { config_file = configFile
-                      config = config
-                      messages = [] }
-            with error ->
-                Error error.Message
-
-let read_raw () =
-    try
-        let configPath = path ()
-
-        let content =
+        let existing =
             if File.Exists configPath then
                 File.ReadAllText configPath
             else
                 ""
 
-        Ok(configPath, content)
+        let messages = ResizeArray<string>()
+
+        if backupRequirement = BackupRequirement.Required then
+            let backupPath = create_dated_backup configPath
+            messages.Add $"backed up previous config to {backupPath}"
+
+        if existing <> content then
+            write_atomic configPath content
+
+        if backupRequirement = BackupRequirement.Required then
+            try
+                prune_automatic_backups configPath
+            with error ->
+                messages.Add $"could not prune old config backups: {error.Message}"
+
+        Ok
+            { config_file = configFile
+              config = config
+              messages = List.ofSeq messages }
+
+let save (source: FlyConfigFile) =
+    let normalizedSource = ConfigSchema.normalize source
+
+    match ConfigCompiler.compile normalizedSource with
+    | Error error -> Error error
+    | Ok config ->
+        try
+            let configPath = path ()
+            with_lock configPath (fun () -> save_locked configPath normalizedSource config)
+        with error ->
+            Error error.Message
+
+let read_raw () =
+    try
+        let configPath = path ()
+
+        with_lock configPath (fun () ->
+            let content =
+                if File.Exists configPath then
+                    File.ReadAllText configPath
+                else
+                    ""
+
+            Ok(configPath, content))
     with error ->
         Error error.Message

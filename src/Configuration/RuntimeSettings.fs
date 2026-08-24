@@ -193,7 +193,7 @@ let complete_input_recovery () =
 let candidate (config: FlyConfigFile) =
     let source = ConfigSchema.normalize config
 
-    match ConfigSchema.compile source with
+    match ConfigCompiler.compile source with
     | Error error -> Error error
     | Ok runtime ->
         Ok

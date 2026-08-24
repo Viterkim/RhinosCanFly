@@ -63,6 +63,7 @@ let prepare
             if
                 isNull activeDocument
                 || activeDocument.RuntimeSerialNumber <> host.document_serial_number
+                || document.RuntimeSerialNumber <> host.document_serial_number
             then
                 Error "The navigation document is no longer active."
             else

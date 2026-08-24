@@ -12,6 +12,7 @@ open RhinosCanFly
 type Mode =
     | Pivot
     | Pan
+    | ParallelPan
     | ParallelZoom
 
 [<Struct>]
@@ -182,7 +183,8 @@ type Session
         match mode with
         | Mode.ParallelZoom -> true
         | Mode.Pivot
-        | Mode.Pan -> false
+        | Mode.Pan
+        | Mode.ParallelPan -> false
 
     let mutable nextHostValidationAt =
         Stopwatch.GetTimestamp() + hostValidationIntervalTicks
@@ -227,7 +229,8 @@ type Session
                                 else
                                     match mode with
                                     | Mode.Pivot -> pivot viewport mouseConfig pivotCenter dx dy
-                                    | Mode.Pan -> pan viewport mouseConfig dx dy
+                                    | Mode.Pan
+                                    | Mode.ParallelPan -> pan viewport mouseConfig dx dy
                                     | Mode.ParallelZoom ->
                                         let requestedExponent =
                                             parallelZoomExponentRemainder + parallel_zoom_exponent dy
@@ -296,6 +299,15 @@ type Session
     member _.Host = host
     member _.Mode = mode
     member _.IsActive = active
+
+    member _.CleanupComplete =
+        not active
+        && not subscribed
+        && rawInputClean
+        && clipReleased
+        && cursorRestored
+        && not cursorHidden
+        && wakeDisposed
 
     member _.RawInputRegistrationIsCurrent() =
         RawInputThread.registration_is_current raw
@@ -388,88 +400,94 @@ let start
     else
         let viewport = view.ActiveViewport
 
-        let activeMouseConfig =
-            active_mouse_config mouseConfig viewport.IsParallelProjection
+        let requiresParallelProjection =
+            mode = Mode.ParallelPan || mode = Mode.ParallelZoom
 
-        let pivotCenter =
-            match requestedPivotCenter with
-            | ValueSome center when center.IsValid -> center
-            | ValueSome _
-            | ValueNone -> viewport.CameraTarget
+        if requiresParallelProjection && not viewport.IsParallelProjection then
+            Error "The viewport is no longer using parallel projection."
+        else
+            let activeMouseConfig =
+                active_mouse_config mouseConfig viewport.IsParallelProjection
 
-        match Win32.get_cursor_position () with
-        | Error error -> Error error
-        | Ok originalCursor ->
-            let input = InputAccumulator.create ()
-            let wake = RawInputWake.create host.root_window
-            let inputAvailable = Action(fun () -> RawInputWake.signal wake)
+            let pivotCenter =
+                match requestedPivotCenter with
+                | ValueSome center when center.IsValid -> center
+                | ValueSome _
+                | ValueNone -> viewport.CameraTarget
 
-            let rawConfig: RawInputConfig =
-                { exit_on_mouse_left = false
-                  exit_on_mouse_right = false
-                  middle_mouse_action = RoutedMouseAction.Off
-                  mouse4_action = RoutedMouseAction.Off
-                  mouse5_action = RoutedMouseAction.Off }
+            match Win32.get_cursor_position () with
+            | Error error -> Error error
+            | Ok originalCursor ->
+                let input = InputAccumulator.create ()
+                let wake = RawInputWake.create host.root_window
+                let inputAvailable = Action(fun () -> RawInputWake.signal wake)
 
-            let sessionMode = FlightSessionMode.until_exit FlightMode.Normal
-            let mutable raw: RawInputThread.Session option = None
-            let mutable cursorClip: CursorClipLease option = None
-            let mutable cursorHidden = false
+                let rawConfig: RawInputConfig =
+                    { exit_on_mouse_left = false
+                      exit_on_mouse_right = false
+                      middle_mouse_action = RoutedMouseAction.Off
+                      mouse4_action = RoutedMouseAction.Off
+                      mouse5_action = RoutedMouseAction.Off }
 
-            try
-                let createdRaw = RawInputThread.start rawConfig sessionMode input inputAvailable
-                raw <- Some createdRaw
+                let sessionMode = FlightSessionMode.until_exit FlightMode.Normal
+                let mutable raw: RawInputThread.Session option = None
+                let mutable cursorClip: CursorClipLease option = None
+                let mutable cursorHidden = false
 
-                match Win32.acquire_cursor_clip view.ScreenRectangle with
-                | Error error -> failwith error
-                | Ok lease -> cursorClip <- Some lease
+                try
+                    let createdRaw = RawInputThread.start rawConfig sessionMode input inputAvailable
+                    raw <- Some createdRaw
 
-                Win32Native.ShowCursor false |> ignore
-                cursorHidden <- true
+                    match Win32.acquire_cursor_clip view.ScreenRectangle with
+                    | Error error -> failwith error
+                    | Ok lease -> cursorClip <- Some lease
 
-                match cursorClip with
-                | Some lease ->
-                    let session =
-                        Session(
-                            host,
-                            mode,
-                            input,
-                            wake,
-                            createdRaw,
-                            view,
-                            viewport,
-                            activeMouseConfig,
-                            pivotCenter,
-                            originalCursor,
-                            lease,
-                            buttonEvents,
-                            failed
-                        )
+                    Win32Native.ShowCursor false |> ignore
+                    cursorHidden <- true
 
-                    session.Attach()
+                    match cursorClip with
+                    | Some lease ->
+                        let session =
+                            Session(
+                                host,
+                                mode,
+                                input,
+                                wake,
+                                createdRaw,
+                                view,
+                                viewport,
+                                activeMouseConfig,
+                                pivotCenter,
+                                originalCursor,
+                                lease,
+                                buttonEvents,
+                                failed
+                            )
 
-                    // Ignore startup movement but keep button releases from the same gesture.
-                    let startupRevision = InputAccumulator.work_revision input
-                    InputAccumulator.drain_mouse input |> ignore
-                    InputAccumulator.drain_wheel input |> ignore
-                    RawInputWake.acknowledge wake
+                        session.Attach()
 
-                    if InputAccumulator.work_pending_since startupRevision input then
-                        RawInputWake.signal wake
+                        // Ignore startup movement but keep button releases from the same gesture.
+                        let startupRevision = InputAccumulator.work_revision input
+                        InputAccumulator.drain_mouse input |> ignore
+                        InputAccumulator.drain_wheel input |> ignore
+                        RawInputWake.acknowledge wake
 
-                    Ok session
-                | None -> failwith "The navigation cursor clip was not acquired."
-            with error ->
-                match cursorClip with
-                | Some lease -> Win32.release_cursor_clip lease |> ignore
-                | None -> ()
+                        if InputAccumulator.work_pending_since startupRevision input then
+                            RawInputWake.signal wake
 
-                match raw with
-                | Some created -> RawInputThread.stop created |> ignore
-                | None -> ()
+                        Ok session
+                    | None -> failwith "The navigation cursor clip was not acquired."
+                with error ->
+                    match cursorClip with
+                    | Some lease -> Win32.release_cursor_clip lease |> ignore
+                    | None -> ()
 
-                if cursorHidden then
-                    Win32Native.ShowCursor true |> ignore
+                    match raw with
+                    | Some created -> RawInputThread.stop created |> ignore
+                    | None -> ()
 
-                RawInputWake.dispose wake
-                Error $"Could not start raw view navigation: {error.Message}"
+                    if cursorHidden then
+                        Win32Native.ShowCursor true |> ignore
+
+                    RawInputWake.dispose wake
+                    Error $"Could not start raw view navigation: {error.Message}"

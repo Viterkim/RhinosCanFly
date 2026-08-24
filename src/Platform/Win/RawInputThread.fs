@@ -501,9 +501,7 @@ let request_stop_core (session: Session) =
         | Ok Posted ->
             session.stop_request_sent <- true
             Ok()
-        | Ok(QueuedWithoutWake error) ->
-            session.stop_request_sent <- true
-            Error error
+        | Ok(QueuedWithoutWake error) -> Error error
         | Error _ when session.worker.stopped.IsSet ->
             session.stop_request_sent <- true
             Ok()

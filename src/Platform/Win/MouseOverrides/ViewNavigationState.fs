@@ -184,8 +184,7 @@ let same_host (left: ViewportHostIdentity) (right: ViewportHostIdentity) =
     && left.root_window = right.root_window
 
 let navigation_host (state: State) =
-    // Keep this boring instead of matching a tuple. This runs on the
-    // navigation timer, and the tuple form allocates every time.
+    // Tuple matching allocates here.
     match state.gesture_navigation with
     | GestureNavigationActive session -> ValueSome session.host
     | NoGestureNavigation ->

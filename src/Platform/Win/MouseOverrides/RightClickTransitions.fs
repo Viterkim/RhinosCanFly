@@ -327,6 +327,7 @@ let try_entry_view (entry: FlyEntry) =
         || isNull activeDocument
         || activeDocument.RuntimeSerialNumber <> entry.host.document_serial_number
         || view.Handle <> expectedWindow
+        || view.ActiveViewportID <> entry.host.viewport_id
         || ViewNavigationState.root_window view.Handle <> entry.host.root_window
     then
         ValueNone
@@ -357,6 +358,14 @@ let dispatch_entry (state: RightClickState) (entry: FlyEntry) =
     if not (RhinoApp.RunScript(entry.host.document_serial_number, entry_command entry, false)) then
         Debug.WriteLine "RhinosCanFly right-click flight command was rejected by Rhino."
         clear_action state
+
+let projection_allows_entry (navigation: State) (view: RhinoView) =
+    let viewport = view.ActiveViewport
+
+    viewport.IsPerspectiveProjection
+    || (viewport.IsParallelProjection
+        && navigation.routing.parallel_right_click_entry
+        && ParallelViewFlying.allows viewport.Name navigation.routing.parallel_view_flying)
 
 let apply_navigation_click (navigation: State) (click: NavigationClick) =
     if
@@ -406,16 +415,19 @@ let update (navigation: State) (state: RightClickState) (commandActive: bool) =
             | EntryUnavailable -> clear_action state
             | EntryDeferred -> ()
             | EntryReady view ->
-                let canEnter = entry_during_commands entry.entry_mode || not commandActive
-
-                let heldAndDown =
-                    entry_while_held entry.entry_mode
-                    && Win32Native.GetAsyncKeyState Win32Native.VK_RBUTTON < 0s
-
-                if heldAndDown && canEnter && not (view.MouseCaptured false) then
-                    dispatch_entry state entry
-                elif entry_while_held entry.entry_mode && not heldAndDown then
+                if not (projection_allows_entry navigation view) then
                     clear_action state
+                else
+                    let canEnter = entry_during_commands entry.entry_mode || not commandActive
+
+                    let heldAndDown =
+                        entry_while_held entry.entry_mode
+                        && Win32Native.GetAsyncKeyState Win32Native.VK_RBUTTON < 0s
+
+                    if heldAndDown && canEnter && not (view.MouseCaptured false) then
+                        dispatch_entry state entry
+                    elif entry_while_held entry.entry_mode && not heldAndDown then
+                        clear_action state
     | ButtonReleased(NavigateView _) ->
         GestureNavigationTransitions.release navigation GestureOwner.ModifiedRightClick
         clear_action state
@@ -430,10 +442,13 @@ let update (navigation: State) (state: RightClickState) (commandActive: bool) =
             | EntryUnavailable -> clear_action state
             | EntryDeferred -> ()
             | EntryReady view ->
-                let canEnter = entry_during_commands entry.entry_mode || not commandActive
+                if not (projection_allows_entry navigation view) then
+                    clear_action state
+                else
+                    let canEnter = entry_during_commands entry.entry_mode || not commandActive
 
-                if canEnter && not (view.MouseCaptured false) then
-                    dispatch_entry state entry
+                    if canEnter && not (view.MouseCaptured false) then
+                        dispatch_entry state entry
 
 let prune_released_button (state: RightClickState) =
     if owns_button state then
