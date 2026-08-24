@@ -177,6 +177,7 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     SettingsFields.set_mode modes.shift_right_click_retarget config.shift_right_click_retarget
     SettingsFields.set_mode modes.alt_right_click_retarget config.alt_right_click_retarget
     SettingsFields.set_mode modes.ctrl_right_click_retarget config.ctrl_right_click_retarget
+    SettingsFields.set_mode modes.middle_mouse_retarget config.middle_mouse_retarget
     SettingsFields.set_mode modes.mouse4_retarget config.mouse4_retarget
     SettingsFields.set_mode modes.mouse5_retarget config.mouse5_retarget
     SettingsFields.set_mode modes.retarget_on_pivot config.retarget_on_pivot
@@ -188,7 +189,7 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     SettingsFields.set_mode modes.ctrl_right_click_action config.ctrl_right_click_action
     SettingsFields.set_mode modes.mouse4_action config.mouse4_action
     SettingsFields.set_mode modes.mouse5_action config.mouse5_action
-    SettingsFields.set_mode modes.middle_mouse_while_flying config.middle_mouse_while_flying
+    SettingsFields.set_mode modes.middle_mouse_action config.middle_mouse_action
     SettingsFields.set_mode modes.mouse_x_mode config.mouse_x_mode
     SettingsFields.set_mode modes.mouse_y_mode config.mouse_y_mode
     SettingsFields.set_mode modes.parallel_view_flying config.parallel_view_flying.mode
@@ -201,6 +202,7 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     set_checked options.wheel_changes_speed_during_flight_navigation config.wheel_changes_speed_during_flight_navigation
     set_checked options.mouse4_action_while_flying config.mouse4_action_while_flying
     set_checked options.mouse5_action_while_flying config.mouse5_action_while_flying
+    set_checked options.middle_mouse_action_while_flying config.middle_mouse_action_while_flying
     set_checked options.right_click_enters_parallel_views config.right_click_enters_parallel_views
     set_checked options.exit_on_mouse_left config.exit_on_mouse_left
     set_checked options.exit_on_mouse_right config.exit_on_mouse_right
@@ -275,7 +277,7 @@ let read (fields: SettingsFields.ConfigFields) =
                 is_checked options.wheel_changes_speed_during_flight_navigation
               exit_on_mouse_left = is_checked options.exit_on_mouse_left
               exit_on_mouse_right = is_checked options.exit_on_mouse_right
-              middle_mouse_while_flying = SettingsFields.selected_mode modes.middle_mouse_while_flying
+              middle_mouse_action_while_flying = is_checked options.middle_mouse_action_while_flying
               mouse4_action_while_flying = is_checked options.mouse4_action_while_flying
               mouse5_action_while_flying = is_checked options.mouse5_action_while_flying
               right_click_enters_parallel_views = is_checked options.right_click_enters_parallel_views
@@ -284,6 +286,7 @@ let read (fields: SettingsFields.ConfigFields) =
               shift_right_click_retarget = SettingsFields.selected_mode modes.shift_right_click_retarget
               alt_right_click_retarget = SettingsFields.selected_mode modes.alt_right_click_retarget
               ctrl_right_click_retarget = SettingsFields.selected_mode modes.ctrl_right_click_retarget
+              middle_mouse_retarget = SettingsFields.selected_mode modes.middle_mouse_retarget
               mouse4_retarget = SettingsFields.selected_mode modes.mouse4_retarget
               mouse5_retarget = SettingsFields.selected_mode modes.mouse5_retarget
               retarget_on_pivot = SettingsFields.selected_mode modes.retarget_on_pivot
@@ -296,6 +299,7 @@ let read (fields: SettingsFields.ConfigFields) =
               commands_do_not_repeat = is_checked options.commands_do_not_repeat
               mouse4_action = SettingsFields.selected_mode modes.mouse4_action
               mouse5_action = SettingsFields.selected_mode modes.mouse5_action
+              middle_mouse_action = SettingsFields.selected_mode modes.middle_mouse_action
               shift_right_click_action = SettingsFields.selected_mode modes.shift_right_click_action
               alt_right_click_action = SettingsFields.selected_mode modes.alt_right_click_action
               ctrl_right_click_action = SettingsFields.selected_mode modes.ctrl_right_click_action

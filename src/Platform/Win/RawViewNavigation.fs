@@ -21,8 +21,6 @@ let coordinate (origin: int) (delta: int64) =
     elif value < int64 Int32.MinValue then Int32.MinValue
     else int value
 
-let wheel_coordinate (origin: int) (steps: int64) = coordinate origin (-steps * 12L)
-
 let view_matches_host (host: ViewportHostIdentity) (view: RhinoView) =
     if isNull view || isNull view.Document then
         false
@@ -52,6 +50,24 @@ let parallel_zoom_exponent (dy: int64) =
         steps * Math.Log(1. / zoomScale)
     else
         0.
+
+let wheel_magnification (steps: int64) =
+    let zoomScale = ViewSettings.ZoomScale
+
+    if
+        steps <> 0L
+        && not (Double.IsNaN zoomScale)
+        && not (Double.IsInfinity zoomScale)
+        && zoomScale > 0.
+    then
+        let magnification = Math.Pow(1. / zoomScale, float steps)
+
+        if Double.IsNaN magnification || Double.IsInfinity magnification || magnification <= 0. then
+            1.
+        else
+            magnification
+    else
+        1.
 
 type Session
     internal
@@ -147,8 +163,10 @@ type Session
                                 if wheelSteps = 0L then
                                     false
                                 else
-                                    let wheelPoint = Point(center.X, wheel_coordinate center.Y wheelSteps)
-                                    viewport.MouseDollyZoom(center, wheelPoint)
+                                    let magnification = wheel_magnification wheelSteps
+
+                                    magnification <> 1.
+                                    && viewport.Magnify(magnification, viewport.IsParallelProjection)
 
                             if movementChanged || wheelChanged then
                                 view.Redraw()
@@ -279,7 +297,7 @@ let start
             let rawConfig: RawInputConfig =
                 { exit_on_mouse_left = false
                   exit_on_mouse_right = false
-                  middle_mouse_while_flying = FlyingMiddleMouseMode.Off
+                  middle_mouse_action = RoutedMouseAction.Off
                   mouse4_action = RoutedMouseAction.Off
                   mouse5_action = RoutedMouseAction.Off }
 

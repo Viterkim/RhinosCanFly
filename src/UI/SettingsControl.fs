@@ -50,6 +50,9 @@ type SettingsControl() as self =
         let ctrlEnabled =
             SettingsFields.selected_mode modes.ctrl_right_click_action = MouseGestureAction.Retarget
 
+        let middleEnabled =
+            SettingsFields.selected_mode modes.middle_mouse_action = MouseGestureAction.Retarget
+
         let mouse4Enabled =
             SettingsFields.selected_mode modes.mouse4_action = MouseGestureAction.Retarget
 
@@ -59,8 +62,12 @@ type SettingsControl() as self =
         modes.shift_right_click_retarget.control.Enabled <- shiftEnabled
         modes.alt_right_click_retarget.control.Enabled <- altEnabled
         modes.ctrl_right_click_retarget.control.Enabled <- ctrlEnabled
+        modes.middle_mouse_retarget.control.Enabled <- middleEnabled
         modes.mouse4_retarget.control.Enabled <- mouse4Enabled
         modes.mouse5_retarget.control.Enabled <- mouse5Enabled
+
+        options.middle_mouse_action_while_flying.Enabled <-
+            SettingsFields.selected_mode modes.middle_mouse_action <> MouseGestureAction.Off
 
         options.mouse4_action_while_flying.Enabled <-
             SettingsFields.selected_mode modes.mouse4_action <> MouseGestureAction.Off
@@ -75,6 +82,8 @@ type SettingsControl() as self =
                 && RetargetMode.uses_distance (SettingsFields.selected_mode modes.alt_right_click_retarget))
             || (ctrlEnabled
                 && RetargetMode.uses_distance (SettingsFields.selected_mode modes.ctrl_right_click_retarget))
+            || (middleEnabled
+                && RetargetMode.uses_distance (SettingsFields.selected_mode modes.middle_mouse_retarget))
             || (mouse4Enabled
                 && RetargetMode.uses_distance (SettingsFields.selected_mode modes.mouse4_retarget))
             || (mouse5Enabled
@@ -190,9 +199,9 @@ type SettingsControl() as self =
             [ options.enabled
               status.runtime_enabled
               options.commands_do_not_repeat
+              options.normalize_diagonal_movement
               options.save_speed_to_document
-              options.load_speed_from_document
-              options.normalize_diagonal_movement ]
+              options.load_speed_from_document ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
@@ -208,11 +217,13 @@ type SettingsControl() as self =
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Mouse 4/5"))
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Mouse buttons"))
 
         SettingsLayout.grid
             2
-            [ SettingsLayout.item "Mouse 4" modes.mouse4_action.control
+            [ SettingsLayout.item "Middle mouse" modes.middle_mouse_action.control
+              options.middle_mouse_action_while_flying
+              SettingsLayout.item "Mouse 4" modes.mouse4_action.control
               options.mouse4_action_while_flying
               SettingsLayout.item "Mouse 5" modes.mouse5_action.control
               options.mouse5_action_while_flying ]
@@ -245,7 +256,6 @@ type SettingsControl() as self =
             2
             [ SettingsLayout.item "Mouse X" modes.mouse_x_mode.control
               SettingsLayout.item "Mouse Y" modes.mouse_y_mode.control
-              SettingsLayout.item "Middle mouse" modes.middle_mouse_while_flying.control
               SettingsLayout.item "MWheel changes speed" modes.wheel_speed_mode.control
               options.wheel_changes_speed_during_flight_navigation ]
         |> SettingsLayout.full_width
@@ -336,7 +346,8 @@ type SettingsControl() as self =
               SettingsLayout.item "Mouse 5" modes.mouse5_retarget.control
               SettingsLayout.item "Shift + right click" modes.shift_right_click_retarget.control
               SettingsLayout.item "Alt + right click" modes.alt_right_click_retarget.control
-              SettingsLayout.item "Ctrl + right click" modes.ctrl_right_click_retarget.control ]
+              SettingsLayout.item "Ctrl + right click" modes.ctrl_right_click_retarget.control
+              SettingsLayout.item "Middle mouse" modes.middle_mouse_retarget.control ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
@@ -433,11 +444,13 @@ type SettingsControl() as self =
         [ modes.shift_right_click_action.control
           modes.alt_right_click_action.control
           modes.ctrl_right_click_action.control
+          modes.middle_mouse_action.control
           modes.mouse4_action.control
           modes.mouse5_action.control
           modes.shift_right_click_retarget.control
           modes.alt_right_click_retarget.control
           modes.ctrl_right_click_retarget.control
+          modes.middle_mouse_retarget.control
           modes.mouse4_retarget.control
           modes.mouse5_retarget.control
           modes.retarget_on_pivot.control

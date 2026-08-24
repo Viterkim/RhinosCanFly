@@ -53,7 +53,7 @@ let defaults: FlyConfigFile =
       wheel_changes_speed_during_flight_navigation = true
       exit_on_mouse_left = false
       exit_on_mouse_right = true
-      middle_mouse_while_flying = FlyingMiddleMouseMode.Off
+      middle_mouse_action_while_flying = false
       mouse4_action_while_flying = false
       mouse5_action_while_flying = false
       right_click_entry_mode = RightClickEntryMode.ClickToFlyDuringCommands
@@ -61,6 +61,7 @@ let defaults: FlyConfigFile =
       shift_right_click_retarget = RetargetMode.ObjectCenter
       alt_right_click_retarget = RetargetMode.ObjectCenter
       ctrl_right_click_retarget = RetargetMode.ObjectCenter
+      middle_mouse_retarget = RetargetMode.ObjectCenter
       mouse4_retarget = RetargetMode.ObjectCenter
       mouse5_retarget = RetargetMode.ObjectCenter
       retarget_on_pivot = RetargetMode.ObjectCenter
@@ -74,6 +75,7 @@ let defaults: FlyConfigFile =
       commands_do_not_repeat = true
       mouse4_action = MouseGestureAction.Off
       mouse5_action = MouseGestureAction.Off
+      middle_mouse_action = MouseGestureAction.Off
       shift_right_click_action = MouseGestureAction.Off
       alt_right_click_action = MouseGestureAction.Off
       ctrl_right_click_action = MouseGestureAction.Off
@@ -366,7 +368,11 @@ let compile (source: FlyConfigFile) =
               y_mode = source.mouse_y_mode
               exit_on_left = source.exit_on_mouse_left
               exit_on_right = source.exit_on_mouse_right
-              middle_button = source.middle_mouse_while_flying
+              middle_button =
+                  while_flying
+                      source.middle_mouse_action_while_flying
+                      source.middle_mouse_action
+                      source.middle_mouse_retarget
               mouse4 = while_flying source.mouse4_action_while_flying source.mouse4_action source.mouse4_retarget
               mouse5 = while_flying source.mouse5_action_while_flying source.mouse5_action source.mouse5_retarget }
           behavior =
@@ -376,6 +382,7 @@ let compile (source: FlyConfigFile) =
                 { shift_right_click = source.shift_right_click_retarget
                   alt_right_click = source.alt_right_click_retarget
                   ctrl_right_click = source.ctrl_right_click_retarget
+                  middle_mouse = source.middle_mouse_retarget
                   mouse4 = source.mouse4_retarget
                   mouse5 = source.mouse5_retarget
                   on_pivot = source.retarget_on_pivot

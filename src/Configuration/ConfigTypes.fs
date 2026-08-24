@@ -21,11 +21,6 @@ type MouseGestureAction =
     | HoldPan = 4
     | Retarget = 5
 
-type FlyingMiddleMouseMode =
-    | Off = 0
-    | ExitFlight = 1
-    | TogglePivot = 2
-
 type RightClickEntryMode =
     | Off = 0
     | ClickToFly = 1
@@ -182,7 +177,7 @@ type FlyConfigFile =
       wheel_changes_speed_during_flight_navigation: bool
       exit_on_mouse_left: bool
       exit_on_mouse_right: bool
-      middle_mouse_while_flying: FlyingMiddleMouseMode
+      middle_mouse_action_while_flying: bool
       mouse4_action_while_flying: bool
       mouse5_action_while_flying: bool
       right_click_entry_mode: RightClickEntryMode
@@ -190,6 +185,7 @@ type FlyConfigFile =
       shift_right_click_retarget: RetargetMode
       alt_right_click_retarget: RetargetMode
       ctrl_right_click_retarget: RetargetMode
+      middle_mouse_retarget: RetargetMode
       mouse4_retarget: RetargetMode
       mouse5_retarget: RetargetMode
       retarget_on_pivot: RetargetMode
@@ -203,6 +199,7 @@ type FlyConfigFile =
       commands_do_not_repeat: bool
       mouse4_action: MouseGestureAction
       mouse5_action: MouseGestureAction
+      middle_mouse_action: MouseGestureAction
       shift_right_click_action: MouseGestureAction
       alt_right_click_action: MouseGestureAction
       ctrl_right_click_action: MouseGestureAction

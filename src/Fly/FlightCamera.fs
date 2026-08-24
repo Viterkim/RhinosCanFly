@@ -201,43 +201,45 @@ let apply_navigation_wheel (steps: int64) (state: FlyState) =
     if steps = 0L then
         ViewChange.none
     else
-        match state.active_mouse_navigation with
-        | MouseLook -> ViewChange.none
-        | MousePivot target
-        | MousePan(target, _) ->
-            let zoomScale = ViewSettings.ZoomScale
+        let target =
+            match state.active_mouse_navigation with
+            | MouseLook -> state.camera.target
+            | MousePivot target
+            | MousePan(target, _) -> target
 
-            if not (RhinoMath.IsValidDouble zoomScale) || zoomScale <= RhinoMath.ZeroTolerance then
+        let zoomScale = ViewSettings.ZoomScale
+
+        if not (RhinoMath.IsValidDouble zoomScale) || zoomScale <= RhinoMath.ZeroTolerance then
+            ViewChange.none
+        else
+            let magnification = System.Math.Pow(1. / zoomScale, float steps)
+
+            if
+                not (RhinoMath.IsValidDouble magnification)
+                || magnification <= RhinoMath.ZeroTolerance
+            then
                 ViewChange.none
             else
-                let magnification = System.Math.Pow(1. / zoomScale, float steps)
+                let previousCamera = state.camera
 
-                if
-                    not (RhinoMath.IsValidDouble magnification)
-                    || magnification <= RhinoMath.ZeroTolerance
-                then
-                    ViewChange.none
-                else
-                    let previousCamera = state.camera
+                let parallelFlight = state.projection = ViewProjectionKind.Parallel
 
-                    let parallelFlight = state.projection = ViewProjectionKind.Parallel
+                state.camera <- Movement.dolly_towards target magnification state.camera
 
-                    state.camera <- Movement.dolly_towards target magnification state.camera
+                if not (CameraState.valid state.camera) then
+                    state.restore_camera_on_exit <- true
+                    failwith "Mouse-wheel input produced an invalid camera state."
 
-                    if not (CameraState.valid state.camera) then
-                        state.restore_camera_on_exit <- true
-                        failwith "Mouse-wheel input produced an invalid camera state."
+                if state.camera <> previousCamera then
+                    match state.active_mouse_navigation with
+                    | MousePan(panTarget, _) ->
+                        state.active_mouse_navigation <-
+                            MousePan(panTarget, pan_units_per_radian panTarget state.camera)
+                    | MouseLook
+                    | MousePivot _ -> ()
 
-                    if state.camera <> previousCamera then
-                        match state.active_mouse_navigation with
-                        | MousePan(panTarget, _) ->
-                            state.active_mouse_navigation <-
-                                MousePan(panTarget, pan_units_per_radian panTarget state.camera)
-                        | MouseLook
-                        | MousePivot _ -> ()
-
-                    { camera_changed = state.camera <> previousCamera
-                      parallel_magnification = if parallelFlight then magnification else 1. }
+                { camera_changed = state.camera <> previousCamera
+                  parallel_magnification = if parallelFlight then magnification else 1. }
 
 let apply_mouse_input (input: InputAccumulator.State) (state: FlyState) =
     let struct (dx, dy) = InputAccumulator.drain_mouse input

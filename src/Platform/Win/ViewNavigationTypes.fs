@@ -8,6 +8,7 @@ open RhinosCanFly
 
 type RoutingConfig =
     { runtime_enabled: bool
+      middle: RoutedMouseAction
       mouse4: RoutedMouseAction
       mouse5: RoutedMouseAction
       right_click_entry: RightClickEntryMode
@@ -24,6 +25,7 @@ type RoutingConfig =
       retarget: ViewportHostIdentity -> ViewportClientPoint -> RetargetMode -> Result<unit, string> }
 
 type SideButton =
+    | Middle
     | Mouse4
     | Mouse5
 
@@ -38,12 +40,14 @@ type HookButtonOwnership =
     | ReleaseObserved
 
 type SideButtonHookCapture =
-    { mutable mouse4: HookButtonOwnership
+    { mutable middle: HookButtonOwnership
+      mutable mouse4: HookButtonOwnership
       mutable mouse5: HookButtonOwnership }
 
 [<RequireQualifiedAccess>]
 type GestureOwner =
     | ModifiedRightClick
+    | Middle
     | Mouse4
     | Mouse5
 
@@ -111,6 +115,7 @@ let TRANSITION_TIMEOUT_SECONDS = 2.
 
 let empty_routing =
     { runtime_enabled = false
+      middle = RoutedMouseAction.Off
       mouse4 = RoutedMouseAction.Off
       mouse5 = RoutedMouseAction.Off
       right_click_entry = RightClickEntryMode.Off
@@ -132,7 +137,10 @@ let create_state () =
       gesture_navigation = NoGestureNavigation
       view_latch = NoViewLatch
       pending_side_button_events = Queue<SideButtonHookEvent>(16)
-      side_button_hook_capture = { mouse4 = NotOwned; mouse5 = NotOwned }
+      side_button_hook_capture =
+        { middle = NotOwned
+          mouse4 = NotOwned
+          mouse5 = NotOwned }
       navigation_exit_requested = false
       suspension_ids = HashSet<int64>()
       next_suspension_id = 0L

@@ -5,6 +5,7 @@ open RhinosCanFly.Platform.Win.ViewNavigationTypes
 let is_down (button: SideButton) =
     let key =
         match button with
+        | Middle -> Win32Native.VK_MBUTTON
         | Mouse4 -> Win32Native.VK_XBUTTON1
         | Mouse5 -> Win32Native.VK_XBUTTON2
 
@@ -12,6 +13,7 @@ let is_down (button: SideButton) =
 
 let owner (button: SideButton) =
     match button with
+    | Middle -> GestureOwner.Middle
     | Mouse4 -> GestureOwner.Mouse4
     | Mouse5 -> GestureOwner.Mouse5
 

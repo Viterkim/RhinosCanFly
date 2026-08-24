@@ -6,6 +6,7 @@ open RhinosCanFly.Platform.Win.ViewNavigationTypes
 
 let hook_button_ownership (state: State) (button: SideButton) =
     match button with
+    | Middle -> state.side_button_hook_capture.middle
     | Mouse4 -> state.side_button_hook_capture.mouse4
     | Mouse5 -> state.side_button_hook_capture.mouse5
 
@@ -17,6 +18,7 @@ let hook_owns_button (state: State) (button: SideButton) =
 
 let set_hook_button_ownership (state: State) (button: SideButton) (ownership: HookButtonOwnership) =
     match button with
+    | Middle -> state.side_button_hook_capture.middle <- ownership
     | Mouse4 -> state.side_button_hook_capture.mouse4 <- ownership
     | Mouse5 -> state.side_button_hook_capture.mouse5 <- ownership
 
@@ -27,15 +29,17 @@ let observe_hook_button_released (state: State) (button: SideButton) =
     | ReleaseObserved -> set_hook_button_ownership state button NotOwned
 
 let hook_owns_any_button (state: State) =
-    hook_owns_button state Mouse4 || hook_owns_button state Mouse5
+    hook_owns_button state Middle || hook_owns_button state Mouse4 || hook_owns_button state Mouse5
 
 let action_for (state: State) (button: SideButton) =
     match button with
+    | Middle -> state.routing.middle
     | Mouse4 -> state.routing.mouse4
     | Mouse5 -> state.routing.mouse5
 
 let side_button_routing_enabled (state: State) =
-    RoutedMouseAction.enabled state.routing.mouse4
+    RoutedMouseAction.enabled state.routing.middle
+    || RoutedMouseAction.enabled state.routing.mouse4
     || RoutedMouseAction.enabled state.routing.mouse5
 
 let gesture_navigation_engaged (state: State) =

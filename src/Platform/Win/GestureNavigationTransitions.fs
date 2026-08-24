@@ -131,6 +131,7 @@ let release (state: State) (owner: GestureOwner) =
 let owner_button_down (owner: GestureOwner) =
     match owner with
     | GestureOwner.ModifiedRightClick -> Win32Native.GetAsyncKeyState Win32Native.VK_RBUTTON < 0s
+    | GestureOwner.Middle -> Win32Native.GetAsyncKeyState Win32Native.VK_MBUTTON < 0s
     | GestureOwner.Mouse4 -> Win32Native.GetAsyncKeyState Win32Native.VK_XBUTTON1 < 0s
     | GestureOwner.Mouse5 -> Win32Native.GetAsyncKeyState Win32Native.VK_XBUTTON2 < 0s
 

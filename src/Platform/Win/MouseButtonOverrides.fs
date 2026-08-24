@@ -160,8 +160,8 @@ let handle_raw_navigation_button (host: ViewportHostIdentity) (event: RawMouseBu
         | RawMouseButtonEvent.LeftUp when state.routing.exit_on_mouse_left -> request_navigation_exit ()
         | RawMouseButtonEvent.RightDown -> handle_raw_right_down host screenPoint
         | RawMouseButtonEvent.RightUp -> handle_raw_right_up ()
-        | RawMouseButtonEvent.MiddleDown
-        | RawMouseButtonEvent.MiddleUp -> ()
+        | RawMouseButtonEvent.MiddleDown -> handle_raw_side_down Middle host screenPoint
+        | RawMouseButtonEvent.MiddleUp -> handle_raw_side_up Middle
         | RawMouseButtonEvent.Mouse4Down -> handle_raw_side_down Mouse4 host screenPoint
         | RawMouseButtonEvent.Mouse4Up -> handle_raw_side_up Mouse4
         | RawMouseButtonEvent.Mouse5Down -> handle_raw_side_down Mouse5 host screenPoint
@@ -406,6 +406,28 @@ let side_button_from_data (mouseData: uint32) =
     | Win32Native.XBUTTON2 -> ValueSome Mouse5
     | _ -> ValueNone
 
+let action_button (event: Win32.MouseHookEvent) =
+    if
+        event.message = Win32Native.WM_MBUTTONDOWN
+        || event.message = Win32Native.WM_MBUTTONUP
+        || event.message = Win32Native.WM_MBUTTONDBLCLK
+    then
+        ValueSome Middle
+    else
+        side_button_from_data event.mouse_data
+
+let action_button_down (button: SideButton) (message: int) =
+    match button with
+    | Middle -> message = Win32Native.WM_MBUTTONDOWN || message = Win32Native.WM_MBUTTONDBLCLK
+    | Mouse4
+    | Mouse5 -> message = Win32Native.WM_XBUTTONDOWN || message = Win32Native.WM_XBUTTONDBLCLK
+
+let action_button_up (button: SideButton) (message: int) =
+    match button with
+    | Middle -> message = Win32Native.WM_MBUTTONUP
+    | Mouse4
+    | Mouse5 -> message = Win32Native.WM_XBUTTONUP
+
 let raw_navigation_captures_button_messages () =
     match raw_navigation with
     | Some session when session.IsActive ->
@@ -426,6 +448,9 @@ let raw_navigation_button_message (message: int) =
     message = Win32Native.WM_RBUTTONDOWN
     || message = Win32Native.WM_RBUTTONUP
     || message = Win32Native.WM_RBUTTONDBLCLK
+    || message = Win32Native.WM_MBUTTONDOWN
+    || message = Win32Native.WM_MBUTTONUP
+    || message = Win32Native.WM_MBUTTONDBLCLK
     || message = Win32Native.WM_XBUTTONDOWN
     || message = Win32Native.WM_XBUTTONUP
     || message = Win32Native.WM_XBUTTONDBLCLK
@@ -457,7 +482,7 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
 
             swallow
         else
-            match side_button_from_data event.mouse_data with
+            match action_button event with
             | ValueNone -> false
             | ValueSome button ->
                 let hookActive =
@@ -467,11 +492,8 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
                     | HookRemovalPending _
                     | HookRemovalAbandoned _ -> false
 
-                let isDown =
-                    event.message = Win32Native.WM_XBUTTONDOWN
-                    || event.message = Win32Native.WM_XBUTTONDBLCLK
-
-                let isUp = event.message = Win32Native.WM_XBUTTONUP
+                let isDown = action_button_down button event.message
+                let isUp = action_button_up button event.message
 
                 if
                     isDown
@@ -627,6 +649,12 @@ let mouse_hook_needs_reconciliation () =
     | HookRemovalAbandoned _ -> false
 
 let prune_released_side_buttons () =
+    if ViewNavigationState.hook_owns_button state Middle then
+        if SideButtonTransitions.is_down Middle then
+            ViewNavigationState.set_hook_button_ownership state Middle Owned
+        else
+            ViewNavigationState.observe_hook_button_released state Middle
+
     if ViewNavigationState.hook_owns_button state Mouse4 then
         if SideButtonTransitions.is_down Mouse4 then
             ViewNavigationState.set_hook_button_ownership state Mouse4 Owned
@@ -1026,6 +1054,7 @@ let apply (config: MouseOverrideConfig) =
         | Ok() ->
             state.routing <-
                 { runtime_enabled = config.runtime_enabled
+                  middle = config.middle
                   mouse4 = config.mouse4
                   mouse5 = config.mouse5
                   right_click_entry = config.right_click_entry
@@ -1193,6 +1222,7 @@ let shutdown () =
             | Error error -> Debug.WriteLine $"RhinosCanFly mouse override shutdown: {error}")
 
         attempt "side-button ownership" (fun () ->
+            ViewNavigationState.set_hook_button_ownership state Middle NotOwned
             ViewNavigationState.set_hook_button_ownership state Mouse4 NotOwned
             ViewNavigationState.set_hook_button_ownership state Mouse5 NotOwned)
 

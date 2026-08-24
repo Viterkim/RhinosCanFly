@@ -12,6 +12,9 @@ let foreground_root_window () =
 let right_mouse_button_down () =
     Win32Native.GetAsyncKeyState Win32Native.VK_RBUTTON < 0s
 
+let middle_mouse_button_down () =
+    Win32Native.GetAsyncKeyState Win32Native.VK_MBUTTON < 0s
+
 let mouse4_button_down () =
     Win32Native.GetAsyncKeyState Win32Native.VK_XBUTTON1 < 0s
 

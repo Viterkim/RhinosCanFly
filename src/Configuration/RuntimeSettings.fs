@@ -49,6 +49,7 @@ let apply_live (loaded: ConfigLoadResult) =
         let mouseOverrides: MouseOverrideConfig =
             if runtime_enabled_for config then
                 { runtime_enabled = true
+                  middle = RoutedMouseAction.create config.middle_mouse_action config.middle_mouse_retarget
                   mouse4 = RoutedMouseAction.create config.mouse4_action config.mouse4_retarget
                   mouse5 = RoutedMouseAction.create config.mouse5_action config.mouse5_retarget
                   right_click_entry = config.right_click_entry_mode
@@ -68,6 +69,7 @@ let apply_live (loaded: ConfigLoadResult) =
                   retarget = NavigationTarget.retarget loaded }
             else
                 { runtime_enabled = false
+                  middle = RoutedMouseAction.Off
                   mouse4 = RoutedMouseAction.Off
                   mouse5 = RoutedMouseAction.Off
                   right_click_entry = RightClickEntryMode.Off

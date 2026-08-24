@@ -58,7 +58,7 @@ type FlyingMouseConfig =
       y_mode: MouseAxisMode
       exit_on_left: bool
       exit_on_right: bool
-      middle_button: FlyingMiddleMouseMode
+      middle_button: RoutedMouseAction
       mouse4: RoutedMouseAction
       mouse5: RoutedMouseAction }
 
@@ -66,6 +66,7 @@ type RetargetConfig =
     { shift_right_click: RetargetMode
       alt_right_click: RetargetMode
       ctrl_right_click: RetargetMode
+      middle_mouse: RetargetMode
       mouse4: RetargetMode
       mouse5: RetargetMode
       on_pivot: RetargetMode

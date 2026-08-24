@@ -33,7 +33,7 @@ type InputSuspensionLease =
 type RawInputConfig =
     { exit_on_mouse_left: bool
       exit_on_mouse_right: bool
-      middle_mouse_while_flying: FlyingMiddleMouseMode
+      middle_mouse_action: RoutedMouseAction
       mouse4_action: RoutedMouseAction
       mouse5_action: RoutedMouseAction }
 
@@ -43,6 +43,7 @@ type ViewNavigationMode =
 
 type MouseOverrideConfig =
     { runtime_enabled: bool
+      middle: RoutedMouseAction
       mouse4: RoutedMouseAction
       mouse5: RoutedMouseAction
       right_click_entry: RightClickEntryMode

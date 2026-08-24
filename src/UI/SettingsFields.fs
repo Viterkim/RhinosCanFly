@@ -65,6 +65,7 @@ type ModeFields =
       shift_right_click_retarget: ModeField<RetargetMode>
       alt_right_click_retarget: ModeField<RetargetMode>
       ctrl_right_click_retarget: ModeField<RetargetMode>
+      middle_mouse_retarget: ModeField<RetargetMode>
       mouse4_retarget: ModeField<RetargetMode>
       mouse5_retarget: ModeField<RetargetMode>
       retarget_on_pivot: ModeField<RetargetMode>
@@ -74,9 +75,9 @@ type ModeFields =
       shift_right_click_action: ModeField<MouseGestureAction>
       alt_right_click_action: ModeField<MouseGestureAction>
       ctrl_right_click_action: ModeField<MouseGestureAction>
+      middle_mouse_action: ModeField<MouseGestureAction>
       mouse4_action: ModeField<MouseGestureAction>
       mouse5_action: ModeField<MouseGestureAction>
-      middle_mouse_while_flying: ModeField<FlyingMiddleMouseMode>
       viewport_paint_mode: ModeField<ViewportPaintMode> }
 
 type OptionFields =
@@ -89,6 +90,7 @@ type OptionFields =
       wheel_changes_speed_during_flight_navigation: CheckBox
       mouse4_action_while_flying: CheckBox
       mouse5_action_while_flying: CheckBox
+      middle_mouse_action_while_flying: CheckBox
       right_click_enters_parallel_views: CheckBox
       exit_on_mouse_left: CheckBox
       exit_on_mouse_right: CheckBox
@@ -172,11 +174,6 @@ let create () =
            MouseGestureAction.TogglePan, "Toggle pan"
            MouseGestureAction.HoldPan, "Hold pan"
            MouseGestureAction.Retarget, "Retarget" |]
-
-    let flyingMiddleMouseModes =
-        [| FlyingMiddleMouseMode.Off, "Off"
-           FlyingMiddleMouseMode.ExitFlight, "Exit flight"
-           FlyingMiddleMouseMode.TogglePivot, "Toggle pivot" |]
 
     let rightClickEntryModes =
         [| RightClickEntryMode.Off, "Off"
@@ -267,6 +264,7 @@ let create () =
               shift_right_click_retarget = mode_field retargetModes RetargetMode.ObjectCenter
               alt_right_click_retarget = mode_field retargetModes RetargetMode.ObjectCenter
               ctrl_right_click_retarget = mode_field retargetModes RetargetMode.ObjectCenter
+              middle_mouse_retarget = mode_field retargetModes RetargetMode.ObjectCenter
               mouse4_retarget = mode_field retargetModes RetargetMode.ObjectCenter
               mouse5_retarget = mode_field retargetModes RetargetMode.ObjectCenter
               retarget_on_pivot = mode_field retargetModes RetargetMode.ObjectCenter
@@ -276,9 +274,9 @@ let create () =
               shift_right_click_action = mode_field mouseGestureActions MouseGestureAction.Off
               alt_right_click_action = mode_field mouseGestureActions MouseGestureAction.Off
               ctrl_right_click_action = mode_field mouseGestureActions MouseGestureAction.Off
+              middle_mouse_action = mode_field mouseGestureActions MouseGestureAction.Off
               mouse4_action = mode_field mouseGestureActions MouseGestureAction.Off
               mouse5_action = mode_field mouseGestureActions MouseGestureAction.Off
-              middle_mouse_while_flying = mode_field flyingMiddleMouseModes FlyingMiddleMouseMode.Off
               viewport_paint_mode = mode_field paintModes ViewportPaintMode.Queued }
           options =
             { enabled = new CheckBox(Text = "Enable Rhinos Can Fly")
@@ -291,6 +289,7 @@ let create () =
                 new CheckBox(Text = "MWheel changes speed during pan/pivot")
               mouse4_action_while_flying = new CheckBox(Text = "Also while flying")
               mouse5_action_while_flying = new CheckBox(Text = "Also while flying")
+              middle_mouse_action_while_flying = new CheckBox(Text = "Also while flying")
               right_click_enters_parallel_views = new CheckBox(Text = "Enable right click to enter in parallel")
               exit_on_mouse_left = new CheckBox(Text = "Left click exits flight / navigation")
               exit_on_mouse_right = new CheckBox(Text = "Right click exits flight / navigation")

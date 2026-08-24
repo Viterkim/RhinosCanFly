@@ -78,6 +78,15 @@ let WM_RBUTTONUP = 0x0205
 let WM_RBUTTONDBLCLK = 0x0206
 
 [<Literal>]
+let WM_MBUTTONDOWN = 0x0207
+
+[<Literal>]
+let WM_MBUTTONUP = 0x0208
+
+[<Literal>]
+let WM_MBUTTONDBLCLK = 0x0209
+
+[<Literal>]
 let WM_XBUTTONDOWN = 0x020B
 
 [<Literal>]
