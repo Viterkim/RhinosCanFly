@@ -26,14 +26,21 @@ let fallback_navigation_target (state: FlyState) =
 
         cameraLocation + cameraDirection * distance
 
-let navigation_target (state: FlyState) (gumballTarget: Point3d option) =
+let navigation_target (state: FlyState) (mode: ViewNavigationMode) (gumballTarget: Point3d option) =
     let viewport = state.viewport
+
+    let retargetMode =
+        match mode with
+        | ViewNavigationMode.Pivot -> state.config.behavior.retarget.on_pivot
+        | ViewNavigationMode.Pan -> state.config.behavior.retarget.on_pan
 
     match gumballTarget with
     | Some target when ViewTarget.target_is_in_front viewport target -> target
     | Some _
     | None ->
-        match ViewTarget.selected_target state.config.behavior.view_target state.speed state.view viewport with
+        match
+            ViewTarget.selected_target state.config.behavior.retarget retargetMode state.speed state.view viewport
+        with
         | Some target when ViewTarget.target_is_in_front viewport target -> target
         | Some _
         | None -> fallback_navigation_target state
@@ -115,13 +122,48 @@ let toggle_projection (state: FlyState) =
         state.wheel_remainder <- 0L
         redraw state
 
+let apply_retarget_request (mode: RetargetMode) (state: FlyState) =
+    if mode = RetargetMode.Off then
+        ViewChange.none
+    else
+        match
+            ViewTarget.selected_selection_at
+                state.config.behavior.retarget
+                mode
+                state.speed
+                state.view
+                state.viewport
+                (ViewTarget.viewport_center state.viewport)
+        with
+        | None -> ViewChange.none
+        | Some selection ->
+            NavigationTarget.apply_selection state.config.behavior.retarget mode state.speed selection state.view
+            sync_camera_from_viewport state
+
+            match state.active_mouse_navigation with
+            | MousePivot _ -> state.active_mouse_navigation <- MousePivot selection.target
+            | MousePan _ ->
+                state.active_mouse_navigation <-
+                    MousePan(selection.target, pan_units_per_radian selection.target state.camera)
+            | MouseLook -> ()
+
+            ViewChange.none
+
 let update_navigation_mode (input: InputAccumulator.State) (state: FlyState) =
     if InputAccumulator.drain_pivot_toggles input % 2 <> 0 then
         state.latched_mouse_navigation <- MouseNavigationMode.toggle PivotNavigation state.latched_mouse_navigation
 
+    if InputAccumulator.drain_pan_toggles input % 2 <> 0 then
+        state.latched_mouse_navigation <- MouseNavigationMode.toggle PanNavigation state.latched_mouse_navigation
+
+    let retargetChange =
+        apply_retarget_request (InputAccumulator.drain_retarget_request input) state
+
     let requestedNavigation =
         if state.keyboard_held_mouse_navigation <> LookNavigation then
             state.keyboard_held_mouse_navigation
+        elif InputAccumulator.pan_held input then
+            PanNavigation
         elif InputAccumulator.pivot_held input then
             PivotNavigation
         else
@@ -140,60 +182,64 @@ let update_navigation_mode (input: InputAccumulator.State) (state: FlyState) =
             match state.active_mouse_navigation with
             | MousePivot _ -> state.active_mouse_navigation
             | MouseLook
-            | MousePan _ -> MousePivot(navigation_target state state.gumball_pivot_target)
+            | MousePan _ -> MousePivot(navigation_target state ViewNavigationMode.Pivot state.gumball_pivot_target)
         | PanNavigation ->
             match state.active_mouse_navigation with
             | MousePan _ -> state.active_mouse_navigation
             | MouseLook
             | MousePivot _ ->
-                let panTarget = navigation_target state None
+                let panTarget = navigation_target state ViewNavigationMode.Pan None
                 MousePan(panTarget, pan_units_per_radian panTarget state.camera)
 
     if previousNavigation <> requestedNavigation then
         InputAccumulator.drain_mouse input |> ignore
         state.wheel_remainder <- 0L
 
+    retargetChange
+
 let apply_navigation_wheel (steps: int64) (state: FlyState) =
     if steps = 0L then
         ViewChange.none
     else
-        match state.active_mouse_navigation with
-        | MouseLook -> ViewChange.none
-        | MousePivot target
-        | MousePan(target, _) ->
-            let zoomScale = ViewSettings.ZoomScale
+        let target =
+            match state.active_mouse_navigation with
+            | MouseLook -> state.camera.target
+            | MousePivot target
+            | MousePan(target, _) -> target
 
-            if not (RhinoMath.IsValidDouble zoomScale) || zoomScale <= RhinoMath.ZeroTolerance then
+        let zoomScale = ViewSettings.ZoomScale
+
+        if not (RhinoMath.IsValidDouble zoomScale) || zoomScale <= RhinoMath.ZeroTolerance then
+            ViewChange.none
+        else
+            let magnification = System.Math.Pow(1. / zoomScale, float steps)
+
+            if
+                not (RhinoMath.IsValidDouble magnification)
+                || magnification <= RhinoMath.ZeroTolerance
+            then
                 ViewChange.none
             else
-                let magnification = System.Math.Pow(1. / zoomScale, float steps)
+                let previousCamera = state.camera
 
-                if
-                    not (RhinoMath.IsValidDouble magnification)
-                    || magnification <= RhinoMath.ZeroTolerance
-                then
-                    ViewChange.none
-                else
-                    let previousCamera = state.camera
+                let parallelFlight = state.projection = ViewProjectionKind.Parallel
 
-                    let parallelFlight = state.projection = ViewProjectionKind.Parallel
+                state.camera <- Movement.dolly_towards target magnification state.camera
 
-                    state.camera <- Movement.dolly_towards target magnification state.camera
+                if not (CameraState.valid state.camera) then
+                    state.restore_camera_on_exit <- true
+                    failwith "Mouse-wheel input produced an invalid camera state."
 
-                    if not (CameraState.valid state.camera) then
-                        state.restore_camera_on_exit <- true
-                        failwith "Mouse-wheel input produced an invalid camera state."
+                if state.camera <> previousCamera then
+                    match state.active_mouse_navigation with
+                    | MousePan(panTarget, _) ->
+                        state.active_mouse_navigation <-
+                            MousePan(panTarget, pan_units_per_radian panTarget state.camera)
+                    | MouseLook
+                    | MousePivot _ -> ()
 
-                    if state.camera <> previousCamera then
-                        match state.active_mouse_navigation with
-                        | MousePan(panTarget, _) ->
-                            state.active_mouse_navigation <-
-                                MousePan(panTarget, pan_units_per_radian panTarget state.camera)
-                        | MouseLook
-                        | MousePivot _ -> ()
-
-                    { camera_changed = state.camera <> previousCamera
-                      parallel_magnification = if parallelFlight then magnification else 1. }
+                { camera_changed = state.camera <> previousCamera
+                  parallel_magnification = if parallelFlight then magnification else 1. }
 
 let apply_mouse_input (input: InputAccumulator.State) (state: FlyState) =
     let struct (dx, dy) = InputAccumulator.drain_mouse input

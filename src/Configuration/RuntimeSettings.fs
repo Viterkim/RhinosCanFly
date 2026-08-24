@@ -45,32 +45,66 @@ let runtime_enabled () =
 let apply_live (loaded: ConfigLoadResult) =
     try
         let config = loaded.config_file
+        let runtime = loaded.config
+
+        let viewNavigationMouse =
+            { x_mode = runtime.mouse.x_mode
+              y_mode = runtime.mouse.y_mode
+              perspective_sensitivity = runtime.mouse.sensitivity
+              parallel_sensitivity = runtime.movement.parallel_view.mouse_sensitivity
+              perspective_pivot_multiplier = runtime.mouse.pivot_multiplier
+              parallel_pivot_multiplier = runtime.movement.parallel_view.mouse_pivot_multiplier
+              perspective_pan_multiplier = runtime.mouse.pan_multiplier
+              parallel_pan_multiplier = runtime.movement.parallel_view.mouse_pan_multiplier }
 
         let mouseOverrides: MouseOverrideConfig =
             if runtime_enabled_for config then
                 { runtime_enabled = true
-                  mouse4 = config.mouse4_pivot_mode
-                  mouse5 = config.mouse5_pivot_mode
+                  middle = RoutedMouseAction.create config.middle_mouse_action config.middle_mouse_retarget
+                  mouse4 = RoutedMouseAction.create config.mouse4_action config.mouse4_retarget
+                  mouse5 = RoutedMouseAction.create config.mouse5_action config.mouse5_retarget
                   right_click_entry = config.right_click_entry_mode
                   default_flight_mode = config.default_flight_mode
                   parallel_view_flying = loaded.config.movement.parallel_view.flying
-                  shift_right_click = config.shift_right_click_mode
-                  alt_right_click = config.alt_right_click_mode
+                  parallel_right_click_entry = loaded.config.movement.parallel_view.right_click_entry
+                  shift_right_click =
+                    RoutedMouseAction.create config.shift_right_click_action config.shift_right_click_retarget
+                  alt_right_click =
+                    RoutedMouseAction.create config.alt_right_click_action config.alt_right_click_retarget
+                  ctrl_right_click =
+                    RoutedMouseAction.create config.ctrl_right_click_action config.ctrl_right_click_retarget
                   exit_binding = Some loaded.config.bindings.exit_key
+                  exit_on_left = config.exit_on_mouse_left
                   exit_on_right = config.exit_on_mouse_right
-                  prepare_navigation = NavigationTarget.prepare loaded }
+                  outside_flight_cursor =
+                    { middle = config.middle_mouse_uses_cursor_outside_flight
+                      mouse4 = config.mouse4_uses_cursor_outside_flight
+                      mouse5 = config.mouse5_uses_cursor_outside_flight }
+                  view_navigation_mouse = viewNavigationMouse
+                  prepare_navigation = NavigationTarget.prepare loaded
+                  retarget = NavigationTarget.retarget loaded }
             else
                 { runtime_enabled = false
-                  mouse4 = MouseButtonPivotMode.Off
-                  mouse5 = MouseButtonPivotMode.Off
+                  middle = RoutedMouseAction.Off
+                  mouse4 = RoutedMouseAction.Off
+                  mouse5 = RoutedMouseAction.Off
                   right_click_entry = RightClickEntryMode.Off
                   default_flight_mode = config.default_flight_mode
                   parallel_view_flying = ParallelViewFlying.DisabledAll
-                  shift_right_click = ModifiedRightClickMode.Off
-                  alt_right_click = ModifiedRightClickMode.Off
+                  parallel_right_click_entry = false
+                  shift_right_click = RoutedMouseAction.Off
+                  alt_right_click = RoutedMouseAction.Off
+                  ctrl_right_click = RoutedMouseAction.Off
                   exit_binding = None
+                  exit_on_left = false
                   exit_on_right = false
-                  prepare_navigation = NavigationTarget.prepare loaded }
+                  outside_flight_cursor =
+                    { middle = false
+                      mouse4 = false
+                      mouse5 = false }
+                  view_navigation_mouse = viewNavigationMouse
+                  prepare_navigation = NavigationTarget.prepare loaded
+                  retarget = NavigationTarget.retarget loaded }
 
         match PlatformInput.apply_mouse_button_overrides mouseOverrides with
         | Error error -> Error error
@@ -159,7 +193,7 @@ let complete_input_recovery () =
 let candidate (config: FlyConfigFile) =
     let source = ConfigSchema.normalize config
 
-    match ConfigSchema.compile source with
+    match ConfigCompiler.compile source with
     | Error error -> Error error
     | Ok runtime ->
         Ok

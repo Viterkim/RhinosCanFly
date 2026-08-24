@@ -22,52 +22,10 @@ let input_released () =
     Win32Native.GetAsyncKeyState Win32Native.VK_RBUTTON >= 0s
     && not (ViewNavigationState.shift_down ())
     && not (ViewNavigationState.alt_down ())
-
-let start (state: State) (host: ViewportHostIdentity) (mode: ViewNavigationMode) (completion: Action option) =
-    state.view_latch <-
-        WaitingForRelease
-            { host = host
-              mode = mode
-              started_at = Stopwatch.GetTimestamp()
-              completion = completion }
-
-    ViewNavigationState.keep_timer_running state
-    Ok()
-
-let apply_right_click_request (state: State) (host: ViewportHostIdentity) (request: ViewNavigationRequest) =
-    match request with
-    | StopNavigation when
-        ViewNavigationState.any_button_engaged state
-        || ViewNavigationState.view_latch_engaged state
-        ->
-        state.navigation_exit_requested <- true
-        ViewNavigationState.keep_timer_running state
-        Ok()
-    | StartNavigation mode ->
-        match state.view_latch with
-        | PivotActive _
-        | PanActive _
-        | WaitingForRelease _ -> Ok()
-        | NoViewLatch ->
-            if state.lifecycle = Available then
-                let released =
-                    if ViewNavigationState.any_button_engaged state then
-                        ViewNavigationState.release_all state
-                    else
-                        Ok()
-
-                match released with
-                | Error error -> Error error
-                | Ok() ->
-                    match state.routing.prepare_navigation host mode with
-                    | Error error -> Error error
-                    | Ok prepared -> start state prepared mode None
-            else
-                Ok()
-    | StopNavigation -> Ok()
+    && not (ViewNavigationState.control_down ())
 
 let activate (state: State) (session: ViewLatchSession) =
-    if ViewNavigationState.side_button_navigation_active state then
+    if ViewNavigationState.gesture_navigation_engaged state then
         Error "Another view navigation mode is already active."
     else
         state.view_latch <-
@@ -77,6 +35,26 @@ let activate (state: State) (session: ViewLatchSession) =
 
         ViewNavigationState.keep_timer_running state
         Ok()
+
+let start (state: State) (host: ViewportHostIdentity) (mode: ViewNavigationMode) (completion: Action option) =
+    let view = Rhino.Display.RhinoView.FromRuntimeSerialNumber host.view_serial_number
+
+    if isNull view || isNull view.Document then
+        Error "The navigation viewport is unavailable."
+    else
+        let session =
+            { host = host
+              mode = mode
+              pivot_center = view.ActiveViewport.CameraTarget
+              started_at = Stopwatch.GetTimestamp()
+              completion = completion }
+
+        if input_released () then
+            activate state session
+        else
+            state.view_latch <- WaitingForRelease session
+            ViewNavigationState.keep_timer_running state
+            Ok()
 
 let update (state: State) =
     match state.view_latch with
@@ -97,23 +75,12 @@ let update (state: State) =
             | Error error ->
                 complete_or_log (WaitingForRelease pending)
                 Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
-    | PivotActive session ->
-        if ViewNavigationState.foreground_root_window () <> session.host.root_window then
-            match release state with
-            | Ok() -> ()
-            | Error error -> Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
+    | PivotActive session
     | PanActive session ->
         if ViewNavigationState.foreground_root_window () <> session.host.root_window then
             match release state with
             | Ok() -> ()
             | Error error -> Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
-
-let configured_mode (mode: ModifiedRightClickMode) =
-    match mode with
-    | ModifiedRightClickMode.Off -> None
-    | ModifiedRightClickMode.Pivot -> Some Pivot
-    | ModifiedRightClickMode.Pan -> Some Pan
-    | _ -> None
 
 let current_mode (state: State) =
     match state.view_latch with
@@ -130,8 +97,8 @@ let start_or_switch (state: State) (host: ViewportHostIdentity) (mode: ViewNavig
     else
         match current_mode state with
         | Some current when current = mode -> Ok()
-        | None when not (ViewNavigationState.side_button_navigation_active state) ->
-            match state.routing.prepare_navigation host mode with
+        | None when not (ViewNavigationState.gesture_navigation_engaged state) ->
+            match state.routing.prepare_navigation host NavigationTargetPoint.ViewCenter mode with
             | Error error -> Error error
             | Ok prepared -> start state prepared mode completion
         | Some _
@@ -139,7 +106,7 @@ let start_or_switch (state: State) (host: ViewportHostIdentity) (mode: ViewNavig
             match ViewNavigationState.release_all state with
             | Error error -> Error error
             | Ok() ->
-                match state.routing.prepare_navigation host mode with
+                match state.routing.prepare_navigation host NavigationTargetPoint.ViewCenter mode with
                 | Error error -> Error error
                 | Ok prepared -> start state prepared mode completion
 

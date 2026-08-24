@@ -28,6 +28,7 @@ type FlightBindings =
 
 type ParallelViewConfig =
     { flying: ParallelViewFlying
+      right_click_entry: bool
       mouse_sensitivity: RuntimeMouseSensitivity
       mouse_pivot_multiplier: MousePivotMultiplier
       mouse_pan_multiplier: MousePanMultiplier
@@ -44,6 +45,7 @@ type MovementConfig =
       vertical_speed_multiplier: float
       normalize_diagonal_movement: bool
       wheel_speed_mode: MouseWheelSpeedMode
+      wheel_changes_speed_during_flight_navigation: bool
       boost_mode: KeyActivationMode
       slow_mode: KeyActivationMode
       parallel_view: ParallelViewConfig }
@@ -56,22 +58,30 @@ type FlyingMouseConfig =
       y_mode: MouseAxisMode
       exit_on_left: bool
       exit_on_right: bool
-      middle_button: FlyingMiddleMouseMode
-      mouse4_pivot_in_flight: bool
-      mouse5_pivot_in_flight: bool
-      mouse4_pivot_mode: MouseButtonPivotMode
-      mouse5_pivot_mode: MouseButtonPivotMode }
+      middle_button: RoutedMouseAction
+      mouse4: RoutedMouseAction
+      mouse5: RoutedMouseAction }
 
-type ViewTargetConfig =
-    { mode: ViewTargetMode
-      perspective_distance_multiplier: ViewTargetDistanceMultiplier
-      parallel_distance_multiplier: ViewTargetDistanceMultiplier
-      set_on_restored_flights: bool }
+type RetargetConfig =
+    { shift_right_click: RetargetMode
+      alt_right_click: RetargetMode
+      ctrl_right_click: RetargetMode
+      middle_mouse: RetargetMode
+      mouse4: RetargetMode
+      mouse5: RetargetMode
+      on_pivot: RetargetMode
+      on_pan: RetargetMode
+      on_flight_exit: RetargetMode
+      on_restored_flight_exit: RetargetMode
+      perspective_fallback_multiplier: RetargetFallbackMultiplier
+      parallel_fallback_multiplier: RetargetFallbackMultiplier
+      perspective_zoom_border: float
+      parallel_zoom_border: float }
 
 type FlightBehavior =
     { hide_gumball: bool
       flight_pivot_uses_gumball: bool
-      view_target: ViewTargetConfig
+      retarget: RetargetConfig
       save_speed_to_document: bool
       load_speed_from_document: bool
       perspective_lens: PerspectiveLensConfig

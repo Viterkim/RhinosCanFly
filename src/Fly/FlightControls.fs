@@ -117,23 +117,33 @@ let read_movement (state: FlyState) =
       key_pivot_right = PlatformInput.flight_binding_down bindings.key_pivot_right
       move_speed = state.speed * slow * boost }
 
-let reconcile_held_side_button_navigation (input: InputAccumulator.State) (state: FlyState) =
+let reconcile_held_mouse_navigation (input: InputAccumulator.State) (state: FlyState) =
     let mouse = state.config.mouse
 
-    let mouse4Configured =
-        mouse.mouse4_pivot_in_flight
-        && mouse.mouse4_pivot_mode = MouseButtonPivotMode.Hold
+    let middlePivotConfigured = RoutedMouseAction.holds_pivot mouse.middle_button
+    let mouse4PivotConfigured = RoutedMouseAction.holds_pivot mouse.mouse4
+    let mouse5PivotConfigured = RoutedMouseAction.holds_pivot mouse.mouse5
+    let middlePanConfigured = RoutedMouseAction.holds_pan mouse.middle_button
+    let mouse4PanConfigured = RoutedMouseAction.holds_pan mouse.mouse4
+    let mouse5PanConfigured = RoutedMouseAction.holds_pan mouse.mouse5
 
-    let mouse5Configured =
-        mouse.mouse5_pivot_in_flight
-        && mouse.mouse5_pivot_mode = MouseButtonPivotMode.Hold
+    let middleHeld = PlatformInput.middle_mouse_button_down ()
+    let mouse4Held = PlatformInput.mouse4_button_down ()
+    let mouse5Held = PlatformInput.mouse5_button_down ()
 
-    let mouse4Held = mouse4Configured && PlatformInput.mouse4_button_down ()
+    if middlePivotConfigured || mouse4PivotConfigured || mouse5PivotConfigured then
+        InputAccumulator.set_pivot_held
+            ((middlePivotConfigured && middleHeld)
+             || (mouse4PivotConfigured && mouse4Held)
+             || (mouse5PivotConfigured && mouse5Held))
+            input
 
-    let mouse5Held = mouse5Configured && PlatformInput.mouse5_button_down ()
-
-    if mouse4Configured || mouse5Configured then
-        InputAccumulator.set_pivot_held (mouse4Held || mouse5Held) input
+    if middlePanConfigured || mouse4PanConfigured || mouse5PanConfigured then
+        InputAccumulator.set_pan_held
+            ((middlePanConfigured && middleHeld)
+             || (mouse4PanConfigured && mouse4Held)
+             || (mouse5PanConfigured && mouse5Held))
+            input
 
 let apply_wheel_input (input: InputAccumulator.State) (state: FlyState) =
     let wheel = state.wheel_remainder + InputAccumulator.drain_wheel input
@@ -144,23 +154,29 @@ let apply_wheel_input (input: InputAccumulator.State) (state: FlyState) =
         let wheelSteps = wheel / PlatformInput.wheel_delta
         state.wheel_remainder <- wheel - wheelSteps * PlatformInput.wheel_delta
 
-        match state.active_mouse_navigation with
-        | MousePivot _
-        | MousePan _ -> FlightCamera.apply_navigation_wheel wheelSteps state
-        | MouseLook ->
-            let direction =
-                match state.config.movement.wheel_speed_mode with
-                | MouseWheelSpeedMode.Off -> 0L
-                | MouseWheelSpeedMode.Normal -> 1L
-                | MouseWheelSpeedMode.Reversed -> -1L
-                | _ -> 0L
+        let direction =
+            match state.config.movement.wheel_speed_mode with
+            | MouseWheelSpeedMode.Off -> 0L
+            | MouseWheelSpeedMode.Normal -> 1L
+            | MouseWheelSpeedMode.Reversed -> -1L
+            | _ -> 0L
 
+        let changeSpeed =
             if direction = 0L then
-                state.wheel_remainder <- 0L
-            elif wheelSteps <> 0L then
+                false
+            else
+                match state.active_mouse_navigation with
+                | MouseLook -> true
+                | MousePivot _
+                | MousePan _ -> state.config.movement.wheel_changes_speed_during_flight_navigation
+
+        if changeSpeed then
+            if wheelSteps <> 0L then
                 speed_steps state (direction * wheelSteps)
 
             ViewChange.none
+        else
+            FlightCamera.apply_navigation_wheel wheelSteps state
 
 let update_state (now: float) (input: InputAccumulator.State) (state: FlyState) =
     let cancelAndRestore =
@@ -209,6 +225,6 @@ let update_state (now: float) (input: InputAccumulator.State) (state: FlyState) 
     | Some reason -> FlyState.request_exit reason state
     | None ->
         if periodicValidationDue then
-            reconcile_held_side_button_navigation input state
+            reconcile_held_mouse_navigation input state
 
         update_toggles state

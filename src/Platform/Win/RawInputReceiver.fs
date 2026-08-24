@@ -2,102 +2,47 @@ namespace RhinosCanFly.Platform.Win
 
 open System
 open System.Diagnostics
-open System.Runtime.InteropServices
 open System.Windows.Forms
 open RhinosCanFly
 
-type RawInputReceiver
-    (
-        config: RawInputConfig,
-        sessionMode: FlightSessionMode,
-        input: InputAccumulator.State,
-        inputAvailable: Action,
-        registrationReady: Action<RawInputNative.MouseRegistrationLease>,
-        runtimeFailed: Action<exn>
-    ) as self =
+type RawInputReceiver(processControl: Action) as self =
     inherit NativeWindow()
 
-    let bufferCapacity = int RawInputNative.mouseInputSize
-    let buffer = Marshal.AllocHGlobal bufferCapacity
+    let inputBuffer =
+        new RawInputNative.InputBuffer(RawInputNative.initial_input_buffer_capacity)
 
     let registrationRetryTimer =
         new Timer(Interval = RawInputNative.REGISTRATION_RETRY_INTERVAL_MS)
 
     let mutable handleCreated = false
-    let mutable bufferFreed = false
-    let mutable registrationLease: RawInputNative.MouseRegistrationLease option = None
-    let mutable startupError: exn option = None
-    let mutable registrationReleaseError: string option = None
-    let mutable stopRequested = false
+    let mutable inputBufferDisposed = false
     let mutable registrationRetryTimerDisposed = false
-
-    [<Literal>]
-    let MOUSE4_PIVOT_BIT = 1
-
-    [<Literal>]
-    let MOUSE5_PIVOT_BIT = 2
-
-    let initial_held_pivot_bit (enabled: bool) (mode: MouseButtonPivotMode) (virtualKey: int) (buttonBit: int) =
-        if
-            enabled
-            && mode = MouseButtonPivotMode.Hold
-            && Win32Native.GetAsyncKeyState virtualKey < 0s
-        then
-            buttonBit
-        else
-            0
-
-    let current_held_pivot_buttons () =
-        let mouse4 =
-            initial_held_pivot_bit
-                config.mouse4_pivot_in_flight
-                config.mouse4_pivot_mode
-                Win32Native.VK_XBUTTON1
-                MOUSE4_PIVOT_BIT
-
-        let mouse5 =
-            initial_held_pivot_bit
-                config.mouse5_pivot_in_flight
-                config.mouse5_pivot_mode
-                Win32Native.VK_XBUTTON2
-                MOUSE5_PIVOT_BIT
-
-        mouse4 ||| mouse5
-
-    let mutable heldPivotButtons = 0
-
-    let update_held_pivot
-        (enabled: bool)
-        (mode: MouseButtonPivotMode)
-        (buttonBit: int)
-        (downFlag: uint16)
-        (upFlag: uint16)
-        (flags: uint16)
-        =
-        if enabled && mode = MouseButtonPivotMode.Hold then
-            if flags &&& downFlag <> 0us then
-                heldPivotButtons <- heldPivotButtons ||| buttonBit
-
-            if flags &&& upFlag <> 0us then
-                heldPivotButtons <- heldPivotButtons &&& (~~~buttonBit)
-
-            flags &&& (downFlag ||| upFlag) <> 0us
-        else
-            false
+    let mutable activeSession: RawInputSession option = None
+    let mutable registrationLease: RawInputNative.MouseRegistrationLease option = None
+    let mutable registrationReleaseError: string option = None
+    let mutable sessionFinished: Action option = None
+    let mutable stopRequested = false
+    let mutable sessionFinishedNotified = false
 
     let registration_relinquished () =
         match registrationLease with
         | None -> true
         | Some lease -> lease.relinquished
 
-    let finish_message_loop () =
+    let finish_session () =
         registrationRetryTimer.Stop()
-        Application.ExitThread()
+
+        if not sessionFinishedNotified then
+            sessionFinishedNotified <- true
+
+            match sessionFinished with
+            | Some finished -> finished.Invoke()
+            | None -> ()
 
     let try_release_registration () =
         match registrationLease with
         | None ->
-            finish_message_loop ()
+            finish_session ()
             Ok()
         | Some lease ->
             match RawInputNative.release_mouse_registration lease with
@@ -106,10 +51,10 @@ type RawInputReceiver
                     Some
                         "RhinosCanFly removed its raw-mouse registration but could not restore the previous registration. Restart Rhino before flying again."
 
-                finish_message_loop ()
+                finish_session ()
                 Ok()
             | Ok _ ->
-                finish_message_loop ()
+                finish_session ()
                 Ok()
             | Error error ->
                 if not registrationRetryTimer.Enabled then
@@ -121,15 +66,30 @@ type RawInputReceiver
         stopRequested <- true
         try_release_registration () |> ignore
 
+    let release_session () =
+        if not (registration_relinquished ()) then
+            invalidOp "The raw-input session cannot be released while mouse registration still belongs to it."
+
+        let releaseError = registrationReleaseError
+        activeSession <- None
+        registrationLease <- None
+        registrationReleaseError <- None
+        sessionFinished <- None
+        stopRequested <- false
+        sessionFinishedNotified <- false
+
+        match releaseError with
+        | Some error -> raise (InvalidOperationException error)
+        | None -> ()
+
     let release_resources () =
+        if Option.isSome activeSession || Option.isSome sessionFinished then
+            invalidOp "The raw-input worker cannot release its window while a session is active."
+
         if not (registration_relinquished ()) then
             invalidOp "The raw-input worker cannot release its window while mouse registration still belongs to it."
 
         let errors = ResizeArray<exn>()
-
-        match registrationReleaseError with
-        | Some error -> errors.Add(InvalidOperationException error)
-        | None -> ()
 
         try
             if handleCreated then
@@ -139,9 +99,9 @@ type RawInputReceiver
             errors.Add error
 
         try
-            if not bufferFreed then
-                Marshal.FreeHGlobal buffer
-                bufferFreed <- true
+            if not inputBufferDisposed then
+                inputBuffer.Dispose()
+                inputBufferDisposed <- true
         with error ->
             errors.Add error
 
@@ -157,107 +117,128 @@ type RawInputReceiver
         | 1 -> raise errors[0]
         | _ -> raise (AggregateException errors)
 
-    let process_mouse (mouse: RawInputNative.Mouse) =
-        let mouseMoved =
-            mouse.flags &&& RawInputNative.MOUSE_MOVE_ABSOLUTE = 0us
-            && (mouse.last_x <> 0 || mouse.last_y <> 0)
+    let grow_input_buffer (minimumCapacity: uint32) =
+        let currentCapacity = int64 inputBuffer.Capacity
 
-        if mouseMoved then
-            InputAccumulator.add_mouse mouse.last_x mouse.last_y input
+        let maximumCapacity =
+            int64 Int32.MaxValue - int64 (RawInputNative.RAW_INPUT_ALIGNMENT - 1)
 
-        let flags = RawInputNative.button_flags mouse
+        let doubledCapacity = min maximumCapacity (currentCapacity * 2L)
+        let requiredCapacity = max (int64 minimumCapacity) doubledCapacity
 
-        let wheelDelta =
-            if flags &&& RawInputNative.MOUSE_WHEEL <> 0us then
-                RawInputNative.signed_button_data mouse
+        if requiredCapacity <= currentCapacity || requiredCapacity > maximumCapacity then
+            invalidOp $"The raw-input buffer cannot grow to {minimumCapacity} bytes."
+
+        inputBuffer.EnsureCapacity(int requiredCapacity)
+
+    let process_current_input (session: RawInputSession) (rawInput: nativeint) =
+        let mutable reading = true
+        let mutable workAdded = false
+
+        while reading do
+            let mutable requiredBytes = 0u
+            let mutable errorCode = 0
+            let mutable mouse = Unchecked.defaultof<RawInputNative.Mouse>
+
+            let result =
+                RawInputNative.read_current_mouse rawInput inputBuffer &requiredBytes &errorCode &mouse
+
+            match result with
+            | RawInputNative.MouseReadResult.Mouse ->
+                workAdded <- session.ProcessMouse mouse
+                reading <- false
+            | RawInputNative.MouseReadResult.Ignored -> reading <- false
+            | RawInputNative.MouseReadResult.BufferTooSmall -> grow_input_buffer requiredBytes
+            | RawInputNative.MouseReadResult.Failed -> Win32.win32_error "GetRawInputData" errorCode |> invalidOp
+            | RawInputNative.MouseReadResult.Malformed -> invalidOp "GetRawInputData returned malformed mouse input."
+            | _ -> invalidOp "GetRawInputData returned an unknown result."
+
+        workAdded
+
+    let process_buffered_input (session: RawInputSession) =
+        let mutable draining = true
+        let mutable workAdded = false
+
+        while draining do
+            let mutable bufferBytes = 0u
+            let mutable errorCode = 0
+            let count = RawInputNative.read_buffered inputBuffer &bufferBytes &errorCode
+
+            if count = 0u then
+                draining <- false
+            elif count = UInt32.MaxValue then
+                if errorCode = RawInputNative.ERROR_INSUFFICIENT_BUFFER then
+                    grow_input_buffer bufferBytes
+                else
+                    Win32.win32_error "GetRawInputBuffer" errorCode |> invalidOp
             else
-                0
+                let mutable index = 0u
+                let mutable offset = 0
 
-        if wheelDelta <> 0 then
-            InputAccumulator.add_wheel wheelDelta input
+                // Keep this path on structs, ints and the reused buffer.
+                while index < count do
+                    if offset < 0 || offset > inputBuffer.Capacity - int RawInputNative.headerSize then
+                        invalidOp "GetRawInputBuffer returned a record outside its buffer."
 
-        let middlePivotRequested =
-            config.middle_mouse_while_flying = FlyingMiddleMouseMode.TogglePivot
-            && flags &&& RawInputNative.MIDDLE_BUTTON_DOWN <> 0us
+                    let record = IntPtr.Add(inputBuffer.Pointer, offset)
+                    let availableBytes = inputBuffer.Capacity - offset
+                    let mutable recordSize = 0u
+                    let mutable mouse = Unchecked.defaultof<RawInputNative.Mouse>
 
-        let mouse4PivotRequested =
-            config.mouse4_pivot_in_flight
-            && config.mouse4_pivot_mode = MouseButtonPivotMode.Toggle
-            && flags &&& RawInputNative.BUTTON_4_DOWN <> 0us
+                    let result = RawInputNative.decode_mouse record availableBytes &recordSize &mouse
 
-        let mouse5PivotRequested =
-            config.mouse5_pivot_in_flight
-            && config.mouse5_pivot_mode = MouseButtonPivotMode.Toggle
-            && flags &&& RawInputNative.BUTTON_5_DOWN <> 0us
+                    match result with
+                    | RawInputNative.MouseReadResult.Mouse ->
+                        if session.ProcessMouse mouse then
+                            workAdded <- true
+                    | RawInputNative.MouseReadResult.Ignored -> ()
+                    | RawInputNative.MouseReadResult.Malformed ->
+                        invalidOp "GetRawInputBuffer returned malformed input."
+                    | RawInputNative.MouseReadResult.Failed
+                    | RawInputNative.MouseReadResult.BufferTooSmall
+                    | _ -> invalidOp "GetRawInputBuffer returned an unknown decode result."
 
-        let mouse4HeldChanged =
-            update_held_pivot
-                config.mouse4_pivot_in_flight
-                config.mouse4_pivot_mode
-                MOUSE4_PIVOT_BIT
-                RawInputNative.BUTTON_4_DOWN
-                RawInputNative.BUTTON_4_UP
-                flags
+                    let step = RawInputNative.aligned_record_size recordSize
 
-        let mouse5HeldChanged =
-            update_held_pivot
-                config.mouse5_pivot_in_flight
-                config.mouse5_pivot_mode
-                MOUSE5_PIVOT_BIT
-                RawInputNative.BUTTON_5_DOWN
-                RawInputNative.BUTTON_5_UP
-                flags
+                    if step <= 0 || step > availableBytes then
+                        invalidOp "GetRawInputBuffer returned an invalid record size."
 
-        if mouse4HeldChanged || mouse5HeldChanged then
-            InputAccumulator.set_pivot_held (heldPivotButtons <> 0) input
+                    offset <- offset + step
+                    index <- index + 1u
 
-        let pivotToggleRequested =
-            middlePivotRequested || mouse4PivotRequested || mouse5PivotRequested
+        workAdded
 
-        if pivotToggleRequested then
-            InputAccumulator.request_pivot_toggle input
+    let discard_buffered_input () =
+        let mutable draining = true
 
-        let heldEntryReleased =
-            sessionMode.lifetime = FlightLifetime.WhileRightMouseHeld
-            && flags &&& RawInputNative.RIGHT_BUTTON_UP <> 0us
+        while draining do
+            let mutable bufferBytes = 0u
+            let mutable errorCode = 0
+            let count = RawInputNative.read_buffered inputBuffer &bufferBytes &errorCode
 
-        let leftExitRequested =
-            config.exit_on_mouse_left && flags &&& RawInputNative.LEFT_BUTTON_UP <> 0us
+            if count = 0u then
+                draining <- false
+            elif count = UInt32.MaxValue then
+                if errorCode = RawInputNative.ERROR_INSUFFICIENT_BUFFER then
+                    grow_input_buffer bufferBytes
+                else
+                    Win32.win32_error "GetRawInputBuffer(discard)" errorCode |> invalidOp
 
-        let rightExitRequested =
-            sessionMode.lifetime = FlightLifetime.UntilExit
-            && config.exit_on_mouse_right
-            && flags &&& RawInputNative.RIGHT_BUTTON_UP <> 0us
+    let process_input_message (rawInput: nativeint) =
+        match activeSession with
+        | Some session ->
+            let currentAdded = process_current_input session rawInput
+            let bufferedAdded = process_buffered_input session
 
-        let middleExitRequested =
-            config.middle_mouse_while_flying = FlyingMiddleMouseMode.ExitFlight
-            && flags &&& RawInputNative.MIDDLE_BUTTON_UP <> 0us
-
-        let exitReason =
-            if heldEntryReleased then
-                Some RightMouseReleased
-            elif leftExitRequested || rightExitRequested || middleExitRequested then
-                Some ExplicitKeepCamera
-            else
-                None
-
-        match exitReason with
-        | Some reason -> InputAccumulator.request_exit reason input
+            if currentAdded || bufferedAdded then
+                session.SignalInputAvailable()
         | None -> ()
 
-        if
-            mouseMoved
-            || wheelDelta <> 0
-            || mouse4HeldChanged
-            || mouse5HeldChanged
-            || pivotToggleRequested
-            || Option.isSome exitReason
-        then
-            inputAvailable.Invoke()
-
     let fail_runtime (error: exn) =
-        Debug.WriteLine $"RhinosCanFly raw-input receiver failed: {error.Message}"
-        runtimeFailed.Invoke error
+        match activeSession with
+        | Some session -> session.FailRuntime error
+        | None -> Debug.WriteLine $"RhinosCanFly idle raw-input receiver failed: {error.Message}"
+
         request_stop ()
 
     do
@@ -265,34 +246,59 @@ type RawInputReceiver
             if stopRequested then
                 try_release_registration () |> ignore)
 
+        let parameters = CreateParams()
+        parameters.Caption <- "RhinosCanFly raw input"
+        parameters.Parent <- nativeint RawInputNative.MESSAGE_ONLY_WINDOW
+        self.CreateHandle parameters
+        handleCreated <- true
+
+    member _.WindowHandle = self.Handle
+
+    member _.RegistrationRelinquished = registration_relinquished ()
+
+    member _.StartSession
+        (
+            config: RawInputConfig,
+            sessionMode: FlightSessionMode,
+            input: InputAccumulator.State,
+            inputAvailable: Action,
+            registrationReady: Action<RawInputNative.MouseRegistrationLease>,
+            runtimeFailed: Action<exn>,
+            finished: Action
+        ) : exn option =
+        if Option.isSome activeSession || Option.isSome sessionFinished then
+            invalidOp "Another raw-input session is already active."
+
+        stopRequested <- false
+        sessionFinishedNotified <- false
+        registrationReleaseError <- None
+        sessionFinished <- Some finished
+
         try
-            let parameters = CreateParams()
-            parameters.Caption <- "RhinosCanFly raw input"
-            parameters.Parent <- nativeint RawInputNative.MESSAGE_ONLY_WINDOW
-            self.CreateHandle parameters
-            handleCreated <- true
+            discard_buffered_input ()
+
+            let session =
+                RawInputSession(config, sessionMode, input, inputAvailable, runtimeFailed)
+
+            activeSession <- Some session
 
             match RawInputNative.acquire_mouse_registration self.Handle with
             | RawInputNative.Acquired lease ->
                 registrationLease <- Some lease
                 registrationReady.Invoke lease
-                heldPivotButtons <- current_held_pivot_buttons ()
-                InputAccumulator.set_pivot_held (heldPivotButtons <> 0) input
-            | RawInputNative.Failed error -> startupError <- Some(InvalidOperationException error)
+                session.InitializeHeldButtons()
+                None
+            | RawInputNative.Failed error -> Some(InvalidOperationException error)
             | RawInputNative.CleanupPending(error, lease) ->
                 registrationLease <- Some lease
                 registrationReady.Invoke lease
-                startupError <- Some(InvalidOperationException error)
+                Some(InvalidOperationException error)
         with error ->
-            startupError <- Some error
-
-    member _.WindowHandle = self.Handle
-
-    member _.StartupError = startupError
-
-    member _.RegistrationRelinquished = registration_relinquished ()
+            Some error
 
     member _.RequestStop() = request_stop ()
+
+    member _.ReleaseSession() = release_session ()
 
     member _.ReleaseResources() = release_resources ()
 
@@ -301,17 +307,12 @@ type RawInputReceiver
 
         try
             try
-                if message.Msg = RawInputNative.STOP_MESSAGE then
+                if message.Msg = RawInputNative.CONTROL_MESSAGE then
                     message.Result <- nativeint 0
-                    request_stop ()
+                    processControl.Invoke()
                 elif message.Msg = RawInputNative.MESSAGE then
-                    let mutable mouse = Unchecked.defaultof<RawInputNative.Mouse>
-
-                    if
-                        not stopRequested
-                        && RawInputNative.try_read_mouse message.LParam buffer bufferCapacity &mouse
-                    then
-                        process_mouse mouse
+                    if not stopRequested then
+                        process_input_message message.LParam
 
                     baseAttempted <- true
                     base.WndProc(&message)

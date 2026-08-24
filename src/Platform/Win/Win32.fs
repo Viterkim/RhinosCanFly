@@ -235,7 +235,8 @@ type MouseHookEvent =
     { message: int
       mouse_data: uint32
       hook_window: nativeint
-      point_window: nativeint }
+      point_window: nativeint
+      screen_point: System.Drawing.Point }
 
 let keyboard_physical_key (virtualKey: int) (eventData: int64) =
     let extended = eventData &&& Win32Native.KEYBOARD_EXTENDED_KEY <> 0L
@@ -310,6 +311,9 @@ let install_mouse_hook (handleEvent: MouseHookEvent -> bool) =
                 && (message = Win32Native.WM_RBUTTONDOWN
                     || message = Win32Native.WM_RBUTTONUP
                     || message = Win32Native.WM_RBUTTONDBLCLK
+                    || message = Win32Native.WM_MBUTTONDOWN
+                    || message = Win32Native.WM_MBUTTONUP
+                    || message = Win32Native.WM_MBUTTONDBLCLK
                     || message = Win32Native.WM_XBUTTONDOWN
                     || message = Win32Native.WM_XBUTTONUP
                     || message = Win32Native.WM_XBUTTONDBLCLK)
@@ -321,7 +325,8 @@ let install_mouse_hook (handleEvent: MouseHookEvent -> bool) =
                     { message = message
                       mouse_data = data.mouse_data
                       hook_window = data.window
-                      point_window = pointWindow }
+                      point_window = pointWindow
+                      screen_point = System.Drawing.Point(data.point.x, data.point.y) }
 
                 if handleEvent event then
                     nativeint 1

@@ -12,6 +12,9 @@ let foreground_root_window () =
 let right_mouse_button_down () =
     Win32Native.GetAsyncKeyState Win32Native.VK_RBUTTON < 0s
 
+let middle_mouse_button_down () =
+    Win32Native.GetAsyncKeyState Win32Native.VK_MBUTTON < 0s
+
 let mouse4_button_down () =
     Win32Native.GetAsyncKeyState Win32Native.VK_XBUTTON1 < 0s
 
@@ -201,12 +204,22 @@ let raw_input_runtime_failed (session: RawInputSession) = RawInputThread.runtime
 
 let retry_raw_input_cleanup () = RawInputThread.retry_recovery ()
 
+let prepare_raw_input_worker () = RawInputThread.prepare ()
+
+let shutdown_raw_input_worker () = RawInputThread.shutdown ()
+
 let suppress_flight_keyboard (bindings: FlightBindings) (inputAvailable: Action) =
     FlightKeyboardSuppression.start bindings inputAvailable
 
 let release_flight_keyboard () = FlightKeyboardSuppression.stop ()
 
 let flight_keyboard_revision () = FlightKeyboardSuppression.revision ()
+
+let flight_keyboard_change_timestamp () =
+    FlightKeyboardSuppression.last_change_timestamp ()
+
+let apply_flight_mouse_button_transition (transition: RawMouseButtonTransition) =
+    FlightKeyboardSuppression.apply_raw_mouse_button_transition transition
 
 let shutdown_flight_keyboard () = FlightKeyboardSuppression.shutdown ()
 

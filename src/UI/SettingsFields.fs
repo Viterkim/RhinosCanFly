@@ -39,8 +39,10 @@ type NumberFields =
       key_pivot_speed_multiplier: TextBox
       mouse_pivot_multiplier: TextBox
       mouse_pan_multiplier: TextBox
-      perspective_view_target_distance_multiplier: TextBox
-      parallel_view_target_distance_multiplier: TextBox
+      perspective_retarget_fallback_multiplier: TextBox
+      parallel_retarget_fallback_multiplier: TextBox
+      perspective_retarget_zoom_border: TextBox
+      parallel_retarget_zoom_border: TextBox
       parallel_mouse_sensitivity: TextBox
       parallel_mouse_pivot_multiplier: TextBox
       parallel_mouse_pan_multiplier: TextBox
@@ -60,12 +62,22 @@ type ModeFields =
       parallel_view_flying: ModeField<ParallelViewFlyingMode>
       right_click_entry_mode: ModeField<RightClickEntryMode>
       default_flight_mode: ModeField<DefaultFlightMode>
-      view_target_mode: ModeField<ViewTargetMode>
-      shift_right_click_mode: ModeField<ModifiedRightClickMode>
-      alt_right_click_mode: ModeField<ModifiedRightClickMode>
-      mouse4_pivot_mode: ModeField<MouseButtonPivotMode>
-      mouse5_pivot_mode: ModeField<MouseButtonPivotMode>
-      middle_mouse_while_flying: ModeField<FlyingMiddleMouseMode>
+      shift_right_click_retarget: ModeField<RetargetMode>
+      alt_right_click_retarget: ModeField<RetargetMode>
+      ctrl_right_click_retarget: ModeField<RetargetMode>
+      middle_mouse_retarget: ModeField<RetargetMode>
+      mouse4_retarget: ModeField<RetargetMode>
+      mouse5_retarget: ModeField<RetargetMode>
+      retarget_on_pivot: ModeField<RetargetMode>
+      retarget_on_pan: ModeField<RetargetMode>
+      retarget_on_flight_exit: ModeField<RetargetMode>
+      retarget_on_restored_flight_exit: ModeField<RetargetMode>
+      shift_right_click_action: ModeField<MouseGestureAction>
+      alt_right_click_action: ModeField<MouseGestureAction>
+      ctrl_right_click_action: ModeField<MouseGestureAction>
+      middle_mouse_action: ModeField<MouseGestureAction>
+      mouse4_action: ModeField<MouseGestureAction>
+      mouse5_action: ModeField<MouseGestureAction>
       viewport_paint_mode: ModeField<ViewportPaintMode> }
 
 type OptionFields =
@@ -73,13 +85,18 @@ type OptionFields =
       normalize_diagonal_movement: CheckBox
       hide_gumball_while_flying: CheckBox
       flight_pivot_uses_gumball: CheckBox
-      set_view_target_on_restored_flights: CheckBox
       save_speed_to_document: CheckBox
       load_speed_from_document: CheckBox
+      wheel_changes_speed_during_flight_navigation: CheckBox
+      mouse4_action_while_flying: CheckBox
+      mouse5_action_while_flying: CheckBox
+      middle_mouse_action_while_flying: CheckBox
+      middle_mouse_uses_cursor_outside_flight: CheckBox
+      mouse4_uses_cursor_outside_flight: CheckBox
+      mouse5_uses_cursor_outside_flight: CheckBox
+      right_click_enters_parallel_views: CheckBox
       exit_on_mouse_left: CheckBox
       exit_on_mouse_right: CheckBox
-      mouse4_pivot_in_flight: CheckBox
-      mouse5_pivot_in_flight: CheckBox
       commands_do_not_repeat: CheckBox }
 
 type ConfigFields =
@@ -107,7 +124,7 @@ type Fields =
       raw_json: RawJsonFields
       actions: ActionFields }
 
-let text_box () = new TextBox(Height = 24)
+let text_box () = new TextBox()
 
 let mode_field (options: ('Mode * string) array) (fallback: 'Mode) =
     let control = new DropDown(Height = 24)
@@ -153,20 +170,13 @@ let create () =
            MouseWheelSpeedMode.Normal, "On"
            MouseWheelSpeedMode.Reversed, "On but reversed" |]
 
-    let mousePivotModes =
-        [| MouseButtonPivotMode.Off, "Off"
-           MouseButtonPivotMode.Hold, "Hold to pivot"
-           MouseButtonPivotMode.Toggle, "Toggle pivot" |]
-
-    let flyingMiddleMouseModes =
-        [| FlyingMiddleMouseMode.Off, "Off"
-           FlyingMiddleMouseMode.ExitFlight, "Exit flight"
-           FlyingMiddleMouseMode.TogglePivot, "Toggle pivot" |]
-
-    let modifiedRightClickModes =
-        [| ModifiedRightClickMode.Off, "Off"
-           ModifiedRightClickMode.Pivot, "Pivot"
-           ModifiedRightClickMode.Pan, "Pan" |]
+    let mouseGestureActions =
+        [| MouseGestureAction.Off, "Off"
+           MouseGestureAction.TogglePivot, "Toggle pivot"
+           MouseGestureAction.HoldPivot, "Hold pivot"
+           MouseGestureAction.TogglePan, "Toggle pan"
+           MouseGestureAction.HoldPan, "Hold pan"
+           MouseGestureAction.Retarget, "Retarget" |]
 
     let rightClickEntryModes =
         [| RightClickEntryMode.Off, "Off"
@@ -186,11 +196,15 @@ let create () =
            DefaultFlightMode.Temporary, "Temporary"
            DefaultFlightMode.TemporaryIncludingNavigationCommands, "Temporary, including Pivot/Pan commands" |]
 
-    let viewTargetModes =
-        [| ViewTargetMode.Off, "Off"
-           ViewTargetMode.Distance, "Distance"
-           ViewTargetMode.GeometryThenDistance, "Geometry, then distance"
-           ViewTargetMode.ObjectCenterThenDistance, "Object center, then distance" |]
+    let retargetModes =
+        [| RetargetMode.Off, "Off"
+           RetargetMode.Distance, "Distance"
+           RetargetMode.GeometryThenDistance, "Geometry, then distance"
+           RetargetMode.Geometry, "Geometry, no fallback"
+           RetargetMode.TargetThenDistance, "Target, then distance"
+           RetargetMode.Target, "Target, no fallback"
+           RetargetMode.ObjectCenterThenDistance, "Object center, then distance"
+           RetargetMode.ObjectCenter, "Object center, no fallback" |]
 
     let paintModes =
         [| ViewportPaintMode.Queued, "Normal Rhino redraw (default)"
@@ -228,8 +242,10 @@ let create () =
               key_pivot_speed_multiplier = text_box ()
               mouse_pivot_multiplier = text_box ()
               mouse_pan_multiplier = text_box ()
-              perspective_view_target_distance_multiplier = text_box ()
-              parallel_view_target_distance_multiplier = text_box ()
+              perspective_retarget_fallback_multiplier = text_box ()
+              parallel_retarget_fallback_multiplier = text_box ()
+              perspective_retarget_zoom_border = text_box ()
+              parallel_retarget_zoom_border = text_box ()
               parallel_mouse_sensitivity = text_box ()
               parallel_mouse_pivot_multiplier = text_box ()
               parallel_mouse_pan_multiplier = text_box ()
@@ -248,25 +264,41 @@ let create () =
               parallel_view_flying = mode_field parallelViewFlyingModes ParallelViewFlyingMode.DisabledAll
               right_click_entry_mode = mode_field rightClickEntryModes RightClickEntryMode.ClickToFlyDuringCommands
               default_flight_mode = mode_field flightModes DefaultFlightMode.Normal
-              view_target_mode = mode_field viewTargetModes ViewTargetMode.ObjectCenterThenDistance
-              shift_right_click_mode = mode_field modifiedRightClickModes ModifiedRightClickMode.Off
-              alt_right_click_mode = mode_field modifiedRightClickModes ModifiedRightClickMode.Off
-              mouse4_pivot_mode = mode_field mousePivotModes MouseButtonPivotMode.Off
-              mouse5_pivot_mode = mode_field mousePivotModes MouseButtonPivotMode.Off
-              middle_mouse_while_flying = mode_field flyingMiddleMouseModes FlyingMiddleMouseMode.Off
+              shift_right_click_retarget = mode_field retargetModes RetargetMode.ObjectCenter
+              alt_right_click_retarget = mode_field retargetModes RetargetMode.ObjectCenter
+              ctrl_right_click_retarget = mode_field retargetModes RetargetMode.ObjectCenter
+              middle_mouse_retarget = mode_field retargetModes RetargetMode.ObjectCenter
+              mouse4_retarget = mode_field retargetModes RetargetMode.ObjectCenter
+              mouse5_retarget = mode_field retargetModes RetargetMode.ObjectCenter
+              retarget_on_pivot = mode_field retargetModes RetargetMode.ObjectCenter
+              retarget_on_pan = mode_field retargetModes RetargetMode.ObjectCenter
+              retarget_on_flight_exit = mode_field retargetModes RetargetMode.ObjectCenter
+              retarget_on_restored_flight_exit = mode_field retargetModes RetargetMode.Off
+              shift_right_click_action = mode_field mouseGestureActions MouseGestureAction.Off
+              alt_right_click_action = mode_field mouseGestureActions MouseGestureAction.Off
+              ctrl_right_click_action = mode_field mouseGestureActions MouseGestureAction.Off
+              middle_mouse_action = mode_field mouseGestureActions MouseGestureAction.Off
+              mouse4_action = mode_field mouseGestureActions MouseGestureAction.Off
+              mouse5_action = mode_field mouseGestureActions MouseGestureAction.Off
               viewport_paint_mode = mode_field paintModes ViewportPaintMode.Queued }
           options =
             { enabled = new CheckBox(Text = "Enable Rhinos Can Fly")
               normalize_diagonal_movement = new CheckBox(Text = "Normalize diagonal movement")
               hide_gumball_while_flying = new CheckBox(Text = "Hide gumball while flying")
               flight_pivot_uses_gumball = new CheckBox(Text = "Use gumball as flight pivot target")
-              set_view_target_on_restored_flights = new CheckBox(Text = "Set target on restored flights")
               save_speed_to_document = new CheckBox(Text = "Save current speed to document")
               load_speed_from_document = new CheckBox(Text = "Load speed from document")
-              exit_on_mouse_left = new CheckBox(Text = "Left click exits flight")
+              wheel_changes_speed_during_flight_navigation =
+                new CheckBox(Text = "MWheel changes speed during pan/pivot")
+              mouse4_action_while_flying = new CheckBox(Text = "Also while flying")
+              mouse5_action_while_flying = new CheckBox(Text = "Also while flying")
+              middle_mouse_action_while_flying = new CheckBox(Text = "Also while flying")
+              middle_mouse_uses_cursor_outside_flight = new CheckBox(Text = "Use cursor position outside flight")
+              mouse4_uses_cursor_outside_flight = new CheckBox(Text = "Use cursor position outside flight")
+              mouse5_uses_cursor_outside_flight = new CheckBox(Text = "Use cursor position outside flight")
+              right_click_enters_parallel_views = new CheckBox(Text = "Enable right click to enter in parallel")
+              exit_on_mouse_left = new CheckBox(Text = "Left click exits flight / navigation")
               exit_on_mouse_right = new CheckBox(Text = "Right click exits flight / navigation")
-              mouse4_pivot_in_flight = new CheckBox(Text = "Mouse 4 pivots while flying")
-              mouse5_pivot_in_flight = new CheckBox(Text = "Mouse 5 pivots while flying")
               commands_do_not_repeat = new CheckBox(Text = "Don't repeat flight commands") }
           parallel_view_names = text_box () }
       status =

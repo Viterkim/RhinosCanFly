@@ -249,12 +249,17 @@ let finish_active_core (session: ActiveSession) (activeResult: Result<unit, stri
             | ValueNone -> failwith "The original perspective lens length is unavailable.")
         |> ignore
 
-    let viewTargetRequested =
+    let retargetMode =
+        if restoreCamera then
+            state.config.behavior.retarget.on_restored_flight_exit
+        else
+            state.config.behavior.retarget.on_flight_exit
+
+    let retargetRequested =
         session.flight_entered
         && FlightExitReason.is_explicit exitReason
-        && state.config.behavior.view_target.mode <> ViewTargetMode.Off
-        && (not restoreCamera
-            || (cameraRestored && state.config.behavior.view_target.set_on_restored_flights))
+        && retargetMode <> RetargetMode.Off
+        && (not restoreCamera || cameraRestored)
 
     let display_is_safe () =
         session.raw_input_clean
@@ -262,10 +267,10 @@ let finish_active_core (session: ActiveSession) (activeResult: Result<unit, stri
         && not skipBackgroundDisplay
         && PlatformInput.viewport_host_is_foreground state.host_identity state.view
 
-    if viewTargetRequested then
+    if retargetRequested then
         if display_is_safe () then
-            attempt_cleanup cleanupErrors "target" (fun () ->
-                ViewTarget.apply state.config.behavior.view_target state.speed state.view state.viewport)
+            attempt_cleanup cleanupErrors "retarget" (fun () ->
+                ViewTarget.apply state.config.behavior.retarget retargetMode state.speed state.view state.viewport)
             |> ignore
 
     if session.tooltips_changed then
@@ -357,11 +362,9 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
     let rawInputConfig: RawInputConfig =
         { exit_on_mouse_left = state.config.mouse.exit_on_left
           exit_on_mouse_right = state.config.mouse.exit_on_right
-          middle_mouse_while_flying = state.config.mouse.middle_button
-          mouse4_pivot_mode = state.config.mouse.mouse4_pivot_mode
-          mouse5_pivot_mode = state.config.mouse.mouse5_pivot_mode
-          mouse4_pivot_in_flight = state.config.mouse.mouse4_pivot_in_flight
-          mouse5_pivot_in_flight = state.config.mouse.mouse5_pivot_in_flight }
+          middle_mouse_action = state.config.mouse.middle_button
+          mouse4_action = state.config.mouse.mouse4
+          mouse5_action = state.config.mouse.mouse5 }
 
     let raw =
         try

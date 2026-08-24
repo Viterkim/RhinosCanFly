@@ -15,8 +15,10 @@ type NumberValues =
       key_pivot_speed_multiplier: float
       mouse_pivot_multiplier: float
       mouse_pan_multiplier: float
-      perspective_view_target_distance_multiplier: float
-      parallel_view_target_distance_multiplier: float
+      perspective_retarget_fallback_multiplier: float
+      parallel_retarget_fallback_multiplier: float
+      perspective_retarget_zoom_border: float
+      parallel_retarget_zoom_border: float
       parallel_mouse_sensitivity: float
       parallel_mouse_pivot_multiplier: float
       parallel_mouse_pan_multiplier: float
@@ -77,10 +79,12 @@ let parse_numbers (fields: SettingsFields.NumberFields) =
           key_pivot_speed_multiplier = required "Key pivot speed multiplier" fields.key_pivot_speed_multiplier
           mouse_pivot_multiplier = required "Pivot multiplier" fields.mouse_pivot_multiplier
           mouse_pan_multiplier = required "Pan multiplier" fields.mouse_pan_multiplier
-          perspective_view_target_distance_multiplier =
-            required "Perspective fallback distance multiplier" fields.perspective_view_target_distance_multiplier
-          parallel_view_target_distance_multiplier =
-            required "Parallel fallback distance multiplier" fields.parallel_view_target_distance_multiplier
+          perspective_retarget_fallback_multiplier =
+            required "Perspective fallback multiplier" fields.perspective_retarget_fallback_multiplier
+          parallel_retarget_fallback_multiplier =
+            required "Parallel fallback multiplier" fields.parallel_retarget_fallback_multiplier
+          perspective_retarget_zoom_border = required "Perspective zoom border" fields.perspective_retarget_zoom_border
+          parallel_retarget_zoom_border = required "Parallel zoom border" fields.parallel_retarget_zoom_border
           parallel_mouse_sensitivity = required "Parallel sensitivity" fields.parallel_mouse_sensitivity
           parallel_mouse_pivot_multiplier = required "Parallel pivot multiplier" fields.parallel_mouse_pivot_multiplier
           parallel_mouse_pan_multiplier = required "Parallel pan multiplier" fields.parallel_mouse_pan_multiplier
@@ -136,11 +140,15 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     numbers.mouse_pivot_multiplier.Text <- ConfigSchema.format_number config.mouse_pivot_multiplier
     numbers.mouse_pan_multiplier.Text <- ConfigSchema.format_number config.mouse_pan_multiplier
 
-    numbers.perspective_view_target_distance_multiplier.Text <-
-        ConfigSchema.format_number config.perspective_view_target_distance_multiplier
+    numbers.perspective_retarget_fallback_multiplier.Text <-
+        ConfigSchema.format_number config.perspective_retarget_fallback_multiplier
 
-    numbers.parallel_view_target_distance_multiplier.Text <-
-        ConfigSchema.format_number config.parallel_view_target_distance_multiplier
+    numbers.parallel_retarget_fallback_multiplier.Text <-
+        ConfigSchema.format_number config.parallel_retarget_fallback_multiplier
+
+    numbers.perspective_retarget_zoom_border.Text <- ConfigSchema.format_number config.perspective_retarget_zoom_border
+
+    numbers.parallel_retarget_zoom_border.Text <- ConfigSchema.format_number config.parallel_retarget_zoom_border
 
     numbers.parallel_mouse_sensitivity.Text <- ConfigSchema.format_number config.parallel_mouse_sensitivity
     numbers.parallel_mouse_pivot_multiplier.Text <- ConfigSchema.format_number config.parallel_mouse_pivot_multiplier
@@ -166,12 +174,22 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     SettingsFields.set_mode modes.wheel_speed_mode config.wheel_speed_mode
     SettingsFields.set_mode modes.right_click_entry_mode config.right_click_entry_mode
     SettingsFields.set_mode modes.default_flight_mode config.default_flight_mode
-    SettingsFields.set_mode modes.view_target_mode config.view_target_mode
-    SettingsFields.set_mode modes.shift_right_click_mode config.shift_right_click_mode
-    SettingsFields.set_mode modes.alt_right_click_mode config.alt_right_click_mode
-    SettingsFields.set_mode modes.mouse4_pivot_mode config.mouse4_pivot_mode
-    SettingsFields.set_mode modes.mouse5_pivot_mode config.mouse5_pivot_mode
-    SettingsFields.set_mode modes.middle_mouse_while_flying config.middle_mouse_while_flying
+    SettingsFields.set_mode modes.shift_right_click_retarget config.shift_right_click_retarget
+    SettingsFields.set_mode modes.alt_right_click_retarget config.alt_right_click_retarget
+    SettingsFields.set_mode modes.ctrl_right_click_retarget config.ctrl_right_click_retarget
+    SettingsFields.set_mode modes.middle_mouse_retarget config.middle_mouse_retarget
+    SettingsFields.set_mode modes.mouse4_retarget config.mouse4_retarget
+    SettingsFields.set_mode modes.mouse5_retarget config.mouse5_retarget
+    SettingsFields.set_mode modes.retarget_on_pivot config.retarget_on_pivot
+    SettingsFields.set_mode modes.retarget_on_pan config.retarget_on_pan
+    SettingsFields.set_mode modes.retarget_on_flight_exit config.retarget_on_flight_exit
+    SettingsFields.set_mode modes.retarget_on_restored_flight_exit config.retarget_on_restored_flight_exit
+    SettingsFields.set_mode modes.shift_right_click_action config.shift_right_click_action
+    SettingsFields.set_mode modes.alt_right_click_action config.alt_right_click_action
+    SettingsFields.set_mode modes.ctrl_right_click_action config.ctrl_right_click_action
+    SettingsFields.set_mode modes.mouse4_action config.mouse4_action
+    SettingsFields.set_mode modes.mouse5_action config.mouse5_action
+    SettingsFields.set_mode modes.middle_mouse_action config.middle_mouse_action
     SettingsFields.set_mode modes.mouse_x_mode config.mouse_x_mode
     SettingsFields.set_mode modes.mouse_y_mode config.mouse_y_mode
     SettingsFields.set_mode modes.parallel_view_flying config.parallel_view_flying.mode
@@ -179,13 +197,18 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     set_checked options.normalize_diagonal_movement config.normalize_diagonal_movement
     set_checked options.hide_gumball_while_flying config.hide_gumball_while_flying
     set_checked options.flight_pivot_uses_gumball config.flight_pivot_uses_gumball
-    set_checked options.set_view_target_on_restored_flights config.set_view_target_on_restored_flights
     set_checked options.save_speed_to_document config.save_speed_to_document
     set_checked options.load_speed_from_document config.load_speed_from_document
+    set_checked options.wheel_changes_speed_during_flight_navigation config.wheel_changes_speed_during_flight_navigation
+    set_checked options.mouse4_action_while_flying config.mouse4_action_while_flying
+    set_checked options.mouse5_action_while_flying config.mouse5_action_while_flying
+    set_checked options.middle_mouse_action_while_flying config.middle_mouse_action_while_flying
+    set_checked options.middle_mouse_uses_cursor_outside_flight config.middle_mouse_uses_cursor_outside_flight
+    set_checked options.mouse4_uses_cursor_outside_flight config.mouse4_uses_cursor_outside_flight
+    set_checked options.mouse5_uses_cursor_outside_flight config.mouse5_uses_cursor_outside_flight
+    set_checked options.right_click_enters_parallel_views config.right_click_enters_parallel_views
     set_checked options.exit_on_mouse_left config.exit_on_mouse_left
     set_checked options.exit_on_mouse_right config.exit_on_mouse_right
-    set_checked options.mouse4_pivot_in_flight config.mouse4_pivot_in_flight
-    set_checked options.mouse5_pivot_in_flight config.mouse5_pivot_in_flight
     set_checked options.commands_do_not_repeat config.commands_do_not_repeat
 
 let read (fields: SettingsFields.ConfigFields) =
@@ -235,8 +258,10 @@ let read (fields: SettingsFields.ConfigFields) =
               key_pivot_speed_multiplier = numbers.key_pivot_speed_multiplier
               mouse_pivot_multiplier = numbers.mouse_pivot_multiplier
               mouse_pan_multiplier = numbers.mouse_pan_multiplier
-              perspective_view_target_distance_multiplier = numbers.perspective_view_target_distance_multiplier
-              parallel_view_target_distance_multiplier = numbers.parallel_view_target_distance_multiplier
+              perspective_retarget_fallback_multiplier = numbers.perspective_retarget_fallback_multiplier
+              parallel_retarget_fallback_multiplier = numbers.parallel_retarget_fallback_multiplier
+              perspective_retarget_zoom_border = numbers.perspective_retarget_zoom_border
+              parallel_retarget_zoom_border = numbers.parallel_retarget_zoom_border
               parallel_mouse_sensitivity = numbers.parallel_mouse_sensitivity
               parallel_mouse_pivot_multiplier = numbers.parallel_mouse_pivot_multiplier
               parallel_mouse_pan_multiplier = numbers.parallel_mouse_pan_multiplier
@@ -251,23 +276,39 @@ let read (fields: SettingsFields.ConfigFields) =
               save_speed_to_document = is_checked options.save_speed_to_document
               load_speed_from_document = is_checked options.load_speed_from_document
               wheel_speed_mode = SettingsFields.selected_mode modes.wheel_speed_mode
+              wheel_changes_speed_during_flight_navigation =
+                is_checked options.wheel_changes_speed_during_flight_navigation
               exit_on_mouse_left = is_checked options.exit_on_mouse_left
               exit_on_mouse_right = is_checked options.exit_on_mouse_right
-              middle_mouse_while_flying = SettingsFields.selected_mode modes.middle_mouse_while_flying
-              mouse4_pivot_in_flight = is_checked options.mouse4_pivot_in_flight
-              mouse5_pivot_in_flight = is_checked options.mouse5_pivot_in_flight
+              middle_mouse_action_while_flying = is_checked options.middle_mouse_action_while_flying
+              middle_mouse_uses_cursor_outside_flight = is_checked options.middle_mouse_uses_cursor_outside_flight
+              mouse4_uses_cursor_outside_flight = is_checked options.mouse4_uses_cursor_outside_flight
+              mouse5_uses_cursor_outside_flight = is_checked options.mouse5_uses_cursor_outside_flight
+              mouse4_action_while_flying = is_checked options.mouse4_action_while_flying
+              mouse5_action_while_flying = is_checked options.mouse5_action_while_flying
+              right_click_enters_parallel_views = is_checked options.right_click_enters_parallel_views
               right_click_entry_mode = SettingsFields.selected_mode modes.right_click_entry_mode
               default_flight_mode = SettingsFields.selected_mode modes.default_flight_mode
-              view_target_mode = SettingsFields.selected_mode modes.view_target_mode
-              set_view_target_on_restored_flights = is_checked options.set_view_target_on_restored_flights
+              shift_right_click_retarget = SettingsFields.selected_mode modes.shift_right_click_retarget
+              alt_right_click_retarget = SettingsFields.selected_mode modes.alt_right_click_retarget
+              ctrl_right_click_retarget = SettingsFields.selected_mode modes.ctrl_right_click_retarget
+              middle_mouse_retarget = SettingsFields.selected_mode modes.middle_mouse_retarget
+              mouse4_retarget = SettingsFields.selected_mode modes.mouse4_retarget
+              mouse5_retarget = SettingsFields.selected_mode modes.mouse5_retarget
+              retarget_on_pivot = SettingsFields.selected_mode modes.retarget_on_pivot
+              retarget_on_pan = SettingsFields.selected_mode modes.retarget_on_pan
+              retarget_on_flight_exit = SettingsFields.selected_mode modes.retarget_on_flight_exit
+              retarget_on_restored_flight_exit = SettingsFields.selected_mode modes.retarget_on_restored_flight_exit
               parallel_view_flying =
                 { mode = SettingsFields.selected_mode modes.parallel_view_flying
                   viewports = parallelViewNames }
               commands_do_not_repeat = is_checked options.commands_do_not_repeat
-              mouse4_pivot_mode = SettingsFields.selected_mode modes.mouse4_pivot_mode
-              mouse5_pivot_mode = SettingsFields.selected_mode modes.mouse5_pivot_mode
-              shift_right_click_mode = SettingsFields.selected_mode modes.shift_right_click_mode
-              alt_right_click_mode = SettingsFields.selected_mode modes.alt_right_click_mode
+              mouse4_action = SettingsFields.selected_mode modes.mouse4_action
+              mouse5_action = SettingsFields.selected_mode modes.mouse5_action
+              middle_mouse_action = SettingsFields.selected_mode modes.middle_mouse_action
+              shift_right_click_action = SettingsFields.selected_mode modes.shift_right_click_action
+              alt_right_click_action = SettingsFields.selected_mode modes.alt_right_click_action
+              ctrl_right_click_action = SettingsFields.selected_mode modes.ctrl_right_click_action
               boost_mode = SettingsFields.selected_mode modes.boost_mode
               slow_mode = SettingsFields.selected_mode modes.slow_mode
               vertical_speed_multiplier = numbers.vertical_speed_multiplier

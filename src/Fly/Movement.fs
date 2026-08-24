@@ -113,16 +113,17 @@ let dolly_towards (target: Point3d) (magnification: float) (camera: CameraState)
 type MouseAngleDeltas =
     { yaw_delta: float; pitch_delta: float }
 
-let scaled_mouse_angle_deltas
-    (config: FlyingMouseConfig)
+let mouse_angle_deltas
+    (xMode: MouseAxisMode)
+    (yMode: MouseAxisMode)
     (mouseSensitivity: RuntimeMouseSensitivity)
     (multiplier: float)
     (mouseDx: int64)
     (mouseDy: int64)
     =
-    let horizontal_sign = if config.x_mode = MouseAxisMode.Inverted then 1. else -1.
+    let horizontal_sign = if xMode = MouseAxisMode.Inverted then 1. else -1.
 
-    let vertical_sign = if config.y_mode = MouseAxisMode.Inverted then 1. else -1.
+    let vertical_sign = if yMode = MouseAxisMode.Inverted then 1. else -1.
 
     let sensitivity = MouseSensitivity.radians_per_count mouseSensitivity
     let yawDelta = float mouseDx * sensitivity * horizontal_sign * multiplier
@@ -130,6 +131,15 @@ let scaled_mouse_angle_deltas
 
     { yaw_delta = yawDelta
       pitch_delta = pitchDelta }
+
+let scaled_mouse_angle_deltas
+    (config: FlyingMouseConfig)
+    (mouseSensitivity: RuntimeMouseSensitivity)
+    (multiplier: float)
+    (mouseDx: int64)
+    (mouseDy: int64)
+    =
+    mouse_angle_deltas config.x_mode config.y_mode mouseSensitivity multiplier mouseDx mouseDy
 
 let clamped_mouse_angle_deltas
     (config: FlyingMouseConfig)

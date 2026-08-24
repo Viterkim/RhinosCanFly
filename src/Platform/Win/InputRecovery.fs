@@ -7,10 +7,10 @@ let run () =
     let struct (remainingRawSessions, rawErrors) =
         PlatformInput.retry_raw_input_cleanup ()
 
-    let hookErrors = PlatformInput.retry_input_hook_cleanup ()
-
     let struct (remainingCursorClips, cursorErrors) =
         PlatformInput.retry_cursor_clip_cleanup ()
+
+    let hookErrors = PlatformInput.retry_input_hook_cleanup ()
 
     RhinoApp.WriteLine "RhinosCanFly input recovery"
     RhinoApp.WriteLine $"Raw cleanup items remaining: {remainingRawSessions}"

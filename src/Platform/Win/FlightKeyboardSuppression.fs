@@ -17,8 +17,10 @@ type State =
       passthrough_keys_down: HashSet<int>
       suppressed_keys_down: HashSet<int>
       key_is_down: bool array
+      mouse_key_configured: bool array
       mutable input_available: Action option
       mutable revision: int64
+      mutable last_change_timestamp: int64
       mutable active: bool }
 
 let state =
@@ -30,8 +32,10 @@ let state =
       passthrough_keys_down = HashSet<int>()
       suppressed_keys_down = HashSet<int>()
       key_is_down = Array.zeroCreate 256
+      mouse_key_configured = Array.zeroCreate 256
       input_available = None
       revision = 0L
+      last_change_timestamp = 0L
       active = false }
 
 let mutable keyboardHook: Win32Native.WindowsHook option = None
@@ -81,6 +85,7 @@ let add_passthrough_if_down (physicalKey: int) =
 let configure (bindings: FlightBindings) (inputAvailable: Action) =
     let releasedKeys = ResizeArray<int>()
 
+    Volatile.Write(&state.last_change_timestamp, 0L)
     System.Array.Clear(state.key_is_down, 0, state.key_is_down.Length)
 
     for physicalKey in state.suppressed_keys_down do
@@ -112,6 +117,12 @@ let configure (bindings: FlightBindings) (inputAvailable: Action) =
     add_binding bindings.cancel_flight_and_restore
     add_optional_binding bindings.toggle_projection
 
+    state.mouse_key_configured[Win32Native.VK_LBUTTON] <- configured_key Win32Native.VK_LBUTTON
+    state.mouse_key_configured[Win32Native.VK_RBUTTON] <- configured_key Win32Native.VK_RBUTTON
+    state.mouse_key_configured[Win32Native.VK_MBUTTON] <- configured_key Win32Native.VK_MBUTTON
+    state.mouse_key_configured[Win32Native.VK_XBUTTON1] <- configured_key Win32Native.VK_XBUTTON1
+    state.mouse_key_configured[Win32Native.VK_XBUTTON2] <- configured_key Win32Native.VK_XBUTTON2
+
     state.passthrough_keys_down.Clear()
 
     for physicalKey in state.configured.exact do
@@ -130,14 +141,15 @@ let configure (bindings: FlightBindings) (inputAvailable: Action) =
         add_passthrough_if_down Win32Native.VK_RMENU
 
     state.input_available <- Some inputAvailable
-    state.active <- true
+    Volatile.Write(&state.active, true)
 
 let stop () =
-    state.active <- false
+    Volatile.Write(&state.active, false)
     state.input_available <- None
     clear_configured ()
     state.passthrough_keys_down.Clear()
     System.Array.Clear(state.key_is_down, 0, state.key_is_down.Length)
+    System.Array.Clear(state.mouse_key_configured, 0, state.mouse_key_configured.Length)
 
 let classify_fresh_key_down (physicalKey: int) =
     if state.active && configured_key physicalKey then
@@ -178,7 +190,7 @@ let virtual_key_down (virtualKey: int) =
     | Win32Native.VK_RBUTTON
     | Win32Native.VK_MBUTTON
     | Win32Native.VK_XBUTTON1
-    | Win32Native.VK_XBUTTON2 -> Win32Native.GetAsyncKeyState virtualKey < 0s
+    | Win32Native.VK_XBUTTON2 -> Volatile.Read(&state.key_is_down[virtualKey])
     | Win32Native.VK_SHIFT ->
         state.key_is_down[Win32Native.VK_LSHIFT]
         || state.key_is_down[Win32Native.VK_RSHIFT]
@@ -213,6 +225,7 @@ let hook_event (event: Win32.KeyboardHookEvent) =
         swallow <- handle_event event
 
         if wasDown <> state.key_is_down[event.physical_key] then
+            Volatile.Write(&state.last_change_timestamp, Stopwatch.GetTimestamp())
             Interlocked.Increment(&state.revision) |> ignore
 
             state.input_available
@@ -222,7 +235,43 @@ let hook_event (event: Win32.KeyboardHookEvent) =
 
     swallow
 
+let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) =
+    let mutable physicalKey = 0
+    let mutable down = false
+
+    match transition.event with
+    | RawMouseButtonEvent.LeftDown ->
+        physicalKey <- Win32Native.VK_LBUTTON
+        down <- true
+    | RawMouseButtonEvent.LeftUp -> physicalKey <- Win32Native.VK_LBUTTON
+    | RawMouseButtonEvent.RightDown ->
+        physicalKey <- Win32Native.VK_RBUTTON
+        down <- true
+    | RawMouseButtonEvent.RightUp -> physicalKey <- Win32Native.VK_RBUTTON
+    | RawMouseButtonEvent.MiddleDown ->
+        physicalKey <- Win32Native.VK_MBUTTON
+        down <- true
+    | RawMouseButtonEvent.MiddleUp -> physicalKey <- Win32Native.VK_MBUTTON
+    | RawMouseButtonEvent.Mouse4Down ->
+        physicalKey <- Win32Native.VK_XBUTTON1
+        down <- true
+    | RawMouseButtonEvent.Mouse4Up -> physicalKey <- Win32Native.VK_XBUTTON1
+    | RawMouseButtonEvent.Mouse5Down ->
+        physicalKey <- Win32Native.VK_XBUTTON2
+        down <- true
+    | RawMouseButtonEvent.Mouse5Up -> physicalKey <- Win32Native.VK_XBUTTON2
+    | RawMouseButtonEvent.None
+    | _ -> ()
+
+    if state.active && physicalKey <> 0 && state.mouse_key_configured[physicalKey] then
+        state.key_is_down[physicalKey] <- down
+        Volatile.Write(&state.last_change_timestamp, transition.timestamp)
+        Interlocked.Increment(&state.revision) |> ignore
+
 let revision () = Volatile.Read(&state.revision)
+
+let last_change_timestamp () =
+    Volatile.Read(&state.last_change_timestamp)
 
 let ensure_hook () =
     match keyboardHook with

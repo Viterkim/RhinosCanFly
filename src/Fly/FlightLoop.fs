@@ -23,8 +23,17 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
 
         RhinoApp.Wait()
 
+        let frameTimestamp = Stopwatch.GetTimestamp()
         let frameSeconds = clock.Elapsed.TotalSeconds
         let observedRawRevision = InputAccumulator.work_revision rawInput
+
+        match InputAccumulator.try_drain_raw_mouse_button_event rawInput with
+        | ValueSome transition -> PlatformInput.apply_flight_mouse_button_transition transition
+        | ValueNone -> ()
+
+        if InputAccumulator.drain_raw_mouse_button_event_overflow rawInput then
+            FlyState.request_exit (SessionFailure "The raw mouse button queue overflowed.") state
+
         let observedKeyboardRevision = PlatformInput.flight_keyboard_revision ()
         FlightControls.update_state frameSeconds rawInput state
         let mutable wheelChange = ViewChange.none
@@ -34,9 +43,10 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
             InputAccumulator.discard_transient_input rawInput
         else
             FlightControls.update_keyboard_navigation_input state
-            FlightCamera.update_navigation_mode rawInput state
+            let navigationChange = FlightCamera.update_navigation_mode rawInput state
             wheelChange <- FlightControls.apply_wheel_input rawInput state
             mouseChange <- FlightCamera.apply_mouse_input rawInput state
+            mouseChange <- ViewChange.combine navigationChange mouseChange
 
         PlatformInput.acknowledge_raw_input_wake inputWake
 
@@ -44,34 +54,56 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
             InputAccumulator.work_pending_since observedRawRevision rawInput
             || PlatformInput.flight_keyboard_revision () <> observedKeyboardRevision
 
+        if InputAccumulator.raw_mouse_button_event_pending rawInput then
+            PlatformInput.wake_flight_loop inputWake
+
         if FlyState.is_running state then
             let mutable viewChange = ViewChange.combine wheelChange mouseChange
 
             let input = FlightControls.read_movement state
-            let requestedPivotDirection = FlightInput.key_pivot_direction input
+            let requestedPivotKeysDown = input.key_pivot_left || input.key_pivot_right
 
             let movement =
                 match state.key_pivot_input_state with
-                | KeyPivotInputArmed -> input
                 | WaitingForNeutralKeyPivotInput ->
-                    match requestedPivotDirection with
-                    | NoKeyPivot ->
+                    if requestedPivotKeysDown then
+                        FlightInput.without_key_pivot input
+                    else
                         state.key_pivot_input_state <- KeyPivotInputArmed
                         input
-                    | KeyPivotLeft
-                    | KeyPivotRight -> FlightInput.without_key_pivot input
+                | KeyPivotInputArmed
+                | KeyPivotInputActive -> input
 
             let now = frameSeconds
             let currentlyMoving = FlightInput.movement_active movement
-            let pivotDirection = FlightInput.key_pivot_direction movement
+            let movementStarting = currentlyMoving && not movementActive
+            let pivotKeysDown = movement.key_pivot_left || movement.key_pivot_right
+            let pivotDirectionActive = movement.key_pivot_left <> movement.key_pivot_right
 
-            if pivotDirection <> NoKeyPivot && pivotDirection <> state.key_pivot_direction then
-                state.key_pivot_target <- FlightCamera.navigation_target state state.gumball_pivot_target
+            let pivotTargetStarting =
+                pivotDirectionActive && state.key_pivot_input_state = KeyPivotInputArmed
 
-            state.key_pivot_direction <- pivotDirection
+            if pivotTargetStarting then
+                state.key_pivot_target <-
+                    FlightCamera.navigation_target state ViewNavigationMode.Pivot state.gumball_pivot_target
 
-            if movementActive && currentlyMoving then
-                let dt = min (now - previousFrameSeconds) MAXIMUM_FRAME_DELTA_SECONDS
+                state.key_pivot_input_state <- KeyPivotInputActive
+            elif not pivotKeysDown && state.key_pivot_input_state = KeyPivotInputActive then
+                state.key_pivot_input_state <- KeyPivotInputArmed
+
+            if currentlyMoving then
+                let dt =
+                    if movementStarting then
+                        let changedAt = PlatformInput.flight_keyboard_change_timestamp ()
+                        let elapsedTicks = frameTimestamp - changedAt
+
+                        if changedAt > 0L && elapsedTicks >= 0L then
+                            min (float elapsedTicks / float Stopwatch.Frequency) MAXIMUM_FRAME_DELTA_SECONDS
+                        else
+                            0.
+                    else
+                        min (now - previousFrameSeconds) MAXIMUM_FRAME_DELTA_SECONDS
+
                 let previousCamera = state.camera
                 let parallelView = state.config.movement.parallel_view
 
@@ -127,7 +159,21 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
                         { camera_changed = nextCamera <> previousCamera
                           parallel_magnification = parallelMagnification }
 
-            previousFrameSeconds <- now
+            previousFrameSeconds <-
+                if movementStarting || pivotTargetStarting then
+                    // Don't count target lookup time as movement or the next frame jumps.
+                    clock.Elapsed.TotalSeconds
+                else
+                    now
+
             movementActive <- currentlyMoving
 
             FlightCamera.apply state viewChange
+
+            if
+                movementStarting
+                && not viewChange.camera_changed
+                && viewChange.parallel_magnification = 1.
+            then
+                // If the first step is zero there is no redraw to wake the loop.
+                PlatformInput.wake_flight_loop inputWake
