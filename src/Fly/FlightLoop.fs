@@ -23,6 +23,7 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
 
         RhinoApp.Wait()
 
+        let frameTimestamp = Stopwatch.GetTimestamp()
         let frameSeconds = clock.Elapsed.TotalSeconds
         let observedRawRevision = InputAccumulator.work_revision rawInput
         let observedKeyboardRevision = PlatformInput.flight_keyboard_revision ()
@@ -67,7 +68,10 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
             let movementStarting = currentlyMoving && not movementActive
             let pivotDirection = FlightInput.key_pivot_direction movement
 
-            if pivotDirection <> NoKeyPivot && pivotDirection <> state.key_pivot_direction then
+            let pivotTargetChanged =
+                pivotDirection <> NoKeyPivot && pivotDirection <> state.key_pivot_direction
+
+            if pivotTargetChanged then
                 state.key_pivot_target <-
                     FlightCamera.navigation_target state ViewNavigationMode.Pivot state.gumball_pivot_target
 
@@ -77,8 +81,20 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
                 // The keyboard message which started movement has already been consumed by RhinoApp.Wait.
                 // Queue one fresh pass so continuous movement cannot sit idle until host validation.
                 PlatformInput.wake_flight_loop inputWake
-            elif currentlyMoving then
-                let dt = min (now - previousFrameSeconds) MAXIMUM_FRAME_DELTA_SECONDS
+
+            if currentlyMoving then
+                let dt =
+                    if movementStarting then
+                        let changedAt = PlatformInput.flight_keyboard_change_timestamp ()
+                        let elapsedTicks = frameTimestamp - changedAt
+
+                        if changedAt > 0L && elapsedTicks >= 0L then
+                            min (float elapsedTicks / float Stopwatch.Frequency) MAXIMUM_FRAME_DELTA_SECONDS
+                        else
+                            0.
+                    else
+                        min (now - previousFrameSeconds) MAXIMUM_FRAME_DELTA_SECONDS
+
                 let previousCamera = state.camera
                 let parallelView = state.config.movement.parallel_view
 
@@ -135,8 +151,8 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
                           parallel_magnification = parallelMagnification }
 
             previousFrameSeconds <-
-                if movementStarting then
-                    // Target acquisition belongs before movement begins and must not become a first-frame jump.
+                if movementStarting || pivotTargetChanged then
+                    // Target acquisition time is not movement time and must not become a later jump.
                     clock.Elapsed.TotalSeconds
                 else
                     now

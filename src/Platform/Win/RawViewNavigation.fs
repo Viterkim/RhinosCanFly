@@ -1,7 +1,6 @@
 module RhinosCanFly.Platform.Win.RawViewNavigation
 
 open System
-open System.Collections.Generic
 open System.Diagnostics
 open System.Drawing
 open Rhino
@@ -71,10 +70,11 @@ type Session
     ) as self =
 
     let mutable active = true
+    let mutable draining = false
     let mutable subscribed = false
     let mutable cursorHidden = true
     let mutable failureNotified = false
-    let mutable rawStopped = false
+    let mutable rawInputClean = false
     let mutable clipReleased = false
     let mutable cursorRestored = false
     let mutable wakeDisposed = false
@@ -88,57 +88,66 @@ type Session
             failed.Invoke()
 
     member this.Drain() =
-        if active then
+        if active && not draining then
+            draining <- true
+            let observedRevision = InputAccumulator.work_revision input
+
             try
-                let observedRevision = InputAccumulator.work_revision input
-                let struct (dx, dy) = InputAccumulator.drain_mouse input
-                let buttons = InputAccumulator.drain_raw_mouse_button_events input
-                let wheel = wheelRemainder + InputAccumulator.drain_wheel input
-                let wheelSteps = wheel / int64 Win32Native.WHEEL_DELTA
-                wheelRemainder <- wheel - wheelSteps * int64 Win32Native.WHEEL_DELTA
+                try
+                    let struct (dx, dy) = InputAccumulator.drain_mouse input
+                    let buttons = InputAccumulator.drain_raw_mouse_button_events input
+                    let wheel = wheelRemainder + InputAccumulator.drain_wheel input
+                    let wheelSteps = wheel / int64 Win32Native.WHEEL_DELTA
+                    wheelRemainder <- wheel - wheelSteps * int64 Win32Native.WHEEL_DELTA
 
-                if RawInputThread.runtime_failed raw then
-                    this.NotifyFailure()
-                elif dx <> 0L || dy <> 0L || wheelSteps <> 0L then
-                    let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
-
-                    if not (view_matches_host host view) then
+                    if RawInputThread.runtime_failed raw then
                         this.NotifyFailure()
-                    else
-                        let viewport = view.ActiveViewport
-                        let bounds = viewport.Bounds
-                        let center = Point(bounds.Width / 2, bounds.Height / 2)
-                        let current = Point(coordinate center.X dx, coordinate center.Y dy)
+                    elif dx <> 0L || dy <> 0L || wheelSteps <> 0L then
+                        let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
 
-                        let movementChanged =
-                            if dx = 0L && dy = 0L then
-                                false
-                            else
-                                match mode with
-                                | Mode.Pivot -> viewport.MouseRotateAroundTarget(center, current)
-                                | Mode.Pan -> viewport.MouseLateralDolly(center, current)
-                                | Mode.ParallelZoom -> zoom_parallel viewport dy
+                        if not (view_matches_host host view) then
+                            this.NotifyFailure()
+                        else
+                            let viewport = view.ActiveViewport
+                            let bounds = viewport.Bounds
+                            let center = Point(bounds.Width / 2, bounds.Height / 2)
+                            let current = Point(coordinate center.X dx, coordinate center.Y dy)
 
-                        let wheelChanged =
-                            if wheelSteps = 0L then
-                                false
-                            else
-                                let wheelPoint = Point(center.X, wheel_coordinate center.Y wheelSteps)
-                                viewport.MouseDollyZoom(center, wheelPoint)
+                            let movementChanged =
+                                if dx = 0L && dy = 0L then
+                                    false
+                                else
+                                    match mode with
+                                    | Mode.Pivot -> viewport.MouseRotateAroundTarget(center, current)
+                                    | Mode.Pan -> viewport.MouseLateralDolly(center, current)
+                                    | Mode.ParallelZoom -> zoom_parallel viewport dy
 
-                        if movementChanged || wheelChanged then
-                            view.Redraw()
+                            let wheelChanged =
+                                if wheelSteps = 0L then
+                                    false
+                                else
+                                    let wheelPoint = Point(center.X, wheel_coordinate center.Y wheelSteps)
+                                    viewport.MouseDollyZoom(center, wheelPoint)
 
-                if buttons <> RawMouseButtonEvents.None then
-                    buttonEvents.Invoke(buttons, originalCursor)
+                            if movementChanged || wheelChanged then
+                                view.Redraw()
 
+                    if buttons <> RawMouseButtonEvents.None then
+                        buttonEvents.Invoke(buttons, originalCursor)
+                with error ->
+                    Debug.WriteLine $"RhinosCanFly raw view navigation failed: {error}"
+                    this.NotifyFailure()
+            finally
                 RawInputWake.acknowledge wake
 
-                if InputAccumulator.work_pending_since observedRevision input then
+                if
+                    active
+                    && not failureNotified
+                    && InputAccumulator.work_pending_since observedRevision input
+                then
                     RawInputWake.signal wake
-            with error ->
-                Debug.WriteLine $"RhinosCanFly raw view navigation failed: {error}"
-                this.NotifyFailure()
+
+                draining <- false
 
     member internal _.Attach() =
         if active && not subscribed then
@@ -165,7 +174,7 @@ type Session
             with error ->
                 errors.Add $"main-loop handler: {error.Message}"
 
-        if not rawStopped then
+        if not rawInputClean then
             match RawInputThread.request_stop raw with
             | Ok() -> ()
             | Error error -> errors.Add $"raw-input stop request: {error}"
@@ -175,15 +184,15 @@ type Session
             | Ok() -> clipReleased <- true
             | Error error -> errors.Add $"cursor clip: {error}"
 
-        if not rawStopped then
+        if not rawInputClean then
             let outcome = RawInputThread.stop raw
-            rawStopped <- true
 
-            if
-                not outcome.terminated
-                || not outcome.registration_relinquished
-                || outcome.previous_registration_lost
-            then
+            rawInputClean <-
+                outcome.terminated
+                && outcome.registration_relinquished
+                && not outcome.previous_registration_lost
+
+            if not rawInputClean then
                 errors.Add "raw input did not shut down cleanly"
 
             for error in outcome.errors do
@@ -207,7 +216,7 @@ type Session
             Win32Native.ShowCursor true |> ignore
             cursorHidden <- false
 
-        if rawStopped && not wakeDisposed then
+        if not wakeDisposed then
             RawInputWake.dispose wake
             wakeDisposed <- true
 
@@ -264,6 +273,11 @@ let start
                         Session(host, mode, input, wake, createdRaw, originalCursor, lease, buttonEvents, failed)
 
                     session.Attach()
+
+                    // Registration starts before cursor setup and MainLoop attachment finish. Drop only
+                    // movement collected during that startup gap; button releases still belong to the gesture.
+                    InputAccumulator.drain_mouse input |> ignore
+                    InputAccumulator.drain_wheel input |> ignore
                     Ok session
                 | None -> failwith "The navigation cursor clip was not acquired."
             with error ->

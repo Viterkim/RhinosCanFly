@@ -1,9 +1,9 @@
-# For future raw input batching
+# Raw input batching
 
-Currently every WM_INPUT gets read separately with GetRawInputData. 
+Implemented using the hybrid Windows raw-input pattern.
 
-Movement is already accumulated before Rhino uses it, but a stupidly high polling mouse still makes the input thread process every message alone.
+The `WM_INPUT` currently being dispatched has already left the raw-input queue, so read that handle first with `GetRawInputData`. Then drain everything which queued behind it with `GetRawInputBuffer` until the queue is empty.
 
-Later maybe: read the current packet with GetRawInputData, then drain queued packets with GetRawInputBuffer. reuse one correctly aligned buffer and feed everything into the existing accumulator.
+Reuse one 8-byte-aligned unmanaged buffer. It starts with room for 64 mouse packets and only grows when Windows reports `ERROR_INSUFFICIENT_BUFFER`. Process records in order with the native record alignment, feed each one into the existing accumulator, then send one coalesced wake for the whole drain.
 
-Should give less message/native call overhead and harder to overwhelm with high polling rates.
+Keep `DefWindowProc` for the dispatched foreground `WM_INPUT`. Do not replace this with a fixed-rate timer or allocate a packet array for each drain.

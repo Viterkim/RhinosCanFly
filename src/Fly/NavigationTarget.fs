@@ -30,7 +30,7 @@ let apply (loaded: ConfigLoadResult) (mode: ViewNavigationMode) (view: RhinoView
                         movement.speed_range
                         movement.base_speed
 
-                ViewTarget.apply behavior.retarget retargetMode speed view view.ActiveViewport
+                ViewTarget.apply_for_navigation behavior.retarget retargetMode mode speed view view.ActiveViewport
 
             Ok()
     with error ->

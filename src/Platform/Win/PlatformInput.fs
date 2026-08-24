@@ -208,6 +208,9 @@ let release_flight_keyboard () = FlightKeyboardSuppression.stop ()
 
 let flight_keyboard_revision () = FlightKeyboardSuppression.revision ()
 
+let flight_keyboard_change_timestamp () =
+    FlightKeyboardSuppression.last_change_timestamp ()
+
 let shutdown_flight_keyboard () = FlightKeyboardSuppression.shutdown ()
 
 let flight_binding_down (binding: KeyBinding) =

@@ -112,11 +112,9 @@ let stop_raw_navigation () =
     match raw_navigation with
     | None -> Ok()
     | Some session ->
-        match session.Stop() with
-        | Ok() ->
-            raw_navigation <- None
-            Ok()
-        | Error error -> Error error
+        let result = session.Stop()
+        raw_navigation <- None
+        result
 
 let raw_button_event (events: RawMouseButtonEvents) (requested: RawMouseButtonEvents) =
     events &&& requested <> RawMouseButtonEvents.None
@@ -716,6 +714,8 @@ let poll_timer_elapsed () =
             || ViewNavigationState.view_latch_engaged state
             || ValueOption.isSome (RightClickTransitions.direct_navigation_host right_click)
 
+        let mutable navigationCleanupFailed = false
+
         try
             SideButtonTransitions.process_hook_events state
             prune_released_side_buttons ()
@@ -732,19 +732,24 @@ let poll_timer_elapsed () =
             if navigationLostFocus then
                 match release_navigation () with
                 | Ok() -> ()
-                | Error error -> Debug.WriteLine $"RhinosCanFly mouse override focus loss: {error}"
+                | Error error ->
+                    navigationCleanupFailed <- true
+                    Debug.WriteLine $"RhinosCanFly mouse override focus loss: {error}"
             elif state.navigation_exit_requested || ViewNavigationState.exit_key_down state then
                 match release_navigation () with
                 | Ok() -> ()
-                | Error error -> Debug.WriteLine $"RhinosCanFly mouse override exit: {error}"
+                | Error error ->
+                    navigationCleanupFailed <- true
+                    Debug.WriteLine $"RhinosCanFly mouse override exit: {error}"
             else
                 SideButtonTransitions.poll state
 
                 ViewLatchTransitions.update state
 
-            match reconcile_raw_navigation () with
-            | Ok() -> ()
-            | Error error -> failwith error
+            if not navigationCleanupFailed then
+                match reconcile_raw_navigation () with
+                | Ok() -> ()
+                | Error error -> failwith error
 
             if
                 navigationWasActive

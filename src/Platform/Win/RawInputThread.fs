@@ -64,6 +64,9 @@ let recoveryGate = obj ()
 let recoverySessions = ResizeArray<Session>()
 let recoveryStartups = ResizeArray<StartupRecovery>()
 
+let recovery_pending () =
+    lock recoveryGate (fun () -> recoverySessions.Count > 0 || recoveryStartups.Count > 0)
+
 let retain_session (session: Session) =
     lock recoveryGate (fun () ->
         let exists =
@@ -249,6 +252,12 @@ let start
     (input: InputAccumulator.State)
     (inputAvailable: Action)
     =
+    if recovery_pending () then
+        let message =
+            "A previous raw-input worker still needs cleanup. Run RhinosCanFlyInputRecover or restart Rhino."
+
+        raise (StartFailureException(message, true, InvalidOperationException message))
+
     let result =
         { startup_error = None
           runtime_error = None
@@ -343,13 +352,7 @@ let request_stop (session: Session) =
 let stop_internal (attempt: StopAttempt) (session: Session) =
     lock session.stop_gate (fun () ->
         match session.stop_outcome with
-        | Some outcome when
-            attempt = InitialStop
-            && outcome.terminated
-            && outcome.registration_relinquished
-            && not outcome.previous_registration_lost
-            ->
-            outcome
+        | Some outcome when attempt = InitialStop -> outcome
         | Some _
         | None ->
             let errors = ResizeArray<string>()

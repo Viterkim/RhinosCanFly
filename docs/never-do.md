@@ -8,6 +8,4 @@ Right click now uses `WH_MOUSE`. The hook owns the whole down/up pair and only s
 
 Never call RhinoCommon or `RunScript` inside the hook.
 
-Pivot and pan still use `MouseCallback` for `OnMouseMove` only. Never for button down/up.
-
-Pivot and pan call `MouseRotateAroundTarget` and `MouseLateralDolly` directly. Do not bring fake middle mouse back.
+Pivot, pan and parallel zoom use the same raw-input worker as flying. Rhino still performs the viewport operations through `MouseRotateAroundTarget`, `MouseLateralDolly` and `Magnify`. Do not bring `MouseCallback` or fake middle mouse back.

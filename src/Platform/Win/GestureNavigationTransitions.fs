@@ -15,6 +15,26 @@ let stop (state: State) =
     state.gesture_navigation <- NoGestureNavigation
     ViewNavigationState.stop_timer_if_idle state
 
+let restore_original_target (host: ViewportHostIdentity) (originalTarget: Rhino.Geometry.Point3d voption) =
+    match originalTarget with
+    | ValueNone -> Ok()
+    | ValueSome target ->
+        try
+            let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
+
+            if
+                not (isNull view)
+                && not (isNull view.Document)
+                && view.Document.RuntimeSerialNumber = host.document_serial_number
+                && view.ActiveViewportID = host.viewport_id
+            then
+                view.ActiveViewport.SetCameraTarget(target, false)
+                view.Redraw()
+
+            Ok()
+        with error ->
+            Error $"Could not restore the navigation target: {error.Message}"
+
 let rollback_start (state: State) =
     let session =
         match state.gesture_navigation with
@@ -24,25 +44,7 @@ let rollback_start (state: State) =
     stop state
 
     match session with
-    | ValueSome active ->
-        match active.original_target with
-        | ValueSome target ->
-            try
-                let view = RhinoView.FromRuntimeSerialNumber active.host.view_serial_number
-
-                if
-                    not (isNull view)
-                    && not (isNull view.Document)
-                    && view.Document.RuntimeSerialNumber = active.host.document_serial_number
-                    && view.ActiveViewportID = active.host.viewport_id
-                then
-                    view.ActiveViewport.SetCameraTarget(target, false)
-                    view.Redraw()
-
-                Ok()
-            with error ->
-                Error $"Could not restore the navigation target: {error.Message}"
-        | ValueNone -> Ok()
+    | ValueSome active -> restore_original_target active.host active.original_target
     | ValueNone -> Ok()
 
 let begin_navigation
@@ -80,7 +82,10 @@ let begin_navigation
                     ValueSome view.ActiveViewport.CameraTarget
 
             match state.routing.prepare_navigation host mode with
-            | Error error -> Error error
+            | Error error ->
+                match restore_original_target host originalTarget with
+                | Ok() -> Error error
+                | Error restoreError -> Error $"{error}; {restoreError}"
             | Ok prepared ->
                 state.gesture_navigation <-
                     GestureNavigationActive

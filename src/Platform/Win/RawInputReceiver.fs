@@ -2,7 +2,6 @@ namespace RhinosCanFly.Platform.Win
 
 open System
 open System.Diagnostics
-open System.Runtime.InteropServices
 open System.Windows.Forms
 open RhinosCanFly
 
@@ -17,14 +16,14 @@ type RawInputReceiver
     ) as self =
     inherit NativeWindow()
 
-    let bufferCapacity = int RawInputNative.mouseInputSize
-    let buffer = Marshal.AllocHGlobal bufferCapacity
+    let inputBuffer =
+        new RawInputNative.InputBuffer(RawInputNative.initial_input_buffer_capacity)
 
     let registrationRetryTimer =
         new Timer(Interval = RawInputNative.REGISTRATION_RETRY_INTERVAL_MS)
 
     let mutable handleCreated = false
-    let mutable bufferFreed = false
+    let mutable inputBufferDisposed = false
     let mutable registrationLease: RawInputNative.MouseRegistrationLease option = None
     let mutable startupError: exn option = None
     let mutable registrationReleaseError: string option = None
@@ -154,9 +153,9 @@ type RawInputReceiver
             errors.Add error
 
         try
-            if not bufferFreed then
-                Marshal.FreeHGlobal buffer
-                bufferFreed <- true
+            if not inputBufferDisposed then
+                inputBuffer.Dispose()
+                inputBufferDisposed <- true
         with error ->
             errors.Add error
 
@@ -319,19 +318,114 @@ type RawInputReceiver
         | Some reason -> InputAccumulator.request_exit reason input
         | None -> ()
 
-        if
-            mouseMoved
-            || wheelDelta <> 0
-            || mouse4HeldChanged
-            || mouse5HeldChanged
-            || mouse4PanHeldChanged
-            || mouse5PanHeldChanged
-            || pivotToggleRequested
-            || panToggleRequested
-            || retargetRequested
-            || rawButtonEvents <> int RawMouseButtonEvents.None
-            || Option.isSome exitReason
-        then
+        mouseMoved
+        || wheelDelta <> 0
+        || mouse4HeldChanged
+        || mouse5HeldChanged
+        || mouse4PanHeldChanged
+        || mouse5PanHeldChanged
+        || pivotToggleRequested
+        || panToggleRequested
+        || retargetRequested
+        || rawButtonEvents <> int RawMouseButtonEvents.None
+        || Option.isSome exitReason
+
+    let grow_input_buffer (minimumCapacity: uint32) =
+        let currentCapacity = int64 inputBuffer.Capacity
+
+        let maximumCapacity =
+            int64 Int32.MaxValue - int64 (RawInputNative.RAW_INPUT_ALIGNMENT - 1)
+
+        let doubledCapacity = min maximumCapacity (currentCapacity * 2L)
+        let requiredCapacity = max (int64 minimumCapacity) doubledCapacity
+
+        if requiredCapacity <= currentCapacity || requiredCapacity > maximumCapacity then
+            invalidOp $"The raw-input buffer cannot grow to {minimumCapacity} bytes."
+
+        inputBuffer.EnsureCapacity(int requiredCapacity)
+
+    let process_current_input (rawInput: nativeint) =
+        let mutable reading = true
+        let mutable workAdded = false
+
+        while reading do
+            let mutable requiredBytes = 0u
+            let mutable errorCode = 0
+            let mutable mouse = Unchecked.defaultof<RawInputNative.Mouse>
+
+            let result =
+                RawInputNative.read_current_mouse rawInput inputBuffer &requiredBytes &errorCode &mouse
+
+            match result with
+            | RawInputNative.MouseReadResult.Mouse ->
+                workAdded <- process_mouse mouse
+                reading <- false
+            | RawInputNative.MouseReadResult.Ignored -> reading <- false
+            | RawInputNative.MouseReadResult.BufferTooSmall -> grow_input_buffer requiredBytes
+            | RawInputNative.MouseReadResult.Failed -> Win32.win32_error "GetRawInputData" errorCode |> invalidOp
+            | RawInputNative.MouseReadResult.Malformed -> invalidOp "GetRawInputData returned malformed mouse input."
+            | _ -> invalidOp "GetRawInputData returned an unknown result."
+
+        workAdded
+
+    let process_buffered_input () =
+        let mutable draining = true
+        let mutable workAdded = false
+
+        while draining do
+            let mutable bufferBytes = 0u
+            let mutable errorCode = 0
+            let count = RawInputNative.read_buffered inputBuffer &bufferBytes &errorCode
+
+            if count = 0u then
+                draining <- false
+            elif count = UInt32.MaxValue then
+                if errorCode = RawInputNative.ERROR_INSUFFICIENT_BUFFER then
+                    grow_input_buffer bufferBytes
+                else
+                    Win32.win32_error "GetRawInputBuffer" errorCode |> invalidOp
+            else
+                let mutable index = 0u
+                let mutable offset = 0
+
+                // This is the high polling-rate path. Keep it on structs, ints and the reused buffer.
+                while index < count do
+                    if offset < 0 || offset > inputBuffer.Capacity - int RawInputNative.headerSize then
+                        invalidOp "GetRawInputBuffer returned a record outside its buffer."
+
+                    let record = IntPtr.Add(inputBuffer.Pointer, offset)
+                    let availableBytes = inputBuffer.Capacity - offset
+                    let mutable recordSize = 0u
+                    let mutable mouse = Unchecked.defaultof<RawInputNative.Mouse>
+
+                    let result = RawInputNative.decode_mouse record availableBytes &recordSize &mouse
+
+                    match result with
+                    | RawInputNative.MouseReadResult.Mouse ->
+                        if process_mouse mouse then
+                            workAdded <- true
+                    | RawInputNative.MouseReadResult.Ignored -> ()
+                    | RawInputNative.MouseReadResult.Malformed ->
+                        invalidOp "GetRawInputBuffer returned malformed input."
+                    | RawInputNative.MouseReadResult.Failed
+                    | RawInputNative.MouseReadResult.BufferTooSmall
+                    | _ -> invalidOp "GetRawInputBuffer returned an unknown decode result."
+
+                    let step = RawInputNative.aligned_record_size recordSize
+
+                    if step <= 0 || step > availableBytes then
+                        invalidOp "GetRawInputBuffer returned an invalid record size."
+
+                    offset <- offset + step
+                    index <- index + 1u
+
+        workAdded
+
+    let process_input_message (rawInput: nativeint) =
+        let currentAdded = process_current_input rawInput
+        let bufferedAdded = process_buffered_input ()
+
+        if currentAdded || bufferedAdded then
             inputAvailable.Invoke()
 
     let fail_runtime (error: exn) =
@@ -386,13 +480,8 @@ type RawInputReceiver
                     message.Result <- nativeint 0
                     request_stop ()
                 elif message.Msg = RawInputNative.MESSAGE then
-                    let mutable mouse = Unchecked.defaultof<RawInputNative.Mouse>
-
-                    if
-                        not stopRequested
-                        && RawInputNative.try_read_mouse message.LParam buffer bufferCapacity &mouse
-                    then
-                        process_mouse mouse
+                    if not stopRequested then
+                        process_input_message message.LParam
 
                     baseAttempted <- true
                     base.WndProc(&message)
