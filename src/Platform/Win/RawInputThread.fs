@@ -407,6 +407,9 @@ let stop (session: Session) = stop_internal InitialStop session
 let runtime_failed (session: Session) =
     Option.isSome session.result.runtime_error
 
+let registration_is_current (session: Session) =
+    RawInputNative.mouse_registration_is_current session.registration
+
 let recover_startup (recovery: StartupRecovery) =
     let errors = ResizeArray<string>()
     Interlocked.Exchange(&recovery.startup.cancel_requested, 1) |> ignore

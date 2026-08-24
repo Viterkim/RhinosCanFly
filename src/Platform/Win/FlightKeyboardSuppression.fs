@@ -83,6 +83,7 @@ let add_passthrough_if_down (physicalKey: int) =
 let configure (bindings: FlightBindings) (inputAvailable: Action) =
     let releasedKeys = ResizeArray<int>()
 
+    Volatile.Write(&state.last_change_timestamp, 0L)
     System.Array.Clear(state.key_is_down, 0, state.key_is_down.Length)
 
     for physicalKey in state.suppressed_keys_down do

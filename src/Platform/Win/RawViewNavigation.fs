@@ -158,6 +158,9 @@ type Session
     member _.Mode = mode
     member _.IsActive = active
 
+    member _.RawInputRegistrationIsCurrent() =
+        RawInputThread.registration_is_current raw
+
     member _.Matches(expectedHost: ViewportHostIdentity, expectedMode: Mode) =
         active && host = expectedHost && mode = expectedMode
 

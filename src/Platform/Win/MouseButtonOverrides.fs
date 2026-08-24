@@ -415,9 +415,22 @@ let side_button_from_data (mouseData: uint32) =
     | Win32Native.XBUTTON2 -> ValueSome Mouse5
     | _ -> ValueNone
 
-let raw_navigation_active () =
+let raw_navigation_captures_button_messages () =
     match raw_navigation with
-    | Some session -> session.IsActive
+    | Some session when session.IsActive ->
+        match session.RawInputRegistrationIsCurrent() with
+        | Ok true -> true
+        | Ok false ->
+            // Another raw-input owner replaced this session. Its button event will not
+            // reach our worker, so use the hook event to end navigation without leaving
+            // an owned Down/Up pair behind in Rhino.
+            request_navigation_exit ()
+            true
+        | Error error ->
+            Debug.WriteLine $"RhinosCanFly could not verify raw-input ownership: {error}"
+            request_navigation_exit ()
+            true
+    | Some _
     | None -> false
 
 let raw_navigation_button_message (message: int) =
@@ -434,7 +447,10 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
     let mutable rightClickWasOwned = false
 
     try
-        if raw_navigation_active () && raw_navigation_button_message event.message then
+        if
+            raw_navigation_button_message event.message
+            && raw_navigation_captures_button_messages ()
+        then
             true
         elif
             event.message = Win32Native.WM_RBUTTONDOWN

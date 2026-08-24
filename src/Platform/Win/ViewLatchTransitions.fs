@@ -66,11 +66,7 @@ let update (state: State) =
             | Error error ->
                 complete_or_log (WaitingForRelease pending)
                 Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
-    | PivotActive session ->
-        if ViewNavigationState.foreground_root_window () <> session.host.root_window then
-            match release state with
-            | Ok() -> ()
-            | Error error -> Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
+    | PivotActive session
     | PanActive session ->
         if ViewNavigationState.foreground_root_window () <> session.host.root_window then
             match release state with

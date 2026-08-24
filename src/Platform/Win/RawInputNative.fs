@@ -289,6 +289,15 @@ let rec get_registered_mouse_attempt (attempt: int) =
 
 let get_registered_mouse () = get_registered_mouse_attempt 1
 
+let mouse_registration_is_current (lease: MouseRegistrationLease) =
+    if lease.relinquished then
+        Ok false
+    else
+        match get_registered_mouse () with
+        | Ok(Some current) -> Ok(same_device current lease.installed)
+        | Ok None -> Ok false
+        | Error error -> Error error
+
 let mouse_device (target: nativeint) =
     let mutable device = Unchecked.defaultof<Device>
     device.usage_page <- GENERIC_DESKTOP_USAGE_PAGE
