@@ -131,7 +131,8 @@ let create (callbacks: Callbacks) =
                     let serialNumber = view.RuntimeSerialNumber
 
                     match callbacks.active_navigation_host () with
-                    | ValueSome host when host.view_serial_number = serialNumber -> callbacks.request_navigation_exit ()
+                    | ValueSome host when host.view_serial_number = serialNumber ->
+                        callbacks.request_navigation_exit ()
                     | ValueSome _
                     | ValueNone -> ()
 

@@ -65,11 +65,7 @@ let write_atomic (configPath: string) (content: string) =
 let backup_pattern (configPath: string) =
     $"{Path.GetFileNameWithoutExtension configPath}.backup-*.json"
 
-let rec available_backup_path
-    (directory: string)
-    (baseName: string)
-    (attempt: int)
-    =
+let rec available_backup_path (directory: string) (baseName: string) (attempt: int) =
     let suffix = if attempt = 0 then "" else $"-{attempt}"
     let candidate = Path.Combine(directory, $"{baseName}{suffix}.json")
 
@@ -80,10 +76,11 @@ let rec available_backup_path
 
 let create_dated_backup (configPath: string) =
     let directory = Path.GetDirectoryName configPath
-    let timestamp = DateTimeOffset.Now.ToString(BACKUP_TIMESTAMP_FORMAT, CultureInfo.InvariantCulture)
 
-    let baseName =
-        $"{Path.GetFileNameWithoutExtension configPath}.backup-{timestamp}"
+    let timestamp =
+        DateTimeOffset.Now.ToString(BACKUP_TIMESTAMP_FORMAT, CultureInfo.InvariantCulture)
+
+    let baseName = $"{Path.GetFileNameWithoutExtension configPath}.backup-{timestamp}"
 
     let backupPath = available_backup_path directory baseName 0
     File.Copy(configPath, backupPath, false)
@@ -94,7 +91,8 @@ let prune_automatic_backups (configPath: string) =
 
     Directory.EnumerateFiles(directory, backup_pattern configPath)
     |> Seq.sortWith (fun (left: string) (right: string) ->
-        let byCreation = compare (File.GetCreationTimeUtc right) (File.GetCreationTimeUtc left)
+        let byCreation =
+            compare (File.GetCreationTimeUtc right) (File.GetCreationTimeUtc left)
 
         if byCreation <> 0 then
             byCreation
@@ -115,7 +113,12 @@ let backup_requirement (configPath: string) =
             match ConfigRepair.repair_document json with
             | Error error -> Error error
             | Ok repaired ->
-                Ok(if repaired.changed then BackupRequirement.Required else BackupRequirement.NotRequired)
+                Ok(
+                    if repaired.changed then
+                        BackupRequirement.Required
+                    else
+                        BackupRequirement.NotRequired
+                )
 
 let load_existing (configPath: string) =
     let content = File.ReadAllText configPath
@@ -134,8 +137,7 @@ let load_locked (configPath: string) =
             load_existing configPath
 
     match prepared with
-    | Error error ->
-        Error error
+    | Error error -> Error error
     | Ok repaired ->
         let messages = ResizeArray<string>(repaired.messages)
 

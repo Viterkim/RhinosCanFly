@@ -208,8 +208,7 @@ type Session
                     let wheelSteps = wheel / int64 Win32Native.WHEEL_DELTA
                     wheelRemainder <- wheel - wheelSteps * int64 Win32Native.WHEEL_DELTA
 
-                    let parallelZoomPending =
-                        parallelZoomMode && parallelZoomExponentRemainder <> 0.
+                    let parallelZoomPending = parallelZoomMode && parallelZoomExponentRemainder <> 0.
 
                     if RawInputThread.runtime_failed raw then
                         this.NotifyFailure()
@@ -400,8 +399,7 @@ let start
     else
         let viewport = view.ActiveViewport
 
-        let requiresParallelProjection =
-            mode = Mode.ParallelPan || mode = Mode.ParallelZoom
+        let requiresParallelProjection = mode = Mode.ParallelPan || mode = Mode.ParallelZoom
 
         if requiresParallelProjection && not viewport.IsParallelProjection then
             Error "The viewport is no longer using parallel projection."

@@ -147,8 +147,7 @@ let repair_document (sourceJson: JsonObject) =
             | Error error ->
                 messages.Add $"reset settings to defaults: {error}"
                 ConfigSchema.defaults, compile_defaults ()
-            | Ok value ->
-                compile_with_repairs (ConfigSchema.normalize value) messages
+            | Ok value -> compile_with_repairs (ConfigSchema.normalize value) messages
 
         let currentSource =
             { source with

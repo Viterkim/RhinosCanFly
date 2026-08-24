@@ -83,8 +83,7 @@ let raw_navigation =
 
 let viewport_registry =
     ViewportRegistry.create
-        { hook_installed =
-            fun () -> MouseHook.installed mouse_hook
+        { hook_installed = fun () -> MouseHook.installed mouse_hook
           ensure_ui_wake =
             fun () ->
                 match install_hook_ui_wake () with
@@ -305,11 +304,9 @@ let release_after_timer_error (error: exn) =
     | Ok() -> ()
     | Error cleanupError -> Debug.WriteLine $"RhinosCanFly mouse override timer cleanup: {cleanupError}"
 
-let hook_removal_pending () =
-    MouseHook.removal_pending mouse_hook
+let hook_removal_pending () = MouseHook.removal_pending mouse_hook
 
-let hook_removal_abandoned () =
-    MouseHook.removal_abandoned mouse_hook
+let hook_removal_abandoned () = MouseHook.removal_abandoned mouse_hook
 
 let poll_requirement () =
     if
@@ -443,7 +440,7 @@ let poll_timer_elapsed () =
             | Ok() -> ()
             | Error error -> Debug.WriteLine $"RhinosCanFly mouse override hook: {error}"
 
-            // Reference tuples allocate here.
+            // Keep these matches nested because reference tuples allocate.
             match state.lifecycle with
             | Degraded _ when state.suspension_ids.Count = 0 ->
                 match mouseResult with
@@ -467,8 +464,7 @@ let poll_timer_elapsed () =
         with stopError ->
             Debug.WriteLine $"RhinosCanFly mouse override timer scheduling: {stopError}"
 
-do
-    hook_ui_work_requested.Publish.Add(fun () -> poll_timer_elapsed ())
+do hook_ui_work_requested.Publish.Add(fun () -> poll_timer_elapsed ())
 
 state.poll_timer.Tick.Add(fun (_: EventArgs) -> poll_timer_elapsed ())
 
@@ -568,6 +564,7 @@ let start_view_latch (view: RhinoView) (mode: ViewNavigationMode) (completion: A
 
 let stop_view_latch (mode: ViewNavigationMode) =
     let wasActive = ViewLatchTransitions.is_mode state mode
+
     let rawStopResult =
         if wasActive then
             RawNavigationCoordinator.stop raw_navigation
@@ -780,6 +777,7 @@ let shutdown () =
 
         attempt "command handler" (fun () -> Command.BeginCommand.RemoveHandler command_began)
         attempt "command end handler" (fun () -> Command.EndCommand.RemoveHandler command_ended)
+
         attempt "application initialized handler" (fun () ->
             ViewportRegistry.remove_application_handler viewport_registry)
 

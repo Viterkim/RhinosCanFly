@@ -7,7 +7,8 @@ let fail (message: string) =
     failwith $"Config recovery check failed: {message}"
 
 let require (condition: bool) (message: string) =
-    if not condition then fail message
+    if not condition then
+        fail message
 
 let backup_count (directory: string) =
     Directory.EnumerateFiles(directory, "rhinos-can-fly-config.backup-*.json")
@@ -21,23 +22,38 @@ let backup_contents (directory: string) =
 let write_document (configPath: string) (json: JsonObject) =
     File.WriteAllText(configPath, ConfigDocument.content json)
 
-let set_value (json: JsonObject) (name: string) (value: JsonNode) =
-    json[name] <- value
+let set_value (json: JsonObject) (name: string) (value: JsonNode) = json[name] <- value
 
 let temporaryDirectory =
     Path.Combine(Path.GetTempPath(), $"rhinos-can-fly-config-check-{Guid.NewGuid():N}")
 
 try
+    let previousVersion = ConfigDocument.to_object ConfigSchema.defaults
+    set_value previousVersion "config_version" (JsonValue.Create(ConfigSchema.CURRENT_VERSION - 1))
+    set_value previousVersion "base_speed" (JsonValue.Create 43.)
+    previousVersion.Remove "right_click_enters_parallel_views" |> ignore
+    set_value previousVersion "removed_setting" (JsonValue.Create true)
+
+    match ConfigRepair.repair_document previousVersion with
+    | Error error -> fail error
+    | Ok repaired ->
+        require repaired.changed "previous config version was not migrated"
+        require (repaired.config_file.config_version = ConfigSchema.CURRENT_VERSION) "migrated config version"
+        require (repaired.config_file.base_speed = 43.) "migration did not preserve a known setting"
+
+        require
+            (repaired.config_file.right_click_enters_parallel_views = ConfigSchema.defaults.right_click_enters_parallel_views)
+            "migration did not add a missing setting with its default"
+
+        require (not (repaired.document.ContainsKey "removed_setting")) "migration kept an unknown setting"
+
     ConfigStorage.initialize temporaryDirectory
 
     let configPath = ConfigStorage.path ()
 
     match ConfigStorage.load () with
     | Error error -> fail error
-    | Ok loaded ->
-        require
-            (loaded.config_file.config_version = ConfigSchema.CURRENT_VERSION)
-            "new config version"
+    | Ok loaded -> require (loaded.config_file.config_version = ConfigSchema.CURRENT_VERSION) "new config version"
 
     require (File.Exists configPath) "new config was not written"
     require (backup_count temporaryDirectory = 0) "new config created a backup"
@@ -98,8 +114,11 @@ try
             (loaded.config_file.forced_perspective_lens_length_on_flight_start_mm = 24.)
             "lens delta repair reset a valid forced lens"
 
-        let actualLensDelta = loaded.config_file.perspective_lens_length_delta_during_flight_mm
-        let expectedLensDelta = ConfigSchema.defaults.perspective_lens_length_delta_during_flight_mm
+        let actualLensDelta =
+            loaded.config_file.perspective_lens_length_delta_during_flight_mm
+
+        let expectedLensDelta =
+            ConfigSchema.defaults.perspective_lens_length_delta_during_flight_mm
 
         require (actualLensDelta = expectedLensDelta) "invalid lens delta was not reset"
 

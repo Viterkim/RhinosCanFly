@@ -4,7 +4,7 @@ open System
 open System.Globalization
 
 [<Literal>]
-let CURRENT_VERSION = 6
+let CURRENT_VERSION = 7
 
 let default_parallel_view_flying () =
     { mode = ParallelViewFlyingMode.EnabledSome

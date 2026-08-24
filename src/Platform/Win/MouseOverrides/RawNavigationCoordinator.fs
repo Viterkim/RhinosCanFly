@@ -103,12 +103,7 @@ let handle_right_down (state: State) (host: ViewportHostIdentity) (screenPoint: 
 
     match RightClickTransitions.requested_gesture_action navigation (RightClickTransitions.modifiers ()) with
     | ValueSome action ->
-        GestureNavigationTransitions.press_or_log
-            navigation
-            GestureOwner.ModifiedRightClick
-            action
-            host
-            screenPoint
+        GestureNavigationTransitions.press_or_log navigation GestureOwner.ModifiedRightClick action host screenPoint
     | ValueNone when navigation.routing.exit_on_mouse_right -> state.request_exit ()
     | ValueNone -> ()
 
@@ -117,12 +112,7 @@ let handle_right_up (state: State) =
     RightClickTransitions.clear_action state.right_click
     GestureNavigationTransitions.release state.navigation GestureOwner.ModifiedRightClick
 
-let handle_side_down
-    (state: State)
-    (button: SideButton)
-    (host: ViewportHostIdentity)
-    (screenPoint: Point)
-    =
+let handle_side_down (state: State) (button: SideButton) (host: ViewportHostIdentity) (screenPoint: Point) =
     let navigation = state.navigation
     ViewNavigationState.set_hook_button_ownership navigation button Owned
 
@@ -137,12 +127,7 @@ let handle_side_up (state: State) (button: SideButton) =
     ViewNavigationState.set_hook_button_ownership state.navigation button NotOwned
     GestureNavigationTransitions.release state.navigation (SideButtonTransitions.owner button)
 
-let handle_button
-    (state: State)
-    (host: ViewportHostIdentity)
-    (event: RawMouseButtonEvent)
-    (screenPoint: Point)
-    =
+let handle_button (state: State) (host: ViewportHostIdentity) (event: RawMouseButtonEvent) (screenPoint: Point) =
     try
         match event with
         | RawMouseButtonEvent.LeftUp when state.navigation.routing.exit_on_mouse_left -> state.request_exit ()
