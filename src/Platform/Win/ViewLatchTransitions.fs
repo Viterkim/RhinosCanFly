@@ -37,18 +37,24 @@ let activate (state: State) (session: ViewLatchSession) =
         Ok()
 
 let start (state: State) (host: ViewportHostIdentity) (mode: ViewNavigationMode) (completion: Action option) =
-    let session =
-        { host = host
-          mode = mode
-          started_at = Stopwatch.GetTimestamp()
-          completion = completion }
+    let view = Rhino.Display.RhinoView.FromRuntimeSerialNumber host.view_serial_number
 
-    if input_released () then
-        activate state session
+    if isNull view || isNull view.Document then
+        Error "The navigation viewport is unavailable."
     else
-        state.view_latch <- WaitingForRelease session
-        ViewNavigationState.keep_timer_running state
-        Ok()
+        let session =
+            { host = host
+              mode = mode
+              pivot_center = view.ActiveViewport.CameraTarget
+              started_at = Stopwatch.GetTimestamp()
+              completion = completion }
+
+        if input_released () then
+            activate state session
+        else
+            state.view_latch <- WaitingForRelease session
+            ViewNavigationState.keep_timer_running state
+            Ok()
 
 let update (state: State) =
     match state.view_latch with
@@ -92,7 +98,7 @@ let start_or_switch (state: State) (host: ViewportHostIdentity) (mode: ViewNavig
         match current_mode state with
         | Some current when current = mode -> Ok()
         | None when not (ViewNavigationState.gesture_navigation_engaged state) ->
-            match state.routing.prepare_navigation host mode with
+            match state.routing.prepare_navigation host NavigationTargetPoint.ViewCenter mode with
             | Error error -> Error error
             | Ok prepared -> start state prepared mode completion
         | Some _
@@ -100,7 +106,7 @@ let start_or_switch (state: State) (host: ViewportHostIdentity) (mode: ViewNavig
             match ViewNavigationState.release_all state with
             | Error error -> Error error
             | Ok() ->
-                match state.routing.prepare_navigation host mode with
+                match state.routing.prepare_navigation host NavigationTargetPoint.ViewCenter mode with
                 | Error error -> Error error
                 | Ok prepared -> start state prepared mode completion
 

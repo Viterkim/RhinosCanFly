@@ -69,10 +69,19 @@ type SettingsControl() as self =
         options.middle_mouse_action_while_flying.Enabled <-
             SettingsFields.selected_mode modes.middle_mouse_action <> MouseGestureAction.Off
 
+        options.middle_mouse_uses_cursor_outside_flight.Enabled <-
+            SettingsFields.selected_mode modes.middle_mouse_action <> MouseGestureAction.Off
+
         options.mouse4_action_while_flying.Enabled <-
             SettingsFields.selected_mode modes.mouse4_action <> MouseGestureAction.Off
 
+        options.mouse4_uses_cursor_outside_flight.Enabled <-
+            SettingsFields.selected_mode modes.mouse4_action <> MouseGestureAction.Off
+
         options.mouse5_action_while_flying.Enabled <-
+            SettingsFields.selected_mode modes.mouse5_action <> MouseGestureAction.Off
+
+        options.mouse5_uses_cursor_outside_flight.Enabled <-
             SettingsFields.selected_mode modes.mouse5_action <> MouseGestureAction.Off
 
         let fallbackEnabled =
@@ -220,13 +229,16 @@ type SettingsControl() as self =
         mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Mouse buttons"))
 
         SettingsLayout.grid
-            2
+            3
             [ SettingsLayout.item "Middle mouse" modes.middle_mouse_action.control
               options.middle_mouse_action_while_flying
+              options.middle_mouse_uses_cursor_outside_flight
               SettingsLayout.item "Mouse 4" modes.mouse4_action.control
               options.mouse4_action_while_flying
+              options.mouse4_uses_cursor_outside_flight
               SettingsLayout.item "Mouse 5" modes.mouse5_action.control
-              options.mouse5_action_while_flying ]
+              options.mouse5_action_while_flying
+              options.mouse5_uses_cursor_outside_flight ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
@@ -338,7 +350,9 @@ type SettingsControl() as self =
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Mouse inputs"))
+        mainTable.Rows.Add(
+            SettingsLayout.full_width (SettingsLayout.subheading "Mouse inputs (if mouse action set to 'Retarget')")
+        )
 
         SettingsLayout.grid
             2

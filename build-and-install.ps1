@@ -46,4 +46,5 @@ if (-not (Test-Path -LiteralPath $rhinoExecutable)) {
 Write-Host "Starting Rhino $RhinoMajorVersion."
 Start-Process `
     -FilePath $rhinoExecutable `
+    -ArgumentList "/nosplash" `
     -WorkingDirectory (Split-Path -Parent $rhinoExecutable)

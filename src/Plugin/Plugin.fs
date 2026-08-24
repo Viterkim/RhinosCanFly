@@ -19,6 +19,10 @@ type RhinosCanFlyPlugin() as self =
         try
             ConfigStorage.initialize self.SettingsDirectory
 
+            match PlatformInput.prepare_raw_input_worker () with
+            | Ok() -> ()
+            | Error error -> report $"RhinosCanFly raw-input worker unavailable: {error}"
+
             match RuntimeSettings.load_and_apply () with
             | Ok() -> ()
             | Error error -> report $"RhinosCanFly settings unavailable: {error}"
@@ -58,6 +62,12 @@ type RhinosCanFlyPlugin() as self =
                 report $"RhinosCanFly raw-input recovery still owns {remaining} cleanup item(s)."
         with error ->
             report $"RhinosCanFly raw-input recovery failed: {error.Message}"
+
+        try
+            for error in PlatformInput.shutdown_raw_input_worker () do
+                report $"RhinosCanFly raw-input worker shutdown: {error}"
+        with error ->
+            report $"RhinosCanFly raw-input worker shutdown failed: {error.Message}"
 
         try
             let struct (remaining, errors) = PlatformInput.retry_cursor_clip_cleanup ()

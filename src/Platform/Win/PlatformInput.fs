@@ -204,6 +204,10 @@ let raw_input_runtime_failed (session: RawInputSession) = RawInputThread.runtime
 
 let retry_raw_input_cleanup () = RawInputThread.retry_recovery ()
 
+let prepare_raw_input_worker () = RawInputThread.prepare ()
+
+let shutdown_raw_input_worker () = RawInputThread.shutdown ()
+
 let suppress_flight_keyboard (bindings: FlightBindings) (inputAvailable: Action) =
     FlightKeyboardSuppression.start bindings inputAvailable
 

@@ -8,7 +8,7 @@ open Rhino.ApplicationSettings
 open Rhino.Display
 open Rhino.Geometry
 
-let apply (loaded: ConfigLoadResult) (mode: ViewNavigationMode) (view: RhinoView) =
+let apply (loaded: ConfigLoadResult) (targetPoint: NavigationTargetPoint) (mode: ViewNavigationMode) (view: RhinoView) =
     try
         if isNull view || isNull view.Document then
             Error "The navigation viewport is unavailable."
@@ -30,13 +30,25 @@ let apply (loaded: ConfigLoadResult) (mode: ViewNavigationMode) (view: RhinoView
                         movement.speed_range
                         movement.base_speed
 
-                ViewTarget.apply_for_navigation behavior.retarget retargetMode mode speed view view.ActiveViewport
+                ViewTarget.apply_for_navigation
+                    behavior.retarget
+                    retargetMode
+                    mode
+                    speed
+                    view
+                    view.ActiveViewport
+                    targetPoint
 
             Ok()
     with error ->
         Error $"Could not set the navigation target: {error.Message}"
 
-let prepare (loaded: ConfigLoadResult) (host: ViewportHostIdentity) (mode: ViewNavigationMode) =
+let prepare
+    (loaded: ConfigLoadResult)
+    (host: ViewportHostIdentity)
+    (targetPoint: NavigationTargetPoint)
+    (mode: ViewNavigationMode)
+    =
     try
         let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
 
@@ -68,7 +80,7 @@ let prepare (loaded: ConfigLoadResult) (host: ViewportHostIdentity) (mode: ViewN
                     && currentHost.view_window = host.view_window
                     && currentHost.root_window = host.root_window
                 then
-                    match apply loaded mode view with
+                    match apply loaded targetPoint mode view with
                     | Ok() -> Ok currentHost
                     | Error error -> Error error
                 else

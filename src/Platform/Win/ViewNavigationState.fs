@@ -29,7 +29,9 @@ let observe_hook_button_released (state: State) (button: SideButton) =
     | ReleaseObserved -> set_hook_button_ownership state button NotOwned
 
 let hook_owns_any_button (state: State) =
-    hook_owns_button state Middle || hook_owns_button state Mouse4 || hook_owns_button state Mouse5
+    hook_owns_button state Middle
+    || hook_owns_button state Mouse4
+    || hook_owns_button state Mouse5
 
 let action_for (state: State) (button: SideButton) =
     match button with

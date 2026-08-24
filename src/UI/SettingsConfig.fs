@@ -203,6 +203,9 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     set_checked options.mouse4_action_while_flying config.mouse4_action_while_flying
     set_checked options.mouse5_action_while_flying config.mouse5_action_while_flying
     set_checked options.middle_mouse_action_while_flying config.middle_mouse_action_while_flying
+    set_checked options.middle_mouse_uses_cursor_outside_flight config.middle_mouse_uses_cursor_outside_flight
+    set_checked options.mouse4_uses_cursor_outside_flight config.mouse4_uses_cursor_outside_flight
+    set_checked options.mouse5_uses_cursor_outside_flight config.mouse5_uses_cursor_outside_flight
     set_checked options.right_click_enters_parallel_views config.right_click_enters_parallel_views
     set_checked options.exit_on_mouse_left config.exit_on_mouse_left
     set_checked options.exit_on_mouse_right config.exit_on_mouse_right
@@ -278,6 +281,9 @@ let read (fields: SettingsFields.ConfigFields) =
               exit_on_mouse_left = is_checked options.exit_on_mouse_left
               exit_on_mouse_right = is_checked options.exit_on_mouse_right
               middle_mouse_action_while_flying = is_checked options.middle_mouse_action_while_flying
+              middle_mouse_uses_cursor_outside_flight = is_checked options.middle_mouse_uses_cursor_outside_flight
+              mouse4_uses_cursor_outside_flight = is_checked options.mouse4_uses_cursor_outside_flight
+              mouse5_uses_cursor_outside_flight = is_checked options.mouse5_uses_cursor_outside_flight
               mouse4_action_while_flying = is_checked options.mouse4_action_while_flying
               mouse5_action_while_flying = is_checked options.mouse5_action_while_flying
               right_click_enters_parallel_views = is_checked options.right_click_enters_parallel_views

@@ -64,6 +64,9 @@ let defaults: FlyConfigFile =
       middle_mouse_retarget = RetargetMode.ObjectCenter
       mouse4_retarget = RetargetMode.ObjectCenter
       mouse5_retarget = RetargetMode.ObjectCenter
+      middle_mouse_uses_cursor_outside_flight = true
+      mouse4_uses_cursor_outside_flight = true
+      mouse5_uses_cursor_outside_flight = true
       retarget_on_pivot = RetargetMode.ObjectCenter
       retarget_on_pan = RetargetMode.ObjectCenter
       retarget_on_flight_exit = RetargetMode.ObjectCenter
@@ -369,10 +372,10 @@ let compile (source: FlyConfigFile) =
               exit_on_left = source.exit_on_mouse_left
               exit_on_right = source.exit_on_mouse_right
               middle_button =
-                  while_flying
-                      source.middle_mouse_action_while_flying
-                      source.middle_mouse_action
-                      source.middle_mouse_retarget
+                while_flying
+                    source.middle_mouse_action_while_flying
+                    source.middle_mouse_action
+                    source.middle_mouse_retarget
               mouse4 = while_flying source.mouse4_action_while_flying source.mouse4_action source.mouse4_retarget
               mouse5 = while_flying source.mouse5_action_while_flying source.mouse5_action source.mouse5_retarget }
           behavior =

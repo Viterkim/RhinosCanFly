@@ -188,6 +188,9 @@ type FlyConfigFile =
       middle_mouse_retarget: RetargetMode
       mouse4_retarget: RetargetMode
       mouse5_retarget: RetargetMode
+      middle_mouse_uses_cursor_outside_flight: bool
+      mouse4_uses_cursor_outside_flight: bool
+      mouse5_uses_cursor_outside_flight: bool
       retarget_on_pivot: RetargetMode
       retarget_on_pan: RetargetMode
       retarget_on_flight_exit: RetargetMode

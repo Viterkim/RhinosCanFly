@@ -15,7 +15,7 @@ let MESSAGE = 0x00FF
 let WM_APP = 0x8000
 
 [<Literal>]
-let STOP_MESSAGE = WM_APP + 1
+let CONTROL_MESSAGE = WM_APP + 1
 
 [<Literal>]
 let REGISTRATION_RETRY_INTERVAL_MS = 100
@@ -548,8 +548,8 @@ let aligned_record_size (recordSize: uint32) =
 
     if aligned > uint64 Int32.MaxValue then -1 else int aligned
 
-let post_stop (window: nativeint) =
-    if Win32Native.PostMessage(window, STOP_MESSAGE, nativeint 0, nativeint 0) then
+let post_control (window: nativeint) =
+    if Win32Native.PostMessage(window, CONTROL_MESSAGE, nativeint 0, nativeint 0) then
         Ok()
     else
         Error(Win32.last_error "PostMessage")

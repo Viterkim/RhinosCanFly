@@ -71,7 +71,8 @@ let active_navigation_host () =
 [<Struct>]
 type DesiredRawNavigation =
     { host: ViewportHostIdentity
-      mode: RawViewNavigation.Mode }
+      mode: RawViewNavigation.Mode
+      pivot_center: Rhino.Geometry.Point3d voption }
 
 let desired_raw_navigation () =
     if state.lifecycle <> Available then
@@ -81,42 +82,43 @@ let desired_raw_navigation () =
         | ValueSome host ->
             ValueSome
                 { host = host
-                  mode = RawViewNavigation.Mode.ParallelZoom }
+                  mode = RawViewNavigation.Mode.ParallelZoom
+                  pivot_center = ValueNone }
         | ValueNone ->
             match RightClickTransitions.parallel_pan_host right_click with
             | ValueSome host ->
                 ValueSome
                     { host = host
-                      mode = RawViewNavigation.Mode.Pan }
-            | ValueNone when ViewNavigationState.gesture_navigation_engaged state ->
-                match ViewNavigationState.gesture_navigation_host state with
-                | ValueSome host ->
-                    match ViewNavigationState.gesture_navigation_mode state with
-                    | ValueSome ViewNavigationMode.Pivot ->
-                        ValueSome
-                            { host = host
-                              mode = RawViewNavigation.Mode.Pivot }
-                    | ValueSome ViewNavigationMode.Pan ->
-                        ValueSome
-                            { host = host
-                              mode = RawViewNavigation.Mode.Pan }
-                    | ValueNone -> ValueNone
-                | ValueNone -> ValueNone
+                      mode = RawViewNavigation.Mode.Pan
+                      pivot_center = ValueNone }
             | ValueNone ->
-                match ViewNavigationState.navigation_host state with
-                | ValueSome host ->
+                match state.gesture_navigation with
+                | GestureNavigationActive session ->
+                    match session.mode with
+                    | ViewNavigationMode.Pivot ->
+                        ValueSome
+                            { host = session.host
+                              mode = RawViewNavigation.Mode.Pivot
+                              pivot_center = ValueSome session.pivot_center }
+                    | ViewNavigationMode.Pan ->
+                        ValueSome
+                            { host = session.host
+                              mode = RawViewNavigation.Mode.Pan
+                              pivot_center = ValueNone }
+                | NoGestureNavigation ->
                     match state.view_latch with
-                    | PivotActive _ ->
+                    | PivotActive session ->
                         ValueSome
-                            { host = host
-                              mode = RawViewNavigation.Mode.Pivot }
-                    | PanActive _ ->
+                            { host = session.host
+                              mode = RawViewNavigation.Mode.Pivot
+                              pivot_center = ValueSome session.pivot_center }
+                    | PanActive session ->
                         ValueSome
-                            { host = host
-                              mode = RawViewNavigation.Mode.Pan }
+                            { host = session.host
+                              mode = RawViewNavigation.Mode.Pan
+                              pivot_center = ValueNone }
                     | NoViewLatch
                     | WaitingForRelease _ -> ValueNone
-                | ValueNone -> ValueNone
 
 let stop_raw_navigation () =
     match raw_navigation with
@@ -183,7 +185,15 @@ let start_raw_navigation (desired: DesiredRawNavigation) =
         Action<RawMouseButtonEvent, Point>(fun (event: RawMouseButtonEvent) (point: Point) ->
             handle_raw_navigation_button desired.host event point)
 
-    match RawViewNavigation.start desired.host desired.mode buttonEvents failed with
+    match
+        RawViewNavigation.start
+            desired.host
+            desired.mode
+            desired.pivot_center
+            state.routing.view_navigation_mouse
+            buttonEvents
+            failed
+    with
     | Error error ->
         match GestureNavigationTransitions.rollback_start state with
         | Ok() -> Error error
@@ -197,7 +207,9 @@ let reconcile_raw_navigation () =
     | ValueNone -> stop_raw_navigation ()
     | ValueSome desired ->
         match raw_navigation with
-        | Some current when current.Matches(desired.host, desired.mode) -> Ok()
+        | Some current when current.Matches(desired.host, desired.mode) ->
+            current.UpdatePivotCenter desired.pivot_center
+            Ok()
         | Some _ ->
             match stop_raw_navigation () with
             | Error error ->
@@ -1067,6 +1079,8 @@ let apply (config: MouseOverrideConfig) =
                   exit = config.exit_binding
                   exit_on_mouse_left = config.exit_on_left
                   exit_on_mouse_right = config.exit_on_right
+                  outside_flight_cursor = config.outside_flight_cursor
+                  view_navigation_mouse = config.view_navigation_mouse
                   prepare_navigation = config.prepare_navigation
                   retarget = config.retarget }
 

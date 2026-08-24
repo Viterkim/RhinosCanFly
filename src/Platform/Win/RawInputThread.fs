@@ -1,7 +1,7 @@
 module RhinosCanFly.Platform.Win.RawInputThread
 
 open System
-open System.Diagnostics
+open System.Collections.Concurrent
 open System.Threading
 open System.Windows.Forms
 open RhinosCanFly
@@ -26,29 +26,54 @@ type StartFailureException(message: string, restartRequired: bool, innerError: e
 
     member _.RestartRequired = restartRequired
 
-type Session =
-    { thread: Thread
-      window_handle: nativeint
+type SessionRequest =
+    { id: int64
+      config: RawInputConfig
+      session_mode: FlightSessionMode
+      input: InputAccumulator.State
+      input_available: Action
+      ready: ManualResetEventSlim
       stopped: ManualResetEventSlim
       result: ThreadResult
-      registration: RawInputNative.MouseRegistrationLease
-      stop_gate: obj
-      mutable stopped_disposed: bool
-      mutable stop_outcome: StopOutcome option }
-
-type StartupState =
-    { ready: ManualResetEventSlim
-      stopped: ManualResetEventSlim
-      mutable ready_disposed: bool
-      mutable window_handle: nativeint
       mutable registration: RawInputNative.MouseRegistrationLease option
-      mutable cancel_requested: int
-      result: ThreadResult }
-
-type StartupRecovery =
-    { thread: Thread
-      startup: StartupState
+      mutable cancelled: int
+      mutable ready_disposed: bool
       mutable stopped_disposed: bool }
+
+type WorkerCommand =
+    | StartSession of SessionRequest
+    | StopSession of int64
+    | FinishSession of int64
+    | ShutdownWorker
+
+type CommandSubmission =
+    | Posted
+    | QueuedWithoutWake of string
+
+type SessionOwnership =
+    | NoSession
+    | SessionStarting
+    | SessionActive of int64
+
+type WorkerState =
+    { thread: Thread
+      ready: ManualResetEventSlim
+      stopped: ManualResetEventSlim
+      commands: ConcurrentQueue<WorkerCommand>
+      command_gate: obj
+      result: ThreadResult
+      mutable window_handle: nativeint
+      mutable accepting_commands: bool
+      mutable cancelled: int
+      mutable ready_disposed: bool
+      mutable stopped_disposed: bool }
+
+type Session =
+    { worker: WorkerState
+      request: SessionRequest
+      stop_gate: obj
+      mutable stop_request_sent: bool
+      mutable stop_outcome: StopOutcome option }
 
 [<Literal>]
 let STARTUP_TIMEOUT_MS = 250
@@ -61,10 +86,28 @@ let JOIN_TIMEOUT_MS = 100
 
 let recoveryGate = obj ()
 let recoverySessions = ResizeArray<Session>()
-let recoveryStartups = ResizeArray<StartupRecovery>()
+let workerGate = obj ()
+let sessionGate = obj ()
+let mutable workerState: WorkerState option = None
+let mutable workerShutDown = false
+let mutable sessionOwnership = NoSession
+let mutable nextSessionId = 0L
+
+let startup_error (result: ThreadResult) = Volatile.Read(&result.startup_error)
+let runtime_error (result: ThreadResult) = Volatile.Read(&result.runtime_error)
+let shutdown_error (result: ThreadResult) = Volatile.Read(&result.shutdown_error)
+
+let record_startup_error (result: ThreadResult) (error: exn) =
+    Interlocked.CompareExchange(&result.startup_error, Some error, None) |> ignore
+
+let record_runtime_error (result: ThreadResult) (error: exn) =
+    Interlocked.CompareExchange(&result.runtime_error, Some error, None) |> ignore
+
+let record_shutdown_error (result: ThreadResult) (error: exn) =
+    Interlocked.CompareExchange(&result.shutdown_error, Some error, None) |> ignore
 
 let recovery_pending () =
-    lock recoveryGate (fun () -> recoverySessions.Count > 0 || recoveryStartups.Count > 0)
+    lock recoveryGate (fun () -> recoverySessions.Count > 0)
 
 let retain_session (session: Session) =
     lock recoveryGate (fun () ->
@@ -85,28 +128,6 @@ let forget_session (session: Session) =
 
             index <- index - 1)
 
-let retain_startup (thread: Thread) (startup: StartupState) =
-    lock recoveryGate (fun () ->
-        let exists =
-            recoveryStartups
-            |> Seq.exists (fun (candidate: StartupRecovery) -> Object.ReferenceEquals(candidate.thread, thread))
-
-        if not exists then
-            recoveryStartups.Add
-                { thread = thread
-                  startup = startup
-                  stopped_disposed = false })
-
-let forget_startup (recovery: StartupRecovery) =
-    lock recoveryGate (fun () ->
-        let mutable index = recoveryStartups.Count - 1
-
-        while index >= 0 do
-            if Object.ReferenceEquals(recoveryStartups[index], recovery) then
-                recoveryStartups.RemoveAt index
-
-            index <- index - 1)
-
 let exception_messages (error: exn) =
     match error with
     | :? AggregateException as aggregate ->
@@ -114,6 +135,11 @@ let exception_messages (error: exn) =
         |> Seq.map (fun (inner: exn) -> inner.Message)
         |> List.ofSeq
     | _ -> [ error.Message ]
+
+let stop_outcome_is_clean (outcome: StopOutcome) =
+    outcome.terminated
+    && outcome.registration_relinquished
+    && not outcome.previous_registration_lost
 
 let try_complete_registration_cleanup (registration: RawInputNative.MouseRegistrationLease option) =
     match registration with
@@ -126,223 +152,365 @@ let try_complete_registration_cleanup (registration: RawInputNative.MouseRegistr
         | Ok RawInputNative.ReplacedByAnotherOwner -> true
     | None -> true
 
-let post_stop (window: nativeint) =
-    if window = nativeint 0 then
-        Error "The raw-input window is not ready yet."
-    else
-        RawInputNative.post_stop window
+let publish_runtime_failure (request: SessionRequest) (error: exn) =
+    record_runtime_error request.result error
+    InputAccumulator.request_exit (SessionFailure(error.ToString())) request.input
+    request.input_available.Invoke()
 
-let run_thread
-    (config: RawInputConfig)
-    (sessionMode: FlightSessionMode)
-    (input: InputAccumulator.State)
-    (inputAvailable: Action)
-    (startup: StartupState)
-    =
+let run_worker (worker: WorkerState) =
     let mutable receiver: RawInputReceiver option = None
+    let mutable currentRequest: SessionRequest option = None
+    let mutable shutdownRequested = false
     let mutable readyPublished = false
+
+    let finish_current (sessionId: int64) =
+        match currentRequest with
+        | Some request when request.id = sessionId ->
+            match receiver with
+            | Some created ->
+                try
+                    created.ReleaseSession()
+                with error ->
+                    record_shutdown_error request.result error
+            | None -> ()
+
+            currentRequest <- None
+            request.stopped.Set()
+
+            if shutdownRequested then
+                Application.ExitThread()
+        | Some _
+        | None -> ()
+
+    let queue_finish (sessionId: int64) =
+        worker.commands.Enqueue(FinishSession sessionId)
+
+        match RawInputNative.post_control worker.window_handle with
+        | Ok() -> ()
+        | Error error ->
+            match currentRequest with
+            | Some request when request.id = sessionId ->
+                record_shutdown_error request.result (InvalidOperationException error)
+            | Some _
+            | None -> ()
+
+            Application.ExitThread()
+
+    let begin_session (request: SessionRequest) =
+        if Volatile.Read(&request.cancelled) <> 0 then
+            record_startup_error request.result (OperationCanceledException "Raw-input startup was cancelled.")
+            request.ready.Set()
+            request.stopped.Set()
+        else
+            match currentRequest with
+            | Some _ ->
+                let error = InvalidOperationException "Another raw-input session is already active."
+                record_startup_error request.result error
+                request.ready.Set()
+                request.stopped.Set()
+            | None ->
+                try
+                    let registrationReady =
+                        Action<RawInputNative.MouseRegistrationLease>
+                            (fun (lease: RawInputNative.MouseRegistrationLease) -> request.registration <- Some lease)
+
+                    let runtimeFailed =
+                        Action<exn>(fun (error: exn) -> publish_runtime_failure request error)
+
+                    let sessionFinished = Action(fun () -> queue_finish request.id)
+                    currentRequest <- Some request
+
+                    let startupError =
+                        match receiver with
+                        | Some created ->
+                            created.StartSession(
+                                request.config,
+                                request.session_mode,
+                                request.input,
+                                request.input_available,
+                                registrationReady,
+                                runtimeFailed,
+                                sessionFinished
+                            )
+                        | None -> Some(InvalidOperationException "The raw-input worker is unavailable.")
+
+                    match startupError with
+                    | Some error -> record_startup_error request.result error
+                    | None -> ()
+
+                    request.ready.Set()
+
+                    if Option.isSome startupError then
+                        match receiver with
+                        | Some created -> created.RequestStop()
+                        | None -> request.stopped.Set()
+                with error ->
+                    record_startup_error request.result error
+                    request.ready.Set()
+                    request.stopped.Set()
+
+    let stop_session (sessionId: int64) =
+        match currentRequest with
+        | Some request when request.id = sessionId ->
+            match receiver with
+            | Some created -> created.RequestStop()
+            | None -> request.stopped.Set()
+        | Some _
+        | None -> ()
+
+    let process_commands () =
+        let mutable command = Unchecked.defaultof<WorkerCommand>
+        let mutable draining = true
+
+        while draining do
+            if worker.commands.TryDequeue(&command) then
+                match command with
+                | StartSession request ->
+                    if shutdownRequested then
+                        record_startup_error
+                            request.result
+                            (InvalidOperationException "The raw-input worker is shutting down.")
+
+                        request.ready.Set()
+                        request.stopped.Set()
+                    else
+                        begin_session request
+                | StopSession sessionId -> stop_session sessionId
+                | FinishSession sessionId -> finish_current sessionId
+                | ShutdownWorker ->
+                    shutdownRequested <- true
+
+                    match currentRequest with
+                    | Some request -> stop_session request.id
+                    | None -> Application.ExitThread()
+            else
+                draining <- false
+
+    let process_commands_safely () =
+        try
+            process_commands ()
+        with error ->
+            record_runtime_error worker.result error
+
+            match currentRequest with
+            | Some request -> publish_runtime_failure request error
+            | None -> ()
+
+            Application.ExitThread()
 
     try
         try
-            let registrationReady =
-                Action<RawInputNative.MouseRegistrationLease>(fun (lease: RawInputNative.MouseRegistrationLease) ->
-                    startup.registration <- Some lease)
-
-            let runtimeFailed =
-                Action<exn>(fun (error: exn) ->
-                    if Option.isNone startup.result.runtime_error then
-                        startup.result.runtime_error <- Some error
-
-                    InputAccumulator.request_exit (SessionFailure(error.ToString())) input
-                    inputAvailable.Invoke())
-
-            let created =
-                new RawInputReceiver(config, sessionMode, input, inputAvailable, registrationReady, runtimeFailed)
-
+            let created = new RawInputReceiver(Action process_commands_safely)
             receiver <- Some created
-            startup.window_handle <- created.WindowHandle
 
-            match created.StartupError with
-            | Some error -> startup.result.startup_error <- Some error
-            | None -> ()
+            lock worker.command_gate (fun () ->
+                worker.window_handle <- created.WindowHandle
+                worker.accepting_commands <- true)
 
-            // Publish before Set so the waiter cannot dispose the event while startup can still fail.
             readyPublished <- true
-            startup.ready.Set()
+            worker.ready.Set()
 
-            if
-                Volatile.Read(&startup.cancel_requested) <> 0
-                || Option.isSome created.StartupError
-            then
-                created.RequestStop()
-
-            if not created.RegistrationRelinquished then
-                Application.Run()
-
-            while not created.RegistrationRelinquished do
-                created.RequestStop()
+            if Volatile.Read(&worker.cancelled) = 0 then
                 Application.Run()
         with error ->
             if not readyPublished then
-                startup.result.startup_error <- Some error
+                record_startup_error worker.result error
                 readyPublished <- true
-                startup.ready.Set()
+                worker.ready.Set()
             else
-                if Option.isNone startup.result.runtime_error then
-                    Debug.WriteLine $"RhinosCanFly raw-input thread failed: {error.Message}"
-                    startup.result.runtime_error <- Some error
+                record_runtime_error worker.result error
 
-                InputAccumulator.request_exit (SessionFailure(error.ToString())) input
-                inputAvailable.Invoke()
-
-            match receiver with
-            | Some created ->
-                while not created.RegistrationRelinquished do
-                    created.RequestStop()
-
-                    if not created.RegistrationRelinquished then
-                        Thread.Sleep RawInputNative.REGISTRATION_RETRY_INTERVAL_MS
-            | None -> ()
+                match currentRequest with
+                | Some request -> publish_runtime_failure request error
+                | None -> ()
     finally
-        try
-            match receiver with
-            | Some created -> created.ReleaseResources()
+        lock worker.command_gate (fun () -> worker.accepting_commands <- false)
+
+        match receiver with
+        | Some created ->
+            while not created.RegistrationRelinquished do
+                created.RequestStop()
+
+                if not created.RegistrationRelinquished then
+                    Thread.Sleep RawInputNative.REGISTRATION_RETRY_INTERVAL_MS
+
+            match currentRequest with
+            | Some request ->
+                try
+                    created.ReleaseSession()
+                with error ->
+                    record_shutdown_error request.result error
+
+                request.stopped.Set()
             | None -> ()
-        with error ->
-            startup.result.shutdown_error <- Some error
+        | None -> ()
 
-        startup.stopped.Set()
+        let pendingError =
+            match runtime_error worker.result with
+            | Some error -> error
+            | None -> InvalidOperationException "The raw-input worker stopped before processing a session."
 
-let observe_termination (thread: Thread) (stopped: ManualResetEventSlim) =
-    let signalled = stopped.Wait STOP_OBSERVATION_MS
+        let mutable pendingCommand = Unchecked.defaultof<WorkerCommand>
 
-    if signalled && thread.IsAlive then
-        thread.Join JOIN_TIMEOUT_MS
-    else
-        signalled || not thread.IsAlive
+        while worker.commands.TryDequeue(&pendingCommand) do
+            match pendingCommand with
+            | StartSession request ->
+                record_startup_error request.result pendingError
 
-let cancel_startup (startup: StartupState) (thread: Thread) =
-    Interlocked.Exchange(&startup.cancel_requested, 1) |> ignore
+                request.ready.Set()
+                request.stopped.Set()
+            | StopSession _
+            | FinishSession _
+            | ShutdownWorker -> ()
 
-    if startup.window_handle <> nativeint 0 then
-        post_stop startup.window_handle |> ignore
+        match receiver with
+        | Some created ->
+            try
+                created.ReleaseResources()
+            with error ->
+                record_shutdown_error worker.result error
+        | None -> ()
 
-    let terminated = observe_termination thread startup.stopped
+        worker.stopped.Set()
 
-    let cleanupComplete =
-        terminated && try_complete_registration_cleanup startup.registration
+let create_worker () =
+    let mutable created = Unchecked.defaultof<WorkerState>
+    let thread = Thread(ThreadStart(fun () -> run_worker created))
 
-    if not cleanupComplete then
-        retain_startup thread startup
-
-    cleanupComplete
-
-let dispose_startup_events (startup: StartupState) =
-    if not startup.ready_disposed then
-        startup.ready.Dispose()
-        startup.ready_disposed <- true
-
-    startup.stopped.Dispose()
-
-let start
-    (config: RawInputConfig)
-    (sessionMode: FlightSessionMode)
-    (input: InputAccumulator.State)
-    (inputAvailable: Action)
-    =
-    if recovery_pending () then
-        let message =
-            "A previous raw-input worker still needs cleanup. Run RhinosCanFlyInputRecover or restart Rhino."
-
-        raise (StartFailureException(message, true, InvalidOperationException message))
-
-    let result =
-        { startup_error = None
-          runtime_error = None
-          shutdown_error = None }
-
-    let startup =
-        { ready = new ManualResetEventSlim(false)
+    let worker =
+        { thread = thread
+          ready = new ManualResetEventSlim(false)
           stopped = new ManualResetEventSlim(false)
-          ready_disposed = false
+          commands = ConcurrentQueue<WorkerCommand>()
+          command_gate = obj ()
+          result =
+            { startup_error = None
+              runtime_error = None
+              shutdown_error = None }
           window_handle = nativeint 0
-          registration = None
-          cancel_requested = 0
-          result = result }
+          accepting_commands = false
+          cancelled = 0
+          ready_disposed = false
+          stopped_disposed = false }
 
-    let thread =
-        Thread(ThreadStart(fun () -> run_thread config sessionMode input inputAvailable startup))
-
+    created <- worker
     thread.IsBackground <- true
     thread.Name <- "RhinosCanFly raw input"
     thread.SetApartmentState(ApartmentState.STA)
     thread.Start()
+    worker
 
-    if not (startup.ready.Wait STARTUP_TIMEOUT_MS) then
-        let cleanupComplete = cancel_startup startup thread
+let dispose_worker_events (worker: WorkerState) =
+    if not worker.ready_disposed then
+        worker.ready.Dispose()
+        worker.ready_disposed <- true
 
-        if cleanupComplete then
-            dispose_startup_events startup
+    if not worker.stopped_disposed then
+        worker.stopped.Dispose()
+        worker.stopped_disposed <- true
 
-        let message =
-            "The raw-input worker did not become ready within 250 ms. Cleanup is continuing on that worker."
+let ensure_worker () =
+    lock workerGate (fun () ->
+        if workerShutDown then
+            let message = "The raw-input worker has shut down."
+            raise (StartFailureException(message, true, InvalidOperationException message))
 
-        raise (StartFailureException(message, not cleanupComplete, TimeoutException message))
+        let worker =
+            match workerState with
+            | Some current when not current.stopped.IsSet -> current
+            | Some current ->
+                dispose_worker_events current
+                let replacement = create_worker ()
+                workerState <- Some replacement
+                replacement
+            | None ->
+                let created = create_worker ()
+                workerState <- Some created
+                created
 
-    startup.ready.Dispose()
-    startup.ready_disposed <- true
+        if not (worker.ready.Wait STARTUP_TIMEOUT_MS) then
+            Interlocked.Exchange(&worker.cancelled, 1) |> ignore
+            let terminated = worker.stopped.Wait STOP_OBSERVATION_MS
 
-    match result.startup_error, startup.registration with
-    | Some error, _ ->
-        let cleanupComplete = cancel_startup startup thread
+            if terminated then
+                dispose_worker_events worker
+                workerState <- None
 
-        if cleanupComplete then
-            startup.stopped.Dispose()
+            let message = "The raw-input worker did not become ready within 250 ms."
+            raise (StartFailureException(message, not terminated, TimeoutException message))
 
-        let errors =
-            exception_messages error
-            @ (result.shutdown_error |> Option.map exception_messages |> Option.defaultValue [])
+        let fail_worker (error: exn) =
+            let terminated = worker.stopped.Wait STOP_OBSERVATION_MS
 
-        let message = String.concat "; " errors
+            if terminated then
+                dispose_worker_events worker
+                workerState <- None
 
-        raise (StartFailureException(message, not cleanupComplete, error))
-    | None, None ->
-        let cleanupComplete = cancel_startup startup thread
+            raise (StartFailureException(error.Message, not terminated, error))
 
-        if cleanupComplete then
-            startup.stopped.Dispose()
+        match startup_error worker.result with
+        | Some error -> fail_worker error
+        | None -> ()
 
-        let message = "The raw-input worker started without a mouse registration."
-        raise (StartFailureException(message, not cleanupComplete, InvalidOperationException message))
-    | None, Some registration when startup.stopped.IsSet ->
-        let terminated = not thread.IsAlive || thread.Join JOIN_TIMEOUT_MS
+        match runtime_error worker.result with
+        | Some error -> fail_worker error
+        | None -> ()
 
-        let cleanupComplete =
-            terminated && try_complete_registration_cleanup startup.registration
+        if worker.stopped.IsSet then
+            let message = "The raw-input worker stopped during startup."
+            dispose_worker_events worker
+            workerState <- None
+            raise (StartFailureException(message, false, InvalidOperationException message))
 
-        if cleanupComplete then
-            startup.stopped.Dispose()
+        worker)
+
+let prepare () =
+    try
+        ensure_worker () |> ignore
+        Ok()
+    with error ->
+        Error error.Message
+
+let enqueue_command (worker: WorkerState) (command: WorkerCommand) =
+    lock worker.command_gate (fun () ->
+        if not worker.accepting_commands || worker.stopped.IsSet then
+            Error "The raw-input worker is no longer accepting commands."
         else
-            retain_startup thread startup
+            worker.commands.Enqueue command
 
-        let message = "The raw-input worker stopped before startup completed."
+            match RawInputNative.post_control worker.window_handle with
+            | Ok() -> Ok Posted
+            | Error error -> Ok(QueuedWithoutWake error))
 
-        raise (StartFailureException(message, not cleanupComplete, InvalidOperationException message))
-    | None, Some registration ->
-        { thread = thread
-          window_handle = startup.window_handle
-          stopped = startup.stopped
-          result = result
-          registration = registration
-          stop_gate = obj ()
-          stopped_disposed = false
-          stop_outcome = None }
+let clear_active_session (sessionId: int64) =
+    lock sessionGate (fun () ->
+        match sessionOwnership with
+        | SessionActive active when active = sessionId -> sessionOwnership <- NoSession
+        | SessionActive _
+        | SessionStarting
+        | NoSession -> ())
+
+let request_stop_core (session: Session) =
+    if session.stop_request_sent then
+        Ok()
+    elif session.request.stopped.IsSet then
+        session.stop_request_sent <- true
+        Ok()
+    else
+        match enqueue_command session.worker (StopSession session.request.id) with
+        | Ok Posted ->
+            session.stop_request_sent <- true
+            Ok()
+        | Ok(QueuedWithoutWake error) ->
+            session.stop_request_sent <- true
+            Error error
+        | Error _ when session.worker.stopped.IsSet ->
+            session.stop_request_sent <- true
+            Ok()
+        | Error error -> Error error
 
 let request_stop (session: Session) =
-    if not session.stopped.IsSet then
-        post_stop session.window_handle
-    else
-        Ok()
+    lock session.stop_gate (fun () -> request_stop_core session)
 
 let stop_internal (attempt: StopAttempt) (session: Session) =
     lock session.stop_gate (fun () ->
@@ -352,46 +520,55 @@ let stop_internal (attempt: StopAttempt) (session: Session) =
         | None ->
             let errors = ResizeArray<string>()
 
-            match request_stop session with
+            match request_stop_core session with
             | Ok() -> ()
             | Error error -> errors.Add error
 
-            let terminated = observe_termination session.thread session.stopped
+            let terminated = session.request.stopped.Wait STOP_OBSERVATION_MS
 
             let cleanupComplete =
-                terminated && try_complete_registration_cleanup (Some session.registration)
+                terminated && try_complete_registration_cleanup session.request.registration
 
-            let previousRegistrationLost = session.registration.previous_registration_lost
+            let previousRegistrationLost =
+                match session.request.registration with
+                | Some registration -> registration.previous_registration_lost
+                | None -> false
 
-            if cleanupComplete && not session.stopped_disposed then
-                session.stopped.Dispose()
-                session.stopped_disposed <- true
+            if cleanupComplete && not session.request.stopped_disposed then
+                session.request.stopped.Dispose()
+                session.request.stopped_disposed <- true
 
-            match session.result.runtime_error with
+            if cleanupComplete && not session.request.ready_disposed then
+                session.request.ready.Dispose()
+                session.request.ready_disposed <- true
+
+            match runtime_error session.request.result with
             | Some error -> exception_messages error |> Seq.iter errors.Add
             | None -> ()
 
-            match session.result.shutdown_error with
+            match shutdown_error session.request.result with
             | Some error -> exception_messages error |> Seq.iter errors.Add
             | None -> ()
 
             if not terminated then
-                errors.Add "The raw-input worker is still cleaning up in the background."
+                errors.Add "The raw-input session is still cleaning up in the background."
+
+            let registrationRelinquished =
+                match session.request.registration with
+                | Some registration -> registration.relinquished
+                | None -> true
 
             let outcome =
                 { terminated = terminated
-                  registration_relinquished = session.registration.relinquished
+                  registration_relinquished = registrationRelinquished
                   previous_registration_lost = previousRegistrationLost
                   errors = List.ofSeq errors }
 
             session.stop_outcome <- Some outcome
 
-            if
-                outcome.terminated
-                && outcome.registration_relinquished
-                && not outcome.previous_registration_lost
-            then
+            if stop_outcome_is_clean outcome then
                 forget_session session
+                clear_active_session session.request.id
             else
                 retain_session session
 
@@ -399,51 +576,141 @@ let stop_internal (attempt: StopAttempt) (session: Session) =
 
 let stop (session: Session) = stop_internal InitialStop session
 
+let start
+    (config: RawInputConfig)
+    (sessionMode: FlightSessionMode)
+    (input: InputAccumulator.State)
+    (inputAvailable: Action)
+    =
+    if recovery_pending () then
+        let message =
+            "A previous raw-input session still needs cleanup. Run RhinosCanFlyInputRecover or restart Rhino."
+
+        raise (StartFailureException(message, true, InvalidOperationException message))
+
+    let reserved =
+        lock sessionGate (fun () ->
+            match sessionOwnership with
+            | NoSession ->
+                sessionOwnership <- SessionStarting
+                true
+            | SessionStarting
+            | SessionActive _ -> false)
+
+    if not reserved then
+        let message = "Another raw-input session is already active."
+        raise (StartFailureException(message, false, InvalidOperationException message))
+
+    try
+        let worker = ensure_worker ()
+        let sessionId = Interlocked.Increment(&nextSessionId)
+
+        let result =
+            { startup_error = None
+              runtime_error = None
+              shutdown_error = None }
+
+        let request =
+            { id = sessionId
+              config = config
+              session_mode = sessionMode
+              input = input
+              input_available = inputAvailable
+              ready = new ManualResetEventSlim(false)
+              stopped = new ManualResetEventSlim(false)
+              result = result
+              registration = None
+              cancelled = 0
+              ready_disposed = false
+              stopped_disposed = false }
+
+        let session =
+            { worker = worker
+              request = request
+              stop_gate = obj ()
+              stop_request_sent = false
+              stop_outcome = None }
+
+        match enqueue_command worker (StartSession request) with
+        | Error error ->
+            Interlocked.Exchange(&request.cancelled, 1) |> ignore
+            request.ready.Set()
+            request.stopped.Set()
+
+            let outcome = stop_internal RecoveryRetry session
+
+            let restartRequired = not (stop_outcome_is_clean outcome)
+
+            raise (StartFailureException(error, restartRequired, InvalidOperationException error))
+        | Ok(QueuedWithoutWake error) ->
+            Interlocked.Exchange(&request.cancelled, 1) |> ignore
+            let outcome = stop_internal RecoveryRetry session
+            let restartRequired = not (stop_outcome_is_clean outcome)
+            raise (StartFailureException(error, restartRequired, InvalidOperationException error))
+        | Ok Posted -> ()
+
+        if not (request.ready.Wait STARTUP_TIMEOUT_MS) then
+            Interlocked.Exchange(&request.cancelled, 1) |> ignore
+            let outcome = stop_internal RecoveryRetry session
+
+            let message =
+                "The raw-input session did not become ready within 250 ms. Cleanup is continuing on the worker."
+
+            let restartRequired = not (stop_outcome_is_clean outcome)
+
+            raise (StartFailureException(message, restartRequired, TimeoutException message))
+
+        if not request.ready_disposed then
+            request.ready.Dispose()
+            request.ready_disposed <- true
+
+        match startup_error result with
+        | Some error ->
+            let outcome = stop_internal RecoveryRetry session
+
+            let errors =
+                exception_messages error
+                @ (shutdown_error result |> Option.map exception_messages |> Option.defaultValue [])
+
+            let restartRequired = not (stop_outcome_is_clean outcome)
+
+            raise (StartFailureException(String.concat "; " errors, restartRequired, error))
+        | None ->
+            match request.registration with
+            | None ->
+                let outcome = stop_internal RecoveryRetry session
+                let message = "The raw-input session started without a mouse registration."
+
+                let restartRequired = not (stop_outcome_is_clean outcome)
+
+                raise (StartFailureException(message, restartRequired, InvalidOperationException message))
+            | Some _ when request.stopped.IsSet ->
+                let outcome = stop_internal RecoveryRetry session
+                let message = "The raw-input session stopped before startup completed."
+
+                let restartRequired = not (stop_outcome_is_clean outcome)
+
+                raise (StartFailureException(message, restartRequired, InvalidOperationException message))
+            | Some _ ->
+                lock sessionGate (fun () -> sessionOwnership <- SessionActive sessionId)
+                session
+    finally
+        lock sessionGate (fun () ->
+            match sessionOwnership with
+            | SessionStarting -> sessionOwnership <- NoSession
+            | NoSession
+            | SessionActive _ -> ())
+
 let runtime_failed (session: Session) =
-    Option.isSome session.result.runtime_error
+    Option.isSome (runtime_error session.request.result)
 
 let registration_is_current (session: Session) =
-    RawInputNative.mouse_registration_is_current session.registration
-
-let recover_startup (recovery: StartupRecovery) =
-    let errors = ResizeArray<string>()
-    Interlocked.Exchange(&recovery.startup.cancel_requested, 1) |> ignore
-
-    if
-        recovery.startup.window_handle <> nativeint 0
-        && not recovery.startup.stopped.IsSet
-    then
-        match post_stop recovery.startup.window_handle with
-        | Ok() -> ()
-        | Error error -> errors.Add error
-
-    let terminated = observe_termination recovery.thread recovery.startup.stopped
-
-    let cleanupComplete =
-        terminated && try_complete_registration_cleanup recovery.startup.registration
-
-    if cleanupComplete then
-        if not recovery.startup.ready_disposed then
-            recovery.startup.ready.Dispose()
-            recovery.startup.ready_disposed <- true
-
-        if not recovery.stopped_disposed then
-            recovery.startup.stopped.Dispose()
-            recovery.stopped_disposed <- true
-
-        forget_startup recovery
-
-    match recovery.startup.registration with
-    | Some lease when lease.previous_registration_lost ->
-        errors.Add "The previous raw-mouse registration was lost. Restart Rhino before flying again."
-    | Some _
-    | None -> ()
-
-    struct (cleanupComplete, List.ofSeq errors)
+    match session.request.registration with
+    | Some registration -> RawInputNative.mouse_registration_is_current registration
+    | None -> Ok false
 
 let retry_recovery () =
     let sessions = lock recoveryGate (fun () -> recoverySessions.ToArray())
-    let startups = lock recoveryGate (fun () -> recoveryStartups.ToArray())
     let errors = ResizeArray<string>()
 
     for session in sessions do
@@ -452,13 +719,40 @@ let retry_recovery () =
         for error in outcome.errors do
             errors.Add error
 
-    for startup in startups do
-        let struct (_terminated, startupErrors) = recover_startup startup
-
-        for error in startupErrors do
-            errors.Add error
-
-    let remaining =
-        lock recoveryGate (fun () -> recoverySessions.Count + recoveryStartups.Count)
-
+    let remaining = lock recoveryGate (fun () -> recoverySessions.Count)
     struct (remaining, List.ofSeq errors)
+
+let shutdown () =
+    lock workerGate (fun () ->
+        workerShutDown <- true
+        let errors = ResizeArray<string>()
+
+        match workerState with
+        | None -> ()
+        | Some worker ->
+            match enqueue_command worker ShutdownWorker with
+            | Ok Posted -> ()
+            | Ok(QueuedWithoutWake error) -> errors.Add error
+            | Error _ when worker.stopped.IsSet -> ()
+            | Error error -> errors.Add error
+
+            let terminated = worker.stopped.Wait STOP_OBSERVATION_MS
+
+            if terminated && worker.thread.IsAlive then
+                worker.thread.Join JOIN_TIMEOUT_MS |> ignore
+
+            match runtime_error worker.result with
+            | Some error -> exception_messages error |> Seq.iter errors.Add
+            | None -> ()
+
+            match shutdown_error worker.result with
+            | Some error -> exception_messages error |> Seq.iter errors.Add
+            | None -> ()
+
+            if terminated then
+                dispose_worker_events worker
+                workerState <- None
+            else
+                errors.Add "The raw-input worker is still shutting down."
+
+        List.ofSeq errors)

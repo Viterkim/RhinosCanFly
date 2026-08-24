@@ -11,6 +11,23 @@ let complete_view_latch (state: State) =
     state.view_latch <- NoViewLatch
     ViewNavigationState.complete_view_latch previous
 
+let uses_cursor_outside_flight (state: State) (owner: GestureOwner) =
+    match owner with
+    | GestureOwner.ModifiedRightClick -> true
+    | GestureOwner.Middle -> state.routing.outside_flight_cursor.middle
+    | GestureOwner.Mouse4 -> state.routing.outside_flight_cursor.mouse4
+    | GestureOwner.Mouse5 -> state.routing.outside_flight_cursor.mouse5
+
+let client_target_point (state: State) (owner: GestureOwner) (view: RhinoView) (screenPoint: Point) =
+    if uses_cursor_outside_flight state owner then
+        let point = view.ActiveViewport.ScreenToClient screenPoint
+        { x = point.X; y = point.Y }
+    else
+        let bounds = view.ActiveViewport.Bounds
+
+        { x = bounds.Width / 2
+          y = bounds.Height / 2 }
+
 let stop (state: State) =
     state.gesture_navigation <- NoGestureNavigation
     ViewNavigationState.stop_timer_if_idle state
@@ -51,6 +68,7 @@ let begin_navigation
     (state: State)
     (owner: GestureOwner)
     (host: ViewportHostIdentity)
+    (screenPoint: Point)
     (mode: ViewNavigationMode)
     (lifetime: GestureLifetime)
     =
@@ -81,22 +99,40 @@ let begin_navigation
                 else
                     ValueSome view.ActiveViewport.CameraTarget
 
-            match state.routing.prepare_navigation host mode with
+            let targetPoint =
+                if
+                    isNull view
+                    || isNull view.Document
+                    || not (uses_cursor_outside_flight state owner)
+                then
+                    NavigationTargetPoint.ViewCenter
+                else
+                    NavigationTargetPoint.ClientPoint(client_target_point state owner view screenPoint)
+
+            match state.routing.prepare_navigation host targetPoint mode with
             | Error error ->
                 match restore_original_target host originalTarget with
                 | Ok() -> Error error
                 | Error restoreError -> Error $"{error}; {restoreError}"
             | Ok prepared ->
-                state.gesture_navigation <-
-                    GestureNavigationActive
-                        { owner = owner
-                          host = prepared
-                          mode = mode
-                          lifetime = lifetime
-                          original_target = originalTarget }
+                let preparedView = RhinoView.FromRuntimeSerialNumber prepared.view_serial_number
 
-                ViewNavigationState.keep_timer_running state
-                Ok()
+                if isNull preparedView || isNull preparedView.Document then
+                    match restore_original_target host originalTarget with
+                    | Ok() -> Error "The navigation viewport disappeared during startup."
+                    | Error restoreError -> Error $"The navigation viewport disappeared during startup; {restoreError}"
+                else
+                    state.gesture_navigation <-
+                        GestureNavigationActive
+                            { owner = owner
+                              host = prepared
+                              mode = mode
+                              lifetime = lifetime
+                              pivot_center = preparedView.ActiveViewport.CameraTarget
+                              original_target = originalTarget }
+
+                    ViewNavigationState.keep_timer_running state
+                    Ok()
 
 let press
     (state: State)
@@ -113,13 +149,15 @@ let press
         if isNull view then
             Error "The retarget viewport is unavailable."
         else
-            let point = view.ActiveViewport.ScreenToClient screenPoint
-
-            state.routing.retarget host { x = point.X; y = point.Y } mode
-    | RoutedMouseAction.TogglePivot -> begin_navigation state owner host ViewNavigationMode.Pivot GestureLifetime.Toggle
-    | RoutedMouseAction.HoldPivot -> begin_navigation state owner host ViewNavigationMode.Pivot GestureLifetime.Hold
-    | RoutedMouseAction.TogglePan -> begin_navigation state owner host ViewNavigationMode.Pan GestureLifetime.Toggle
-    | RoutedMouseAction.HoldPan -> begin_navigation state owner host ViewNavigationMode.Pan GestureLifetime.Hold
+            state.routing.retarget host (client_target_point state owner view screenPoint) mode
+    | RoutedMouseAction.TogglePivot ->
+        begin_navigation state owner host screenPoint ViewNavigationMode.Pivot GestureLifetime.Toggle
+    | RoutedMouseAction.HoldPivot ->
+        begin_navigation state owner host screenPoint ViewNavigationMode.Pivot GestureLifetime.Hold
+    | RoutedMouseAction.TogglePan ->
+        begin_navigation state owner host screenPoint ViewNavigationMode.Pan GestureLifetime.Toggle
+    | RoutedMouseAction.HoldPan ->
+        begin_navigation state owner host screenPoint ViewNavigationMode.Pan GestureLifetime.Hold
 
 let release (state: State) (owner: GestureOwner) =
     match state.gesture_navigation with

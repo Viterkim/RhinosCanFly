@@ -21,7 +21,10 @@ type RoutingConfig =
       exit: KeyBinding option
       exit_on_mouse_left: bool
       exit_on_mouse_right: bool
-      prepare_navigation: ViewportHostIdentity -> ViewNavigationMode -> Result<ViewportHostIdentity, string>
+      outside_flight_cursor: OutsideFlightCursorConfig
+      view_navigation_mouse: ViewNavigationMouseConfig
+      prepare_navigation:
+          ViewportHostIdentity -> NavigationTargetPoint -> ViewNavigationMode -> Result<ViewportHostIdentity, string>
       retarget: ViewportHostIdentity -> ViewportClientPoint -> RetargetMode -> Result<unit, string> }
 
 type SideButton =
@@ -61,6 +64,7 @@ type GestureNavigationSession =
       host: ViewportHostIdentity
       mode: ViewNavigationMode
       lifetime: GestureLifetime
+      pivot_center: Rhino.Geometry.Point3d
       original_target: Rhino.Geometry.Point3d voption }
 
 type GestureNavigation =
@@ -70,6 +74,7 @@ type GestureNavigation =
 type ViewLatchSession =
     { host: ViewportHostIdentity
       mode: ViewNavigationMode
+      pivot_center: Rhino.Geometry.Point3d
       started_at: int64
       completion: Action option }
 
@@ -128,7 +133,21 @@ let empty_routing =
       exit = None
       exit_on_mouse_left = false
       exit_on_mouse_right = false
-      prepare_navigation = fun (host: ViewportHostIdentity) (_: ViewNavigationMode) -> Ok host
+      outside_flight_cursor =
+        { middle = false
+          mouse4 = false
+          mouse5 = false }
+      view_navigation_mouse =
+        { x_mode = MouseAxisMode.Normal
+          y_mode = MouseAxisMode.Normal
+          perspective_sensitivity = RuntimeMouseSensitivity 0.
+          parallel_sensitivity = RuntimeMouseSensitivity 0.
+          perspective_pivot_multiplier = MousePivotMultiplier 1.
+          parallel_pivot_multiplier = MousePivotMultiplier 1.
+          perspective_pan_multiplier = MousePanMultiplier 1.
+          parallel_pan_multiplier = MousePanMultiplier 1. }
+      prepare_navigation =
+        fun (host: ViewportHostIdentity) (_: NavigationTargetPoint) (_: ViewNavigationMode) -> Ok host
       retarget = fun (_: ViewportHostIdentity) (_: ViewportClientPoint) (_: RetargetMode) -> Ok() }
 
 let create_state () =

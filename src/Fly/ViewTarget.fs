@@ -143,24 +143,35 @@ let try_filtered_object_at_internal
                         if not (isNull picked) then
                             for reference in picked do
                                 if not (isNull reference) then
+                                    let rhinoObject = reference.Object()
                                     let selectionPoint = reference.SelectionPoint()
 
-                                    if selectionPoint.IsValid then
-                                        let depth = Vector3d.Multiply(selectionPoint - cameraLocation, cameraDirection)
+                                    match object_bounds false rhinoObject with
+                                    | ValueSome bounds ->
+                                        let center = bounds.Center
+                                        let centerDepth = Vector3d.Multiply(center - cameraLocation, cameraDirection)
 
-                                        if depth > RhinoMath.ZeroTolerance && depth < nearestDepth then
-                                            let rhinoObject = reference.Object()
+                                        if centerDepth > RhinoMath.ZeroTolerance then
+                                            let depth =
+                                                if selectionPoint.IsValid then
+                                                    let pickedDepth =
+                                                        Vector3d.Multiply(
+                                                            selectionPoint - cameraLocation,
+                                                            cameraDirection
+                                                        )
 
-                                            match object_bounds false rhinoObject with
-                                            | ValueSome bounds ->
-                                                let centerDepth =
-                                                    Vector3d.Multiply(bounds.Center - cameraLocation, cameraDirection)
+                                                    if pickedDepth > RhinoMath.ZeroTolerance then
+                                                        pickedDepth
+                                                    else
+                                                        centerDepth
+                                                else
+                                                    centerDepth
 
-                                                if centerDepth > RhinoMath.ZeroTolerance then
-                                                    nearestDepth <- depth
-                                                    selectedObject <- rhinoObject
-                                                    estimatedTarget <- bounds.Center
-                                            | ValueNone -> ()
+                                            if depth < nearestDepth then
+                                                nearestDepth <- depth
+                                                selectedObject <- rhinoObject
+                                                estimatedTarget <- center
+                                    | ValueNone -> ()
 
                         let exactSelectedHit = selectedObjectPick = ExactUnderCursor
                         let checkSelectedObjects = exactSelectedHit || isNull selectedObject
@@ -253,14 +264,21 @@ let try_object_center_at
     try
         let selectionFilter = SelectionFilterSettings.GetCurrentState()
 
-        try
-            SelectionFilterSettings.GlobalGeometryFilter <- ObjectType.AnyObject
-            SelectionFilterSettings.OneShotGeometryFilter <- ObjectType.AnyObject
-            SelectionFilterSettings.Enabled <- false
-            SelectionFilterSettings.SubObjectSelect <- false
+        if
+            not selectionFilter.Enabled
+            && selectionFilter.OneShotGeometryFilter = ObjectType.None
+            && not selectionFilter.SubObjectSelect
+        then
             select view viewport point
-        finally
-            SelectionFilterSettings.UpdateFromState selectionFilter
+        else
+            try
+                SelectionFilterSettings.GlobalGeometryFilter <- ObjectType.AnyObject
+                SelectionFilterSettings.OneShotGeometryFilter <- ObjectType.AnyObject
+                SelectionFilterSettings.Enabled <- false
+                SelectionFilterSettings.SubObjectSelect <- false
+                select view viewport point
+            finally
+                SelectionFilterSettings.UpdateFromState selectionFilter
     with error ->
         Debug.WriteLine $"RhinosCanFly object center selection: {error}"
         None
@@ -346,6 +364,30 @@ let distance_selection_at
     | Some target -> Some { target = target; bounds = ValueNone }
     | None -> None
 
+let selected_target_at
+    (config: RetargetConfig)
+    (mode: RetargetMode)
+    (speed: float)
+    (view: RhinoView)
+    (viewport: RhinoViewport)
+    (point: ViewportClientPoint)
+    =
+    let picked_or_distance (target: Point3d option) =
+        match target with
+        | Some _ -> target
+        | None -> distance_target config speed viewport
+
+    match mode with
+    | RetargetMode.Distance -> distance_target config speed viewport
+    | RetargetMode.Geometry -> try_geometry_target_at viewport point
+    | RetargetMode.GeometryThenDistance -> try_geometry_target_at viewport point |> picked_or_distance
+    | RetargetMode.Target -> try_filtered_target_at view viewport point
+    | RetargetMode.TargetThenDistance -> try_filtered_target_at view viewport point |> picked_or_distance
+    | RetargetMode.ObjectCenter -> try_object_center_target_at view viewport point
+    | RetargetMode.ObjectCenterThenDistance -> try_object_center_target_at view viewport point |> picked_or_distance
+    | RetargetMode.Off
+    | _ -> None
+
 let try_geometry_selection_at (view: RhinoView) (viewport: RhinoViewport) (point: ViewportClientPoint) =
     match try_geometry_target_at viewport point with
     | None -> None
@@ -396,8 +438,14 @@ let apply_for_navigation
     (speed: float)
     (view: RhinoView)
     (viewport: RhinoViewport)
+    (targetPoint: NavigationTargetPoint)
     =
-    match selected_target config retargetMode speed view viewport with
+    let point =
+        match targetPoint with
+        | NavigationTargetPoint.ClientPoint clientPoint -> clientPoint
+        | NavigationTargetPoint.ViewCenter -> viewport_center viewport
+
+    match selected_target_at config retargetMode speed view viewport point with
     | Some selectedTarget ->
         let target =
             match navigationMode with

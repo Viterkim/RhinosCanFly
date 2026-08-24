@@ -91,6 +91,9 @@ type OptionFields =
       mouse4_action_while_flying: CheckBox
       mouse5_action_while_flying: CheckBox
       middle_mouse_action_while_flying: CheckBox
+      middle_mouse_uses_cursor_outside_flight: CheckBox
+      mouse4_uses_cursor_outside_flight: CheckBox
+      mouse5_uses_cursor_outside_flight: CheckBox
       right_click_enters_parallel_views: CheckBox
       exit_on_mouse_left: CheckBox
       exit_on_mouse_right: CheckBox
@@ -290,6 +293,9 @@ let create () =
               mouse4_action_while_flying = new CheckBox(Text = "Also while flying")
               mouse5_action_while_flying = new CheckBox(Text = "Also while flying")
               middle_mouse_action_while_flying = new CheckBox(Text = "Also while flying")
+              middle_mouse_uses_cursor_outside_flight = new CheckBox(Text = "Use cursor position outside flight")
+              mouse4_uses_cursor_outside_flight = new CheckBox(Text = "Use cursor position outside flight")
+              mouse5_uses_cursor_outside_flight = new CheckBox(Text = "Use cursor position outside flight")
               right_click_enters_parallel_views = new CheckBox(Text = "Enable right click to enter in parallel")
               exit_on_mouse_left = new CheckBox(Text = "Left click exits flight / navigation")
               exit_on_mouse_right = new CheckBox(Text = "Right click exits flight / navigation")
