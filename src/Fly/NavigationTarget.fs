@@ -70,22 +70,21 @@ let prepare
                 let activeView = document.Views.ActiveView
 
                 if isNull activeView || activeView.RuntimeSerialNumber <> host.view_serial_number then
-                    document.Views.ActiveView <- view
-
-                let currentHost = PlatformInput.capture_viewport_host view
-
-                if
-                    currentHost.document_serial_number = host.document_serial_number
-                    && currentHost.view_serial_number = host.view_serial_number
-                    && currentHost.viewport_id = host.viewport_id
-                    && currentHost.view_window = host.view_window
-                    && currentHost.root_window = host.root_window
-                then
-                    match apply loaded targetPoint mode view with
-                    | Ok() -> Ok currentHost
-                    | Error error -> Error error
+                    Error "The navigation viewport is not active yet."
                 else
-                    Error "The navigation viewport changed before it could be activated."
+                    let currentHost = PlatformInput.capture_viewport_host view
+
+                    if
+                        currentHost.document_serial_number = host.document_serial_number
+                        && currentHost.view_serial_number = host.view_serial_number
+                        && currentHost.view_window = host.view_window
+                        && currentHost.root_window = host.root_window
+                    then
+                        match apply loaded targetPoint mode view with
+                        | Ok() -> Ok currentHost
+                        | Error error -> Error error
+                    else
+                        Error "The navigation viewport changed before it could be prepared."
     with error ->
         Error $"Could not prepare view navigation: {error.Message}"
 
@@ -118,7 +117,25 @@ let zoom_view_to_selection (target: Point3d) (bounds: BoundingBox) (view: RhinoV
             viewport.CameraUp <- up
             view.Redraw()
 
-let zoom_views_to_selection (retarget: RetargetConfig) (target: Point3d) (bounds: BoundingBox) (view: RhinoView) =
+let apply_to_views (scope: RetargetScope) (view: RhinoView) (applyToView: RhinoView -> unit) =
+    if not (isNull view) then
+        let document = view.Document
+
+        if not (isNull document) then
+            if scope = RetargetScope.AllViews then
+                applyToView view
+
+            for other in document.Views.GetViewList(true, false) do
+                if not (isNull other) && other.RuntimeSerialNumber <> view.RuntimeSerialNumber then
+                    applyToView other
+
+let zoom_views_to_selection
+    (retarget: RetargetConfig)
+    (scope: RetargetScope)
+    (target: Point3d)
+    (bounds: BoundingBox)
+    (view: RhinoView)
+    =
     let previousPerspectiveBorder = ViewSettings.ZoomExtentsPerspectiveViewBorder
     let previousParallelBorder = ViewSettings.ZoomExtentsParallelViewBorder
 
@@ -126,11 +143,7 @@ let zoom_views_to_selection (retarget: RetargetConfig) (target: Point3d) (bounds
         ViewSettings.ZoomExtentsPerspectiveViewBorder <- retarget.perspective_zoom_border
         ViewSettings.ZoomExtentsParallelViewBorder <- retarget.parallel_zoom_border
 
-        zoom_view_to_selection target bounds view
-
-        for other in view.Document.Views.GetViewList(true, false) do
-            if not (isNull other) && other.RuntimeSerialNumber <> view.RuntimeSerialNumber then
-                zoom_view_to_selection target bounds other
+        apply_to_views scope view (zoom_view_to_selection target bounds)
     finally
         ViewSettings.ZoomExtentsPerspectiveViewBorder <- previousPerspectiveBorder
         ViewSettings.ZoomExtentsParallelViewBorder <- previousParallelBorder
@@ -142,25 +155,17 @@ let set_view_target (target: Point3d) (view: RhinoView) =
 
 let apply_selection
     (retarget: RetargetConfig)
+    (scope: RetargetScope)
     (mode: RetargetMode)
     (speed: float)
     (selection: ViewTarget.RetargetSelection)
     (view: RhinoView)
     =
     match selection.bounds with
-    | ValueSome bounds -> zoom_views_to_selection retarget selection.target bounds view
+    | ValueSome bounds -> zoom_views_to_selection retarget scope selection.target bounds view
     | ValueNone when RetargetMode.uses_distance mode ->
-        move_view_to_target retarget speed selection.target view
-
-        for other in view.Document.Views.GetViewList(true, false) do
-            if not (isNull other) && other.RuntimeSerialNumber <> view.RuntimeSerialNumber then
-                move_view_to_target retarget speed selection.target other
-    | ValueNone ->
-        set_view_target selection.target view
-
-        for other in view.Document.Views.GetViewList(true, false) do
-            if not (isNull other) && other.RuntimeSerialNumber <> view.RuntimeSerialNumber then
-                set_view_target selection.target other
+        apply_to_views scope view (move_view_to_target retarget speed selection.target)
+    | ValueNone -> apply_to_views scope view (set_view_target selection.target)
 
 let retarget
     (loaded: ConfigLoadResult)
@@ -175,7 +180,6 @@ let retarget
             Error "The retarget viewport is unavailable."
         elif
             not (PlatformInput.viewport_host_exists host view)
-            || not (PlatformInput.viewport_id_matches host view)
             || PlatformInput.foreground_root_window () <> host.root_window
         then
             Error "The retarget viewport is no longer active."
@@ -192,23 +196,23 @@ let retarget
                 let activeView = document.Views.ActiveView
 
                 if isNull activeView || activeView.RuntimeSerialNumber <> view.RuntimeSerialNumber then
-                    document.Views.ActiveView <- view
+                    Error "The retarget viewport is not active yet."
+                else
+                    let viewport = view.ActiveViewport
+                    let behavior = loaded.config.behavior
+                    let movement = loaded.config.movement
 
-                let viewport = view.ActiveViewport
-                let behavior = loaded.config.behavior
-                let movement = loaded.config.movement
+                    let speed =
+                        FlightSpeed.current
+                            document
+                            behavior.load_speed_from_document
+                            movement.speed_range
+                            movement.base_speed
 
-                let speed =
-                    FlightSpeed.current
-                        document
-                        behavior.load_speed_from_document
-                        movement.speed_range
-                        movement.base_speed
-
-                match ViewTarget.selected_selection_at behavior.retarget mode speed view viewport clientPoint with
-                | None -> Ok()
-                | Some selection ->
-                    apply_selection behavior.retarget mode speed selection view
-                    Ok()
+                    match ViewTarget.selected_selection_at behavior.retarget mode speed view viewport clientPoint with
+                    | None -> Ok()
+                    | Some selection ->
+                        apply_selection behavior.retarget RetargetScope.AllViews mode speed selection view
+                        Ok()
     with error ->
         Error $"Could not retarget the viewports: {error.Message}"

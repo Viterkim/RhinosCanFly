@@ -5,7 +5,7 @@ open System.Drawing
 open Rhino
 open Rhino.Display
 open RhinosCanFly
-open RhinosCanFly.Platform.Win.ViewNavigationTypes
+open RhinosCanFly.Platform.Win.MouseOverrideTypes
 
 type FlyEntry =
     { host: ViewportHostIdentity
@@ -16,14 +16,19 @@ type FlyEntry =
 type NavigationClick =
     { host: ViewportHostIdentity
       action: RoutedMouseAction
-      screen_point: Point }
+      screen_point: Point
+      started_at: int64 }
+
+type DirectParallelClick =
+    { host: ViewportHostIdentity
+      started_at: int64 }
 
 type RightClickAction =
     | EnterFlight of FlyEntry
     | NavigateView of NavigationClick
     | StopNavigation
-    | PanParallel of ViewportHostIdentity
-    | ZoomParallel of ViewportHostIdentity
+    | PanParallel of DirectParallelClick
+    | ZoomParallel of DirectParallelClick
 
 type RightClickGesture =
     | Idle
@@ -51,12 +56,6 @@ type RightClickViewport =
       is_perspective: bool
       is_parallel: bool }
 
-[<Struct>]
-type Modifiers =
-    { shift: bool
-      alt: bool
-      control: bool }
-
 [<Literal>]
 let ENTRY_TIMEOUT_SECONDS = 2.
 
@@ -66,14 +65,14 @@ let create () =
 
 let try_wake (navigation: State) =
     try
-        ViewNavigationState.keep_timer_running navigation
+        MouseOverrideState.keep_timer_running navigation
         true
     with error ->
         Debug.WriteLine $"RhinosCanFly right-click timer: {error}"
         false
 
 let entry_enabled (navigation: State) =
-    match navigation.routing.right_click_entry with
+    match navigation.routing.actions.right_click_entry with
     | RightClickEntryMode.ClickToFly
     | RightClickEntryMode.ClickToFlyDuringCommands
     | RightClickEntryMode.HoldToFly
@@ -117,44 +116,32 @@ let owns_button (state: RightClickState) =
     | Owned
     | ReleaseObserved -> true
 
-let modified_navigation_enabled (navigation: State) =
-    RoutedMouseAction.enabled navigation.routing.shift_right_click
-    || RoutedMouseAction.enabled navigation.routing.alt_right_click
-    || RoutedMouseAction.enabled navigation.routing.ctrl_right_click
-
 let navigation_active (navigation: State) =
-    ViewNavigationState.gesture_navigation_engaged navigation
-    || ViewNavigationState.view_latch_engaged navigation
+    MouseOverrideState.gesture_navigation_engaged navigation
+    || MouseOverrideState.view_latch_engaged navigation
 
 let navigation_exit_requested (navigation: State) =
     navigation_active navigation
-    && ViewNavigationState.right_mouse_exit_requested navigation
+    && MouseOverrideState.right_mouse_exit_requested navigation
 
 let navigation_exit_capture_needed (navigation: State) =
     navigation_active navigation
-    && ViewNavigationState.right_mouse_exit_capture_needed navigation
+    && MouseOverrideState.right_mouse_exit_capture_needed navigation
 
 let capture_needed (navigation: State) (state: RightClickState) =
-    navigation.routing.runtime_enabled
-    || entry_enabled navigation
-    || modified_navigation_enabled navigation
+    ViewportNameList.has_allowed_viewports navigation.routing.actions.viewport_capabilities
     || navigation_exit_capture_needed navigation
     || owns_button state
     || action_pending state
 
-let modifiers () =
-    { shift = ViewNavigationState.shift_down ()
-      alt = ViewNavigationState.alt_down ()
-      control = ViewNavigationState.control_down () }
-
-let requested_gesture_action (navigation: State) (modifiers: Modifiers) =
+let requested_gesture_action (navigation: State) (modifiers: MouseModifiers) =
     let configuredAction =
         if modifiers.shift && not modifiers.alt && not modifiers.control then
-            navigation.routing.shift_right_click
+            navigation.routing.actions.shift_right_click
         elif modifiers.alt && not modifiers.shift && not modifiers.control then
-            navigation.routing.alt_right_click
+            navigation.routing.actions.alt_right_click
         elif modifiers.control && not modifiers.shift && not modifiers.alt then
-            navigation.routing.ctrl_right_click
+            navigation.routing.actions.ctrl_right_click
         else
             RoutedMouseAction.Off
 
@@ -163,48 +150,71 @@ let requested_gesture_action (navigation: State) (modifiers: Modifiers) =
     else
         ValueNone
 
+let capabilities_allowed (navigation: State) (viewportName: string) =
+    ViewportNameList.allows viewportName navigation.routing.actions.viewport_capabilities
+
+let right_click_flight_entry_allowed (navigation: State) (viewportName: string) =
+    capabilities_allowed navigation viewportName
+    && ViewportNameList.allows viewportName navigation.routing.actions.right_click_flight_entry
+
 let action
     (navigation: State)
     (viewport: RightClickViewport)
     (screenPoint: Point)
-    (modifiers: Modifiers)
+    (modifiers: MouseModifiers)
     (commandActive: bool)
     =
     let host = viewport.host
+    let capabilitiesAllowed = capabilities_allowed navigation viewport.name
 
-    match requested_gesture_action navigation modifiers with
+    let requestedAction =
+        if capabilitiesAllowed then
+            requested_gesture_action navigation modifiers
+        else
+            ValueNone
+
+    match requestedAction with
     | ValueSome gestureAction ->
         ValueSome(
             NavigateView
                 { host = host
                   action = gestureAction
-                  screen_point = screenPoint }
+                  screen_point = screenPoint
+                  started_at = Stopwatch.GetTimestamp() }
         )
     | ValueNone when navigation_active navigation && navigation_exit_requested navigation -> ValueSome StopNavigation
     | ValueNone when navigation_active navigation -> ValueNone
     | ValueNone when
-        navigation.routing.runtime_enabled
+        capabilitiesAllowed
         && viewport.is_parallel
         && modifiers.shift
         && not modifiers.alt
         && not modifiers.control
         ->
-        ValueSome(PanParallel host)
+        // Off still keeps Shift pan and Alt zoom in parallel views.
+        ValueSome(
+            PanParallel
+                { host = host
+                  started_at = Stopwatch.GetTimestamp() }
+        )
     | ValueNone when
-        navigation.routing.runtime_enabled
+        capabilitiesAllowed
         && viewport.is_parallel
         && modifiers.alt
         && not modifiers.shift
         && not modifiers.control
         ->
-        ValueSome(ZoomParallel host)
+        ValueSome(
+            ZoomParallel
+                { host = host
+                  started_at = Stopwatch.GetTimestamp() }
+        )
     | ValueNone when
         entry_enabled navigation
-        && (viewport.is_perspective
-            || (viewport.is_parallel
-                && navigation.routing.parallel_right_click_entry
-                && ParallelViewFlying.allows viewport.name navigation.routing.parallel_view_flying))
-        && (entry_during_commands navigation.routing.right_click_entry || not commandActive)
+        && right_click_flight_entry_allowed navigation viewport.name
+        && (viewport.is_perspective || viewport.is_parallel)
+        && (entry_during_commands navigation.routing.actions.right_click_entry
+            || not commandActive)
         && not modifiers.shift
         && not modifiers.alt
         && not modifiers.control
@@ -212,8 +222,8 @@ let action
         ValueSome(
             EnterFlight
                 { host = host
-                  entry_mode = navigation.routing.right_click_entry
-                  default_flight_mode = navigation.routing.default_flight_mode
+                  entry_mode = navigation.routing.actions.right_click_entry
+                  default_flight_mode = navigation.routing.actions.default_flight_mode
                   started_at = Stopwatch.GetTimestamp() }
         )
     | ValueNone -> ValueNone
@@ -267,34 +277,35 @@ let rec handle_event
             clear_action state
 
         true
-    elif not isDown || navigation.lifecycle <> Available then
+    elif
+        not isDown
+        || navigation.lifecycle <> Available
+        || Win32Native.GetCapture() <> nativeint 0
+    then
         false
     else
-        let currentModifiers = modifiers ()
+        let currentModifiers = event.modifiers
 
-        match tryView event.hook_window with
-        | ValueNone -> false
-        | ValueSome hookViewport ->
-            match tryView event.point_window with
-            | ValueSome pointViewport when ViewNavigationState.same_host hookViewport.host pointViewport.host ->
-                match action navigation pointViewport event.screen_point currentModifiers commandActive with
-                | ValueNone when
-                    not (navigation_active navigation)
-                    && (currentModifiers.shift || currentModifiers.alt || currentModifiers.control)
-                    ->
-                    state.gesture <- NativeModifiedGesture
-                    false
-                | ValueNone -> false
-                | ValueSome captured ->
-                    state.button_ownership <- Owned
-                    state.gesture <- ButtonDown captured
-
-                    if not (try_wake navigation) then
-                        clear_action state
-
-                    true
-            | ValueSome _
+        match tryView event.point_window with
+        | ValueSome pointViewport when pointViewport.host.root_window = MouseOverrideState.foreground_root_window () ->
+            match action navigation pointViewport event.screen_point currentModifiers commandActive with
+            | ValueNone when
+                not (navigation_active navigation)
+                && (currentModifiers.shift || currentModifiers.alt || currentModifiers.control)
+                ->
+                state.gesture <- NativeModifiedGesture
+                false
             | ValueNone -> false
+            | ValueSome captured ->
+                state.button_ownership <- Owned
+                state.gesture <- ButtonDown captured
+
+                if not (try_wake navigation) then
+                    clear_action state
+
+                true
+        | ValueSome _
+        | ValueNone -> false
 
 let entry_timed_out (entry: FlyEntry) =
     let elapsedTicks = Stopwatch.GetTimestamp() - entry.started_at
@@ -327,16 +338,15 @@ let try_entry_view (entry: FlyEntry) =
         || isNull activeDocument
         || activeDocument.RuntimeSerialNumber <> entry.host.document_serial_number
         || view.Handle <> expectedWindow
-        || view.ActiveViewportID <> entry.host.viewport_id
-        || ViewNavigationState.root_window view.Handle <> entry.host.root_window
+        || MouseOverrideState.root_window view.Handle <> entry.host.root_window
     then
         ValueNone
     else
         ValueSome view
 
 let try_prepare_entry_view (entry: FlyEntry) =
-    if ViewNavigationState.foreground_root_window () <> entry.host.root_window then
-        if ViewNavigationState.try_bring_root_window_to_foreground entry.host.root_window then
+    if MouseOverrideState.foreground_root_window () <> entry.host.root_window then
+        if MouseOverrideState.try_bring_root_window_to_foreground entry.host.root_window then
             EntryDeferred
         else
             EntryUnavailable
@@ -362,22 +372,25 @@ let dispatch_entry (state: RightClickState) (entry: FlyEntry) =
 let projection_allows_entry (navigation: State) (view: RhinoView) =
     let viewport = view.ActiveViewport
 
-    viewport.IsPerspectiveProjection
-    || (viewport.IsParallelProjection
-        && navigation.routing.parallel_right_click_entry
-        && ParallelViewFlying.allows viewport.Name navigation.routing.parallel_view_flying)
+    right_click_flight_entry_allowed navigation viewport.Name
+    && (viewport.IsPerspectiveProjection || viewport.IsParallelProjection)
 
 let apply_navigation_click (navigation: State) (click: NavigationClick) =
-    if
-        navigation.lifecycle = Available
-        && ViewNavigationState.try_bring_root_window_to_foreground click.host.root_window
-    then
-        GestureNavigationTransitions.press_or_log
+    if navigation.lifecycle <> Available then
+        GestureNavigationTransitions.Failed "Mouse button overrides are unavailable."
+    else
+        GestureNavigationTransitions.press
             navigation
             GestureOwner.ModifiedRightClick
             click.action
             click.host
             click.screen_point
+
+let action_timed_out (startedAt: int64) =
+    let elapsedTicks = Stopwatch.GetTimestamp() - startedAt
+    float elapsedTicks / float Stopwatch.Frequency >= ENTRY_TIMEOUT_SECONDS
+
+let navigation_click_timed_out (click: NavigationClick) = action_timed_out click.started_at
 
 let update (navigation: State) (state: RightClickState) (commandActive: bool) =
     match state.gesture with
@@ -387,22 +400,67 @@ let update (navigation: State) (state: RightClickState) (commandActive: bool) =
         if navigation.lifecycle <> Available || entry_timed_out entry then
             clear_action state
     | ButtonDown(NavigateView click) ->
-        apply_navigation_click navigation click
-        state.gesture <- ButtonDownHandled(NavigateView click)
+        if navigation_click_timed_out click then
+            clear_action state
+        else
+            match apply_navigation_click navigation click with
+            | GestureNavigationTransitions.Applied _ -> state.gesture <- ButtonDownHandled(NavigateView click)
+            | GestureNavigationTransitions.Deferred -> ()
+            | GestureNavigationTransitions.Failed error ->
+                Debug.WriteLine $"RhinosCanFly mouse action: {error}"
+                clear_action state
     | ButtonDown StopNavigation ->
         navigation.navigation_exit_requested <- true
-        ViewNavigationState.keep_timer_running navigation
+        MouseOverrideState.keep_timer_running navigation
         state.gesture <- ButtonDownHandled StopNavigation
-    | ButtonDown(PanParallel _) -> ()
-    | ButtonDown(ZoomParallel _) -> ()
+    | ButtonDown(PanParallel click) ->
+        if action_timed_out click.started_at then
+            clear_action state
+        else
+            match GestureNavigationTransitions.prepare_action_view click.host with
+            | GestureNavigationTransitions.ActionViewReady(_, activeHost) ->
+                state.gesture <-
+                    ButtonDownHandled(
+                        PanParallel
+                            { host = activeHost
+                              started_at = click.started_at }
+                    )
+            | GestureNavigationTransitions.ActionViewDeferred -> ()
+            | GestureNavigationTransitions.ActionViewUnavailable error ->
+                Debug.WriteLine $"RhinosCanFly parallel pan: {error}"
+                clear_action state
+    | ButtonDown(ZoomParallel click) ->
+        if action_timed_out click.started_at then
+            clear_action state
+        else
+            match GestureNavigationTransitions.prepare_action_view click.host with
+            | GestureNavigationTransitions.ActionViewReady(_, activeHost) ->
+                state.gesture <-
+                    ButtonDownHandled(
+                        ZoomParallel
+                            { host = activeHost
+                              started_at = click.started_at }
+                    )
+            | GestureNavigationTransitions.ActionViewDeferred -> ()
+            | GestureNavigationTransitions.ActionViewUnavailable error ->
+                Debug.WriteLine $"RhinosCanFly parallel zoom: {error}"
+                clear_action state
     | ButtonDownHandled _ -> ()
     | ButtonReleasedBeforeHandling(NavigateView click) ->
-        apply_navigation_click navigation click
-        GestureNavigationTransitions.release navigation GestureOwner.ModifiedRightClick
-        clear_action state
+        if navigation_click_timed_out click then
+            clear_action state
+        else
+            match apply_navigation_click navigation click with
+            | GestureNavigationTransitions.Applied _ ->
+                GestureNavigationTransitions.release navigation GestureOwner.ModifiedRightClick
+                clear_action state
+            | GestureNavigationTransitions.Deferred -> ()
+            | GestureNavigationTransitions.Failed error ->
+                Debug.WriteLine $"RhinosCanFly mouse action: {error}"
+                clear_action state
     | ButtonReleasedBeforeHandling StopNavigation ->
         navigation.navigation_exit_requested <- true
-        ViewNavigationState.keep_timer_running navigation
+        MouseOverrideState.keep_timer_running navigation
         clear_action state
     | ButtonReleasedBeforeHandling(PanParallel _)
     | ButtonReleasedBeforeHandling(ZoomParallel _)
@@ -460,12 +518,20 @@ let prune_released_button (state: RightClickState) =
         else
             state.button_ownership <- ReleaseObserved
 
+let reconcile_physical_button (state: RightClickState) =
+    if owns_button state then
+        if Win32Native.GetAsyncKeyState Win32Native.VK_RBUTTON < 0s then
+            state.button_ownership <- Owned
+        else
+            state.button_ownership <- NotOwned
+            clear_action state
+
 let parallel_zoom_host (state: RightClickState) =
     match state.gesture with
-    | ButtonDown(ZoomParallel host) ->
+    | ButtonDownHandled(ZoomParallel click) ->
         match state.button_ownership with
         | Owned
-        | ReleaseObserved -> ValueSome host
+        | ReleaseObserved -> ValueSome click.host
         | NotOwned -> ValueNone
     | Idle
     | NativeModifiedGesture
@@ -477,10 +543,10 @@ let parallel_zoom_host (state: RightClickState) =
 
 let parallel_pan_host (state: RightClickState) =
     match state.gesture with
-    | ButtonDown(PanParallel host) ->
+    | ButtonDownHandled(PanParallel click) ->
         match state.button_ownership with
         | Owned
-        | ReleaseObserved -> ValueSome host
+        | ReleaseObserved -> ValueSome click.host
         | NotOwned -> ValueNone
     | Idle
     | NativeModifiedGesture
@@ -499,6 +565,10 @@ let clear_direct_navigation (state: RightClickState) =
     match state.gesture with
     | ButtonDown(PanParallel _)
     | ButtonDown(ZoomParallel _)
+    | ButtonDownHandled(PanParallel _)
+    | ButtonDownHandled(ZoomParallel _)
+    | ButtonReleasedBeforeHandling(PanParallel _)
+    | ButtonReleasedBeforeHandling(ZoomParallel _)
     | ButtonReleased(PanParallel _)
     | ButtonReleased(ZoomParallel _) -> clear_action state
     | Idle

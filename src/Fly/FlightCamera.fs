@@ -89,40 +89,35 @@ let redraw (state: FlyState) =
 let toggle_projection (state: FlyState) =
     let viewport = state.viewport
 
-    if
-        state.projection = ViewProjectionKind.Parallel
-        || ParallelViewFlying.allows viewport.Name state.config.movement.parallel_view.flying
-    then
+    let conversion =
+        if state.projection = ViewProjectionKind.Parallel then
+            let (PerspectiveLensLengthMm lens) = state.perspective_lens_length
+            let targetDistance = Movement.target_distance state.camera
 
-        let conversion =
-            if state.projection = ViewProjectionKind.Parallel then
-                let lens = state.perspective_lens_length_mm
-                let targetDistance = Movement.target_distance state.camera
+            match state.perspective_projection with
+            | ViewProjectionKind.TwoPointPerspective ->
+                struct (ViewProjectionKind.TwoPointPerspective,
+                        viewport.ChangeToTwoPointPerspectiveProjection(targetDistance, viewport.CameraY, lens))
+            | ViewProjectionKind.Parallel
+            | ViewProjectionKind.Perspective ->
+                struct (ViewProjectionKind.Perspective,
+                        viewport.ChangeToPerspectiveProjection(targetDistance, false, lens))
+        else
+            state.perspective_projection <- state.projection
+            struct (ViewProjectionKind.Parallel, viewport.ChangeToParallelProjection false)
 
-                match state.perspective_projection with
-                | ViewProjectionKind.TwoPointPerspective ->
-                    struct (ViewProjectionKind.TwoPointPerspective,
-                            viewport.ChangeToTwoPointPerspectiveProjection(targetDistance, viewport.CameraY, lens))
-                | ViewProjectionKind.Parallel
-                | ViewProjectionKind.Perspective ->
-                    struct (ViewProjectionKind.Perspective,
-                            viewport.ChangeToPerspectiveProjection(targetDistance, false, lens))
-            else
-                state.perspective_projection <- state.projection
-                struct (ViewProjectionKind.Parallel, viewport.ChangeToParallelProjection false)
+    let struct (nextProjection, changed) = conversion
 
-        let struct (nextProjection, changed) = conversion
+    if not changed then
+        state.restore_camera_on_exit <- true
+        failwith "Rhino could not change the viewport projection."
 
-        if not changed then
-            state.restore_camera_on_exit <- true
-            failwith "Rhino could not change the viewport projection."
+    state.projection <- nextProjection
+    sync_camera_from_viewport state
+    state.wheel_remainder <- 0L
+    redraw state
 
-        state.projection <- nextProjection
-        sync_camera_from_viewport state
-        state.wheel_remainder <- 0L
-        redraw state
-
-let apply_retarget_request (mode: RetargetMode) (state: FlyState) =
+let apply_retarget_request (scope: RetargetScope) (mode: RetargetMode) (state: FlyState) =
     if mode = RetargetMode.Off then
         ViewChange.none
     else
@@ -137,34 +132,25 @@ let apply_retarget_request (mode: RetargetMode) (state: FlyState) =
         with
         | None -> ViewChange.none
         | Some selection ->
-            NavigationTarget.apply_selection state.config.behavior.retarget mode state.speed selection state.view
-            sync_camera_from_viewport state
+            NavigationTarget.apply_selection state.config.behavior.retarget scope mode state.speed selection state.view
 
-            match state.active_mouse_navigation with
-            | MousePivot _ -> state.active_mouse_navigation <- MousePivot selection.target
-            | MousePan _ ->
-                state.active_mouse_navigation <-
-                    MousePan(selection.target, pan_units_per_radian selection.target state.camera)
-            | MouseLook -> ()
+            if scope = RetargetScope.AllViews then
+                sync_camera_from_viewport state
+
+                match state.active_mouse_navigation with
+                | MousePivot _ -> state.active_mouse_navigation <- MousePivot selection.target
+                | MousePan _ ->
+                    state.active_mouse_navigation <-
+                        MousePan(selection.target, pan_units_per_radian selection.target state.camera)
+                | MouseLook -> ()
 
             ViewChange.none
 
-let update_navigation_mode (input: InputAccumulator.State) (state: FlyState) =
-    if InputAccumulator.drain_pivot_toggles input % 2 <> 0 then
-        state.latched_mouse_navigation <- MouseNavigationMode.toggle PivotNavigation state.latched_mouse_navigation
-
-    if InputAccumulator.drain_pan_toggles input % 2 <> 0 then
-        state.latched_mouse_navigation <- MouseNavigationMode.toggle PanNavigation state.latched_mouse_navigation
-
-    let retargetChange =
-        apply_retarget_request (InputAccumulator.drain_retarget_request input) state
-
+let update_navigation_mode (state: FlyState) =
     let requestedNavigation =
-        if state.keyboard_held_mouse_navigation <> LookNavigation then
-            state.keyboard_held_mouse_navigation
-        elif InputAccumulator.pan_held input then
+        if state.keyboard_pan_held || state.mouse_pan_hold_buttons <> 0 then
             PanNavigation
-        elif InputAccumulator.pivot_held input then
+        elif state.keyboard_pivot_held || state.mouse_pivot_hold_buttons <> 0 then
             PivotNavigation
         else
             state.latched_mouse_navigation
@@ -192,10 +178,9 @@ let update_navigation_mode (input: InputAccumulator.State) (state: FlyState) =
                 MousePan(panTarget, pan_units_per_radian panTarget state.camera)
 
     if previousNavigation <> requestedNavigation then
-        InputAccumulator.drain_mouse input |> ignore
         state.wheel_remainder <- 0L
 
-    retargetChange
+    previousNavigation <> requestedNavigation
 
 let apply_navigation_wheel (steps: int64) (state: FlyState) =
     if steps = 0L then
@@ -241,32 +226,30 @@ let apply_navigation_wheel (steps: int64) (state: FlyState) =
                 { camera_changed = state.camera <> previousCamera
                   parallel_magnification = if parallelFlight then magnification else 1. }
 
-let apply_mouse_input (input: InputAccumulator.State) (state: FlyState) =
-    let struct (dx, dy) = InputAccumulator.drain_mouse input
-
+let apply_mouse_delta (dx: int64) (dy: int64) (state: FlyState) =
     if dx = 0L && dy = 0L then
         ViewChange.none
     else
         let previous = state.camera
-        let parallelView = state.config.movement.parallel_view
+        let parallelProjection = state.config.movement.parallel_projection
 
         let parallelFlight = state.projection = ViewProjectionKind.Parallel
 
         let mouseSensitivity =
             if parallelFlight then
-                parallelView.mouse_sensitivity
+                parallelProjection.mouse_sensitivity
             else
                 state.config.mouse.sensitivity
 
         let pivotMultiplier =
             if parallelFlight then
-                parallelView.mouse_pivot_multiplier
+                parallelProjection.mouse_pivot_multiplier
             else
                 state.config.mouse.pivot_multiplier
 
         let panMultiplier =
             if parallelFlight then
-                parallelView.mouse_pan_multiplier
+                parallelProjection.mouse_pan_multiplier
             else
                 state.config.mouse.pan_multiplier
 
@@ -292,7 +275,7 @@ let apply_mouse_input (input: InputAccumulator.State) (state: FlyState) =
 
 let parallel_magnification_factor (state: FlyState) (forwardDistance: float) =
     let viewport = state.viewport
-    let parallelView = state.config.movement.parallel_view
+    let parallelProjection = state.config.movement.parallel_projection
 
     if
         state.projection <> ViewProjectionKind.Parallel
@@ -311,7 +294,9 @@ let parallel_magnification_factor (state: FlyState) (forwardDistance: float) =
             let width = right - left
 
             if RhinoMath.IsValidDouble width && width > RhinoMath.ZeroTolerance then
-                let requestedExponent = forwardDistance * parallelView.zoom_speed_multiplier / width
+                let requestedExponent =
+                    forwardDistance * parallelProjection.zoom_speed_multiplier / width
+
                 let exponent = Movement.clamp -0.25 0.25 requestedExponent
                 let factor = Math.Exp exponent
 
@@ -349,25 +334,29 @@ let apply (state: FlyState) (change: ViewChange) =
 
 let entry_perspective_lens_changes (state: FlyState) =
     let lens = state.config.behavior.perspective_lens
+    let (PerspectiveLensDeltaMm delta) = lens.delta_during_flight
 
     state.projection <> ViewProjectionKind.Parallel
-    && (Option.isSome lens.forced_on_flight_start_mm
-        || lens.delta_during_flight_mm <> 0.)
+    && (Option.isSome lens.forced_on_flight_start || delta <> 0.)
 
 let apply_entry_perspective_lens (state: FlyState) =
     let lensConfig = state.config.behavior.perspective_lens
 
     if entry_perspective_lens_changes state then
         let forcedOrOriginal =
-            match lensConfig.forced_on_flight_start_mm, state.original_camera.perspective_lens_length_mm with
-            | Some forcedLength, _ -> forcedLength
-            | None, ValueSome originalLength -> originalLength
-            | None, ValueNone -> failwith "The perspective viewport has no lens length."
+            match lensConfig.forced_on_flight_start with
+            | Some forcedLength -> forcedLength
+            | None ->
+                match state.original_camera.perspective_lens_length with
+                | ValueSome originalLength -> originalLength
+                | ValueNone -> failwith "The perspective viewport has no lens length."
 
-        let lens = forcedOrOriginal + lensConfig.delta_during_flight_mm
+        let (PerspectiveLensLengthMm absoluteLens) = forcedOrOriginal
+        let (PerspectiveLensDeltaMm lensDelta) = lensConfig.delta_during_flight
+        let lens = absoluteLens + lensDelta
 
         if not (RhinoMath.IsValidDouble lens) || lens <= 0. then
             failwith $"The configured lens adjustment produces an invalid lens length: {lens} mm"
 
         state.viewport.Camera35mmLensLength <- lens
-        state.perspective_lens_length_mm <- lens
+        state.perspective_lens_length <- PerspectiveLensLengthMm lens

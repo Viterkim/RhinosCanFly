@@ -3,37 +3,33 @@ module RhinosCanFly.Platform.Win.ViewLatchTransitions
 open System
 open System.Diagnostics
 open RhinosCanFly
-open RhinosCanFly.Platform.Win.ViewNavigationTypes
+open RhinosCanFly.Platform.Win.MouseOverrideTypes
 
 let release (state: State) =
     match state.view_latch with
     | NoViewLatch -> Ok()
-    | (WaitingForRelease _ | PivotActive _ | PanActive _) as active ->
+    | (WaitingForRelease _ | ViewLatchActive _) as active ->
         state.view_latch <- NoViewLatch
-        ViewNavigationState.stop_timer_if_idle state
-        ViewNavigationState.complete_view_latch active
+        MouseOverrideState.stop_timer_if_idle state
+        MouseOverrideState.complete_view_latch active
 
 let complete_or_log (latch: ViewLatch) =
-    match ViewNavigationState.complete_view_latch latch with
+    match MouseOverrideState.complete_view_latch latch with
     | Ok() -> ()
     | Error error -> Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
 
 let input_released () =
     Win32Native.GetAsyncKeyState Win32Native.VK_RBUTTON >= 0s
-    && not (ViewNavigationState.shift_down ())
-    && not (ViewNavigationState.alt_down ())
-    && not (ViewNavigationState.control_down ())
+    && not (MouseOverrideState.shift_down ())
+    && not (MouseOverrideState.alt_down ())
+    && not (MouseOverrideState.control_down ())
 
 let activate (state: State) (session: ViewLatchSession) =
-    if ViewNavigationState.gesture_navigation_engaged state then
+    if MouseOverrideState.gesture_navigation_engaged state then
         Error "Another view navigation mode is already active."
     else
-        state.view_latch <-
-            match session.mode with
-            | Pivot -> PivotActive session
-            | Pan -> PanActive session
-
-        ViewNavigationState.keep_timer_running state
+        state.view_latch <- ViewLatchActive session
+        MouseOverrideState.keep_timer_running state
         Ok()
 
 let start (state: State) (host: ViewportHostIdentity) (mode: ViewNavigationMode) (completion: Action option) =
@@ -53,21 +49,21 @@ let start (state: State) (host: ViewportHostIdentity) (mode: ViewNavigationMode)
             activate state session
         else
             state.view_latch <- WaitingForRelease session
-            ViewNavigationState.keep_timer_running state
+            MouseOverrideState.keep_timer_running state
             Ok()
 
 let update (state: State) =
     match state.view_latch with
     | NoViewLatch -> ()
     | WaitingForRelease pending ->
-        let timedOut = ViewNavigationState.transition_timed_out pending
+        let timedOut = MouseOverrideState.transition_timed_out pending
 
         if
-            ViewNavigationState.foreground_root_window () <> pending.host.root_window
+            MouseOverrideState.foreground_root_window () <> pending.host.root_window
             || timedOut
         then
             state.view_latch <- NoViewLatch
-            ViewNavigationState.stop_timer_if_idle state
+            MouseOverrideState.stop_timer_if_idle state
             complete_or_log (WaitingForRelease pending)
         elif input_released () then
             match activate state pending with
@@ -75,9 +71,8 @@ let update (state: State) =
             | Error error ->
                 complete_or_log (WaitingForRelease pending)
                 Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
-    | PivotActive session
-    | PanActive session ->
-        if ViewNavigationState.foreground_root_window () <> session.host.root_window then
+    | ViewLatchActive session ->
+        if MouseOverrideState.foreground_root_window () <> session.host.root_window then
             match release state with
             | Ok() -> ()
             | Error error -> Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
@@ -86,8 +81,7 @@ let current_mode (state: State) =
     match state.view_latch with
     | NoViewLatch -> None
     | WaitingForRelease pending -> Some pending.mode
-    | PivotActive session
-    | PanActive session -> Some session.mode
+    | ViewLatchActive session -> Some session.mode
 
 let is_mode (state: State) (mode: ViewNavigationMode) = current_mode state = Some mode
 
@@ -97,13 +91,13 @@ let start_or_switch (state: State) (host: ViewportHostIdentity) (mode: ViewNavig
     else
         match current_mode state with
         | Some current when current = mode -> Ok()
-        | None when not (ViewNavigationState.gesture_navigation_engaged state) ->
+        | None when not (MouseOverrideState.gesture_navigation_engaged state) ->
             match state.routing.prepare_navigation host NavigationTargetPoint.ViewCenter mode with
             | Error error -> Error error
             | Ok prepared -> start state prepared mode completion
         | Some _
         | None ->
-            match ViewNavigationState.release_all state with
+            match MouseOverrideState.release_all state with
             | Error error -> Error error
             | Ok() ->
                 match state.routing.prepare_navigation host NavigationTargetPoint.ViewCenter mode with
@@ -115,6 +109,6 @@ let stop (state: State) (mode: ViewNavigationMode) =
         Error "Mouse button overrides are unavailable."
     else
         match current_mode state with
-        | Some current when current = mode -> ViewNavigationState.release_all state
+        | Some current when current = mode -> MouseOverrideState.release_all state
         | Some _
         | None -> Ok()

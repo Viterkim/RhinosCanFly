@@ -1,8 +1,8 @@
-module RhinosCanFly.Platform.Win.ViewNavigationState
+module RhinosCanFly.Platform.Win.MouseOverrideState
 
 open System.Diagnostics
 open RhinosCanFly
-open RhinosCanFly.Platform.Win.ViewNavigationTypes
+open RhinosCanFly.Platform.Win.MouseOverrideTypes
 
 let hook_button_ownership (state: State) (button: SideButton) =
     match button with
@@ -35,44 +35,36 @@ let hook_owns_any_button (state: State) =
 
 let action_for (state: State) (button: SideButton) =
     match button with
-    | Middle -> state.routing.middle
-    | Mouse4 -> state.routing.mouse4
-    | Mouse5 -> state.routing.mouse5
+    | Middle -> state.routing.actions.middle
+    | Mouse4 -> state.routing.actions.mouse4
+    | Mouse5 -> state.routing.actions.mouse5
+
+let capabilities_allowed (state: State) (viewportName: string) =
+    ViewportNameList.allows viewportName state.routing.actions.viewport_capabilities
 
 let side_button_routing_enabled (state: State) =
-    RoutedMouseAction.enabled state.routing.middle
-    || RoutedMouseAction.enabled state.routing.mouse4
-    || RoutedMouseAction.enabled state.routing.mouse5
+    ViewportNameList.has_allowed_viewports state.routing.actions.viewport_capabilities
+    && (RoutedMouseAction.enabled state.routing.actions.middle
+        || RoutedMouseAction.enabled state.routing.actions.mouse4
+        || RoutedMouseAction.enabled state.routing.actions.mouse5)
 
 let gesture_navigation_engaged (state: State) =
     match state.gesture_navigation with
     | NoGestureNavigation -> false
     | GestureNavigationActive _ -> true
 
-let gesture_navigation_host (state: State) =
-    match state.gesture_navigation with
-    | NoGestureNavigation -> ValueNone
-    | GestureNavigationActive session -> ValueSome session.host
-
-let gesture_navigation_mode (state: State) =
-    match state.gesture_navigation with
-    | NoGestureNavigation -> ValueNone
-    | GestureNavigationActive session -> ValueSome session.mode
-
 let view_latch_engaged (state: State) =
     match state.view_latch with
     | NoViewLatch -> false
     | WaitingForRelease _
-    | PivotActive _
-    | PanActive _ -> true
+    | ViewLatchActive _ -> true
 
 let exit_key_is_down (state: State) (virtualKey: int) =
     if virtualKey = Win32Native.VK_RBUTTON then
         match state.view_latch with
         | WaitingForRelease _ -> false
         | NoViewLatch
-        | PivotActive _
-        | PanActive _ -> Win32Native.GetAsyncKeyState virtualKey < 0s
+        | ViewLatchActive _ -> Win32Native.GetAsyncKeyState virtualKey < 0s
     else
         Win32Native.GetAsyncKeyState virtualKey < 0s
 
@@ -88,7 +80,7 @@ let exit_keys_down (state: State) (keys: VirtualKey array) =
     down
 
 let exit_key_down (state: State) =
-    match state.routing.exit with
+    match state.routing.exit_binding with
     | Some binding -> exit_keys_down state binding.virtual_keys
     | None -> false
 
@@ -104,16 +96,16 @@ let binding_contains_key (virtualKey: int) (keys: VirtualKey array) =
     found
 
 let exit_binding_contains (state: State) (virtualKey: int) =
-    match state.routing.exit with
+    match state.routing.exit_binding with
     | Some binding -> binding_contains_key virtualKey binding.virtual_keys
     | None -> false
 
 let right_mouse_exit_capture_needed (state: State) =
-    state.routing.exit_on_mouse_right
+    state.routing.actions.exit_on_mouse_right
     || exit_binding_contains state Win32Native.VK_RBUTTON
 
 let right_mouse_exit_requested (state: State) =
-    state.routing.exit_on_mouse_right || exit_key_down state
+    state.routing.actions.exit_on_mouse_right || exit_key_down state
 
 let shift_down () =
     Win32Native.GetAsyncKeyState Win32Native.VK_SHIFT < 0s
@@ -176,13 +168,6 @@ let try_bring_root_window_to_foreground (window: RootWindow) =
         && Win32Native.SetForegroundWindow handle
         && foreground_root_window () = window
 
-let same_host (left: ViewportHostIdentity) (right: ViewportHostIdentity) =
-    left.view_serial_number = right.view_serial_number
-    && left.document_serial_number = right.document_serial_number
-    && left.viewport_id = right.viewport_id
-    && left.view_window = right.view_window
-    && left.root_window = right.root_window
-
 let navigation_host (state: State) =
     // Keep these matches nested because reference tuples allocate.
     match state.gesture_navigation with
@@ -190,16 +175,14 @@ let navigation_host (state: State) =
     | NoGestureNavigation ->
         match state.view_latch with
         | WaitingForRelease session
-        | PivotActive session
-        | PanActive session -> ValueSome session.host
+        | ViewLatchActive session -> ValueSome session.host
         | NoViewLatch -> ValueNone
 
 let view_latch_completion (latch: ViewLatch) =
     match latch with
     | NoViewLatch -> None
     | WaitingForRelease session
-    | PivotActive session
-    | PanActive session -> session.completion
+    | ViewLatchActive session -> session.completion
 
 let complete_view_latch (latch: ViewLatch) =
     match view_latch_completion latch with

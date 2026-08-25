@@ -10,25 +10,6 @@ open System.Text
 open Microsoft.FSharp.NativeInterop
 open RhinosCanFly
 
-let ownedCursorClips = ResizeArray<CursorClipLease>()
-
-let retain_cursor_clip_recovery (lease: CursorClipLease) =
-    let exists =
-        ownedCursorClips
-        |> Seq.exists (fun (candidate: CursorClipLease) -> Object.ReferenceEquals(candidate, lease))
-
-    if not exists then
-        ownedCursorClips.Add lease
-
-let forget_cursor_clip_recovery (lease: CursorClipLease) =
-    let mutable index = ownedCursorClips.Count - 1
-
-    while index >= 0 do
-        if Object.ReferenceEquals(ownedCursorClips[index], lease) then
-            ownedCursorClips.RemoveAt index
-
-        index <- index - 1
-
 let win32_error (operation: string) (errorCode: int) =
     Win32Exception(errorCode)
     |> fun (error: Win32Exception) -> $"{operation} failed: {error.Message}"
@@ -76,77 +57,6 @@ let clip_cursor (rectangle: Rectangle) =
         Ok()
     else
         Error(last_error "ClipCursor")
-
-let rec acquire_cursor_clip (rectangle: Rectangle) =
-    match get_cursor_clip () with
-    | Error error -> Error error
-    | Ok previous ->
-        match clip_cursor rectangle with
-        | Error error -> Error error
-        | Ok() ->
-            let lease =
-                { previous = previous
-                  installed = rectangle
-                  relinquished = false }
-
-            retain_cursor_clip_recovery lease
-            let verification = get_cursor_clip ()
-
-            match verification with
-            | Ok current when current = rectangle -> Ok lease
-            | _ ->
-                let verificationError =
-                    match verification with
-                    | Ok _ -> "The cursor clip changed before it could be verified."
-                    | Error error -> $"The cursor clip could not be verified: {error}"
-
-                match release_cursor_clip lease with
-                | Ok() -> Error verificationError
-                | Error releaseError -> Error $"{verificationError}; cleanup failed: {releaseError}"
-
-and release_cursor_clip (lease: CursorClipLease) =
-    if lease.relinquished then
-        forget_cursor_clip_recovery lease
-        Ok()
-    else
-        match get_cursor_clip () with
-        | Error error ->
-            retain_cursor_clip_recovery lease
-            Error error
-        | Ok current when current <> lease.installed ->
-            lease.relinquished <- true
-            forget_cursor_clip_recovery lease
-            Ok()
-        | Ok _ ->
-            match clip_cursor lease.previous with
-            | Error error ->
-                retain_cursor_clip_recovery lease
-                Error error
-            | Ok() ->
-                match get_cursor_clip () with
-                | Error error ->
-                    retain_cursor_clip_recovery lease
-                    Error $"The previous cursor clip was restored but could not be verified: {error}"
-                | Ok current when current = lease.previous || current <> lease.installed ->
-                    lease.relinquished <- true
-                    forget_cursor_clip_recovery lease
-                    Ok()
-                | Ok _ ->
-                    retain_cursor_clip_recovery lease
-                    Error "The cursor clip still belongs to RhinosCanFly after restoration."
-
-let retry_cursor_clip_cleanup () =
-    let pending = ownedCursorClips.ToArray()
-    let errors = ResizeArray<string>()
-
-    for lease in pending do
-        match release_cursor_clip lease with
-        | Ok() -> ()
-        | Error error -> errors.Add error
-
-    struct (ownedCursorClips.Count, List.ofSeq errors)
-
-let cursor_clip_recovery_count () = ownedCursorClips.Count
 
 let clear_mouse_hover (window: nativeint) =
     Win32Native.SendMessage(window, Win32Native.WM_MOUSELEAVE, nativeint 0, nativeint 0)
@@ -234,9 +144,19 @@ type KeyboardHookEvent =
 type MouseHookEvent =
     { message: int
       mouse_data: uint32
-      hook_window: nativeint
       point_window: nativeint
-      screen_point: System.Drawing.Point }
+      screen_point: System.Drawing.Point
+      modifiers: MouseModifiers }
+
+let modifier_down (generalKey: int) (leftKey: int) (rightKey: int) =
+    Win32Native.GetAsyncKeyState generalKey < 0s
+    || Win32Native.GetAsyncKeyState leftKey < 0s
+    || Win32Native.GetAsyncKeyState rightKey < 0s
+
+let mouse_modifiers () =
+    { shift = modifier_down Win32Native.VK_SHIFT Win32Native.VK_LSHIFT Win32Native.VK_RSHIFT
+      alt = modifier_down Win32Native.VK_MENU Win32Native.VK_LMENU Win32Native.VK_RMENU
+      control = modifier_down Win32Native.VK_CONTROL Win32Native.VK_LCONTROL Win32Native.VK_RCONTROL }
 
 let keyboard_physical_key (virtualKey: int) (eventData: int64) =
     let extended = eventData &&& Win32Native.KEYBOARD_EXTENDED_KEY <> 0L
@@ -324,9 +244,9 @@ let install_mouse_hook (handleEvent: MouseHookEvent -> bool) =
                 let event: MouseHookEvent =
                     { message = message
                       mouse_data = data.mouse_data
-                      hook_window = data.window
                       point_window = pointWindow
-                      screen_point = System.Drawing.Point(data.point.x, data.point.y) }
+                      screen_point = System.Drawing.Point(data.point.x, data.point.y)
+                      modifiers = mouse_modifiers () }
 
                 if handleEvent event then
                     nativeint 1

@@ -2,25 +2,45 @@ module RhinosCanFly.Platform.Win.RawNavigationCoordinator
 
 open System
 open System.Diagnostics
-open System.Drawing
+open Rhino
+open Rhino.Geometry
 open RhinosCanFly
-open RhinosCanFly.Platform.Win.ViewNavigationTypes
+open RhinosCanFly.Platform.Win.MouseOverrideTypes
 
-type State =
-    { navigation: ViewNavigationTypes.State
-      right_click: RightClickTransitions.RightClickState
-      request_exit: unit -> unit
-      log_exception: string -> exn -> unit
-      mutable session: RawViewNavigation.Session option }
+[<Struct; RequireQualifiedAccess>]
+type PointerInputDisposition =
+    | Continue
+    | Rebase
+    | Invalidate
 
 [<Struct>]
 type DesiredNavigation =
     { host: ViewportHostIdentity
-      mode: RawViewNavigation.Mode
-      pivot_center: Rhino.Geometry.Point3d voption }
+      mode: ViewportNavigation.Operation
+      pivot_center: Point3d voption }
+
+type ActiveNavigation =
+    { transport: RawViewNavigationSession.Session
+      requested: DesiredNavigation
+      mouse_config: ViewportNavigation.MouseConfig
+      timeline: InputAccumulator.TimelineEvent array
+      mutable pointer_input_valid: bool
+      mutable pivot_center: Point3d
+      mutable wheel_remainder: int64
+      mutable parallel_zoom_exponent_remainder: float
+      mutable next_host_validation_at: int64 }
+
+type State =
+    { navigation: MouseOverrideTypes.State
+      right_click: RightClickTransitions.RightClickState
+      request_exit: unit -> unit
+      log_exception: string -> exn -> unit
+      mutable session: ActiveNavigation option }
+
+let hostValidationIntervalTicks = max 1L (Stopwatch.Frequency / 10L)
 
 let create
-    (navigation: ViewNavigationTypes.State)
+    (navigation: MouseOverrideTypes.State)
     (rightClick: RightClickTransitions.RightClickState)
     (requestExit: unit -> unit)
     (logException: string -> exn -> unit)
@@ -32,29 +52,33 @@ let create
       session = None }
 
 let active_host (state: State) =
-    match RightClickTransitions.direct_navigation_host state.right_click with
-    | ValueSome host -> ValueSome host
-    | ValueNone -> ViewNavigationState.navigation_host state.navigation
+    match state.session with
+    | Some active when active.transport.IsActive -> ValueSome active.requested.host
+    | Some _
+    | None ->
+        match RightClickTransitions.direct_navigation_host state.right_click with
+        | ValueSome host -> ValueSome host
+        | ValueNone -> MouseOverrideState.navigation_host state.navigation
 
 let desired (state: State) =
     let navigation = state.navigation
     let rightClick = state.right_click
 
-    if navigation.lifecycle <> Available then
+    if navigation.lifecycle <> Available || navigation.navigation_exit_requested then
         ValueNone
     else
         match RightClickTransitions.parallel_zoom_host rightClick with
         | ValueSome host ->
             ValueSome
                 { host = host
-                  mode = RawViewNavigation.Mode.ParallelZoom
+                  mode = ViewportNavigation.Operation.ParallelZoom
                   pivot_center = ValueNone }
         | ValueNone ->
             match RightClickTransitions.parallel_pan_host rightClick with
             | ValueSome host ->
                 ValueSome
                     { host = host
-                      mode = RawViewNavigation.Mode.ParallelPan
+                      mode = ViewportNavigation.Operation.ParallelPan
                       pivot_center = ValueNone }
             | ValueNone ->
                 match navigation.gesture_navigation with
@@ -63,123 +87,372 @@ let desired (state: State) =
                     | ViewNavigationMode.Pivot ->
                         ValueSome
                             { host = session.host
-                              mode = RawViewNavigation.Mode.Pivot
+                              mode = ViewportNavigation.Operation.Pivot
                               pivot_center = ValueSome session.pivot_center }
                     | ViewNavigationMode.Pan ->
                         ValueSome
                             { host = session.host
-                              mode = RawViewNavigation.Mode.Pan
+                              mode = ViewportNavigation.Operation.Pan
                               pivot_center = ValueNone }
                 | NoGestureNavigation ->
                     match navigation.view_latch with
-                    | PivotActive session ->
-                        ValueSome
-                            { host = session.host
-                              mode = RawViewNavigation.Mode.Pivot
-                              pivot_center = ValueSome session.pivot_center }
-                    | PanActive session ->
-                        ValueSome
-                            { host = session.host
-                              mode = RawViewNavigation.Mode.Pan
-                              pivot_center = ValueNone }
+                    | ViewLatchActive session ->
+                        match session.mode with
+                        | ViewNavigationMode.Pivot ->
+                            ValueSome
+                                { host = session.host
+                                  mode = ViewportNavigation.Operation.Pivot
+                                  pivot_center = ValueSome session.pivot_center }
+                        | ViewNavigationMode.Pan ->
+                            ValueSome
+                                { host = session.host
+                                  mode = ViewportNavigation.Operation.Pan
+                                  pivot_center = ValueNone }
                     | NoViewLatch
                     | WaitingForRelease _ -> ValueNone
+
+let same_navigation (left: DesiredNavigation) (right: DesiredNavigation) =
+    left.host = right.host && left.mode = right.mode
 
 let stop (state: State) =
     match state.session with
     | None -> Ok()
-    | Some session ->
-        let result = session.Stop()
+    | Some active ->
+        active.pointer_input_valid <- false
+        let result = active.transport.Stop()
 
-        if session.CleanupComplete then
+        if active.transport.CleanupComplete then
             state.session <- None
 
         result
 
-let handle_right_down (state: State) (host: ViewportHostIdentity) (screenPoint: Point) =
+let press_requires_pointer_rebase
+    (state: State)
+    (host: ViewportHostIdentity)
+    (action: RoutedMouseAction)
+    (result: GestureNavigationTransitions.PressResult)
+    =
+    match result with
+    | GestureNavigationTransitions.Applied pointerRebaseRequired ->
+        match action with
+        | RoutedMouseAction.Retarget _ ->
+            match state.session with
+            | Some active when active.requested.host = host ->
+                GestureNavigationTransitions.update_active_pivot_center
+                    state.navigation
+                    host
+                    active.transport.Viewport.CameraTarget
+            | Some _
+            | None -> ()
+        | RoutedMouseAction.Off
+        | RoutedMouseAction.TogglePivot
+        | RoutedMouseAction.HoldPivot
+        | RoutedMouseAction.TogglePan
+        | RoutedMouseAction.HoldPan -> ()
+
+        pointerRebaseRequired
+    | GestureNavigationTransitions.Deferred -> true
+    | GestureNavigationTransitions.Failed error ->
+        Debug.WriteLine $"RhinosCanFly mouse action: {error}"
+        true
+
+let handle_right_down
+    (state: State)
+    (host: ViewportHostIdentity)
+    (screenPoint: System.Drawing.Point)
+    (modifiers: MouseModifiers)
+    =
     let navigation = state.navigation
     let rightClick = state.right_click
     rightClick.button_ownership <- Owned
 
-    match RightClickTransitions.requested_gesture_action navigation (RightClickTransitions.modifiers ()) with
+    match RightClickTransitions.requested_gesture_action navigation modifiers with
     | ValueSome action ->
-        GestureNavigationTransitions.press_or_log navigation GestureOwner.ModifiedRightClick action host screenPoint
-    | ValueNone when navigation.routing.exit_on_mouse_right -> state.request_exit ()
-    | ValueNone -> ()
+        let result =
+            GestureNavigationTransitions.press navigation GestureOwner.ModifiedRightClick action host screenPoint
+
+        press_requires_pointer_rebase state host action result
+    | ValueNone when navigation.routing.actions.exit_on_mouse_right ->
+        state.request_exit ()
+        true
+    | ValueNone -> false
 
 let handle_right_up (state: State) =
     state.right_click.button_ownership <- NotOwned
     RightClickTransitions.clear_action state.right_click
     GestureNavigationTransitions.release state.navigation GestureOwner.ModifiedRightClick
 
-let handle_side_down (state: State) (button: SideButton) (host: ViewportHostIdentity) (screenPoint: Point) =
+let handle_side_down
+    (state: State)
+    (button: SideButton)
+    (host: ViewportHostIdentity)
+    (screenPoint: System.Drawing.Point)
+    =
     let navigation = state.navigation
-    ViewNavigationState.set_hook_button_ownership navigation button Owned
+    let action = MouseOverrideState.action_for navigation button
+    MouseOverrideState.set_hook_button_ownership navigation button Owned
 
-    GestureNavigationTransitions.press_or_log
-        navigation
-        (SideButtonTransitions.owner button)
-        (ViewNavigationState.action_for navigation button)
-        host
-        screenPoint
+    let result =
+        GestureNavigationTransitions.press navigation (SideButtonTransitions.owner button) action host screenPoint
+
+    press_requires_pointer_rebase state host action result
 
 let handle_side_up (state: State) (button: SideButton) =
-    ViewNavigationState.set_hook_button_ownership state.navigation button NotOwned
+    MouseOverrideState.set_hook_button_ownership state.navigation button NotOwned
     GestureNavigationTransitions.release state.navigation (SideButtonTransitions.owner button)
 
-let handle_button (state: State) (host: ViewportHostIdentity) (event: RawMouseButtonEvent) (screenPoint: Point) =
+let disposition_after_button (state: State) (active: ActiveNavigation) (pointerRebaseRequired: bool) =
+    match desired state with
+    | ValueSome requested when same_navigation requested active.requested ->
+        match requested.pivot_center with
+        | ValueSome center when center.IsValid -> active.pivot_center <- center
+        | ValueSome _
+        | ValueNone -> ()
+
+        if pointerRebaseRequired then
+            PointerInputDisposition.Rebase
+        else
+            PointerInputDisposition.Continue
+    | ValueSome _
+    | ValueNone -> PointerInputDisposition.Invalidate
+
+let handle_button
+    (state: State)
+    (active: ActiveNavigation)
+    (transition: RawMouseButtonTransition)
+    (screenPoint: System.Drawing.Point)
+    =
     try
-        match event with
-        | RawMouseButtonEvent.LeftUp when state.navigation.routing.exit_on_mouse_left -> state.request_exit ()
-        | RawMouseButtonEvent.RightDown -> handle_right_down state host screenPoint
+        let mutable pointerRebaseRequired = false
+
+        match transition.event with
+        | RawMouseButtonEvent.LeftUp when state.navigation.routing.actions.exit_on_mouse_left -> state.request_exit ()
+        | RawMouseButtonEvent.RightDown ->
+            pointerRebaseRequired <- handle_right_down state active.requested.host screenPoint transition.modifiers
         | RawMouseButtonEvent.RightUp -> handle_right_up state
-        | RawMouseButtonEvent.MiddleDown -> handle_side_down state Middle host screenPoint
+        | RawMouseButtonEvent.MiddleDown ->
+            pointerRebaseRequired <- handle_side_down state Middle active.requested.host screenPoint
         | RawMouseButtonEvent.MiddleUp -> handle_side_up state Middle
-        | RawMouseButtonEvent.Mouse4Down -> handle_side_down state Mouse4 host screenPoint
+        | RawMouseButtonEvent.Mouse4Down ->
+            pointerRebaseRequired <- handle_side_down state Mouse4 active.requested.host screenPoint
         | RawMouseButtonEvent.Mouse4Up -> handle_side_up state Mouse4
-        | RawMouseButtonEvent.Mouse5Down -> handle_side_down state Mouse5 host screenPoint
+        | RawMouseButtonEvent.Mouse5Down ->
+            pointerRebaseRequired <- handle_side_down state Mouse5 active.requested.host screenPoint
         | RawMouseButtonEvent.Mouse5Up -> handle_side_up state Mouse5
         | RawMouseButtonEvent.None
         | RawMouseButtonEvent.LeftDown
         | RawMouseButtonEvent.LeftUp -> ()
         | _ -> invalidOp "Raw mouse button events must be delivered one at a time."
 
-        ViewNavigationState.keep_timer_running state.navigation
+        MouseOverrideState.keep_timer_running state.navigation
+        disposition_after_button state active pointerRebaseRequired
     with error ->
         state.log_exception "raw navigation buttons" error
         state.request_exit ()
+        PointerInputDisposition.Invalidate
+
+let validate_host (state: State) (active: ActiveNavigation) =
+    let now = Stopwatch.GetTimestamp()
+
+    if now < active.next_host_validation_at then
+        true
+    else
+        active.next_host_validation_at <- now + hostValidationIntervalTicks
+
+        if RawViewNavigationSession.view_matches_host active.requested.host active.transport.View then
+            true
+        else
+            active.pointer_input_valid <- false
+            state.request_exit ()
+            false
+
+let apply_motion (state: State) (active: ActiveNavigation) (dx: int64) (dy: int64) =
+    let parallelZoomPending =
+        active.requested.mode = ViewportNavigation.Operation.ParallelZoom
+        && active.parallel_zoom_exponent_remainder <> 0.
+
+    if
+        (dx = 0L && dy = 0L && not parallelZoomPending)
+        || not (validate_host state active)
+    then
+        false
+    else
+        match active.requested.mode with
+        | ViewportNavigation.Operation.Pivot ->
+            ViewportNavigation.apply_pivot active.transport.Viewport active.mouse_config active.pivot_center dx dy
+        | ViewportNavigation.Operation.Pan
+        | ViewportNavigation.Operation.ParallelPan ->
+            ViewportNavigation.apply_pan active.transport.Viewport active.mouse_config dx dy
+        | ViewportNavigation.Operation.ParallelZoom ->
+            let requestedExponent =
+                active.parallel_zoom_exponent_remainder
+                + ViewportNavigation.parallel_zoom_exponent dy
+
+            if requestedExponent = 0. then
+                false
+            else
+                let appliedExponent = max -0.25 (min 0.25 requestedExponent)
+
+                if active.transport.Viewport.Magnify(Math.Exp appliedExponent, true) then
+                    let remaining = requestedExponent - appliedExponent
+
+                    active.parallel_zoom_exponent_remainder <- if abs remaining < 0.000000000001 then 0. else remaining
+
+                    true
+                else
+                    active.parallel_zoom_exponent_remainder <- 0.
+                    active.pointer_input_valid <- false
+                    Debug.WriteLine "RhinosCanFly parallel zoom was rejected by Rhino."
+                    state.request_exit ()
+                    false
+
+let apply_wheel (state: State) (active: ActiveNavigation) (delta: int64) =
+    let wheel = active.wheel_remainder + delta
+    let wheelSteps = wheel / int64 Win32Native.WHEEL_DELTA
+    active.wheel_remainder <- wheel - wheelSteps * int64 Win32Native.WHEEL_DELTA
+
+    if wheelSteps = 0L || not (validate_host state active) then
+        false
+    else
+        let magnification = ViewportNavigation.wheel_magnification wheelSteps
+
+        magnification <> 1.
+        && active.transport.Viewport.Magnify(magnification, active.transport.Viewport.IsParallelProjection)
+
+let observe_release (state: State) (event: RawMouseButtonEvent) =
+    match event with
+    | RawMouseButtonEvent.RightUp -> handle_right_up state
+    | RawMouseButtonEvent.MiddleUp -> handle_side_up state Middle
+    | RawMouseButtonEvent.Mouse4Up -> handle_side_up state Mouse4
+    | RawMouseButtonEvent.Mouse5Up -> handle_side_up state Mouse5
+    | RawMouseButtonEvent.None
+    | RawMouseButtonEvent.LeftDown
+    | RawMouseButtonEvent.LeftUp
+    | RawMouseButtonEvent.RightDown
+    | RawMouseButtonEvent.MiddleDown
+    | RawMouseButtonEvent.Mouse4Down
+    | RawMouseButtonEvent.Mouse5Down -> ()
+    | _ -> ()
+
+let discard_pointer_input (active: ActiveNavigation) =
+    active.wheel_remainder <- 0L
+    active.parallel_zoom_exponent_remainder <- 0.
+    active.transport.DiscardPointerInput()
+
+let drain (state: State) =
+    match state.session with
+    | None -> ()
+    | Some active ->
+        match active.transport.Drain active.timeline with
+        | ValueNone -> ()
+        | ValueSome result ->
+            if result.overflowed then
+                active.pointer_input_valid <- false
+                Debug.WriteLine "RhinosCanFly raw view navigation timeline overflowed."
+                state.request_exit ()
+            else
+                let mutable acceptPointerInput = true
+                let mutable viewChanged = false
+                let mutable index = 0
+
+                while index < result.count do
+                    let event = active.timeline[index]
+
+                    match event.kind with
+                    | InputAccumulator.TimelineEventKind.Movement when active.pointer_input_valid && acceptPointerInput ->
+                        viewChanged <- apply_motion state active event.dx event.dy || viewChanged
+                    | InputAccumulator.TimelineEventKind.Wheel when active.pointer_input_valid && acceptPointerInput ->
+                        viewChanged <- apply_wheel state active event.wheel || viewChanged
+                    | InputAccumulator.TimelineEventKind.RawMouseButton when active.pointer_input_valid ->
+                        match handle_button state active event.button active.transport.OriginalCursor with
+                        | PointerInputDisposition.Continue -> ()
+                        | PointerInputDisposition.Rebase -> discard_pointer_input active
+                        | PointerInputDisposition.Invalidate ->
+                            acceptPointerInput <- false
+                            active.pointer_input_valid <- false
+                            discard_pointer_input active
+                    | InputAccumulator.TimelineEventKind.RawMouseButton -> observe_release state event.button.event
+                    | InputAccumulator.TimelineEventKind.Movement
+                    | InputAccumulator.TimelineEventKind.Wheel
+                    | InputAccumulator.TimelineEventKind.KeyboardActions -> ()
+                    | _ -> invalidOp "The raw view navigation timeline contains an unknown event."
+
+                    index <- index + 1
+
+                if
+                    active.pointer_input_valid
+                    && acceptPointerInput
+                    && active.parallel_zoom_exponent_remainder <> 0.
+                then
+                    viewChanged <- apply_motion state active 0L 0L || viewChanged
+
+                if viewChanged then
+                    active.transport.View.Redraw()
+
+                if active.pointer_input_valid && active.parallel_zoom_exponent_remainder <> 0. then
+                    active.transport.RequestDrain()
 
 let start (state: State) (requested: DesiredNavigation) =
     let failed = Action state.request_exit
 
-    let buttonEvents =
-        Action<RawMouseButtonEvent, Point>(fun (event: RawMouseButtonEvent) (point: Point) ->
-            handle_button state requested.host event point)
-
-    match
-        RawViewNavigation.start
-            requested.host
-            requested.mode
-            requested.pivot_center
-            state.navigation.routing.view_navigation_mouse
-            buttonEvents
-            failed
-    with
+    match RawViewNavigationSession.start requested.host requested.mode failed with
     | Error error ->
         match GestureNavigationTransitions.rollback_start state.navigation with
         | Ok() -> Error error
         | Error rollbackError -> Error $"{error}; {rollbackError}"
-    | Ok session ->
-        state.session <- Some session
-        Ok()
+    | Ok transport ->
+        let pivotCenter =
+            match requested.pivot_center with
+            | ValueSome center when center.IsValid -> center
+            | ValueSome _
+            | ValueNone -> transport.Viewport.CameraTarget
+
+        let active =
+            { transport = transport
+              requested = requested
+              mouse_config =
+                ViewportNavigation.mouse_config
+                    state.navigation.routing.actions.view_navigation_mouse
+                    transport.Viewport.IsParallelProjection
+              timeline = InputAccumulator.timeline_buffer ()
+              pointer_input_valid = true
+              pivot_center = pivotCenter
+              wheel_remainder = 0L
+              parallel_zoom_exponent_remainder = 0.
+              next_host_validation_at = Stopwatch.GetTimestamp() + hostValidationIntervalTicks }
+
+        state.session <- Some active
+
+        try
+            transport.Attach(Action(fun () -> drain state))
+            transport.RequestDrain()
+            Ok()
+        with error ->
+            active.pointer_input_valid <- false
+            let cleanup = transport.Stop()
+
+            if transport.CleanupComplete then
+                state.session <- None
+
+            match cleanup with
+            | Ok() -> Error $"Could not attach raw view navigation: {error.Message}"
+            | Error cleanupError ->
+                Error $"Could not attach raw view navigation: {error.Message}; cleanup failed: {cleanupError}"
 
 let reconcile (state: State) =
     match desired state with
     | ValueNone -> stop state
     | ValueSome requested ->
         match state.session with
-        | Some current when current.Matches(requested.host, requested.mode) ->
-            current.UpdatePivotCenter requested.pivot_center
+        | Some current when
+            current.pointer_input_valid
+            && current.transport.Matches(requested.host, requested.mode)
+            ->
+            match requested.pivot_center with
+            | ValueSome center when center.IsValid -> current.pivot_center <- center
+            | ValueSome _
+            | ValueNone -> ()
+
             Ok()
         | Some _ ->
             match stop state with
@@ -193,7 +466,7 @@ let reconcile (state: State) =
 let release (state: State) =
     RightClickTransitions.clear_direct_navigation state.right_click
     let rawResult = stop state
-    let viewResult = ViewNavigationState.release_all state.navigation
+    let viewResult = MouseOverrideState.release_all state.navigation
 
     match viewResult with
     | Error error ->
@@ -206,13 +479,15 @@ let is_present (state: State) = Option.isSome state.session
 
 let captures_button_messages (state: State) =
     match state.session with
-    | Some session when session.IsActive ->
-        match session.RawInputRegistrationIsCurrent() with
+    | Some active when active.transport.IsActive ->
+        match active.transport.RawInputRegistrationIsCurrent() with
         | Ok true -> true
         | Ok false ->
+            active.pointer_input_valid <- false
             state.request_exit ()
             true
         | Error error ->
+            active.pointer_input_valid <- false
             Debug.WriteLine $"RhinosCanFly could not verify raw-input ownership: {error}"
             state.request_exit ()
             true

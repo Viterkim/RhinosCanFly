@@ -19,7 +19,7 @@ type RhinosCanFlyPlugin() as self =
         try
             ConfigStorage.initialize self.SettingsDirectory
 
-            match PlatformInput.prepare_raw_input_worker () with
+            match PlatformRawInput.prepare () with
             | Ok() -> ()
             | Error error -> report $"RhinosCanFly raw-input worker unavailable: {error}"
 
@@ -41,19 +41,19 @@ type RhinosCanFlyPlugin() as self =
             report $"RhinosCanFly flight shutdown failed: {error.Message}"
 
         try
-            PlatformInput.shutdown_mouse_button_overrides ()
+            PlatformMouseActions.shutdown ()
         with error ->
             report $"RhinosCanFly mouse override shutdown failed: {error.Message}"
 
         try
-            match PlatformInput.shutdown_flight_keyboard () with
+            match PlatformFlightKeyboard.shutdown () with
             | Ok() -> ()
             | Error error -> report $"RhinosCanFly keyboard hook shutdown failed: {error}"
         with error ->
             report $"RhinosCanFly keyboard hook shutdown failed: {error.Message}"
 
         try
-            let struct (remaining, errors) = PlatformInput.retry_raw_input_cleanup ()
+            let struct (remaining, errors) = PlatformRawInput.retry_recovery ()
 
             for error in errors do
                 report $"RhinosCanFly raw-input recovery: {error}"
@@ -64,13 +64,13 @@ type RhinosCanFlyPlugin() as self =
             report $"RhinosCanFly raw-input recovery failed: {error.Message}"
 
         try
-            for error in PlatformInput.shutdown_raw_input_worker () do
+            for error in PlatformRawInput.shutdown () do
                 report $"RhinosCanFly raw-input worker shutdown: {error}"
         with error ->
             report $"RhinosCanFly raw-input worker shutdown failed: {error.Message}"
 
         try
-            let struct (remaining, errors) = PlatformInput.retry_cursor_clip_cleanup ()
+            let struct (remaining, errors) = PlatformCursorClip.retry_cleanup ()
 
             for error in errors do
                 report $"RhinosCanFly cursor-clip recovery: {error}"

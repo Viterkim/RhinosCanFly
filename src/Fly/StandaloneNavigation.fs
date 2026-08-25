@@ -17,23 +17,23 @@ let name (mode: Mode) =
 
 let active (mode: Mode) =
     match mode with
-    | Mode.Pivot -> PlatformInput.pivot_active ()
-    | Mode.Pan -> PlatformInput.pan_active ()
+    | Mode.Pivot -> PlatformMouseActions.view_latch_is ViewNavigationMode.Pivot
+    | Mode.Pan -> PlatformMouseActions.view_latch_is ViewNavigationMode.Pan
 
 let stop (mode: Mode) =
     match mode with
-    | Mode.Pivot -> PlatformInput.stop_pivot ()
-    | Mode.Pan -> PlatformInput.stop_pan ()
+    | Mode.Pivot -> PlatformMouseActions.stop_view_latch ViewNavigationMode.Pivot
+    | Mode.Pan -> PlatformMouseActions.stop_view_latch ViewNavigationMode.Pan
 
 let stop_conflict (mode: Mode) =
     match mode with
-    | Mode.Pivot -> PlatformInput.stop_pan ()
-    | Mode.Pan -> PlatformInput.stop_pivot ()
+    | Mode.Pivot -> PlatformMouseActions.stop_view_latch ViewNavigationMode.Pan
+    | Mode.Pan -> PlatformMouseActions.stop_view_latch ViewNavigationMode.Pivot
 
 let start (mode: Mode) (view: RhinoView) (completion: Action option) =
     match mode with
-    | Mode.Pivot -> PlatformInput.start_pivot view completion
-    | Mode.Pan -> PlatformInput.start_pan view completion
+    | Mode.Pivot -> PlatformMouseActions.start_view_latch view ViewNavigationMode.Pivot completion
+    | Mode.Pan -> PlatformMouseActions.start_view_latch view ViewNavigationMode.Pan completion
 
 let restored_view_completion (loaded: ConfigLoadResult) (view: RhinoView) =
     if DefaultFlightMode.restores_navigation_commands loaded.config_file.default_flight_mode then

@@ -258,8 +258,6 @@ type RawInputReceiver(processControl: Action) as self =
 
     member _.StartSession
         (
-            config: RawInputConfig,
-            sessionMode: FlightSessionMode,
             input: InputAccumulator.State,
             inputAvailable: Action,
             registrationReady: Action<RawInputNative.MouseRegistrationLease>,
@@ -277,8 +275,7 @@ type RawInputReceiver(processControl: Action) as self =
         try
             discard_buffered_input ()
 
-            let session =
-                RawInputSession(config, sessionMode, input, inputAvailable, runtimeFailed)
+            let session = RawInputSession(input, inputAvailable, runtimeFailed)
 
             activeSession <- Some session
 
@@ -286,7 +283,6 @@ type RawInputReceiver(processControl: Action) as self =
             | RawInputNative.Acquired lease ->
                 registrationLease <- Some lease
                 registrationReady.Invoke lease
-                session.InitializeHeldButtons()
                 None
             | RawInputNative.Failed error -> Some(InvalidOperationException error)
             | RawInputNative.CleanupPending(error, lease) ->

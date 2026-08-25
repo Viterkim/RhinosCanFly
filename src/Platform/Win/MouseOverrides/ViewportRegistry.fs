@@ -34,14 +34,14 @@ let view_matches_host (host: ViewportHostIdentity) (view: RhinoView) =
     && document.RuntimeSerialNumber = host.document_serial_number
     && view.Handle = expectedWindow
     && view.ActiveViewportID = host.viewport_id
-    && ViewNavigationState.root_window view.Handle = host.root_window
+    && MouseOverrideState.root_window view.Handle = host.root_window
 
 let capture_host (view: RhinoView) =
     { view_serial_number = view.RuntimeSerialNumber
       document_serial_number = view.Document.RuntimeSerialNumber
       viewport_id = view.ActiveViewportID
       view_window = ViewWindowHandle view.Handle
-      root_window = ViewNavigationState.root_window view.Handle }
+      root_window = MouseOverrideState.root_window view.Handle }
 
 let capture_viewport (view: RhinoView) : RightClickTransitions.RightClickViewport =
     { host = capture_host view

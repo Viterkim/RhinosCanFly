@@ -181,6 +181,9 @@ extern bool GetCursorPos(NativePoint& point)
 [<DllImport("user32.dll")>]
 extern nativeint WindowFromPoint(NativePoint point)
 
+[<DllImport("user32.dll")>]
+extern nativeint GetCapture()
+
 [<DllImport("user32.dll", SetLastError = true)>]
 extern bool SetCursorPos(int x, int y)
 

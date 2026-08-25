@@ -126,6 +126,8 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     bindings.slow.Text <- config.slow
     bindings.speed_increase.Text <- config.speed_increase
     bindings.speed_decrease.Text <- config.speed_decrease
+    bindings.retarget_all_views.Text <- config.retarget_all_views
+    bindings.retarget_other_views.Text <- config.retarget_other_views
     bindings.exit_key.Text <- config.exit_key
     bindings.cancel_flight_and_restore.Text <- config.cancel_flight_and_restore
     bindings.toggle_projection.Text <- config.toggle_projection
@@ -180,6 +182,8 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     SettingsFields.set_mode modes.middle_mouse_retarget config.middle_mouse_retarget
     SettingsFields.set_mode modes.mouse4_retarget config.mouse4_retarget
     SettingsFields.set_mode modes.mouse5_retarget config.mouse5_retarget
+    SettingsFields.set_mode modes.retarget_all_views_mode config.retarget_all_views_mode
+    SettingsFields.set_mode modes.retarget_other_views_mode config.retarget_other_views_mode
     SettingsFields.set_mode modes.retarget_on_pivot config.retarget_on_pivot
     SettingsFields.set_mode modes.retarget_on_pan config.retarget_on_pan
     SettingsFields.set_mode modes.retarget_on_flight_exit config.retarget_on_flight_exit
@@ -192,8 +196,10 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     SettingsFields.set_mode modes.middle_mouse_action config.middle_mouse_action
     SettingsFields.set_mode modes.mouse_x_mode config.mouse_x_mode
     SettingsFields.set_mode modes.mouse_y_mode config.mouse_y_mode
-    SettingsFields.set_mode modes.parallel_view_flying config.parallel_view_flying.mode
-    fields.parallel_view_names.Text <- String.Join(", ", config.parallel_view_flying.viewports)
+    SettingsFields.set_mode modes.viewport_capabilities config.viewport_capabilities.mode
+    SettingsFields.set_mode modes.right_click_flight_entry config.right_click_flight_entry.mode
+    fields.viewport_capability_names.Text <- String.Join(", ", config.viewport_capabilities.viewports)
+    fields.right_click_flight_entry_names.Text <- String.Join(", ", config.right_click_flight_entry.viewports)
     set_checked options.normalize_diagonal_movement config.normalize_diagonal_movement
     set_checked options.hide_gumball_while_flying config.hide_gumball_while_flying
     set_checked options.flight_pivot_uses_gumball config.flight_pivot_uses_gumball
@@ -206,7 +212,6 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     set_checked options.middle_mouse_uses_cursor_outside_flight config.middle_mouse_uses_cursor_outside_flight
     set_checked options.mouse4_uses_cursor_outside_flight config.mouse4_uses_cursor_outside_flight
     set_checked options.mouse5_uses_cursor_outside_flight config.mouse5_uses_cursor_outside_flight
-    set_checked options.right_click_enters_parallel_views config.right_click_enters_parallel_views
     set_checked options.exit_on_mouse_left config.exit_on_mouse_left
     set_checked options.exit_on_mouse_right config.exit_on_mouse_right
     set_checked options.commands_do_not_repeat config.commands_do_not_repeat
@@ -216,13 +221,20 @@ let read (fields: SettingsFields.ConfigFields) =
     let modes = fields.modes
     let options = fields.options
 
-    let parallelViewNames =
-        fields.parallel_view_names.Text.Split([| ',' |], StringSplitOptions.RemoveEmptyEntries)
-        |> Array.map (fun (value: string) -> value.Trim())
-        |> Array.filter (String.IsNullOrWhiteSpace >> not)
-        |> Array.distinctBy (fun (value: string) -> value.ToUpperInvariant())
+    let viewport_names (field: TextBox) =
+        let names =
+            field.Text.Split([| ',' |], StringSplitOptions.RemoveEmptyEntries)
+            |> Array.map (fun (value: string) -> value.Trim())
+            |> Array.filter (String.IsNullOrWhiteSpace >> not)
+            |> Array.distinctBy (fun (value: string) -> value.ToUpperInvariant())
 
-    fields.parallel_view_names.Text <- String.Join(", ", parallelViewNames)
+        field.Text <- String.Join(", ", names)
+        names
+
+    let viewportCapabilityNames = viewport_names fields.viewport_capability_names
+
+    let rightClickFlightEntryNames =
+        viewport_names fields.right_click_flight_entry_names
 
     match parse_numbers fields.numbers with
     | Error error -> Error error
@@ -246,6 +258,8 @@ let read (fields: SettingsFields.ConfigFields) =
               slow = bindings.slow.Text
               speed_increase = bindings.speed_increase.Text
               speed_decrease = bindings.speed_decrease.Text
+              retarget_all_views = bindings.retarget_all_views.Text
+              retarget_other_views = bindings.retarget_other_views.Text
               exit_key = bindings.exit_key.Text
               cancel_flight_and_restore = bindings.cancel_flight_and_restore.Text
               toggle_projection = bindings.toggle_projection.Text
@@ -286,7 +300,6 @@ let read (fields: SettingsFields.ConfigFields) =
               mouse5_uses_cursor_outside_flight = is_checked options.mouse5_uses_cursor_outside_flight
               mouse4_action_while_flying = is_checked options.mouse4_action_while_flying
               mouse5_action_while_flying = is_checked options.mouse5_action_while_flying
-              right_click_enters_parallel_views = is_checked options.right_click_enters_parallel_views
               right_click_entry_mode = SettingsFields.selected_mode modes.right_click_entry_mode
               default_flight_mode = SettingsFields.selected_mode modes.default_flight_mode
               shift_right_click_retarget = SettingsFields.selected_mode modes.shift_right_click_retarget
@@ -295,13 +308,18 @@ let read (fields: SettingsFields.ConfigFields) =
               middle_mouse_retarget = SettingsFields.selected_mode modes.middle_mouse_retarget
               mouse4_retarget = SettingsFields.selected_mode modes.mouse4_retarget
               mouse5_retarget = SettingsFields.selected_mode modes.mouse5_retarget
+              retarget_all_views_mode = SettingsFields.selected_mode modes.retarget_all_views_mode
+              retarget_other_views_mode = SettingsFields.selected_mode modes.retarget_other_views_mode
               retarget_on_pivot = SettingsFields.selected_mode modes.retarget_on_pivot
               retarget_on_pan = SettingsFields.selected_mode modes.retarget_on_pan
               retarget_on_flight_exit = SettingsFields.selected_mode modes.retarget_on_flight_exit
               retarget_on_restored_flight_exit = SettingsFields.selected_mode modes.retarget_on_restored_flight_exit
-              parallel_view_flying =
-                { mode = SettingsFields.selected_mode modes.parallel_view_flying
-                  viewports = parallelViewNames }
+              viewport_capabilities =
+                { mode = SettingsFields.selected_mode modes.viewport_capabilities
+                  viewports = viewportCapabilityNames }
+              right_click_flight_entry =
+                { mode = SettingsFields.selected_mode modes.right_click_flight_entry
+                  viewports = rightClickFlightEntryNames }
               commands_do_not_repeat = is_checked options.commands_do_not_repeat
               mouse4_action = SettingsFields.selected_mode modes.mouse4_action
               mouse5_action = SettingsFields.selected_mode modes.mouse5_action

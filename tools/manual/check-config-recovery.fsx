@@ -31,7 +31,7 @@ try
     let previousVersion = ConfigDocument.to_object ConfigSchema.defaults
     set_value previousVersion "config_version" (JsonValue.Create(ConfigSchema.CURRENT_VERSION - 1))
     set_value previousVersion "base_speed" (JsonValue.Create 43.)
-    previousVersion.Remove "right_click_enters_parallel_views" |> ignore
+    previousVersion.Remove "right_click_flight_entry" |> ignore
     set_value previousVersion "removed_setting" (JsonValue.Create true)
 
     match ConfigRepair.repair_document previousVersion with
@@ -42,7 +42,7 @@ try
         require (repaired.config_file.base_speed = 43.) "migration did not preserve a known setting"
 
         require
-            (repaired.config_file.right_click_enters_parallel_views = ConfigSchema.defaults.right_click_enters_parallel_views)
+            (repaired.config_file.right_click_flight_entry = ConfigSchema.defaults.right_click_flight_entry)
             "migration did not add a missing setting with its default"
 
         require (not (repaired.document.ContainsKey "removed_setting")) "migration kept an unknown setting"

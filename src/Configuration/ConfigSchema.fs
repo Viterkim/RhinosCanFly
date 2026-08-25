@@ -6,8 +6,12 @@ open System.Globalization
 [<Literal>]
 let CURRENT_VERSION = 7
 
-let default_parallel_view_flying () =
-    { mode = ParallelViewFlyingMode.EnabledSome
+let default_viewport_capabilities () =
+    { mode = ViewportNameListMode.EnabledAll
+      viewports = [| "Perspective"; "Top"; "Front"; "Right" |] }
+
+let default_right_click_flight_entry () =
+    { mode = ViewportNameListMode.EnabledSome
       viewports = [| "Perspective" |] }
 
 let defaults: FlyConfigFile =
@@ -29,6 +33,8 @@ let defaults: FlyConfigFile =
       slow = "LeftAlt"
       speed_increase = "Equals"
       speed_decrease = "Minus"
+      retarget_all_views = "B"
+      retarget_other_views = "N"
       exit_key = "Escape"
       cancel_flight_and_restore = "T"
       toggle_projection = "H"
@@ -64,6 +70,8 @@ let defaults: FlyConfigFile =
       middle_mouse_retarget = RetargetMode.ObjectCenter
       mouse4_retarget = RetargetMode.ObjectCenter
       mouse5_retarget = RetargetMode.ObjectCenter
+      retarget_all_views_mode = RetargetMode.ObjectCenter
+      retarget_other_views_mode = RetargetMode.ObjectCenter
       middle_mouse_uses_cursor_outside_flight = true
       mouse4_uses_cursor_outside_flight = true
       mouse5_uses_cursor_outside_flight = true
@@ -85,8 +93,8 @@ let defaults: FlyConfigFile =
       boost_mode = KeyActivationMode.Toggle
       slow_mode = KeyActivationMode.Toggle
       vertical_speed_multiplier = 0.7
-      parallel_view_flying = default_parallel_view_flying ()
-      right_click_enters_parallel_views = true
+      viewport_capabilities = default_viewport_capabilities ()
+      right_click_flight_entry = default_right_click_flight_entry ()
       parallel_mouse_sensitivity = 20.
       parallel_mouse_pivot_multiplier = 2.
       parallel_mouse_pan_multiplier = 2.
@@ -106,17 +114,17 @@ let format_number (value: float) =
     let normalized = normalize_number value
     normalized.ToString("0.############", CultureInfo.InvariantCulture)
 
-let normalize_parallel_view_flying (source: ParallelViewFlyingFile) =
+let normalize_viewport_name_list (fallback: unit -> ViewportNameListFile) (source: ViewportNameListFile) =
     if isNull (box source) then
-        default_parallel_view_flying ()
+        fallback ()
     else
         let mode =
             match source.mode with
-            | ParallelViewFlyingMode.DisabledAll
-            | ParallelViewFlyingMode.EnabledAll
-            | ParallelViewFlyingMode.EnabledSome
-            | ParallelViewFlyingMode.DisabledSome -> source.mode
-            | _ -> (default_parallel_view_flying ()).mode
+            | ViewportNameListMode.DisabledAll
+            | ViewportNameListMode.EnabledAll
+            | ViewportNameListMode.EnabledSome
+            | ViewportNameListMode.DisabledSome -> source.mode
+            | _ -> (fallback ()).mode
 
         let viewports =
             if isNull source.viewports then
@@ -131,7 +139,9 @@ let normalize_parallel_view_flying (source: ParallelViewFlyingFile) =
 
 let normalize (source: FlyConfigFile) =
     { source with
-        parallel_view_flying = normalize_parallel_view_flying source.parallel_view_flying
+        viewport_capabilities = normalize_viewport_name_list default_viewport_capabilities source.viewport_capabilities
+        right_click_flight_entry =
+            normalize_viewport_name_list default_right_click_flight_entry source.right_click_flight_entry
         base_speed = normalize_number source.base_speed
         minimum_speed = normalize_number source.minimum_speed
         maximum_speed = normalize_number source.maximum_speed

@@ -1,4 +1,3 @@
 #load "check-source-style.fsx"
 #load "check-module-layout.fsx"
 #load "check-platform-boundaries.fsx"
-#load "check-raw-input-wake.fsx"

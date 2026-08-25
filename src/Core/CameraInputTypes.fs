@@ -3,102 +3,6 @@ namespace RhinosCanFly
 open Rhino.DocObjects
 open Rhino.Geometry
 
-[<Struct>]
-type ViewportClientPoint = { x: int; y: int }
-
-type RawMouseButtonEvent =
-    | None = 0
-    | LeftDown = 1
-    | LeftUp = 2
-    | RightDown = 3
-    | RightUp = 4
-    | MiddleDown = 5
-    | MiddleUp = 6
-    | Mouse4Down = 7
-    | Mouse4Up = 8
-    | Mouse5Down = 9
-    | Mouse5Up = 10
-
-[<Struct>]
-type RawMouseButtonTransition =
-    { event: RawMouseButtonEvent
-      timestamp: int64 }
-
-[<Struct; RequireQualifiedAccess>]
-type RoutedMouseAction =
-    | Off
-    | TogglePivot
-    | HoldPivot
-    | TogglePan
-    | HoldPan
-    | Retarget of RetargetMode
-
-module RoutedMouseAction =
-    let create (action: MouseGestureAction) (retargetMode: RetargetMode) =
-        match action with
-        | MouseGestureAction.TogglePivot -> RoutedMouseAction.TogglePivot
-        | MouseGestureAction.HoldPivot -> RoutedMouseAction.HoldPivot
-        | MouseGestureAction.TogglePan -> RoutedMouseAction.TogglePan
-        | MouseGestureAction.HoldPan -> RoutedMouseAction.HoldPan
-        | MouseGestureAction.Retarget when retargetMode <> RetargetMode.Off -> RoutedMouseAction.Retarget retargetMode
-        | MouseGestureAction.Retarget
-        | MouseGestureAction.Off
-        | _ -> RoutedMouseAction.Off
-
-    let enabled (action: RoutedMouseAction) =
-        match action with
-        | RoutedMouseAction.Off -> false
-        | RoutedMouseAction.TogglePivot
-        | RoutedMouseAction.HoldPivot
-        | RoutedMouseAction.TogglePan
-        | RoutedMouseAction.HoldPan
-        | RoutedMouseAction.Retarget _ -> true
-
-    let toggles_pivot (action: RoutedMouseAction) =
-        match action with
-        | RoutedMouseAction.TogglePivot -> true
-        | RoutedMouseAction.Off
-        | RoutedMouseAction.HoldPivot
-        | RoutedMouseAction.TogglePan
-        | RoutedMouseAction.HoldPan
-        | RoutedMouseAction.Retarget _ -> false
-
-    let holds_pivot (action: RoutedMouseAction) =
-        match action with
-        | RoutedMouseAction.HoldPivot -> true
-        | RoutedMouseAction.Off
-        | RoutedMouseAction.TogglePivot
-        | RoutedMouseAction.TogglePan
-        | RoutedMouseAction.HoldPan
-        | RoutedMouseAction.Retarget _ -> false
-
-    let toggles_pan (action: RoutedMouseAction) =
-        match action with
-        | RoutedMouseAction.TogglePan -> true
-        | RoutedMouseAction.Off
-        | RoutedMouseAction.TogglePivot
-        | RoutedMouseAction.HoldPivot
-        | RoutedMouseAction.HoldPan
-        | RoutedMouseAction.Retarget _ -> false
-
-    let holds_pan (action: RoutedMouseAction) =
-        match action with
-        | RoutedMouseAction.HoldPan -> true
-        | RoutedMouseAction.Off
-        | RoutedMouseAction.TogglePivot
-        | RoutedMouseAction.HoldPivot
-        | RoutedMouseAction.TogglePan
-        | RoutedMouseAction.Retarget _ -> false
-
-    let retarget_mode (action: RoutedMouseAction) =
-        match action with
-        | RoutedMouseAction.Retarget mode -> mode
-        | RoutedMouseAction.Off
-        | RoutedMouseAction.TogglePivot
-        | RoutedMouseAction.HoldPivot
-        | RoutedMouseAction.TogglePan
-        | RoutedMouseAction.HoldPan -> RetargetMode.Off
-
 type FlightExitReason =
     | ExplicitKeepCamera
     | ExplicitRestoreCamera
@@ -173,14 +77,14 @@ type CameraSnapshot
         viewProjection: ViewportInfo,
         target: Point3d,
         projectionKind: ViewProjectionKind,
-        perspectiveLensLengthMm: float voption
+        perspectiveLensLength: PerspectiveLensLengthMm voption
     ) =
     let mutable disposed = false
 
     member internal _.view_projection = viewProjection
     member _.target = target
     member _.projection = projectionKind
-    member _.perspective_lens_length_mm = perspectiveLensLengthMm
+    member _.perspective_lens_length = perspectiveLensLength
     member _.is_disposed = disposed
 
     member _.dispose() =
@@ -193,13 +97,18 @@ module CameraSnapshot =
         let projection = ViewProjectionKind.capture viewport
         let viewProjection = new ViewportInfo(viewport)
 
-        let perspectiveLensLength =
-            match projection with
-            | ViewProjectionKind.Parallel -> ValueNone
-            | ViewProjectionKind.Perspective
-            | ViewProjectionKind.TwoPointPerspective -> ValueSome viewProjection.Camera35mmLensLength
+        try
+            let perspectiveLensLength =
+                match projection with
+                | ViewProjectionKind.Parallel -> ValueNone
+                | ViewProjectionKind.Perspective
+                | ViewProjectionKind.TwoPointPerspective ->
+                    ValueSome(PerspectiveLensLengthMm viewProjection.Camera35mmLensLength)
 
-        CameraSnapshot(viewProjection, viewport.CameraTarget, projection, perspectiveLensLength)
+            CameraSnapshot(viewProjection, viewport.CameraTarget, projection, perspectiveLensLength)
+        with _ ->
+            viewProjection.Dispose()
+            reraise ()
 
     let restore (viewport: Rhino.Display.RhinoViewport) (snapshot: CameraSnapshot) =
         if snapshot.is_disposed then
@@ -230,13 +139,30 @@ module ViewChange =
         { camera_changed = first.camera_changed || second.camera_changed
           parallel_magnification = first.parallel_magnification * second.parallel_magnification }
 
+[<Struct>]
+type InputEffect =
+    { view_change: ViewChange
+      pointer_rebase_required: bool }
+
+module InputEffect =
+    let none =
+        { view_change = ViewChange.none
+          pointer_rebase_required = false }
+
+    let rebase_pointer (change: ViewChange) =
+        { view_change = change
+          pointer_rebase_required = true }
+
+    let combine (first: InputEffect) (second: InputEffect) =
+        { view_change = ViewChange.combine first.view_change second.view_change
+          pointer_rebase_required = first.pointer_rebase_required || second.pointer_rebase_required }
+
 type KeyPivotDirection =
     | NoKeyPivot
     | KeyPivotLeft
     | KeyPivotRight
 
 type KeyPivotInputState =
-    | WaitingForNeutralKeyPivotInput
     | KeyPivotInputArmed
     | KeyPivotInputActive
 
@@ -259,7 +185,7 @@ type ActiveMouseNavigation =
     | MousePan of target: Point3d * units_per_radian: MousePanUnitsPerRadian
 
 [<Struct>]
-type InputSnapshot =
+type FlightMovementInput =
     { forward: bool
       backward: bool
       left: bool

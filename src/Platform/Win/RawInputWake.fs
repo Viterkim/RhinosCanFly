@@ -1,8 +1,9 @@
-module RhinosCanFly.Platform.Win.RawInputWake
+module RhinosCanFly.PlatformInputWake
 
 open System.Diagnostics
 open System.Threading
 open RhinosCanFly
+open RhinosCanFly.Platform.Win
 
 type State =
     { window: RootWindow

@@ -16,23 +16,19 @@ type FlyState =
       mutable key_pivot_input_state: KeyPivotInputState
       mutable active_mouse_navigation: ActiveMouseNavigation
       mutable latched_mouse_navigation: MouseNavigationMode
-      mutable keyboard_held_mouse_navigation: MouseNavigationMode
-      mutable keyboard_pivot_toggle_was_down: bool
-      mutable keyboard_pan_toggle_was_down: bool
-      mutable keyboard_projection_toggle_was_down: bool
+      mutable keyboard_pivot_held: bool
+      mutable keyboard_pan_held: bool
+      mutable mouse_pivot_hold_buttons: int
+      mutable mouse_pan_hold_buttons: int
       mutable projection: ViewProjectionKind
       mutable perspective_projection: ViewProjectionKind
-      mutable perspective_lens_length_mm: float
+      mutable perspective_lens_length: PerspectiveLensLengthMm
       mutable exit_reason: FlightExitReason option
       mutable restore_camera_on_exit: bool
       mutable camera: CameraState
       mutable speed: float
       mutable boost_enabled: bool
-      mutable boost_was_down: bool
       mutable slow_enabled: bool
-      mutable slow_was_down: bool
-      mutable speed_increase_was_down: bool
-      mutable speed_decrease_was_down: bool
       mutable wheel_remainder: int64
       mutable next_host_validation_at: float }
 

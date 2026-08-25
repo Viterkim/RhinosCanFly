@@ -233,11 +233,12 @@ let same_device (left: Device) (right: Device) =
     && left.target = right.target
 
 let same_registration (left: Device option) (right: Device option) =
-    match left, right with
-    | None, None -> true
-    | Some leftDevice, Some rightDevice -> same_device leftDevice rightDevice
-    | Some _, None
-    | None, Some _ -> false
+    match left with
+    | None -> Option.isNone right
+    | Some leftDevice ->
+        match right with
+        | Some rightDevice -> same_device leftDevice rightDevice
+        | None -> false
 
 [<Literal>]
 let REGISTRATION_QUERY_ATTEMPTS = 3

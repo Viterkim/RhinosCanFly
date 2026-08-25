@@ -1,10 +1,11 @@
-module RhinosCanFly.Platform.Win.RawInputThread
+module RhinosCanFly.PlatformRawInput
 
 open System
 open System.Collections.Concurrent
 open System.Threading
 open System.Windows.Forms
 open RhinosCanFly
+open RhinosCanFly.Platform.Win
 
 type ThreadResult =
     { mutable startup_error: exn option
@@ -28,8 +29,6 @@ type StartFailureException(message: string, restartRequired: bool, innerError: e
 
 type SessionRequest =
     { id: int64
-      config: RawInputConfig
-      session_mode: FlightSessionMode
       input: InputAccumulator.State
       input_available: Action
       ready: ManualResetEventSlim
@@ -224,8 +223,6 @@ let run_worker (worker: WorkerState) =
                         match receiver with
                         | Some created ->
                             created.StartSession(
-                                request.config,
-                                request.session_mode,
                                 request.input,
                                 request.input_available,
                                 registrationReady,
@@ -574,12 +571,7 @@ let stop_internal (attempt: StopAttempt) (session: Session) =
 
 let stop (session: Session) = stop_internal InitialStop session
 
-let start
-    (config: RawInputConfig)
-    (sessionMode: FlightSessionMode)
-    (input: InputAccumulator.State)
-    (inputAvailable: Action)
-    =
+let start (input: InputAccumulator.State) (inputAvailable: Action) =
     if recovery_pending () then
         let message =
             "A previous raw-input session still needs cleanup. Run RhinosCanFlyInputRecover or restart Rhino."
@@ -610,8 +602,6 @@ let start
 
         let request =
             { id = sessionId
-              config = config
-              session_mode = sessionMode
               input = input
               input_available = inputAvailable
               ready = new ManualResetEventSlim(false)

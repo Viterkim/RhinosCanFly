@@ -24,6 +24,8 @@ type BindingFields =
       slow: TextBox
       speed_increase: TextBox
       speed_decrease: TextBox
+      retarget_all_views: TextBox
+      retarget_other_views: TextBox
       exit_key: TextBox
       cancel_flight_and_restore: TextBox
       toggle_projection: TextBox }
@@ -59,7 +61,8 @@ type ModeFields =
       wheel_speed_mode: ModeField<MouseWheelSpeedMode>
       mouse_x_mode: ModeField<MouseAxisMode>
       mouse_y_mode: ModeField<MouseAxisMode>
-      parallel_view_flying: ModeField<ParallelViewFlyingMode>
+      viewport_capabilities: ModeField<ViewportNameListMode>
+      right_click_flight_entry: ModeField<ViewportNameListMode>
       right_click_entry_mode: ModeField<RightClickEntryMode>
       default_flight_mode: ModeField<DefaultFlightMode>
       shift_right_click_retarget: ModeField<RetargetMode>
@@ -68,6 +71,8 @@ type ModeFields =
       middle_mouse_retarget: ModeField<RetargetMode>
       mouse4_retarget: ModeField<RetargetMode>
       mouse5_retarget: ModeField<RetargetMode>
+      retarget_all_views_mode: ModeField<RetargetMode>
+      retarget_other_views_mode: ModeField<RetargetMode>
       retarget_on_pivot: ModeField<RetargetMode>
       retarget_on_pan: ModeField<RetargetMode>
       retarget_on_flight_exit: ModeField<RetargetMode>
@@ -94,7 +99,6 @@ type OptionFields =
       middle_mouse_uses_cursor_outside_flight: CheckBox
       mouse4_uses_cursor_outside_flight: CheckBox
       mouse5_uses_cursor_outside_flight: CheckBox
-      right_click_enters_parallel_views: CheckBox
       exit_on_mouse_left: CheckBox
       exit_on_mouse_right: CheckBox
       commands_do_not_repeat: CheckBox }
@@ -104,7 +108,8 @@ type ConfigFields =
       numbers: NumberFields
       modes: ModeFields
       options: OptionFields
-      parallel_view_names: TextBox }
+      viewport_capability_names: TextBox
+      right_click_flight_entry_names: TextBox }
 
 type StatusFields =
     { runtime_enabled: CheckBox
@@ -185,11 +190,11 @@ let create () =
            RightClickEntryMode.HoldToFly, "Hold to fly"
            RightClickEntryMode.HoldToFlyDuringCommands, "Hold to fly + during commands" |]
 
-    let parallelViewFlyingModes =
-        [| ParallelViewFlyingMode.DisabledAll, "Off"
-           ParallelViewFlyingMode.EnabledAll, "Allow all"
-           ParallelViewFlyingMode.EnabledSome, "Allow listed"
-           ParallelViewFlyingMode.DisabledSome, "Ban listed" |]
+    let viewportNameListModes =
+        [| ViewportNameListMode.DisabledAll, "Off"
+           ViewportNameListMode.EnabledAll, "Allow all"
+           ViewportNameListMode.EnabledSome, "Allow listed"
+           ViewportNameListMode.DisabledSome, "Ban listed" |]
 
     let flightModes =
         [| DefaultFlightMode.Normal, "Normal"
@@ -228,6 +233,8 @@ let create () =
               slow = text_box ()
               speed_increase = text_box ()
               speed_decrease = text_box ()
+              retarget_all_views = text_box ()
+              retarget_other_views = text_box ()
               exit_key = text_box ()
               cancel_flight_and_restore = text_box ()
               toggle_projection = text_box () }
@@ -261,7 +268,8 @@ let create () =
               wheel_speed_mode = mode_field wheelSpeedModes MouseWheelSpeedMode.Normal
               mouse_x_mode = mode_field mouseAxisModes MouseAxisMode.Normal
               mouse_y_mode = mode_field mouseAxisModes MouseAxisMode.Normal
-              parallel_view_flying = mode_field parallelViewFlyingModes ParallelViewFlyingMode.DisabledAll
+              viewport_capabilities = mode_field viewportNameListModes ViewportNameListMode.DisabledAll
+              right_click_flight_entry = mode_field viewportNameListModes ViewportNameListMode.DisabledAll
               right_click_entry_mode = mode_field rightClickEntryModes RightClickEntryMode.ClickToFlyDuringCommands
               default_flight_mode = mode_field flightModes DefaultFlightMode.Normal
               shift_right_click_retarget = mode_field retargetModes RetargetMode.ObjectCenter
@@ -270,6 +278,8 @@ let create () =
               middle_mouse_retarget = mode_field retargetModes RetargetMode.ObjectCenter
               mouse4_retarget = mode_field retargetModes RetargetMode.ObjectCenter
               mouse5_retarget = mode_field retargetModes RetargetMode.ObjectCenter
+              retarget_all_views_mode = mode_field retargetModes RetargetMode.ObjectCenter
+              retarget_other_views_mode = mode_field retargetModes RetargetMode.ObjectCenter
               retarget_on_pivot = mode_field retargetModes RetargetMode.ObjectCenter
               retarget_on_pan = mode_field retargetModes RetargetMode.ObjectCenter
               retarget_on_flight_exit = mode_field retargetModes RetargetMode.ObjectCenter
@@ -296,11 +306,11 @@ let create () =
               middle_mouse_uses_cursor_outside_flight = new CheckBox(Text = "Use cursor position outside flight")
               mouse4_uses_cursor_outside_flight = new CheckBox(Text = "Use cursor position outside flight")
               mouse5_uses_cursor_outside_flight = new CheckBox(Text = "Use cursor position outside flight")
-              right_click_enters_parallel_views = new CheckBox(Text = "Enable right click to enter in parallel")
               exit_on_mouse_left = new CheckBox(Text = "Left click exits flight / navigation")
               exit_on_mouse_right = new CheckBox(Text = "Right click exits flight / navigation")
               commands_do_not_repeat = new CheckBox(Text = "Don't repeat flight commands") }
-          parallel_view_names = text_box () }
+          viewport_capability_names = text_box ()
+          right_click_flight_entry_names = text_box () }
       status =
         { runtime_enabled = new CheckBox(Text = "Runtime enabled (RhinosCanFlyToggleEnable)", Enabled = false)
           status_line = new Label(Wrap = WrapMode.Word)

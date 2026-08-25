@@ -143,15 +143,6 @@ let request_application_redraw () =
     with _ ->
         ()
 
-let acquire_cursor_clip (view: RhinoView) =
-    Win32.acquire_cursor_clip view.ScreenRectangle
-
-let release_cursor_clip (lease: CursorClipLease) = Win32.release_cursor_clip lease
-
-let retry_cursor_clip_cleanup () = Win32.retry_cursor_clip_cleanup ()
-
-let cursor_clip_recovery_count () = Win32.cursor_clip_recovery_count ()
-
 let viewport_host_windows_exist (identity: ViewportHostIdentity) =
     let (RootWindow rootWindow) = identity.root_window
     let (ViewWindowHandle viewWindow) = identity.view_window
@@ -164,93 +155,3 @@ let viewport_host_windows_exist (identity: ViewportHostIdentity) =
 let hide_cursor () = Win32Native.ShowCursor false |> ignore
 
 let show_cursor () = Win32Native.ShowCursor true |> ignore
-
-type RawInputSession = RawInputThread.Session
-type RawInputWake = RhinosCanFly.Platform.Win.RawInputWake.State
-
-let create_raw_input_wake (window: RootWindow) =
-    RhinosCanFly.Platform.Win.RawInputWake.create window
-
-let raw_input_wake_action (wake: RawInputWake) =
-    Action(fun () -> RhinosCanFly.Platform.Win.RawInputWake.signal wake)
-
-let acknowledge_raw_input_wake (wake: RawInputWake) =
-    RhinosCanFly.Platform.Win.RawInputWake.acknowledge wake
-
-let wake_flight_loop (wake: RawInputWake) =
-    RhinosCanFly.Platform.Win.RawInputWake.signal wake
-
-let dispose_raw_input_wake (wake: RawInputWake) =
-    RhinosCanFly.Platform.Win.RawInputWake.dispose wake
-
-let open_raw_input
-    (config: RawInputConfig)
-    (sessionMode: FlightSessionMode)
-    (input: InputAccumulator.State)
-    (inputAvailable: Action)
-    =
-    RawInputThread.start config sessionMode input inputAvailable
-
-let raw_input_start_requires_restart (error: exn) =
-    match error with
-    | :? RawInputThread.StartFailureException as failure -> failure.RestartRequired
-    | _ -> false
-
-let request_raw_input_stop (session: RawInputSession) = RawInputThread.request_stop session
-
-let close_raw_input (session: RawInputSession) = RawInputThread.stop session
-
-let raw_input_runtime_failed (session: RawInputSession) = RawInputThread.runtime_failed session
-
-let retry_raw_input_cleanup () = RawInputThread.retry_recovery ()
-
-let prepare_raw_input_worker () = RawInputThread.prepare ()
-
-let shutdown_raw_input_worker () = RawInputThread.shutdown ()
-
-let suppress_flight_keyboard (bindings: FlightBindings) (inputAvailable: Action) =
-    FlightKeyboardSuppression.start bindings inputAvailable
-
-let release_flight_keyboard () = FlightKeyboardSuppression.stop ()
-
-let flight_keyboard_revision () = FlightKeyboardSuppression.revision ()
-
-let flight_keyboard_change_timestamp () =
-    FlightKeyboardSuppression.last_change_timestamp ()
-
-let apply_flight_mouse_button_transition (transition: RawMouseButtonTransition) =
-    FlightKeyboardSuppression.apply_raw_mouse_button_transition transition
-
-let shutdown_flight_keyboard () = FlightKeyboardSuppression.shutdown ()
-
-let flight_binding_down (binding: KeyBinding) =
-    FlightKeyboardSuppression.binding_is_down binding
-
-let apply_mouse_button_overrides (config: MouseOverrideConfig) = MouseButtonOverrides.apply config
-
-let start_pivot (view: RhinoView) (completion: Action option) =
-    MouseButtonOverrides.start_view_latch view ViewNavigationMode.Pivot completion
-
-let stop_pivot () =
-    MouseButtonOverrides.stop_view_latch ViewNavigationMode.Pivot
-
-let start_pan (view: RhinoView) (completion: Action option) =
-    MouseButtonOverrides.start_view_latch view ViewNavigationMode.Pan completion
-
-let stop_pan () =
-    MouseButtonOverrides.stop_view_latch ViewNavigationMode.Pan
-
-let pivot_active () =
-    MouseButtonOverrides.view_latch_is ViewNavigationMode.Pivot
-
-let pan_active () =
-    MouseButtonOverrides.view_latch_is ViewNavigationMode.Pan
-
-let suspend_mouse_button_overrides () = MouseButtonOverrides.suspend ()
-
-let resume_mouse_button_overrides (lease: InputSuspensionLease) = MouseButtonOverrides.resume lease
-
-let shutdown_mouse_button_overrides () = MouseButtonOverrides.shutdown ()
-
-let retry_input_hook_cleanup () =
-    MouseButtonOverrides.retry_hook_cleanup ()

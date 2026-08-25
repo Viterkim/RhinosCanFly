@@ -23,6 +23,15 @@ let item (label: string) (control: Control) =
     result.Rows.Add(row [ new TableCell(caption, false); new TableCell(control, true) ])
     result :> Control
 
+let fixed_item (labelWidth: int) (controlWidth: int) (label: string) (control: Control) =
+    control.Width <- controlWidth
+
+    let caption = new Label(Text = label, Width = labelWidth)
+    let result = new TableLayout(Spacing = Size(8, 0))
+
+    result.Rows.Add(row [ new TableCell(caption, false); new TableCell(control, false) ])
+    result :> Control
+
 let grid (columns: int) (controls: Control list) =
     if columns <= 0 then
         invalidArg (nameof columns) "The column count must be positive."
