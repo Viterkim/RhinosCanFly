@@ -65,19 +65,7 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
         if FlyState.is_running state then
             let mutable viewChange = ViewChange.combine wheelChange mouseChange
 
-            let input = FlightControls.read_movement state
-            let requestedPivotKeysDown = input.key_pivot_left || input.key_pivot_right
-
-            let movement =
-                match state.key_pivot_input_state with
-                | WaitingForNeutralKeyPivotInput ->
-                    if requestedPivotKeysDown then
-                        FlightInput.without_key_pivot input
-                    else
-                        state.key_pivot_input_state <- KeyPivotInputArmed
-                        input
-                | KeyPivotInputArmed
-                | KeyPivotInputActive -> input
+            let movement = FlightControls.read_movement state
 
             let now = frameSeconds
             let currentlyMoving = FlightInput.movement_active movement

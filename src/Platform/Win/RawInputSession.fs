@@ -10,14 +10,12 @@ module RawInputSessionEvents =
         (timestamp: int64)
         (modifiers: MouseModifiers)
         (input: InputAccumulator.State)
-        (buttonObserved: Action<RawMouseButtonTransition>)
         =
         let transition =
             { event = event
               timestamp = timestamp
               modifiers = modifiers }
 
-        buttonObserved.Invoke transition
         InputAccumulator.add_raw_mouse_button_transition transition input
 
 type RawInputSession
@@ -26,7 +24,6 @@ type RawInputSession
         sessionMode: FlightSessionMode,
         input: InputAccumulator.State,
         inputAvailable: Action,
-        buttonObserved: Action<RawMouseButtonTransition>,
         runtimeFailed: Action<exn>
     ) =
 
@@ -163,67 +160,47 @@ type RawInputSession
         let mutable rawButtonEventAdded = false
 
         if flags &&& RawInputNative.LEFT_BUTTON_DOWN <> 0us then
-            RawInputSessionEvents.add_button RawMouseButtonEvent.LeftDown buttonTimestamp modifiers input buttonObserved
+            RawInputSessionEvents.add_button RawMouseButtonEvent.LeftDown buttonTimestamp modifiers input
             rawButtonEventAdded <- true
 
         if flags &&& RawInputNative.LEFT_BUTTON_UP <> 0us then
-            RawInputSessionEvents.add_button RawMouseButtonEvent.LeftUp buttonTimestamp modifiers input buttonObserved
+            RawInputSessionEvents.add_button RawMouseButtonEvent.LeftUp buttonTimestamp modifiers input
             rawButtonEventAdded <- true
 
         if flags &&& RawInputNative.RIGHT_BUTTON_DOWN <> 0us then
-            RawInputSessionEvents.add_button
-                RawMouseButtonEvent.RightDown
-                buttonTimestamp
-                modifiers
-                input
-                buttonObserved
+            RawInputSessionEvents.add_button RawMouseButtonEvent.RightDown buttonTimestamp modifiers input
 
             rawButtonEventAdded <- true
 
         if flags &&& RawInputNative.RIGHT_BUTTON_UP <> 0us then
-            RawInputSessionEvents.add_button RawMouseButtonEvent.RightUp buttonTimestamp modifiers input buttonObserved
+            RawInputSessionEvents.add_button RawMouseButtonEvent.RightUp buttonTimestamp modifiers input
             rawButtonEventAdded <- true
 
         if flags &&& RawInputNative.MIDDLE_BUTTON_DOWN <> 0us then
-            RawInputSessionEvents.add_button
-                RawMouseButtonEvent.MiddleDown
-                buttonTimestamp
-                modifiers
-                input
-                buttonObserved
+            RawInputSessionEvents.add_button RawMouseButtonEvent.MiddleDown buttonTimestamp modifiers input
 
             rawButtonEventAdded <- true
 
         if flags &&& RawInputNative.MIDDLE_BUTTON_UP <> 0us then
-            RawInputSessionEvents.add_button RawMouseButtonEvent.MiddleUp buttonTimestamp modifiers input buttonObserved
+            RawInputSessionEvents.add_button RawMouseButtonEvent.MiddleUp buttonTimestamp modifiers input
             rawButtonEventAdded <- true
 
         if flags &&& RawInputNative.BUTTON_4_DOWN <> 0us then
-            RawInputSessionEvents.add_button
-                RawMouseButtonEvent.Mouse4Down
-                buttonTimestamp
-                modifiers
-                input
-                buttonObserved
+            RawInputSessionEvents.add_button RawMouseButtonEvent.Mouse4Down buttonTimestamp modifiers input
 
             rawButtonEventAdded <- true
 
         if flags &&& RawInputNative.BUTTON_4_UP <> 0us then
-            RawInputSessionEvents.add_button RawMouseButtonEvent.Mouse4Up buttonTimestamp modifiers input buttonObserved
+            RawInputSessionEvents.add_button RawMouseButtonEvent.Mouse4Up buttonTimestamp modifiers input
             rawButtonEventAdded <- true
 
         if flags &&& RawInputNative.BUTTON_5_DOWN <> 0us then
-            RawInputSessionEvents.add_button
-                RawMouseButtonEvent.Mouse5Down
-                buttonTimestamp
-                modifiers
-                input
-                buttonObserved
+            RawInputSessionEvents.add_button RawMouseButtonEvent.Mouse5Down buttonTimestamp modifiers input
 
             rawButtonEventAdded <- true
 
         if flags &&& RawInputNative.BUTTON_5_UP <> 0us then
-            RawInputSessionEvents.add_button RawMouseButtonEvent.Mouse5Up buttonTimestamp modifiers input buttonObserved
+            RawInputSessionEvents.add_button RawMouseButtonEvent.Mouse5Up buttonTimestamp modifiers input
             rawButtonEventAdded <- true
 
         let wheelDelta =

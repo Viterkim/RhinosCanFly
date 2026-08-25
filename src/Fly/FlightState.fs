@@ -83,7 +83,7 @@ let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyCo
       original_camera = originalCamera
       gumball_pivot_target = gumballPivotTarget
       key_pivot_target = camera.target
-      key_pivot_input_state = WaitingForNeutralKeyPivotInput
+      key_pivot_input_state = KeyPivotInputArmed
       active_mouse_navigation = MouseLook
       latched_mouse_navigation = LookNavigation
       keyboard_held_mouse_navigation = LookNavigation

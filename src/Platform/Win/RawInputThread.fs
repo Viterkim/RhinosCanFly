@@ -32,7 +32,6 @@ type SessionRequest =
       session_mode: FlightSessionMode
       input: InputAccumulator.State
       input_available: Action
-      button_observed: Action<RawMouseButtonTransition>
       ready: ManualResetEventSlim
       stopped: ManualResetEventSlim
       result: ThreadResult
@@ -229,7 +228,6 @@ let run_worker (worker: WorkerState) =
                                 request.session_mode,
                                 request.input,
                                 request.input_available,
-                                request.button_observed,
                                 registrationReady,
                                 runtimeFailed,
                                 sessionFinished
@@ -581,7 +579,6 @@ let start
     (sessionMode: FlightSessionMode)
     (input: InputAccumulator.State)
     (inputAvailable: Action)
-    (buttonObserved: Action<RawMouseButtonTransition>)
     =
     if recovery_pending () then
         let message =
@@ -617,7 +614,6 @@ let start
               session_mode = sessionMode
               input = input
               input_available = inputAvailable
-              button_observed = buttonObserved
               ready = new ManualResetEventSlim(false)
               stopped = new ManualResetEventSlim(false)
               result = result

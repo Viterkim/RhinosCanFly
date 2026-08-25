@@ -31,7 +31,7 @@ type ActiveSession =
       mutable gumball_changed: bool
       mutable perspective_lens_changed: bool
       mutable flight_entered: bool
-      mutable input_routing_started: bool
+      mutable keyboard_suppressed: bool
       mutable raw_input_clean: bool
       mutable raw_input_failed: bool
       mutable input_safe: bool }
@@ -109,11 +109,11 @@ let finish_active_core (session: ActiveSession) (activeResult: Result<unit, stri
     let state = session.state
     let cleanupErrors = session.cleanup_errors
 
-    if session.input_routing_started then
+    if session.keyboard_suppressed then
         let released =
-            attempt_cleanup cleanupErrors "flight input routing" (fun () ->
-                PlatformInput.stop_flight_input_routing ()
-                session.input_routing_started <- false)
+            attempt_cleanup cleanupErrors "keyboard suppression" (fun () ->
+                PlatformInput.release_flight_keyboard ()
+                session.keyboard_suppressed <- false)
 
         if not released then
             session.input_safe <- false
@@ -355,19 +355,14 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
 
     PlatformInput.focus_view state.view
 
-    let rightReleaseExits =
-        sessionMode.lifetime = FlightLifetime.WhileRightMouseHeld
-        || state.config.mouse.exit_on_right
-
     match
-        PlatformInput.start_flight_input_routing
+        PlatformInput.suppress_flight_keyboard
             state.config.bindings
             state.config.behavior.retarget
             session.input_available
-            rightReleaseExits
     with
-    | Ok() -> session.input_routing_started <- true
-    | Error error -> failwith $"Could not start flight input routing: {error}"
+    | Ok() -> session.keyboard_suppressed <- true
+    | Error error -> failwith $"Could not suppress flight keys: {error}"
 
     let rawInputConfig: RawMouseInputConfig =
         { exit_on_mouse_left = state.config.mouse.exit_on_left
@@ -378,34 +373,7 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
 
     let raw =
         try
-            let buttonObserved =
-                Action<RawMouseButtonTransition>(fun (transition: RawMouseButtonTransition) ->
-                    let exitsFlight =
-                        match transition.event with
-                        | RawMouseButtonEvent.LeftUp -> state.config.mouse.exit_on_left
-                        | RawMouseButtonEvent.RightUp ->
-                            state.session_mode.lifetime = FlightLifetime.WhileRightMouseHeld
-                            || state.config.mouse.exit_on_right
-                        | RawMouseButtonEvent.None
-                        | RawMouseButtonEvent.LeftDown
-                        | RawMouseButtonEvent.RightDown
-                        | RawMouseButtonEvent.MiddleDown
-                        | RawMouseButtonEvent.MiddleUp
-                        | RawMouseButtonEvent.Mouse4Down
-                        | RawMouseButtonEvent.Mouse4Up
-                        | RawMouseButtonEvent.Mouse5Down
-                        | RawMouseButtonEvent.Mouse5Up -> false
-                        | _ -> false
-
-                    if exitsFlight || PlatformInput.mouse_transition_requests_flight_exit transition then
-                        PlatformInput.allow_keyboard_passthrough ())
-
-            PlatformInput.open_raw_input
-                rawInputConfig
-                sessionMode
-                session.raw_input
-                session.input_available
-                buttonObserved
+            PlatformInput.open_raw_input rawInputConfig sessionMode session.raw_input session.input_available
         with error ->
             FlyState.request_exit (SessionFailure(error.ToString())) state
 
@@ -485,7 +453,7 @@ let begin_active (starting: StartingSession) =
               gumball_changed = false
               perspective_lens_changed = false
               flight_entered = false
-              input_routing_started = false
+              keyboard_suppressed = false
               raw_input_clean = true
               raw_input_failed = false
               input_safe = true }

@@ -98,6 +98,7 @@ let add_passthrough_if_down (physicalKey: int) =
         && not (state.suppressed_keys_down.Contains physicalKey)
     then
         state.passthrough_keys_down.Add physicalKey |> ignore
+        state.key_is_down[physicalKey] <- true
 
 let configure (bindings: FlightBindings) (retarget: RetargetConfig) (inputAvailable: Action) =
     let releasedKeys = ResizeArray<int>()
@@ -233,7 +234,11 @@ let handle_event (event: Win32.KeyboardHookEvent) =
             state.suppressed_keys_down.Remove physicalKey |> ignore
             classify_fresh_key_down physicalKey
     elif state.passthrough_keys_down.Contains physicalKey then
-        false
+        if event.was_down then
+            true
+        else
+            state.passthrough_keys_down.Remove physicalKey |> ignore
+            classify_fresh_key_down physicalKey
     else
         classify_fresh_key_down physicalKey
 
@@ -429,51 +434,6 @@ let physical_mouse_transition (event: RawMouseButtonEvent) =
         { physical_key = 0
           down = false
           valid = false }
-
-let binding_down_with_mouse_transition (binding: KeyBinding) (transition: PhysicalMouseTransition) =
-    let keys = binding.virtual_keys
-    let mutable index = 0
-    let mutable down = keys.Length > 0
-
-    while down && index < keys.Length do
-        let (VirtualKey virtualKey) = keys[index]
-
-        down <-
-            if virtualKey = transition.physical_key then
-                transition.down
-            else
-                virtual_key_down virtualKey
-
-        index <- index + 1
-
-    down
-
-let mouse_transition_requests_exit (transition: RawMouseButtonTransition) =
-    let physical = physical_mouse_transition transition.event
-
-    if
-        not physical.valid
-        || not physical.down
-        || not (Volatile.Read(&state.accept_new_keys))
-    then
-        false
-    else
-        Monitor.Enter state.transition_gate
-
-        try
-            let exitRequested =
-                match state.exit_binding with
-                | Some binding -> binding_down_with_mouse_transition binding physical
-                | None -> false
-
-            let cancelRequested =
-                match state.cancel_and_restore_binding with
-                | Some binding -> binding_down_with_mouse_transition binding physical
-                | None -> false
-
-            exitRequested || cancelRequested
-        finally
-            Monitor.Exit state.transition_gate
 
 let apply_raw_mouse_button_transition_core (transition: RawMouseButtonTransition) =
     let physical = physical_mouse_transition transition.event

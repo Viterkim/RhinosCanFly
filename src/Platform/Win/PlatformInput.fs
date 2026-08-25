@@ -188,9 +188,8 @@ let open_raw_input
     (sessionMode: FlightSessionMode)
     (input: InputAccumulator.State)
     (inputAvailable: Action)
-    (buttonObserved: Action<RawMouseButtonTransition>)
     =
-    RawInputThread.start config sessionMode input inputAvailable buttonObserved
+    RawInputThread.start config sessionMode input inputAvailable
 
 let raw_input_start_requires_restart (error: exn) =
     match error with
@@ -209,37 +208,16 @@ let prepare_raw_input_worker () = RawInputThread.prepare ()
 
 let shutdown_raw_input_worker () = RawInputThread.shutdown ()
 
-let flight_right_release_passthrough =
-    Action FlightKeyboardSuppression.allow_passthrough
+let suppress_flight_keyboard (bindings: FlightBindings) (retarget: RetargetConfig) (inputAvailable: Action) =
+    FlightKeyboardSuppression.start bindings retarget inputAvailable
 
-let start_flight_input_routing
-    (bindings: FlightBindings)
-    (retarget: RetargetConfig)
-    (inputAvailable: Action)
-    (rightMouseReleaseExits: bool)
-    =
-    match FlightKeyboardSuppression.start bindings retarget inputAvailable with
-    | Error error -> Error error
-    | Ok() when not rightMouseReleaseExits -> Ok()
-    | Ok() ->
-        match MouseButtonOverrides.configure_flight_right_release_observer (Some flight_right_release_passthrough) with
-        | Ok() -> Ok()
-        | Error error ->
-            FlightKeyboardSuppression.stop ()
-            Error error
-
-let stop_flight_input_routing () =
-    FlightKeyboardSuppression.stop ()
-    MouseButtonOverrides.configure_flight_right_release_observer None |> ignore
+let release_flight_keyboard () = FlightKeyboardSuppression.stop ()
 
 let reconcile_flight_keyboard () =
     FlightKeyboardSuppression.reconcile_physical_keys ()
 
 let allow_keyboard_passthrough () =
     FlightKeyboardSuppression.allow_passthrough ()
-
-let mouse_transition_requests_flight_exit (transition: RawMouseButtonTransition) =
-    FlightKeyboardSuppression.mouse_transition_requests_exit transition
 
 let flight_keyboard_revision () = FlightKeyboardSuppression.revision ()
 

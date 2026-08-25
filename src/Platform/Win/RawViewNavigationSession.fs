@@ -24,9 +24,6 @@ let view_matches_host (host: ViewportHostIdentity) (view: RhinoView) =
 
 let hostValidationIntervalTicks = max 1L (Stopwatch.Frequency / 10L)
 
-let ignoreButton =
-    Action<RawMouseButtonTransition>(fun (_: RawMouseButtonTransition) -> ())
-
 type Session
     internal
     (
@@ -316,8 +313,7 @@ let start
                 let mutable cursorHidden = false
 
                 try
-                    let createdRaw =
-                        RawInputThread.start rawConfig sessionMode input inputAvailable ignoreButton
+                    let createdRaw = RawInputThread.start rawConfig sessionMode input inputAvailable
 
                     raw <- Some createdRaw
 
