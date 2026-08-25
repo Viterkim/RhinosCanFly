@@ -237,6 +237,7 @@ let update_state (now: float) (input: InputAccumulator.State) (state: FlyState) 
 
     if periodicValidationDue then
         state.next_host_validation_at <- now + HOST_VALIDATION_INTERVAL_SECONDS
+        PlatformInput.reconcile_flight_keyboard ()
 
     let exitReason =
         match InputAccumulator.exit_reason input with

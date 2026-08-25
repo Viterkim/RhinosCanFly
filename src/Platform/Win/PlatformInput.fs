@@ -207,10 +207,31 @@ let prepare_raw_input_worker () = RawInputThread.prepare ()
 
 let shutdown_raw_input_worker () = RawInputThread.shutdown ()
 
-let suppress_flight_keyboard (config: FlyConfig) (input: InputAccumulator.State) (inputAvailable: Action) =
-    FlightKeyboardSuppression.start config input inputAvailable
+let flight_right_release_passthrough =
+    Action FlightKeyboardSuppression.allow_passthrough
 
-let release_flight_keyboard () = FlightKeyboardSuppression.stop ()
+let start_flight_input_routing
+    (config: FlyConfig)
+    (input: InputAccumulator.State)
+    (inputAvailable: Action)
+    (rightMouseReleaseExits: bool)
+    =
+    match FlightKeyboardSuppression.start config input inputAvailable with
+    | Error error -> Error error
+    | Ok() when not rightMouseReleaseExits -> Ok()
+    | Ok() ->
+        match MouseButtonOverrides.configure_flight_right_release_observer (Some flight_right_release_passthrough) with
+        | Ok() -> Ok()
+        | Error error ->
+            FlightKeyboardSuppression.stop ()
+            Error error
+
+let stop_flight_input_routing () =
+    FlightKeyboardSuppression.stop ()
+    MouseButtonOverrides.configure_flight_right_release_observer None |> ignore
+
+let reconcile_flight_keyboard () =
+    FlightKeyboardSuppression.reconcile_physical_keys ()
 
 let allow_keyboard_passthrough () =
     FlightKeyboardSuppression.allow_passthrough ()

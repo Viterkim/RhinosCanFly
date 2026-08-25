@@ -120,7 +120,6 @@ let add_passthrough_if_down (physicalKey: int) =
         && not (state.suppressed_keys_down.Contains physicalKey)
     then
         state.passthrough_keys_down.Add physicalKey |> ignore
-        state.key_is_down[physicalKey] <- true
 
 let virtual_key_down (virtualKey: int) =
     match virtualKey with
@@ -318,11 +317,7 @@ let handle_event (event: Win32.KeyboardHookEvent) =
             state.suppressed_keys_down.Remove physicalKey |> ignore
             classify_fresh_key_down physicalKey
     elif state.passthrough_keys_down.Contains physicalKey then
-        if event.was_down then
-            true
-        else
-            state.passthrough_keys_down.Remove physicalKey |> ignore
-            classify_fresh_key_down physicalKey
+        false
     else
         classify_fresh_key_down physicalKey
 
@@ -438,6 +433,64 @@ let collect_actions () =
 
         state.cancel_and_restore_down <- cancelAndRestore
         actions
+
+let release_stale_key (physicalKey: int) =
+    if
+        Volatile.Read(&state.key_is_down[physicalKey])
+        && Win32Native.GetAsyncKeyState physicalKey >= 0s
+    then
+        state.key_is_down[physicalKey] <- false
+        state.passthrough_keys_down.Remove physicalKey |> ignore
+        true
+    else
+        false
+
+let reconcile_physical_keys () =
+    Monitor.Enter state.transition_gate
+
+    try
+        if Volatile.Read(&state.active) then
+            let mutable changed = false
+
+            for physicalKey in state.configured.exact do
+                if release_stale_key physicalKey then
+                    changed <- true
+
+            if state.configured.either_shift then
+                if release_stale_key Win32Native.VK_LSHIFT then
+                    changed <- true
+
+                if release_stale_key Win32Native.VK_RSHIFT then
+                    changed <- true
+
+            if state.configured.either_control then
+                if release_stale_key Win32Native.VK_LCONTROL then
+                    changed <- true
+
+                if release_stale_key Win32Native.VK_RCONTROL then
+                    changed <- true
+
+            if state.configured.either_alt then
+                if release_stale_key Win32Native.VK_LMENU then
+                    changed <- true
+
+                if release_stale_key Win32Native.VK_RMENU then
+                    changed <- true
+
+            if changed then
+                let actions = collect_actions ()
+
+                match state.input with
+                | Some input -> InputAccumulator.add_keyboard_actions actions (Stopwatch.GetTimestamp()) input
+                | None -> ()
+
+                Interlocked.Increment(&state.revision) |> ignore
+
+                match state.input_available with
+                | Some available -> available.Invoke()
+                | None -> ()
+    finally
+        Monitor.Exit state.transition_gate
 
 let hook_event (event: Win32.KeyboardHookEvent) =
     let mutable swallow = false
