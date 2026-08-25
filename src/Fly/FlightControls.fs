@@ -179,16 +179,17 @@ let apply_wheel_input (input: InputAccumulator.State) (state: FlyState) =
             FlightCamera.apply_navigation_wheel wheelSteps state
 
 let update_state (now: float) (input: InputAccumulator.State) (state: FlyState) =
+    let periodicValidationDue = now >= state.next_host_validation_at
+
+    if periodicValidationDue then
+        state.next_host_validation_at <- now + HOST_VALIDATION_INTERVAL_SECONDS
+        PlatformInput.reconcile_flight_keyboard ()
+
     let cancelAndRestore =
         PlatformInput.drain_flight_cancel_and_restore_pressed ()
         || PlatformInput.flight_binding_down state.config.bindings.cancel_flight_and_restore
 
     let exitPressed = PlatformInput.drain_flight_exit_pressed ()
-
-    let periodicValidationDue = now >= state.next_host_validation_at
-
-    if periodicValidationDue then
-        state.next_host_validation_at <- now + HOST_VALIDATION_INTERVAL_SECONDS
 
     let exitReason =
         match InputAccumulator.exit_reason input with
