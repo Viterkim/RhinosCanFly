@@ -28,8 +28,9 @@ type KeyboardAction =
 [<RequireQualifiedAccess>]
 type TimelineEventKind =
     | Movement = 0
-    | RawMouseButton = 1
-    | KeyboardActions = 2
+    | Wheel = 1
+    | RawMouseButton = 2
+    | KeyboardActions = 3
 
 [<Struct>]
 type TimelineEvent =
@@ -43,7 +44,6 @@ type TimelineEvent =
 
 type State =
     { mutable mouse_xy: int64
-      mutable wheel_delta: int64
       timeline_gate: obj
       timeline_events: TimelineEvent array
       mutable timeline_write: int64
@@ -57,7 +57,6 @@ type WorkRevision = WorkRevision of int64
 
 let create () =
     { mouse_xy = 0L
-      wheel_delta = 0L
       timeline_gate = obj ()
       timeline_events = Array.zeroCreate TIMELINE_EVENT_CAPACITY
       timeline_write = 0L
@@ -97,22 +96,26 @@ let add_mouse (dx: int) (dy: int) (state: State) =
 
         mark_work_available state
 
-let add_wheel (delta: int) (state: State) =
-    if delta <> 0 then
-        Interlocked.Add(&state.wheel_delta, int64 delta) |> ignore
-        mark_work_available state
-
 let request_exit (reason: FlightExitReason) (state: State) =
     let previous = Interlocked.CompareExchange(&state.exit_reason, Some reason, None)
 
     if Option.isNone previous then
         mark_work_available state
 
-let movement_event (dx: int64) (dy: int64) (wheel: int64) =
+let movement_event (dx: int64) (dy: int64) =
     { kind = TimelineEventKind.Movement
       dx = dx
       dy = dy
-      wheel = wheel
+      wheel = 0L
+      button = Unchecked.defaultof<RawMouseButtonTransition>
+      keyboard_actions = KeyboardAction.None
+      timestamp = 0L }
+
+let wheel_event (delta: int64) =
+    { kind = TimelineEventKind.Wheel
+      dx = 0L
+      dy = 0L
+      wheel = delta
       button = Unchecked.defaultof<RawMouseButtonTransition>
       keyboard_actions = KeyboardAction.None
       timestamp = 0L }
@@ -145,10 +148,9 @@ let enqueue_locked (event: TimelineEvent) (state: State) =
 
 let flush_movement_locked (state: State) =
     let struct (x, y) = unpack_mouse (Interlocked.Exchange(&state.mouse_xy, 0L))
-    let wheel = Interlocked.Exchange(&state.wheel_delta, 0L)
 
-    if x <> 0 || y <> 0 || wheel <> 0L then
-        enqueue_locked (movement_event (int64 x) (int64 y) wheel) state
+    if x <> 0 || y <> 0 then
+        enqueue_locked (movement_event (int64 x) (int64 y)) state
 
 let add_boundary_event (event: TimelineEvent) (state: State) =
     Monitor.Enter state.timeline_gate
@@ -161,9 +163,13 @@ let add_boundary_event (event: TimelineEvent) (state: State) =
 
     mark_work_available state
 
-let add_raw_mouse_button_event (event: RawMouseButtonEvent) (timestamp: int64) (state: State) =
-    if event <> RawMouseButtonEvent.None then
-        add_boundary_event (raw_mouse_button_event { event = event; timestamp = timestamp }) state
+let add_raw_mouse_button_transition (transition: RawMouseButtonTransition) (state: State) =
+    if transition.event <> RawMouseButtonEvent.None then
+        add_boundary_event (raw_mouse_button_event transition) state
+
+let add_wheel (delta: int) (state: State) =
+    if delta <> 0 then
+        add_boundary_event (wheel_event (int64 delta)) state
 
 let add_keyboard_actions (actions: KeyboardAction) (timestamp: int64) (state: State) =
     if actions <> KeyboardAction.None then
@@ -192,10 +198,9 @@ let drain_timeline (destination: TimelineEvent array) (state: State) =
             state.timeline_read <- state.timeline_read + 1L
 
         let struct (x, y) = unpack_mouse (Interlocked.Exchange(&state.mouse_xy, 0L))
-        let wheel = Interlocked.Exchange(&state.wheel_delta, 0L)
 
-        if x <> 0 || y <> 0 || wheel <> 0L then
-            destination[count] <- movement_event (int64 x) (int64 y) wheel
+        if x <> 0 || y <> 0 then
+            destination[count] <- movement_event (int64 x) (int64 y)
             count <- count + 1
 
         let overflowed = Interlocked.Exchange(&state.timeline_overflow, 0) <> 0
@@ -209,12 +214,11 @@ let timeline_buffer () =
 let timeline_pending (state: State) =
     Volatile.Read(&state.timeline_read) < Volatile.Read(&state.timeline_write)
 
-let discard_movement (state: State) =
+let discard_pointer_input (state: State) =
     Monitor.Enter state.timeline_gate
 
     try
         Interlocked.Exchange(&state.mouse_xy, 0L) |> ignore
-        Interlocked.Exchange(&state.wheel_delta, 0L) |> ignore
 
         let mutable source = state.timeline_read
         let mutable destination = state.timeline_read
@@ -223,7 +227,10 @@ let discard_movement (state: State) =
             let sourceIndex = int (source % int64 state.timeline_events.Length)
             let event = state.timeline_events[sourceIndex]
 
-            if event.kind <> TimelineEventKind.Movement then
+            if
+                event.kind <> TimelineEventKind.Movement
+                && event.kind <> TimelineEventKind.Wheel
+            then
                 let destinationIndex = int (destination % int64 state.timeline_events.Length)
                 state.timeline_events[destinationIndex] <- event
                 destination <- destination + 1L
@@ -250,7 +257,6 @@ let discard_transient_input (state: State) =
 
     try
         Interlocked.Exchange(&state.mouse_xy, 0L) |> ignore
-        Interlocked.Exchange(&state.wheel_delta, 0L) |> ignore
         state.timeline_read <- state.timeline_write
         Interlocked.Exchange(&state.timeline_overflow, 0) |> ignore
     finally

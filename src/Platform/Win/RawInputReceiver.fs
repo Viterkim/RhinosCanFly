@@ -260,6 +260,7 @@ type RawInputReceiver(processControl: Action) as self =
         (
             input: InputAccumulator.State,
             inputAvailable: Action,
+            buttonObserved: Action<RawMouseButtonTransition>,
             registrationReady: Action<RawInputNative.MouseRegistrationLease>,
             runtimeFailed: Action<exn>,
             finished: Action
@@ -275,7 +276,7 @@ type RawInputReceiver(processControl: Action) as self =
         try
             discard_buffered_input ()
 
-            let session = RawInputSession(input, inputAvailable, runtimeFailed)
+            let session = RawInputSession(input, inputAvailable, buttonObserved, runtimeFailed)
 
             activeSession <- Some session
 

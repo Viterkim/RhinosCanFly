@@ -56,12 +56,6 @@ type RightClickViewport =
       is_perspective: bool
       is_parallel: bool }
 
-[<Struct>]
-type Modifiers =
-    { shift: bool
-      alt: bool
-      control: bool }
-
 [<Literal>]
 let ENTRY_TIMEOUT_SECONDS = 2.
 
@@ -140,12 +134,7 @@ let capture_needed (navigation: State) (state: RightClickState) =
     || owns_button state
     || action_pending state
 
-let modifiers () =
-    { shift = MouseOverrideState.shift_down ()
-      alt = MouseOverrideState.alt_down ()
-      control = MouseOverrideState.control_down () }
-
-let requested_gesture_action (navigation: State) (modifiers: Modifiers) =
+let requested_gesture_action (navigation: State) (modifiers: MouseModifiers) =
     let configuredAction =
         if modifiers.shift && not modifiers.alt && not modifiers.control then
             navigation.routing.actions.shift_right_click
@@ -172,7 +161,7 @@ let action
     (navigation: State)
     (viewport: RightClickViewport)
     (screenPoint: Point)
-    (modifiers: Modifiers)
+    (modifiers: MouseModifiers)
     (commandActive: bool)
     =
     let host = viewport.host
@@ -295,7 +284,7 @@ let rec handle_event
     then
         false
     else
-        let currentModifiers = modifiers ()
+        let currentModifiers = event.modifiers
 
         match tryView event.point_window with
         | ValueSome pointViewport when pointViewport.host.root_window = MouseOverrideState.foreground_root_window () ->
@@ -415,7 +404,7 @@ let update (navigation: State) (state: RightClickState) (commandActive: bool) =
             clear_action state
         else
             match apply_navigation_click navigation click with
-            | GestureNavigationTransitions.Applied -> state.gesture <- ButtonDownHandled(NavigateView click)
+            | GestureNavigationTransitions.Applied _ -> state.gesture <- ButtonDownHandled(NavigateView click)
             | GestureNavigationTransitions.Deferred -> ()
             | GestureNavigationTransitions.Failed error ->
                 Debug.WriteLine $"RhinosCanFly mouse action: {error}"
@@ -462,7 +451,7 @@ let update (navigation: State) (state: RightClickState) (commandActive: bool) =
             clear_action state
         else
             match apply_navigation_click navigation click with
-            | GestureNavigationTransitions.Applied ->
+            | GestureNavigationTransitions.Applied _ ->
                 GestureNavigationTransitions.release navigation GestureOwner.ModifiedRightClick
                 clear_action state
             | GestureNavigationTransitions.Deferred -> ()

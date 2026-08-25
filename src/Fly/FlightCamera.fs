@@ -147,8 +147,6 @@ let apply_retarget_request (scope: RetargetScope) (mode: RetargetMode) (state: F
             ViewChange.none
 
 let update_navigation_mode (state: FlyState) =
-    let mutable targetResolved = false
-
     let requestedNavigation =
         if state.keyboard_pan_held || state.mouse_pan_hold_buttons <> 0 then
             PanNavigation
@@ -170,22 +168,19 @@ let update_navigation_mode (state: FlyState) =
             match state.active_mouse_navigation with
             | MousePivot _ -> state.active_mouse_navigation
             | MouseLook
-            | MousePan _ ->
-                targetResolved <- true
-                MousePivot(navigation_target state ViewNavigationMode.Pivot state.gumball_pivot_target)
+            | MousePan _ -> MousePivot(navigation_target state ViewNavigationMode.Pivot state.gumball_pivot_target)
         | PanNavigation ->
             match state.active_mouse_navigation with
             | MousePan _ -> state.active_mouse_navigation
             | MouseLook
             | MousePivot _ ->
-                targetResolved <- true
                 let panTarget = navigation_target state ViewNavigationMode.Pan None
                 MousePan(panTarget, pan_units_per_radian panTarget state.camera)
 
     if previousNavigation <> requestedNavigation then
         state.wheel_remainder <- 0L
 
-    targetResolved
+    previousNavigation <> requestedNavigation
 
 let apply_navigation_wheel (steps: int64) (state: FlyState) =
     if steps = 0L then

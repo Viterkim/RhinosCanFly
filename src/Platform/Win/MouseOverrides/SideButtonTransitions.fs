@@ -41,7 +41,7 @@ let process_hook_events (state: State) =
                         host
                         point
                 with
-                | GestureNavigationTransitions.Applied -> state.pending_side_button_events.Dequeue() |> ignore
+                | GestureNavigationTransitions.Applied _ -> state.pending_side_button_events.Dequeue() |> ignore
                 | GestureNavigationTransitions.Deferred -> processing <- false
                 | GestureNavigationTransitions.Failed error ->
                     Debug.WriteLine $"RhinosCanFly mouse action: {error}"

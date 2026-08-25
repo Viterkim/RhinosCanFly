@@ -1,5 +1,17 @@
 namespace RhinosCanFly
 
+[<Struct>]
+type MouseModifiers =
+    { shift: bool
+      alt: bool
+      control: bool }
+
+module MouseModifiers =
+    let none =
+        { shift = false
+          alt = false
+          control = false }
+
 type RawMouseButtonEvent =
     | None = 0
     | LeftDown = 1
@@ -16,7 +28,8 @@ type RawMouseButtonEvent =
 [<Struct>]
 type RawMouseButtonTransition =
     { event: RawMouseButtonEvent
-      timestamp: int64 }
+      timestamp: int64
+      modifiers: MouseModifiers }
 
 [<Struct; RequireQualifiedAccess>]
 type RoutedMouseAction =

@@ -138,6 +138,24 @@ module ViewChange =
         { camera_changed = first.camera_changed || second.camera_changed
           parallel_magnification = first.parallel_magnification * second.parallel_magnification }
 
+[<Struct>]
+type InputEffect =
+    { view_change: ViewChange
+      pointer_barrier: bool }
+
+module InputEffect =
+    let none =
+        { view_change = ViewChange.none
+          pointer_barrier = false }
+
+    let barrier (change: ViewChange) =
+        { view_change = change
+          pointer_barrier = true }
+
+    let combine (first: InputEffect) (second: InputEffect) =
+        { view_change = ViewChange.combine first.view_change second.view_change
+          pointer_barrier = first.pointer_barrier || second.pointer_barrier }
+
 type KeyPivotDirection =
     | NoKeyPivot
     | KeyPivotLeft

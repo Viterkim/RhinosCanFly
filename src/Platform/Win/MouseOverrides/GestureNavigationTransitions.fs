@@ -9,7 +9,7 @@ open RhinosCanFly.Platform.Win.MouseOverrideTypes
 
 [<Struct>]
 type PressResult =
-    | Applied
+    | Applied of pointer_barrier: bool
     | Deferred
     | Failed of error: string
 
@@ -193,7 +193,7 @@ let press
     (screenPoint: Point)
     =
     match action with
-    | RoutedMouseAction.Off -> Applied
+    | RoutedMouseAction.Off -> Applied false
     | RoutedMouseAction.Retarget _
     | RoutedMouseAction.TogglePivot
     | RoutedMouseAction.HoldPivot
@@ -218,7 +218,7 @@ let press
                 | RoutedMouseAction.Off -> Ok()
 
             match result with
-            | Ok() -> Applied
+            | Ok() -> Applied true
             | Error error -> Failed error
 
 let release (state: State) (owner: GestureOwner) =
@@ -227,6 +227,22 @@ let release (state: State) (owner: GestureOwner) =
         stop state
     | GestureNavigationActive _
     | NoGestureNavigation -> ()
+
+let update_active_pivot_center (state: State) (host: ViewportHostIdentity) (target: Rhino.Geometry.Point3d) =
+    match state.gesture_navigation with
+    | GestureNavigationActive session when session.host = host && session.mode = ViewNavigationMode.Pivot ->
+        state.gesture_navigation <- GestureNavigationActive { session with pivot_center = target }
+    | GestureNavigationActive _
+    | NoGestureNavigation -> ()
+
+    match state.view_latch with
+    | ViewLatchActive session when session.host = host && session.mode = ViewNavigationMode.Pivot ->
+        state.view_latch <- ViewLatchActive { session with pivot_center = target }
+    | WaitingForRelease session when session.host = host && session.mode = ViewNavigationMode.Pivot ->
+        state.view_latch <- WaitingForRelease { session with pivot_center = target }
+    | NoViewLatch
+    | WaitingForRelease _
+    | ViewLatchActive _ -> ()
 
 let owner_button_down (owner: GestureOwner) =
     match owner with
@@ -252,6 +268,6 @@ let press_or_log
     (point: Point)
     =
     match press state owner action host point with
-    | Applied
+    | Applied _
     | Deferred -> ()
     | Failed error -> Debug.WriteLine $"RhinosCanFly mouse action: {error}"

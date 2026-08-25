@@ -30,6 +30,7 @@ type SessionRequest =
     { id: int64
       input: InputAccumulator.State
       input_available: Action
+      button_observed: Action<RawMouseButtonTransition>
       ready: ManualResetEventSlim
       stopped: ManualResetEventSlim
       result: ThreadResult
@@ -224,6 +225,7 @@ let run_worker (worker: WorkerState) =
                             created.StartSession(
                                 request.input,
                                 request.input_available,
+                                request.button_observed,
                                 registrationReady,
                                 runtimeFailed,
                                 sessionFinished
@@ -570,7 +572,7 @@ let stop_internal (attempt: StopAttempt) (session: Session) =
 
 let stop (session: Session) = stop_internal InitialStop session
 
-let start (input: InputAccumulator.State) (inputAvailable: Action) =
+let start (input: InputAccumulator.State) (inputAvailable: Action) (buttonObserved: Action<RawMouseButtonTransition>) =
     if recovery_pending () then
         let message =
             "A previous raw-input session still needs cleanup. Run RhinosCanFlyInputRecover or restart Rhino."
@@ -603,6 +605,7 @@ let start (input: InputAccumulator.State) (inputAvailable: Action) =
             { id = sessionId
               input = input
               input_available = inputAvailable
+              button_observed = buttonObserved
               ready = new ManualResetEventSlim(false)
               stopped = new ManualResetEventSlim(false)
               result = result

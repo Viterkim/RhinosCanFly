@@ -361,7 +361,29 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
 
     let raw =
         try
-            PlatformInput.open_raw_input session.raw_input session.input_available
+            let buttonObserved =
+                Action<RawMouseButtonTransition>(fun (transition: RawMouseButtonTransition) ->
+                    let exitsFlight =
+                        match transition.event with
+                        | RawMouseButtonEvent.LeftUp -> state.config.mouse.exit_on_left
+                        | RawMouseButtonEvent.RightUp ->
+                            state.session_mode.lifetime = FlightLifetime.WhileRightMouseHeld
+                            || state.config.mouse.exit_on_right
+                        | RawMouseButtonEvent.None
+                        | RawMouseButtonEvent.LeftDown
+                        | RawMouseButtonEvent.RightDown
+                        | RawMouseButtonEvent.MiddleDown
+                        | RawMouseButtonEvent.MiddleUp
+                        | RawMouseButtonEvent.Mouse4Down
+                        | RawMouseButtonEvent.Mouse4Up
+                        | RawMouseButtonEvent.Mouse5Down
+                        | RawMouseButtonEvent.Mouse5Up -> false
+                        | _ -> false
+
+                    if exitsFlight || PlatformInput.mouse_transition_requests_flight_exit transition then
+                        PlatformInput.allow_keyboard_passthrough ())
+
+            PlatformInput.open_raw_input session.raw_input session.input_available buttonObserved
         with error ->
             FlyState.request_exit (SessionFailure(error.ToString())) state
 
@@ -409,7 +431,7 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
         session.perspective_lens_changed <- FlightCamera.entry_perspective_lens_changes state
         FlightCamera.apply_entry_perspective_lens state
         state.view.Redraw()
-        InputAccumulator.discard_movement session.raw_input
+        InputAccumulator.discard_pointer_input session.raw_input
         session.flight_entered <- true
 
 let begin_active (starting: StartingSession) =

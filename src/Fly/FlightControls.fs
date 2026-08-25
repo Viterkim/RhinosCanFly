@@ -57,10 +57,10 @@ let explicit_exit_reason (state: FlyState) =
 let apply_keyboard_actions (actions: InputAccumulator.KeyboardAction) (state: FlyState) =
     if has_keyboard_action actions InputAccumulator.KeyboardAction.CancelAndRestore then
         FlyState.request_exit ExplicitRestoreCamera state
-        ViewChange.none
+        InputEffect.barrier ViewChange.none
     elif has_keyboard_action actions InputAccumulator.KeyboardAction.Exit then
         FlyState.request_exit (explicit_exit_reason state) state
-        ViewChange.none
+        InputEffect.barrier ViewChange.none
     else
         if has_keyboard_action actions InputAccumulator.KeyboardAction.PivotToggle then
             state.latched_mouse_navigation <- MouseNavigationMode.toggle PivotNavigation state.latched_mouse_navigation
@@ -101,14 +101,19 @@ let apply_keyboard_actions (actions: InputAccumulator.KeyboardAction) (state: Fl
             speed_step state (SpeedStepCount -1.)
 
         let mutable retargetChange = ViewChange.none
+        let mutable pointerBarrier = false
 
         if has_keyboard_action actions InputAccumulator.KeyboardAction.RetargetAllViews then
+            pointerBarrier <- state.config.behavior.retarget.keyboard_all_views <> RetargetMode.Off
+
             retargetChange <-
                 FlightCamera.apply_retarget_request
                     RetargetScope.AllViews
                     state.config.behavior.retarget.keyboard_all_views
                     state
         elif has_keyboard_action actions InputAccumulator.KeyboardAction.RetargetOtherViews then
+            pointerBarrier <- state.config.behavior.retarget.keyboard_other_views <> RetargetMode.Off
+
             retargetChange <-
                 FlightCamera.apply_retarget_request
                     RetargetScope.OtherViews
@@ -120,8 +125,10 @@ let apply_keyboard_actions (actions: InputAccumulator.KeyboardAction) (state: Fl
             && has_keyboard_action actions InputAccumulator.KeyboardAction.ProjectionToggle
         then
             FlightCamera.toggle_projection state
+            pointerBarrier <- true
 
-        retargetChange
+        { view_change = retargetChange
+          pointer_barrier = pointerBarrier }
 
 let set_mouse_hold (buttonBit: int) (down: bool) (action: RoutedMouseAction) (state: FlyState) =
     if RoutedMouseAction.holds_pivot action then
@@ -141,37 +148,39 @@ let apply_mouse_action_down (buttonBit: int) (action: RoutedMouseAction) (state:
     | RoutedMouseAction.TogglePivot ->
         state.latched_mouse_navigation <- MouseNavigationMode.toggle PivotNavigation state.latched_mouse_navigation
 
-        ViewChange.none
+        InputEffect.none
     | RoutedMouseAction.TogglePan ->
         state.latched_mouse_navigation <- MouseNavigationMode.toggle PanNavigation state.latched_mouse_navigation
 
-        ViewChange.none
+        InputEffect.none
     | RoutedMouseAction.HoldPivot
     | RoutedMouseAction.HoldPan ->
         set_mouse_hold buttonBit true action state
-        ViewChange.none
-    | RoutedMouseAction.Retarget mode -> FlightCamera.apply_retarget_request RetargetScope.AllViews mode state
-    | RoutedMouseAction.Off -> ViewChange.none
+        InputEffect.none
+    | RoutedMouseAction.Retarget mode ->
+        FlightCamera.apply_retarget_request RetargetScope.AllViews mode state
+        |> InputEffect.barrier
+    | RoutedMouseAction.Off -> InputEffect.none
 
 let apply_mouse_action_up (buttonBit: int) (action: RoutedMouseAction) (state: FlyState) =
     set_mouse_hold buttonBit false action state
 
 let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) (state: FlyState) =
     let keyboardActions = PlatformInput.apply_flight_mouse_button_transition transition
-    let mutable change = apply_keyboard_actions keyboardActions state
+    let mutable effect = apply_keyboard_actions keyboardActions state
 
     if FlyState.is_running state then
         let mouse = state.config.mouse
 
         match transition.event with
         | RawMouseButtonEvent.MiddleDown ->
-            change <- ViewChange.combine change (apply_mouse_action_down MIDDLE_BUTTON_BIT mouse.middle_button state)
+            effect <- InputEffect.combine effect (apply_mouse_action_down MIDDLE_BUTTON_BIT mouse.middle_button state)
         | RawMouseButtonEvent.MiddleUp -> apply_mouse_action_up MIDDLE_BUTTON_BIT mouse.middle_button state
         | RawMouseButtonEvent.Mouse4Down ->
-            change <- ViewChange.combine change (apply_mouse_action_down MOUSE4_BUTTON_BIT mouse.mouse4 state)
+            effect <- InputEffect.combine effect (apply_mouse_action_down MOUSE4_BUTTON_BIT mouse.mouse4 state)
         | RawMouseButtonEvent.Mouse4Up -> apply_mouse_action_up MOUSE4_BUTTON_BIT mouse.mouse4 state
         | RawMouseButtonEvent.Mouse5Down ->
-            change <- ViewChange.combine change (apply_mouse_action_down MOUSE5_BUTTON_BIT mouse.mouse5 state)
+            effect <- InputEffect.combine effect (apply_mouse_action_down MOUSE5_BUTTON_BIT mouse.mouse5 state)
         | RawMouseButtonEvent.Mouse5Up -> apply_mouse_action_up MOUSE5_BUTTON_BIT mouse.mouse5 state
         | RawMouseButtonEvent.LeftUp when mouse.exit_on_left -> FlyState.request_exit (explicit_exit_reason state) state
         | RawMouseButtonEvent.RightUp when state.session_mode.lifetime = FlightLifetime.WhileRightMouseHeld ->
@@ -185,7 +194,10 @@ let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) (st
         | RawMouseButtonEvent.RightUp -> ()
         | _ -> ()
 
-    change
+    if FlyState.is_running state then
+        effect
+    else
+        { effect with pointer_barrier = true }
 
 let apply_wheel_delta (wheelDelta: int64) (state: FlyState) =
     let wheel = state.wheel_remainder + wheelDelta

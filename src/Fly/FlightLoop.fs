@@ -15,9 +15,11 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
     let timeline = InputAccumulator.timeline_buffer ()
 
     let update_navigation_mode () =
-        if FlightCamera.update_navigation_mode state then
-            // Rhino can block while finding the target, so ignore mouse input gathered during that pause.
-            InputAccumulator.discard_movement rawInput
+        FlightCamera.update_navigation_mode state
+
+    let discard_pointer_input () =
+        state.wheel_remainder <- 0L
+        InputAccumulator.discard_pointer_input rawInput
 
     while FlyState.is_running state do
         if not movementActive && not inputReady then
@@ -29,16 +31,17 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
 
         RhinoApp.Wait()
 
-        let frameTimestamp = Stopwatch.GetTimestamp()
         let frameSeconds = clock.Elapsed.TotalSeconds
         let observedRawRevision = InputAccumulator.work_revision rawInput
         let observedKeyboardRevision = PlatformInput.flight_keyboard_revision ()
         FlightControls.update_state frameSeconds rawInput state
 
         if not (FlyState.is_running state) then
+            PlatformInput.allow_keyboard_passthrough ()
             InputAccumulator.discard_transient_input rawInput
         else
-            update_navigation_mode ()
+            if update_navigation_mode () then
+                discard_pointer_input ()
 
             let struct (timelineCount, timelineOverflowed) =
                 InputAccumulator.drain_timeline timeline rawInput
@@ -47,34 +50,49 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
                 FlyState.request_exit (SessionFailure "The input timeline overflowed.") state
 
             let mutable timelineIndex = 0
+            let mutable acceptPointerInput = true
+
+            let apply_pointer_barrier () =
+                acceptPointerInput <- false
+                discard_pointer_input ()
 
             while FlyState.is_running state && timelineIndex < timelineCount do
                 let event = timeline[timelineIndex]
 
                 match event.kind with
-                | InputAccumulator.TimelineEventKind.Movement ->
-                    let wheelChange = FlightControls.apply_wheel_delta event.wheel state
-                    let mouseChange = FlightCamera.apply_mouse_delta event.dx event.dy state
-                    ViewChange.combine wheelChange mouseChange |> FlightCamera.apply state
+                | InputAccumulator.TimelineEventKind.Movement when acceptPointerInput ->
+                    FlightCamera.apply_mouse_delta event.dx event.dy state
+                    |> FlightCamera.apply state
+                | InputAccumulator.TimelineEventKind.Wheel when acceptPointerInput ->
+                    FlightControls.apply_wheel_delta event.wheel state |> FlightCamera.apply state
                 | InputAccumulator.TimelineEventKind.RawMouseButton ->
-                    let actionChange =
-                        FlightControls.apply_raw_mouse_button_transition event.button state
+                    let effect = FlightControls.apply_raw_mouse_button_transition event.button state
 
                     if FlyState.is_running state then
-                        update_navigation_mode ()
-                        FlightCamera.apply state actionChange
+                        FlightCamera.apply state effect.view_change
+
+                        let navigationChanged = update_navigation_mode ()
+
+                        if effect.pointer_barrier || navigationChanged then
+                            apply_pointer_barrier ()
                 | InputAccumulator.TimelineEventKind.KeyboardActions ->
-                    let actionChange =
-                        FlightControls.apply_keyboard_actions event.keyboard_actions state
+                    let effect = FlightControls.apply_keyboard_actions event.keyboard_actions state
 
                     if FlyState.is_running state then
-                        update_navigation_mode ()
-                        FlightCamera.apply state actionChange
+                        FlightCamera.apply state effect.view_change
+
+                        let navigationChanged = update_navigation_mode ()
+
+                        if effect.pointer_barrier || navigationChanged then
+                            apply_pointer_barrier ()
+                | InputAccumulator.TimelineEventKind.Movement
+                | InputAccumulator.TimelineEventKind.Wheel -> ()
                 | _ -> failwith "The input timeline contains an unknown event."
 
                 timelineIndex <- timelineIndex + 1
 
             if not (FlyState.is_running state) then
+                PlatformInput.allow_keyboard_passthrough ()
                 InputAccumulator.discard_transient_input rawInput
 
         PlatformInput.acknowledge_raw_input_wake inputWake
@@ -113,6 +131,8 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
                 state.key_pivot_target <-
                     FlightCamera.navigation_target state ViewNavigationMode.Pivot state.gumball_pivot_target
 
+                discard_pointer_input ()
+
                 state.key_pivot_input_state <- KeyPivotInputActive
             elif not pivotKeysDown && state.key_pivot_input_state = KeyPivotInputActive then
                 state.key_pivot_input_state <- KeyPivotInputArmed
@@ -120,13 +140,7 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
             if currentlyMoving then
                 let dt =
                     if movementStarting then
-                        let changedAt = PlatformInput.flight_keyboard_change_timestamp ()
-                        let elapsedTicks = frameTimestamp - changedAt
-
-                        if changedAt > 0L && elapsedTicks >= 0L then
-                            min (float elapsedTicks / float Stopwatch.Frequency) MAXIMUM_FRAME_DELTA_SECONDS
-                        else
-                            0.
+                        0.
                     else
                         min (now - previousFrameSeconds) MAXIMUM_FRAME_DELTA_SECONDS
 

@@ -4,7 +4,6 @@ open System
 open System.Diagnostics
 open Rhino
 open Rhino.Display
-open Rhino.Geometry
 open RhinosCanFly
 
 let view_matches_host (host: ViewportHostIdentity) (view: RhinoView) =
@@ -22,7 +21,11 @@ let view_matches_host (host: ViewportHostIdentity) (view: RhinoView) =
         && view.Handle = expectedWindow
         && actualRoot = expectedRoot
 
-let hostValidationIntervalTicks = max 1L (Stopwatch.Frequency / 10L)
+[<Struct>]
+type DrainResult = { count: int; overflowed: bool }
+
+let ignoreButton =
+    Action<RawMouseButtonTransition>(fun (_: RawMouseButtonTransition) -> ())
 
 type Session
     internal
@@ -34,170 +37,37 @@ type Session
         raw: RawInputThread.Session,
         view: RhinoView,
         viewport: RhinoViewport,
-        mouseConfig: ViewportNavigation.MouseConfig,
-        initialPivotCenter: Point3d,
         originalCursor: System.Drawing.Point,
         cursorClip: CursorClipLease,
-        buttonEvents: Func<RawMouseButtonEvent, System.Drawing.Point, bool>,
         failed: Action
-    ) as self =
+    ) =
 
     let mutable active = true
     let mutable draining = false
-    let mutable subscribed = false
-    let mutable cursorHidden = true
+    let mutable mainLoopHandler: EventHandler option = None
     let mutable failureNotified = false
     let mutable rawInputClean = false
     let mutable clipReleased = false
     let mutable cursorRestored = false
+    let mutable cursorHidden = true
     let mutable wakeDisposed = false
-    let mutable wheelRemainder = 0L
-    let mutable parallelZoomExponentRemainder = 0.
-    let mutable pivotCenter = initialPivotCenter
-    let timeline = InputAccumulator.timeline_buffer ()
-
-    let parallelZoomMode =
-        match mode with
-        | ViewportNavigation.Operation.ParallelZoom -> true
-        | ViewportNavigation.Operation.Pivot
-        | ViewportNavigation.Operation.Pan
-        | ViewportNavigation.Operation.ParallelPan -> false
-
-    let mutable nextHostValidationAt =
-        Stopwatch.GetTimestamp() + hostValidationIntervalTicks
-
-    let mainLoopHandler = EventHandler(fun (_: obj) (_: EventArgs) -> self.Drain())
-
-    let apply_movement (dx: int64) (dy: int64) (wheelDelta: int64) =
-        let wheel = wheelRemainder + wheelDelta
-        let wheelSteps = wheel / int64 Win32Native.WHEEL_DELTA
-        wheelRemainder <- wheel - wheelSteps * int64 Win32Native.WHEEL_DELTA
-
-        let parallelZoomPending = parallelZoomMode && parallelZoomExponentRemainder <> 0.
-
-        if dx <> 0L || dy <> 0L || wheelSteps <> 0L || parallelZoomPending then
-            let now = Stopwatch.GetTimestamp()
-            let hostValidationDue = now >= nextHostValidationAt
-
-            if hostValidationDue then
-                nextHostValidationAt <- now + hostValidationIntervalTicks
-
-            if hostValidationDue && not (view_matches_host host view) then
-                self.NotifyFailure()
-            else
-                let movementChanged =
-                    if dx = 0L && dy = 0L && not parallelZoomPending then
-                        false
-                    else
-                        match mode with
-                        | ViewportNavigation.Operation.Pivot ->
-                            ViewportNavigation.apply_pivot viewport mouseConfig pivotCenter dx dy
-                        | ViewportNavigation.Operation.Pan
-                        | ViewportNavigation.Operation.ParallelPan ->
-                            ViewportNavigation.apply_pan viewport mouseConfig dx dy
-                        | ViewportNavigation.Operation.ParallelZoom ->
-                            let requestedExponent =
-                                parallelZoomExponentRemainder + ViewportNavigation.parallel_zoom_exponent dy
-
-                            if requestedExponent = 0. then
-                                false
-                            else
-                                let appliedExponent = max -0.25 (min 0.25 requestedExponent)
-
-                                if viewport.Magnify(Math.Exp appliedExponent, true) then
-                                    let remaining = requestedExponent - appliedExponent
-
-                                    parallelZoomExponentRemainder <-
-                                        if abs remaining < 0.000000000001 then 0. else remaining
-
-                                    true
-                                else
-                                    parallelZoomExponentRemainder <- 0.
-                                    Debug.WriteLine "RhinosCanFly parallel zoom was rejected by Rhino."
-                                    self.NotifyFailure()
-                                    false
-
-                let wheelChanged =
-                    if wheelSteps = 0L then
-                        false
-                    else
-                        let magnification = ViewportNavigation.wheel_magnification wheelSteps
-
-                        magnification <> 1.
-                        && viewport.Magnify(magnification, viewport.IsParallelProjection)
-
-                if movementChanged || wheelChanged then
-                    view.Redraw()
 
     member _.NotifyFailure() =
         if active && not failureNotified then
             failureNotified <- true
             failed.Invoke()
 
-    member this.Drain() =
-        if active && not draining then
-            draining <- true
-            let observedRevision = InputAccumulator.work_revision input
-
-            try
-                try
-                    if RawInputThread.runtime_failed raw then
-                        this.NotifyFailure()
-                    else
-                        let struct (timelineCount, timelineOverflowed) =
-                            InputAccumulator.drain_timeline timeline input
-
-                        if timelineOverflowed then
-                            Debug.WriteLine "RhinosCanFly raw view navigation timeline overflowed."
-                            this.NotifyFailure()
-                        else
-                            let mutable acceptMovement = true
-                            let mutable timelineIndex = 0
-
-                            while active && not failureNotified && timelineIndex < timelineCount do
-                                let event = timeline[timelineIndex]
-
-                                match event.kind with
-                                | InputAccumulator.TimelineEventKind.Movement when acceptMovement ->
-                                    apply_movement event.dx event.dy event.wheel
-                                | InputAccumulator.TimelineEventKind.RawMouseButton ->
-                                    acceptMovement <- buttonEvents.Invoke(event.button.event, originalCursor)
-                                | InputAccumulator.TimelineEventKind.Movement
-                                | InputAccumulator.TimelineEventKind.KeyboardActions -> ()
-                                | _ -> invalidOp "The raw view navigation timeline contains an unknown event."
-
-                                timelineIndex <- timelineIndex + 1
-
-                            if acceptMovement && parallelZoomMode && parallelZoomExponentRemainder <> 0. then
-                                apply_movement 0L 0L 0L
-                with error ->
-                    Debug.WriteLine $"RhinosCanFly raw view navigation failed: {error}"
-                    this.NotifyFailure()
-            finally
-                RawInputWake.acknowledge wake
-
-                if
-                    active
-                    && not failureNotified
-                    && (parallelZoomExponentRemainder <> 0.
-                        || InputAccumulator.work_pending_since observedRevision input)
-                then
-                    RawInputWake.signal wake
-
-                draining <- false
-
-    member internal _.Attach() =
-        if active && not subscribed then
-            RhinoApp.MainLoop.AddHandler mainLoopHandler
-            subscribed <- true
-
     member _.Host = host
     member _.Mode = mode
+    member _.View = view
+    member _.Viewport = viewport
+    member _.OriginalCursor = originalCursor
     member _.IsActive = active
+    member _.FailureNotified = failureNotified
 
     member _.CleanupComplete =
         not active
-        && not subscribed
+        && Option.isNone mainLoopHandler
         && rawInputClean
         && clipReleased
         && cursorRestored
@@ -207,27 +77,75 @@ type Session
     member _.RawInputRegistrationIsCurrent() =
         RawInputThread.registration_is_current raw
 
-    member _.UpdatePivotCenter(updated: Point3d voption) =
-        match updated with
-        | ValueSome center when center.IsValid -> pivotCenter <- center
-        | ValueSome _
-        | ValueNone -> ()
-
     member _.Matches(expectedHost: ViewportHostIdentity, expectedMode: ViewportNavigation.Operation) =
         active && host = expectedHost && mode = expectedMode
 
-    member _.Stop() =
-        if active then
-            active <- false
+    member _.DiscardPointerInput() =
+        InputAccumulator.discard_pointer_input input
 
+    member _.RequestDrain() =
+        if active then
+            RawInputWake.signal wake
+
+    member this.Drain(destination: InputAccumulator.TimelineEvent array) =
+        if not active || draining then
+            ValueNone
+        else
+            draining <- true
+            let observedRevision = InputAccumulator.work_revision input
+
+            try
+                try
+                    if RawInputThread.runtime_failed raw then
+                        this.NotifyFailure()
+                        ValueNone
+                    else
+                        let struct (count, overflowed) = InputAccumulator.drain_timeline destination input
+
+                        ValueSome
+                            { count = count
+                              overflowed = overflowed }
+                with error ->
+                    Debug.WriteLine $"RhinosCanFly raw view navigation transport failed: {error}"
+                    this.NotifyFailure()
+                    ValueNone
+            finally
+                RawInputWake.acknowledge wake
+
+                if
+                    active
+                    && not failureNotified
+                    && InputAccumulator.work_pending_since observedRevision input
+                then
+                    RawInputWake.signal wake
+
+                draining <- false
+
+    member this.Attach(workAvailable: Action) =
+        if active && Option.isNone mainLoopHandler then
+            let handler =
+                EventHandler(fun (_: obj) (_: EventArgs) ->
+                    try
+                        workAvailable.Invoke()
+                    with error ->
+                        Debug.WriteLine $"RhinosCanFly raw view navigation UI work failed: {error}"
+                        this.NotifyFailure())
+
+            RhinoApp.MainLoop.AddHandler handler
+            mainLoopHandler <- Some handler
+
+    member _.Stop() =
+        active <- false
         let errors = ResizeArray<string>()
 
-        if subscribed then
+        match mainLoopHandler with
+        | Some handler ->
             try
-                RhinoApp.MainLoop.RemoveHandler mainLoopHandler
-                subscribed <- false
+                RhinoApp.MainLoop.RemoveHandler handler
+                mainLoopHandler <- None
             with error ->
                 errors.Add $"main-loop handler: {error.Message}"
+        | None -> ()
 
         if not rawInputClean then
             match RawInputThread.request_stop raw with
@@ -280,14 +198,7 @@ type Session
         else
             Error(String.Join("; ", errors))
 
-let start
-    (host: ViewportHostIdentity)
-    (mode: ViewportNavigation.Operation)
-    (requestedPivotCenter: Point3d voption)
-    (mouseConfig: ViewNavigationMouseConfig)
-    (buttonEvents: Func<RawMouseButtonEvent, System.Drawing.Point, bool>)
-    (failed: Action)
-    =
+let start (host: ViewportHostIdentity) (mode: ViewportNavigation.Operation) (failed: Action) =
     let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
 
     if not (view_matches_host host view) then
@@ -302,28 +213,18 @@ let start
         if requiresParallelProjection && not viewport.IsParallelProjection then
             Error "The viewport is no longer using parallel projection."
         else
-            let activeMouseConfig =
-                ViewportNavigation.mouse_config mouseConfig viewport.IsParallelProjection
-
-            let pivotCenter =
-                match requestedPivotCenter with
-                | ValueSome center when center.IsValid -> center
-                | ValueSome _
-                | ValueNone -> viewport.CameraTarget
-
             match Win32.get_cursor_position () with
             | Error error -> Error error
             | Ok originalCursor ->
                 let input = InputAccumulator.create ()
                 let wake = RawInputWake.create host.root_window
                 let inputAvailable = Action(fun () -> RawInputWake.signal wake)
-
                 let mutable raw: RawInputThread.Session option = None
                 let mutable cursorClip: CursorClipLease option = None
                 let mutable cursorHidden = false
 
                 try
-                    let createdRaw = RawInputThread.start input inputAvailable
+                    let createdRaw = RawInputThread.start input inputAvailable ignoreButton
                     raw <- Some createdRaw
 
                     match Win32.acquire_cursor_clip view.ScreenRectangle with
@@ -336,27 +237,10 @@ let start
                     match cursorClip with
                     | Some lease ->
                         let session =
-                            Session(
-                                host,
-                                mode,
-                                input,
-                                wake,
-                                createdRaw,
-                                view,
-                                viewport,
-                                activeMouseConfig,
-                                pivotCenter,
-                                originalCursor,
-                                lease,
-                                buttonEvents,
-                                failed
-                            )
+                            Session(host, mode, input, wake, createdRaw, view, viewport, originalCursor, lease, failed)
 
-                        session.Attach()
-
-                        // Ignore startup movement but keep button releases from the same gesture.
                         let startupRevision = InputAccumulator.work_revision input
-                        InputAccumulator.discard_movement input
+                        InputAccumulator.discard_pointer_input input
                         RawInputWake.acknowledge wake
 
                         if InputAccumulator.work_pending_since startupRevision input then
