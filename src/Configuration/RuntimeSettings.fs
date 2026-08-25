@@ -59,50 +59,36 @@ let apply_live (loaded: ConfigLoadResult) =
 
         let mouseOverrides: MouseOverrideConfig =
             if runtime_enabled_for config then
-                { runtime_enabled = true
-                  middle = RoutedMouseAction.create config.middle_mouse_action config.middle_mouse_retarget
-                  mouse4 = RoutedMouseAction.create config.mouse4_action config.mouse4_retarget
-                  mouse5 = RoutedMouseAction.create config.mouse5_action config.mouse5_retarget
-                  right_click_entry = config.right_click_entry_mode
-                  default_flight_mode = config.default_flight_mode
-                  viewport_capabilities = loaded.config.viewport_access.capabilities
-                  right_click_flight_entry = loaded.config.viewport_access.right_click_flight_entry
-                  shift_right_click =
-                    RoutedMouseAction.create config.shift_right_click_action config.shift_right_click_retarget
-                  alt_right_click =
-                    RoutedMouseAction.create config.alt_right_click_action config.alt_right_click_retarget
-                  ctrl_right_click =
-                    RoutedMouseAction.create config.ctrl_right_click_action config.ctrl_right_click_retarget
+                { actions =
+                    { middle = RoutedMouseAction.create config.middle_mouse_action config.middle_mouse_retarget
+                      mouse4 = RoutedMouseAction.create config.mouse4_action config.mouse4_retarget
+                      mouse5 = RoutedMouseAction.create config.mouse5_action config.mouse5_retarget
+                      right_click_entry = config.right_click_entry_mode
+                      default_flight_mode = config.default_flight_mode
+                      viewport_capabilities = loaded.config.viewport_access.capabilities
+                      right_click_flight_entry = loaded.config.viewport_access.right_click_flight_entry
+                      shift_right_click =
+                        RoutedMouseAction.create config.shift_right_click_action config.shift_right_click_retarget
+                      alt_right_click =
+                        RoutedMouseAction.create config.alt_right_click_action config.alt_right_click_retarget
+                      ctrl_right_click =
+                        RoutedMouseAction.create config.ctrl_right_click_action config.ctrl_right_click_retarget
+                      exit_on_mouse_left = config.exit_on_mouse_left
+                      exit_on_mouse_right = config.exit_on_mouse_right
+                      outside_flight_cursor =
+                        { middle = config.middle_mouse_uses_cursor_outside_flight
+                          mouse4 = config.mouse4_uses_cursor_outside_flight
+                          mouse5 = config.mouse5_uses_cursor_outside_flight }
+                      view_navigation_mouse = viewNavigationMouse }
                   exit_binding = Some loaded.config.bindings.exit_key
-                  exit_on_left = config.exit_on_mouse_left
-                  exit_on_right = config.exit_on_mouse_right
-                  outside_flight_cursor =
-                    { middle = config.middle_mouse_uses_cursor_outside_flight
-                      mouse4 = config.mouse4_uses_cursor_outside_flight
-                      mouse5 = config.mouse5_uses_cursor_outside_flight }
-                  view_navigation_mouse = viewNavigationMouse
                   prepare_navigation = NavigationTarget.prepare loaded
                   retarget = NavigationTarget.retarget loaded }
             else
-                { runtime_enabled = false
-                  middle = RoutedMouseAction.Off
-                  mouse4 = RoutedMouseAction.Off
-                  mouse5 = RoutedMouseAction.Off
-                  right_click_entry = RightClickEntryMode.Off
-                  default_flight_mode = config.default_flight_mode
-                  viewport_capabilities = ViewportNameList.DisabledAll
-                  right_click_flight_entry = ViewportNameList.DisabledAll
-                  shift_right_click = RoutedMouseAction.Off
-                  alt_right_click = RoutedMouseAction.Off
-                  ctrl_right_click = RoutedMouseAction.Off
+                { actions =
+                    { MouseActionConfig.disabled with
+                        default_flight_mode = config.default_flight_mode
+                        view_navigation_mouse = viewNavigationMouse }
                   exit_binding = None
-                  exit_on_left = false
-                  exit_on_right = false
-                  outside_flight_cursor =
-                    { middle = false
-                      mouse4 = false
-                      mouse5 = false }
-                  view_navigation_mouse = viewNavigationMouse
                   prepare_navigation = NavigationTarget.prepare loaded
                   retarget = NavigationTarget.retarget loaded }
 

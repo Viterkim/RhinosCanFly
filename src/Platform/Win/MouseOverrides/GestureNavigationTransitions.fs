@@ -4,19 +4,19 @@ open System.Diagnostics
 open System.Drawing
 open Rhino.Display
 open RhinosCanFly
-open RhinosCanFly.Platform.Win.ViewNavigationTypes
+open RhinosCanFly.Platform.Win.MouseOverrideTypes
 
 let complete_view_latch (state: State) =
     let previous = state.view_latch
     state.view_latch <- NoViewLatch
-    ViewNavigationState.complete_view_latch previous
+    MouseOverrideState.complete_view_latch previous
 
 let uses_cursor_outside_flight (state: State) (owner: GestureOwner) =
     match owner with
     | GestureOwner.ModifiedRightClick -> true
-    | GestureOwner.Middle -> state.routing.outside_flight_cursor.middle
-    | GestureOwner.Mouse4 -> state.routing.outside_flight_cursor.mouse4
-    | GestureOwner.Mouse5 -> state.routing.outside_flight_cursor.mouse5
+    | GestureOwner.Middle -> state.routing.actions.outside_flight_cursor.middle
+    | GestureOwner.Mouse4 -> state.routing.actions.outside_flight_cursor.mouse4
+    | GestureOwner.Mouse5 -> state.routing.actions.outside_flight_cursor.mouse5
 
 let client_target_point (state: State) (owner: GestureOwner) (view: RhinoView) (screenPoint: Point) =
     if uses_cursor_outside_flight state owner then
@@ -30,7 +30,7 @@ let client_target_point (state: State) (owner: GestureOwner) (view: RhinoView) (
 
 let stop (state: State) =
     state.gesture_navigation <- NoGestureNavigation
-    ViewNavigationState.stop_timer_if_idle state
+    MouseOverrideState.stop_timer_if_idle state
 
 let restore_original_target (host: ViewportHostIdentity) (originalTarget: Rhino.Geometry.Point3d voption) =
     match originalTarget with
@@ -131,7 +131,7 @@ let begin_navigation
                               pivot_center = preparedView.ActiveViewport.CameraTarget
                               original_target = originalTarget }
 
-                    ViewNavigationState.keep_timer_running state
+                    MouseOverrideState.keep_timer_running state
                     Ok()
 
 let press
@@ -177,7 +177,7 @@ let poll (state: State) =
     match state.gesture_navigation with
     | NoGestureNavigation -> ()
     | GestureNavigationActive session ->
-        if ViewNavigationState.foreground_root_window () <> session.host.root_window then
+        if MouseOverrideState.foreground_root_window () <> session.host.root_window then
             stop state
         elif session.lifetime = GestureLifetime.Hold && not (owner_button_down session.owner) then
             stop state

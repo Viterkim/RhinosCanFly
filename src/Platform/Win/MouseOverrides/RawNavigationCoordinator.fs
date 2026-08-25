@@ -4,23 +4,23 @@ open System
 open System.Diagnostics
 open System.Drawing
 open RhinosCanFly
-open RhinosCanFly.Platform.Win.ViewNavigationTypes
+open RhinosCanFly.Platform.Win.MouseOverrideTypes
 
 type State =
-    { navigation: ViewNavigationTypes.State
+    { navigation: MouseOverrideTypes.State
       right_click: RightClickTransitions.RightClickState
       request_exit: unit -> unit
       log_exception: string -> exn -> unit
-      mutable session: RawViewNavigation.Session option }
+      mutable session: RawViewNavigationSession.Session option }
 
 [<Struct>]
 type DesiredNavigation =
     { host: ViewportHostIdentity
-      mode: RawViewNavigation.Mode
+      mode: ViewportNavigation.Operation
       pivot_center: Rhino.Geometry.Point3d voption }
 
 let create
-    (navigation: ViewNavigationTypes.State)
+    (navigation: MouseOverrideTypes.State)
     (rightClick: RightClickTransitions.RightClickState)
     (requestExit: unit -> unit)
     (logException: string -> exn -> unit)
@@ -34,7 +34,7 @@ let create
 let active_host (state: State) =
     match RightClickTransitions.direct_navigation_host state.right_click with
     | ValueSome host -> ValueSome host
-    | ValueNone -> ViewNavigationState.navigation_host state.navigation
+    | ValueNone -> MouseOverrideState.navigation_host state.navigation
 
 let desired (state: State) =
     let navigation = state.navigation
@@ -47,14 +47,14 @@ let desired (state: State) =
         | ValueSome host ->
             ValueSome
                 { host = host
-                  mode = RawViewNavigation.Mode.ParallelZoom
+                  mode = ViewportNavigation.Operation.ParallelZoom
                   pivot_center = ValueNone }
         | ValueNone ->
             match RightClickTransitions.parallel_pan_host rightClick with
             | ValueSome host ->
                 ValueSome
                     { host = host
-                      mode = RawViewNavigation.Mode.ParallelPan
+                      mode = ViewportNavigation.Operation.ParallelPan
                       pivot_center = ValueNone }
             | ValueNone ->
                 match navigation.gesture_navigation with
@@ -63,25 +63,27 @@ let desired (state: State) =
                     | ViewNavigationMode.Pivot ->
                         ValueSome
                             { host = session.host
-                              mode = RawViewNavigation.Mode.Pivot
+                              mode = ViewportNavigation.Operation.Pivot
                               pivot_center = ValueSome session.pivot_center }
                     | ViewNavigationMode.Pan ->
                         ValueSome
                             { host = session.host
-                              mode = RawViewNavigation.Mode.Pan
+                              mode = ViewportNavigation.Operation.Pan
                               pivot_center = ValueNone }
                 | NoGestureNavigation ->
                     match navigation.view_latch with
-                    | PivotActive session ->
-                        ValueSome
-                            { host = session.host
-                              mode = RawViewNavigation.Mode.Pivot
-                              pivot_center = ValueSome session.pivot_center }
-                    | PanActive session ->
-                        ValueSome
-                            { host = session.host
-                              mode = RawViewNavigation.Mode.Pan
-                              pivot_center = ValueNone }
+                    | ViewLatchActive session ->
+                        match session.mode with
+                        | ViewNavigationMode.Pivot ->
+                            ValueSome
+                                { host = session.host
+                                  mode = ViewportNavigation.Operation.Pivot
+                                  pivot_center = ValueSome session.pivot_center }
+                        | ViewNavigationMode.Pan ->
+                            ValueSome
+                                { host = session.host
+                                  mode = ViewportNavigation.Operation.Pan
+                                  pivot_center = ValueNone }
                     | NoViewLatch
                     | WaitingForRelease _ -> ValueNone
 
@@ -104,7 +106,7 @@ let handle_right_down (state: State) (host: ViewportHostIdentity) (screenPoint: 
     match RightClickTransitions.requested_gesture_action navigation (RightClickTransitions.modifiers ()) with
     | ValueSome action ->
         GestureNavigationTransitions.press_or_log navigation GestureOwner.ModifiedRightClick action host screenPoint
-    | ValueNone when navigation.routing.exit_on_mouse_right -> state.request_exit ()
+    | ValueNone when navigation.routing.actions.exit_on_mouse_right -> state.request_exit ()
     | ValueNone -> ()
 
 let handle_right_up (state: State) =
@@ -114,23 +116,23 @@ let handle_right_up (state: State) =
 
 let handle_side_down (state: State) (button: SideButton) (host: ViewportHostIdentity) (screenPoint: Point) =
     let navigation = state.navigation
-    ViewNavigationState.set_hook_button_ownership navigation button Owned
+    MouseOverrideState.set_hook_button_ownership navigation button Owned
 
     GestureNavigationTransitions.press_or_log
         navigation
         (SideButtonTransitions.owner button)
-        (ViewNavigationState.action_for navigation button)
+        (MouseOverrideState.action_for navigation button)
         host
         screenPoint
 
 let handle_side_up (state: State) (button: SideButton) =
-    ViewNavigationState.set_hook_button_ownership state.navigation button NotOwned
+    MouseOverrideState.set_hook_button_ownership state.navigation button NotOwned
     GestureNavigationTransitions.release state.navigation (SideButtonTransitions.owner button)
 
 let handle_button (state: State) (host: ViewportHostIdentity) (event: RawMouseButtonEvent) (screenPoint: Point) =
     try
         match event with
-        | RawMouseButtonEvent.LeftUp when state.navigation.routing.exit_on_mouse_left -> state.request_exit ()
+        | RawMouseButtonEvent.LeftUp when state.navigation.routing.actions.exit_on_mouse_left -> state.request_exit ()
         | RawMouseButtonEvent.RightDown -> handle_right_down state host screenPoint
         | RawMouseButtonEvent.RightUp -> handle_right_up state
         | RawMouseButtonEvent.MiddleDown -> handle_side_down state Middle host screenPoint
@@ -144,7 +146,7 @@ let handle_button (state: State) (host: ViewportHostIdentity) (event: RawMouseBu
         | RawMouseButtonEvent.LeftUp -> ()
         | _ -> invalidOp "Raw mouse button events must be delivered one at a time."
 
-        ViewNavigationState.keep_timer_running state.navigation
+        MouseOverrideState.keep_timer_running state.navigation
     with error ->
         state.log_exception "raw navigation buttons" error
         state.request_exit ()
@@ -157,11 +159,11 @@ let start (state: State) (requested: DesiredNavigation) =
             handle_button state requested.host event point)
 
     match
-        RawViewNavigation.start
+        RawViewNavigationSession.start
             requested.host
             requested.mode
             requested.pivot_center
-            state.navigation.routing.view_navigation_mouse
+            state.navigation.routing.actions.view_navigation_mouse
             buttonEvents
             failed
     with
@@ -193,7 +195,7 @@ let reconcile (state: State) =
 let release (state: State) =
     RightClickTransitions.clear_direct_navigation state.right_click
     let rawResult = stop state
-    let viewResult = ViewNavigationState.release_all state.navigation
+    let viewResult = MouseOverrideState.release_all state.navigation
 
     match viewResult with
     | Error error ->

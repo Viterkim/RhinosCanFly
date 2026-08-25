@@ -117,13 +117,17 @@ let zoom_view_to_selection (target: Point3d) (bounds: BoundingBox) (view: RhinoV
             viewport.CameraUp <- up
             view.Redraw()
 
-let apply_to_views (scope: RetargetScope) (view: RhinoView) (apply: RhinoView -> unit) =
-    if scope = RetargetScope.AllViews then
-        apply view
+let apply_to_views (scope: RetargetScope) (view: RhinoView) (applyToView: RhinoView -> unit) =
+    if not (isNull view) then
+        let document = view.Document
 
-    for other in view.Document.Views.GetViewList(true, false) do
-        if not (isNull other) && other.RuntimeSerialNumber <> view.RuntimeSerialNumber then
-            apply other
+        if not (isNull document) then
+            if scope = RetargetScope.AllViews then
+                applyToView view
+
+            for other in document.Views.GetViewList(true, false) do
+                if not (isNull other) && other.RuntimeSerialNumber <> view.RuntimeSerialNumber then
+                    applyToView other
 
 let zoom_views_to_selection
     (retarget: RetargetConfig)

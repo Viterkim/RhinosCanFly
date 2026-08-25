@@ -364,7 +364,7 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
     | Ok() -> session.keyboard_suppressed <- true
     | Error error -> failwith $"Could not suppress flight keys: {error}"
 
-    let rawInputConfig: RawInputConfig =
+    let rawInputConfig: RawMouseInputConfig =
         { exit_on_mouse_left = state.config.mouse.exit_on_left
           exit_on_mouse_right = state.config.mouse.exit_on_right
           middle_mouse_action = state.config.mouse.middle_button
@@ -425,10 +425,16 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
 
 let begin_active (starting: StartingSession) =
     let mutable activeSession: ActiveSession option = None
+    let mutable createdState: FlyState option = None
 
     try
+        let originalTooltipsEnabled = CursorTooltipSettings.TooltipsEnabled
+        let originalGumballEnabled = ModelAidSettings.AutoGumballEnabled
+
         let state =
             FlightState.create starting.view starting.host_identity starting.config starting.session_mode
+
+        createdState <- Some state
 
         let session =
             { state = state
@@ -437,8 +443,8 @@ let begin_active (starting: StartingSession) =
               input_available = PlatformInput.raw_input_wake_action starting.input_wake
               override_suspension = starting.override_suspension
               cleanup_errors = ResizeArray<string>()
-              original_tooltips_enabled = CursorTooltipSettings.TooltipsEnabled
-              original_gumball_enabled = ModelAidSettings.AutoGumballEnabled
+              original_tooltips_enabled = originalTooltipsEnabled
+              original_gumball_enabled = originalGumballEnabled
               raw = None
               cursor_clip = None
               cursor_hidden = false
@@ -452,6 +458,7 @@ let begin_active (starting: StartingSession) =
               input_safe = true }
 
         activeSession <- Some session
+        createdState <- None
 
         if
             starting.session_mode.lifetime = FlightLifetime.WhileRightMouseHeld
@@ -488,6 +495,12 @@ let begin_active (starting: StartingSession) =
             finish_active session (Error message)
         | None ->
             let errors = ResizeArray<string>()
+
+            match createdState with
+            | Some state ->
+                attempt_cleanup errors "camera snapshot" (fun () -> CameraSnapshot.dispose state.original_camera)
+                |> ignore
+            | None -> ()
 
             attempt_cleanup errors "main-loop wake" (fun () -> PlatformInput.dispose_raw_input_wake starting.input_wake)
             |> ignore
@@ -594,9 +607,12 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                     sessionState <- RestartRequired
                     finish_result (Error $"Could not suspend mouse button overrides safely: {error}") errors
                 | None ->
+                    let mutable pendingWake: PlatformInput.RawInputWake option = None
+
                     try
                         let hostIdentity = PlatformInput.capture_viewport_host view
                         let wake = PlatformInput.create_raw_input_wake hostIdentity.root_window
+                        pendingWake <- Some wake
 
                         let starting =
                             { view = view
@@ -608,6 +624,7 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                               capture_wait = Stopwatch.StartNew() }
 
                         sessionState <- Starting starting
+                        pendingWake <- None
 
                         try
                             if view.MouseCaptured false then
@@ -620,6 +637,13 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                             cleanup_starting starting (error_message error)
                     with error ->
                         let errors = ResizeArray<string>()
+
+                        match pendingWake with
+                        | Some wake ->
+                            attempt_cleanup errors "main-loop wake" (fun () ->
+                                PlatformInput.dispose_raw_input_wake wake)
+                            |> ignore
+                        | None -> ()
 
                         attempt_cleanup errors "mouse button overrides" (fun () ->
                             match PlatformInput.resume_mouse_button_overrides suspension with

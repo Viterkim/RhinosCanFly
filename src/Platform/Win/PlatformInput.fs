@@ -184,7 +184,7 @@ let dispose_raw_input_wake (wake: RawInputWake) =
     RhinosCanFly.Platform.Win.RawInputWake.dispose wake
 
 let open_raw_input
-    (config: RawInputConfig)
+    (config: RawMouseInputConfig)
     (sessionMode: FlightSessionMode)
     (input: InputAccumulator.State)
     (inputAvailable: Action)

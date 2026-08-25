@@ -38,12 +38,14 @@
     <Compile Include="src/AssemblyInfo.fs" />
     <Compile Include="src/Configuration/ConfigTypes.fs" />
     <Compile Include="src/Configuration/ConfigSchema.fs" />
-    <Compile Include="src/Platform/Win/BindingTypes.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Core/CameraInputTypes.fs" />
     <Compile Include="src/Core/FlightInput.fs" />
     <Compile Include="src/Core/RhinoSettings.fs" />
     <Compile Include="src/Core/Speed.fs" />
     <Compile Include="src/Core/MouseSensitivity.fs" />
+    <Compile Include="src/Core/ViewNavigationTypes.fs" />
+    <Compile Include="src/Core/MouseActionTypes.fs" />
+    <Compile Include="src/Platform/Win/BindingTypes.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Core/InputAccumulator.fs" />
     <Compile Include="src/Platform/Win/PlatformTypes.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/Win32Native.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
@@ -60,14 +62,15 @@
     <Compile Include="src/Configuration/ConfigStorage.fs" />
     <Compile Include="src/Core/RepeatBehavior.fs" />
     <Compile Include="src/Fly/Movement.fs" />
+    <Compile Include="src/Fly/ViewportNavigation.fs" />
     <Compile Include="src/Fly/FlightSpeed.fs" />
     <Compile Include="src/Platform/Win/RawInputSession.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/RawInputReceiver.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/RawInputThread.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/RawInputWake.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
-    <Compile Include="src/Platform/Win/RawViewNavigation.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
-    <Compile Include="src/Platform/Win/MouseOverrides/ViewNavigationTypes.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
-    <Compile Include="src/Platform/Win/MouseOverrides/ViewNavigationState.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
+    <Compile Include="src/Platform/Win/RawViewNavigationSession.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
+    <Compile Include="src/Platform/Win/MouseOverrides/MouseOverrideTypes.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
+    <Compile Include="src/Platform/Win/MouseOverrides/MouseOverrideState.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/MouseOverrides/GestureNavigationTransitions.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/MouseOverrides/ViewLatchTransitions.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/MouseOverrides/RightClickTransitions.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />

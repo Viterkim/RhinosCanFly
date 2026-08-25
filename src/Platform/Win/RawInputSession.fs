@@ -6,7 +6,7 @@ open RhinosCanFly
 
 type RawInputSession
     (
-        config: RawInputConfig,
+        config: RawMouseInputConfig,
         sessionMode: FlightSessionMode,
         input: InputAccumulator.State,
         inputAvailable: Action,

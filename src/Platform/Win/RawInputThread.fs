@@ -28,7 +28,7 @@ type StartFailureException(message: string, restartRequired: bool, innerError: e
 
 type SessionRequest =
     { id: int64
-      config: RawInputConfig
+      config: RawMouseInputConfig
       session_mode: FlightSessionMode
       input: InputAccumulator.State
       input_available: Action
@@ -575,7 +575,7 @@ let stop_internal (attempt: StopAttempt) (session: Session) =
 let stop (session: Session) = stop_internal InitialStop session
 
 let start
-    (config: RawInputConfig)
+    (config: RawMouseInputConfig)
     (sessionMode: FlightSessionMode)
     (input: InputAccumulator.State)
     (inputAvailable: Action)

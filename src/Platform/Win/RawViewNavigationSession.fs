@@ -1,98 +1,11 @@
-module RhinosCanFly.Platform.Win.RawViewNavigation
+module RhinosCanFly.Platform.Win.RawViewNavigationSession
 
 open System
 open System.Diagnostics
 open Rhino
-open Rhino.ApplicationSettings
 open Rhino.Display
 open Rhino.Geometry
 open RhinosCanFly
-
-[<Struct>]
-type Mode =
-    | Pivot
-    | Pan
-    | ParallelPan
-    | ParallelZoom
-
-[<Struct>]
-type ActiveMouseConfig =
-    { x_mode: MouseAxisMode
-      y_mode: MouseAxisMode
-      sensitivity: RuntimeMouseSensitivity
-      pivot_multiplier: MousePivotMultiplier
-      pan_multiplier: MousePanMultiplier }
-
-let active_mouse_config (config: ViewNavigationMouseConfig) (isParallel: bool) =
-    if isParallel then
-        { x_mode = config.x_mode
-          y_mode = config.y_mode
-          sensitivity = config.parallel_sensitivity
-          pivot_multiplier = config.parallel_pivot_multiplier
-          pan_multiplier = config.parallel_pan_multiplier }
-    else
-        { x_mode = config.x_mode
-          y_mode = config.y_mode
-          sensitivity = config.perspective_sensitivity
-          pivot_multiplier = config.perspective_pivot_multiplier
-          pan_multiplier = config.perspective_pan_multiplier }
-
-let pivot (viewport: RhinoViewport) (config: ActiveMouseConfig) (center: Point3d) (dx: int64) (dy: int64) =
-    let (MousePivotMultiplier multiplier) = config.pivot_multiplier
-
-    let deltas =
-        Movement.mouse_angle_deltas config.x_mode config.y_mode config.sensitivity multiplier dx dy
-
-    let mutable changed = false
-
-    if
-        deltas.yaw_delta <> 0.
-        && viewport.Rotate(deltas.yaw_delta, Vector3d.ZAxis, center)
-    then
-        changed <- true
-
-    if deltas.pitch_delta <> 0. then
-        let mutable right = viewport.CameraX
-
-        if right.Unitize() && viewport.Rotate(deltas.pitch_delta, right, center) then
-            changed <- true
-
-    changed
-
-let pan (viewport: RhinoViewport) (config: ActiveMouseConfig) (dx: int64) (dy: int64) =
-    let (MousePanMultiplier multiplier) = config.pan_multiplier
-
-    let deltas =
-        Movement.mouse_angle_deltas config.x_mode config.y_mode config.sensitivity multiplier dx dy
-
-    let location = viewport.CameraLocation
-    let target = viewport.CameraTarget
-    let mutable direction = viewport.CameraDirection
-    let mutable right = viewport.CameraX
-    let mutable up = viewport.CameraY
-
-    if direction.Unitize() && right.Unitize() && up.Unitize() then
-        let requestedDepth = Vector3d.Multiply(target - location, direction)
-
-        let depth =
-            if
-                RhinoMath.IsValidDouble requestedDepth
-                && requestedDepth > RhinoMath.ZeroTolerance
-            then
-                requestedDepth
-            else
-                1.
-
-        let translation = right * deltas.yaw_delta * depth - up * deltas.pitch_delta * depth
-
-        if translation.IsZero then
-            false
-        else
-            viewport.SetCameraLocation(location + translation, false)
-            viewport.SetCameraTarget(target + translation, false)
-            true
-    else
-        false
 
 let view_matches_host (host: ViewportHostIdentity) (view: RhinoView) =
     if isNull view || isNull view.Document then
@@ -111,54 +24,17 @@ let view_matches_host (host: ViewportHostIdentity) (view: RhinoView) =
 
 let hostValidationIntervalTicks = max 1L (Stopwatch.Frequency / 10L)
 
-let parallel_zoom_exponent (dy: int64) =
-    let zoomScale = ViewSettings.ZoomScale
-
-    if
-        dy <> 0L
-        && not (Double.IsNaN zoomScale)
-        && not (Double.IsInfinity zoomScale)
-        && zoomScale > 0.
-        && zoomScale <> 1.
-    then
-        let steps = float -dy / 12.
-        steps * Math.Log(1. / zoomScale)
-    else
-        0.
-
-let wheel_magnification (steps: int64) =
-    let zoomScale = ViewSettings.ZoomScale
-
-    if
-        steps <> 0L
-        && not (Double.IsNaN zoomScale)
-        && not (Double.IsInfinity zoomScale)
-        && zoomScale > 0.
-    then
-        let magnification = Math.Pow(1. / zoomScale, float steps)
-
-        if
-            Double.IsNaN magnification
-            || Double.IsInfinity magnification
-            || magnification <= 0.
-        then
-            1.
-        else
-            magnification
-    else
-        1.
-
 type Session
     internal
     (
         host: ViewportHostIdentity,
-        mode: Mode,
+        mode: ViewportNavigation.Operation,
         input: InputAccumulator.State,
         wake: RawInputWake.State,
         raw: RawInputThread.Session,
         view: RhinoView,
         viewport: RhinoViewport,
-        mouseConfig: ActiveMouseConfig,
+        mouseConfig: ViewportNavigation.MouseConfig,
         initialPivotCenter: Point3d,
         originalCursor: System.Drawing.Point,
         cursorClip: CursorClipLease,
@@ -181,10 +57,10 @@ type Session
 
     let parallelZoomMode =
         match mode with
-        | Mode.ParallelZoom -> true
-        | Mode.Pivot
-        | Mode.Pan
-        | Mode.ParallelPan -> false
+        | ViewportNavigation.Operation.ParallelZoom -> true
+        | ViewportNavigation.Operation.Pivot
+        | ViewportNavigation.Operation.Pan
+        | ViewportNavigation.Operation.ParallelPan -> false
 
     let mutable nextHostValidationAt =
         Stopwatch.GetTimestamp() + hostValidationIntervalTicks
@@ -227,12 +103,14 @@ type Session
                                     false
                                 else
                                     match mode with
-                                    | Mode.Pivot -> pivot viewport mouseConfig pivotCenter dx dy
-                                    | Mode.Pan
-                                    | Mode.ParallelPan -> pan viewport mouseConfig dx dy
-                                    | Mode.ParallelZoom ->
+                                    | ViewportNavigation.Operation.Pivot ->
+                                        ViewportNavigation.apply_pivot viewport mouseConfig pivotCenter dx dy
+                                    | ViewportNavigation.Operation.Pan
+                                    | ViewportNavigation.Operation.ParallelPan ->
+                                        ViewportNavigation.apply_pan viewport mouseConfig dx dy
+                                    | ViewportNavigation.Operation.ParallelZoom ->
                                         let requestedExponent =
-                                            parallelZoomExponentRemainder + parallel_zoom_exponent dy
+                                            parallelZoomExponentRemainder + ViewportNavigation.parallel_zoom_exponent dy
 
                                         if requestedExponent = 0. then
                                             false
@@ -256,7 +134,7 @@ type Session
                                 if wheelSteps = 0L then
                                     false
                                 else
-                                    let magnification = wheel_magnification wheelSteps
+                                    let magnification = ViewportNavigation.wheel_magnification wheelSteps
 
                                     magnification <> 1.
                                     && viewport.Magnify(magnification, viewport.IsParallelProjection)
@@ -317,7 +195,7 @@ type Session
         | ValueSome _
         | ValueNone -> ()
 
-    member _.Matches(expectedHost: ViewportHostIdentity, expectedMode: Mode) =
+    member _.Matches(expectedHost: ViewportHostIdentity, expectedMode: ViewportNavigation.Operation) =
         active && host = expectedHost && mode = expectedMode
 
     member _.Stop() =
@@ -386,7 +264,7 @@ type Session
 
 let start
     (host: ViewportHostIdentity)
-    (mode: Mode)
+    (mode: ViewportNavigation.Operation)
     (requestedPivotCenter: Point3d voption)
     (mouseConfig: ViewNavigationMouseConfig)
     (buttonEvents: Action<RawMouseButtonEvent, System.Drawing.Point>)
@@ -399,13 +277,15 @@ let start
     else
         let viewport = view.ActiveViewport
 
-        let requiresParallelProjection = mode = Mode.ParallelPan || mode = Mode.ParallelZoom
+        let requiresParallelProjection =
+            mode = ViewportNavigation.Operation.ParallelPan
+            || mode = ViewportNavigation.Operation.ParallelZoom
 
         if requiresParallelProjection && not viewport.IsParallelProjection then
             Error "The viewport is no longer using parallel projection."
         else
             let activeMouseConfig =
-                active_mouse_config mouseConfig viewport.IsParallelProjection
+                ViewportNavigation.mouse_config mouseConfig viewport.IsParallelProjection
 
             let pivotCenter =
                 match requestedPivotCenter with
@@ -420,7 +300,7 @@ let start
                 let wake = RawInputWake.create host.root_window
                 let inputAvailable = Action(fun () -> RawInputWake.signal wake)
 
-                let rawConfig: RawInputConfig =
+                let rawConfig: RawMouseInputConfig =
                     { exit_on_mouse_left = false
                       exit_on_mouse_right = false
                       middle_mouse_action = RoutedMouseAction.Off

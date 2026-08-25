@@ -5,7 +5,7 @@ open System.Drawing
 open Rhino
 open Rhino.Display
 open RhinosCanFly
-open RhinosCanFly.Platform.Win.ViewNavigationTypes
+open RhinosCanFly.Platform.Win.MouseOverrideTypes
 
 type FlyEntry =
     { host: ViewportHostIdentity
@@ -66,14 +66,14 @@ let create () =
 
 let try_wake (navigation: State) =
     try
-        ViewNavigationState.keep_timer_running navigation
+        MouseOverrideState.keep_timer_running navigation
         true
     with error ->
         Debug.WriteLine $"RhinosCanFly right-click timer: {error}"
         false
 
 let entry_enabled (navigation: State) =
-    match navigation.routing.right_click_entry with
+    match navigation.routing.actions.right_click_entry with
     | RightClickEntryMode.ClickToFly
     | RightClickEntryMode.ClickToFlyDuringCommands
     | RightClickEntryMode.HoldToFly
@@ -117,45 +117,37 @@ let owns_button (state: RightClickState) =
     | Owned
     | ReleaseObserved -> true
 
-let modified_navigation_enabled (navigation: State) =
-    RoutedMouseAction.enabled navigation.routing.shift_right_click
-    || RoutedMouseAction.enabled navigation.routing.alt_right_click
-    || RoutedMouseAction.enabled navigation.routing.ctrl_right_click
-
 let navigation_active (navigation: State) =
-    ViewNavigationState.gesture_navigation_engaged navigation
-    || ViewNavigationState.view_latch_engaged navigation
+    MouseOverrideState.gesture_navigation_engaged navigation
+    || MouseOverrideState.view_latch_engaged navigation
 
 let navigation_exit_requested (navigation: State) =
     navigation_active navigation
-    && ViewNavigationState.right_mouse_exit_requested navigation
+    && MouseOverrideState.right_mouse_exit_requested navigation
 
 let navigation_exit_capture_needed (navigation: State) =
     navigation_active navigation
-    && ViewNavigationState.right_mouse_exit_capture_needed navigation
+    && MouseOverrideState.right_mouse_exit_capture_needed navigation
 
 let capture_needed (navigation: State) (state: RightClickState) =
-    (ViewportNameList.has_allowed_viewports navigation.routing.viewport_capabilities
-     && (navigation.routing.runtime_enabled
-         || entry_enabled navigation
-         || modified_navigation_enabled navigation))
+    ViewportNameList.has_allowed_viewports navigation.routing.actions.viewport_capabilities
     || navigation_exit_capture_needed navigation
     || owns_button state
     || action_pending state
 
 let modifiers () =
-    { shift = ViewNavigationState.shift_down ()
-      alt = ViewNavigationState.alt_down ()
-      control = ViewNavigationState.control_down () }
+    { shift = MouseOverrideState.shift_down ()
+      alt = MouseOverrideState.alt_down ()
+      control = MouseOverrideState.control_down () }
 
 let requested_gesture_action (navigation: State) (modifiers: Modifiers) =
     let configuredAction =
         if modifiers.shift && not modifiers.alt && not modifiers.control then
-            navigation.routing.shift_right_click
+            navigation.routing.actions.shift_right_click
         elif modifiers.alt && not modifiers.shift && not modifiers.control then
-            navigation.routing.alt_right_click
+            navigation.routing.actions.alt_right_click
         elif modifiers.control && not modifiers.shift && not modifiers.alt then
-            navigation.routing.ctrl_right_click
+            navigation.routing.actions.ctrl_right_click
         else
             RoutedMouseAction.Off
 
@@ -165,11 +157,11 @@ let requested_gesture_action (navigation: State) (modifiers: Modifiers) =
         ValueNone
 
 let capabilities_allowed (navigation: State) (viewportName: string) =
-    ViewportNameList.allows viewportName navigation.routing.viewport_capabilities
+    ViewportNameList.allows viewportName navigation.routing.actions.viewport_capabilities
 
 let right_click_flight_entry_allowed (navigation: State) (viewportName: string) =
     capabilities_allowed navigation viewportName
-    && ViewportNameList.allows viewportName navigation.routing.right_click_flight_entry
+    && ViewportNameList.allows viewportName navigation.routing.actions.right_click_flight_entry
 
 let action
     (navigation: State)
@@ -198,8 +190,7 @@ let action
     | ValueNone when navigation_active navigation && navigation_exit_requested navigation -> ValueSome StopNavigation
     | ValueNone when navigation_active navigation -> ValueNone
     | ValueNone when
-        navigation.routing.runtime_enabled
-        && capabilitiesAllowed
+        capabilitiesAllowed
         && viewport.is_parallel
         && modifiers.shift
         && not modifiers.alt
@@ -207,8 +198,7 @@ let action
         ->
         ValueSome(PanParallel host)
     | ValueNone when
-        navigation.routing.runtime_enabled
-        && capabilitiesAllowed
+        capabilitiesAllowed
         && viewport.is_parallel
         && modifiers.alt
         && not modifiers.shift
@@ -219,7 +209,8 @@ let action
         entry_enabled navigation
         && right_click_flight_entry_allowed navigation viewport.name
         && (viewport.is_perspective || viewport.is_parallel)
-        && (entry_during_commands navigation.routing.right_click_entry || not commandActive)
+        && (entry_during_commands navigation.routing.actions.right_click_entry
+            || not commandActive)
         && not modifiers.shift
         && not modifiers.alt
         && not modifiers.control
@@ -227,8 +218,8 @@ let action
         ValueSome(
             EnterFlight
                 { host = host
-                  entry_mode = navigation.routing.right_click_entry
-                  default_flight_mode = navigation.routing.default_flight_mode
+                  entry_mode = navigation.routing.actions.right_click_entry
+                  default_flight_mode = navigation.routing.actions.default_flight_mode
                   started_at = Stopwatch.GetTimestamp() }
         )
     | ValueNone -> ValueNone
@@ -292,7 +283,7 @@ let rec handle_event
         let currentModifiers = modifiers ()
 
         match tryView event.point_window with
-        | ValueSome pointViewport when pointViewport.host.root_window = ViewNavigationState.foreground_root_window () ->
+        | ValueSome pointViewport when pointViewport.host.root_window = MouseOverrideState.foreground_root_window () ->
             match action navigation pointViewport event.screen_point currentModifiers commandActive with
             | ValueNone when
                 not (navigation_active navigation)
@@ -343,15 +334,15 @@ let try_entry_view (entry: FlyEntry) =
         || isNull activeDocument
         || activeDocument.RuntimeSerialNumber <> entry.host.document_serial_number
         || view.Handle <> expectedWindow
-        || ViewNavigationState.root_window view.Handle <> entry.host.root_window
+        || MouseOverrideState.root_window view.Handle <> entry.host.root_window
     then
         ValueNone
     else
         ValueSome view
 
 let try_prepare_entry_view (entry: FlyEntry) =
-    if ViewNavigationState.foreground_root_window () <> entry.host.root_window then
-        if ViewNavigationState.try_bring_root_window_to_foreground entry.host.root_window then
+    if MouseOverrideState.foreground_root_window () <> entry.host.root_window then
+        if MouseOverrideState.try_bring_root_window_to_foreground entry.host.root_window then
             EntryDeferred
         else
             EntryUnavailable
@@ -385,7 +376,7 @@ let apply_navigation_click (navigation: State) (click: NavigationClick) =
 
     let foregroundReady =
         available
-        && ViewNavigationState.try_bring_root_window_to_foreground click.host.root_window
+        && MouseOverrideState.try_bring_root_window_to_foreground click.host.root_window
 
     if foregroundReady then
         GestureNavigationTransitions.press_or_log
@@ -407,7 +398,7 @@ let update (navigation: State) (state: RightClickState) (commandActive: bool) =
         state.gesture <- ButtonDownHandled(NavigateView click)
     | ButtonDown StopNavigation ->
         navigation.navigation_exit_requested <- true
-        ViewNavigationState.keep_timer_running navigation
+        MouseOverrideState.keep_timer_running navigation
         state.gesture <- ButtonDownHandled StopNavigation
     | ButtonDown(PanParallel _) -> ()
     | ButtonDown(ZoomParallel _) -> ()
@@ -418,7 +409,7 @@ let update (navigation: State) (state: RightClickState) (commandActive: bool) =
         clear_action state
     | ButtonReleasedBeforeHandling StopNavigation ->
         navigation.navigation_exit_requested <- true
-        ViewNavigationState.keep_timer_running navigation
+        MouseOverrideState.keep_timer_running navigation
         clear_action state
     | ButtonReleasedBeforeHandling(PanParallel _)
     | ButtonReleasedBeforeHandling(ZoomParallel _)

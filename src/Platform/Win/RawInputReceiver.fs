@@ -258,7 +258,7 @@ type RawInputReceiver(processControl: Action) as self =
 
     member _.StartSession
         (
-            config: RawInputConfig,
+            config: RawMouseInputConfig,
             sessionMode: FlightSessionMode,
             input: InputAccumulator.State,
             inputAvailable: Action,
