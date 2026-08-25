@@ -1,4 +1,4 @@
-module RhinosCanFly.Platform.Win.MouseButtonOverrides
+module RhinosCanFly.PlatformMouseActions
 
 open System
 open System.Diagnostics
@@ -8,18 +8,19 @@ open Rhino.ApplicationSettings
 open Rhino.Commands
 open Rhino.Display
 open RhinosCanFly
+open RhinosCanFly.Platform.Win
 open RhinosCanFly.Platform.Win.MouseOverrideTypes
 
 let state = create_state ()
 let right_click = RightClickTransitions.create ()
-let mutable hook_ui_wake: RawInputWake.State option = None
+let mutable hook_ui_wake: PlatformInputWake.State option = None
 let mutable hook_ui_main_loop_handler: EventHandler option = None
 let mutable flight_right_release_observer: Action option = None
 let hook_ui_work_requested = Event<unit>()
 
 let signal_hook_ui_work () =
     match hook_ui_wake with
-    | Some wake -> RawInputWake.signal wake
+    | Some wake -> PlatformInputWake.signal wake
     | None -> ()
 
 let install_hook_ui_wake () =
@@ -27,12 +28,12 @@ let install_hook_ui_wake () =
     | Some _ -> Ok()
     | None ->
         try
-            let wake = RawInputWake.create (RootWindow(RhinoApp.MainWindowHandle()))
+            let wake = PlatformInputWake.create (RootWindow(RhinoApp.MainWindowHandle()))
 
             try
                 let handler =
                     EventHandler(fun (_: obj) (_: EventArgs) ->
-                        if RawInputWake.acknowledge_if_pending wake then
+                        if PlatformInputWake.acknowledge_if_pending wake then
                             hook_ui_work_requested.Trigger())
 
                 RhinoApp.MainLoop.AddHandler handler
@@ -40,7 +41,7 @@ let install_hook_ui_wake () =
                 hook_ui_main_loop_handler <- Some handler
                 Ok()
             with error ->
-                RawInputWake.dispose wake
+                PlatformInputWake.dispose wake
                 Error $"Could not install the mouse-action UI wake: {error.Message}"
         with error ->
             Error $"Could not install the mouse-action UI wake: {error.Message}"
@@ -60,7 +61,7 @@ let remove_hook_ui_wake () =
     if errors.Count = 0 then
         match hook_ui_wake with
         | Some wake ->
-            RawInputWake.dispose wake
+            PlatformInputWake.dispose wake
             hook_ui_wake <- None
         | None -> ()
 
@@ -407,7 +408,7 @@ let poll_timer_elapsed () =
                     navigationCleanupFailed <- true
                     Debug.WriteLine $"RhinosCanFly mouse override exit: {error}"
             else
-                SideButtonTransitions.poll state
+                GestureNavigationTransitions.poll state
 
                 ViewLatchTransitions.update state
 

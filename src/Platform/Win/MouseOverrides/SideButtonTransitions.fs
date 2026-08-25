@@ -54,5 +54,3 @@ let process_hook_events (state: State) =
         MouseOverrideState.keep_timer_running state
     else
         MouseOverrideState.stop_timer_if_idle state
-
-let poll (state: State) = GestureNavigationTransitions.poll state

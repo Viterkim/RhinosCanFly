@@ -92,7 +92,7 @@ let apply_live (loaded: ConfigLoadResult) =
                   prepare_navigation = NavigationTarget.prepare loaded
                   retarget = NavigationTarget.retarget loaded }
 
-        match PlatformInput.apply_mouse_button_overrides mouseOverrides with
+        match PlatformMouseActions.apply mouseOverrides with
         | Error error -> Error error
         | Ok() ->
             RepeatBehavior.apply config.commands_do_not_repeat
@@ -127,7 +127,7 @@ let toggle_runtime_enabled () =
 let suspend_input () =
     let platformResult =
         try
-            PlatformInput.suspend_mouse_button_overrides ()
+            PlatformMouseActions.suspend ()
         with error ->
             record_exception "RhinosCanFly mouse override suspension failed" error
             Error error.Message
@@ -155,7 +155,7 @@ let resume_input (lease: InputSuspensionLease) =
 
         let platformResult =
             try
-                PlatformInput.resume_mouse_button_overrides lease
+                PlatformMouseActions.resume lease
             with error ->
                 record_exception "RhinosCanFly mouse override resume failed" error
                 Error error.Message

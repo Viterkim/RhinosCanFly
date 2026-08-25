@@ -70,13 +70,13 @@ let timelineDrainIndex =
     loopSource.IndexOf("InputAccumulator.drain_timeline", StringComparison.Ordinal)
 
 let acknowledgeIndex =
-    loopSource.IndexOf("PlatformInput.acknowledge_raw_input_wake", StringComparison.Ordinal)
+    loopSource.IndexOf("PlatformInputWake.acknowledge", StringComparison.Ordinal)
 
 let recheckIndex =
     loopSource.IndexOf("InputAccumulator.work_pending_since", StringComparison.Ordinal)
 
 let keyboardRecheckIndex =
-    loopSource.LastIndexOf("PlatformInput.flight_keyboard_revision", StringComparison.Ordinal)
+    loopSource.LastIndexOf("PlatformFlightKeyboard.revision", StringComparison.Ordinal)
 
 if
     revisionIndex < 0
@@ -105,10 +105,10 @@ if startingIndex < 0 then
     fail "FlightSession.process_starting was not found."
 
 let startingAcknowledgeIndex =
-    sessionSource.IndexOf("PlatformInput.acknowledge_raw_input_wake", startingIndex, StringComparison.Ordinal)
+    sessionSource.IndexOf("PlatformInputWake.acknowledge", startingIndex, StringComparison.Ordinal)
 
 let startingWakeIndex =
-    sessionSource.IndexOf("PlatformInput.wake_flight_loop", startingIndex, StringComparison.Ordinal)
+    sessionSource.IndexOf("PlatformInputWake.signal", startingIndex, StringComparison.Ordinal)
 
 if
     startingAcknowledgeIndex < startingIndex
@@ -120,8 +120,10 @@ if
     not (keyboardSource.Contains("wasDown <> state.key_is_down[event.physical_key]", StringComparison.Ordinal))
     || not (keyboardSource.Contains("available.Invoke()", StringComparison.Ordinal))
     || not (keyboardSource.Contains("Interlocked.Increment(&state.revision)", StringComparison.Ordinal))
-    || not (loopSource.Contains("PlatformInput.flight_keyboard_revision", StringComparison.Ordinal))
-    || not (sessionSource.Contains("input_available = PlatformInput.raw_input_wake_action", StringComparison.Ordinal))
+    || not (loopSource.Contains("PlatformFlightKeyboard.revision", StringComparison.Ordinal))
+    || not (
+        sessionSource.Contains("input_available = Action(fun () -> PlatformInputWake.signal", StringComparison.Ordinal)
+    )
     || sessionSource.IndexOf("session.input_available", StringComparison.Ordinal) = sessionSource.LastIndexOf(
         "session.input_available",
         StringComparison.Ordinal

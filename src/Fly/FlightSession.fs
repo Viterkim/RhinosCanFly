@@ -12,19 +12,19 @@ type StartingSession =
       config: FlyConfig
       session_mode: FlightSessionMode
       override_suspension: InputSuspensionLease
-      input_wake: PlatformInput.RawInputWake
+      input_wake: PlatformInputWake.State
       capture_wait: Stopwatch }
 
 type ActiveSession =
     { state: FlyState
       raw_input: InputAccumulator.State
-      input_wake: PlatformInput.RawInputWake
+      input_wake: PlatformInputWake.State
       input_available: Action
       override_suspension: InputSuspensionLease
       cleanup_errors: ResizeArray<string>
       original_tooltips_enabled: bool
       original_gumball_enabled: bool
-      mutable raw: PlatformInput.RawInputSession option
+      mutable raw: PlatformRawInput.Session option
       mutable cursor_clip: CursorClipLease option
       mutable cursor_hidden: bool
       mutable tooltips_changed: bool
@@ -112,7 +112,7 @@ let finish_active_core (session: ActiveSession) (activeResult: Result<unit, stri
     if session.input_routing_started then
         let released =
             attempt_cleanup cleanupErrors "flight input routing" (fun () ->
-                PlatformInput.stop_flight_input_routing ()
+                PlatformFlightInput.stop ()
                 session.input_routing_started <- false)
 
         if not released then
@@ -122,7 +122,7 @@ let finish_active_core (session: ActiveSession) (activeResult: Result<unit, stri
     | Some raw ->
         let stopRequested =
             attempt_cleanup cleanupErrors "raw input stop request" (fun () ->
-                match PlatformInput.request_raw_input_stop raw with
+                match PlatformRawInput.request_stop raw with
                 | Ok() -> ()
                 | Error error -> failwith error)
 
@@ -134,7 +134,7 @@ let finish_active_core (session: ActiveSession) (activeResult: Result<unit, stri
 
         let runtimeFailed =
             try
-                PlatformInput.raw_input_runtime_failed raw
+                PlatformRawInput.runtime_failed raw
             with error ->
                 cleanupErrors.Add $"raw input status: {error_message error}"
                 true
@@ -149,7 +149,7 @@ let finish_active_core (session: ActiveSession) (activeResult: Result<unit, stri
     | Some lease ->
         let released =
             attempt_cleanup cleanupErrors "cursor clip" (fun () ->
-                match PlatformInput.release_cursor_clip lease with
+                match PlatformCursorClip.release lease with
                 | Ok() -> session.cursor_clip <- None
                 | Error error -> failwith error)
 
@@ -162,7 +162,7 @@ let finish_active_core (session: ActiveSession) (activeResult: Result<unit, stri
     | Some raw ->
         try
             try
-                let outcome = PlatformInput.close_raw_input raw
+                let outcome = PlatformRawInput.stop raw
 
                 session.raw_input_clean <-
                     outcome.terminated
@@ -182,7 +182,7 @@ let finish_active_core (session: ActiveSession) (activeResult: Result<unit, stri
         finally
             session.raw <- None
 
-    attempt_cleanup cleanupErrors "raw input wake" (fun () -> PlatformInput.dispose_raw_input_wake session.input_wake)
+    attempt_cleanup cleanupErrors "raw input wake" (fun () -> PlatformInputWake.dispose session.input_wake)
     |> ignore
 
     let recordedExitReason =
@@ -301,7 +301,7 @@ let finish_active_core (session: ActiveSession) (activeResult: Result<unit, stri
 
     let overrideResumed =
         attempt_cleanup cleanupErrors "mouse button overrides" (fun () ->
-            match PlatformInput.resume_mouse_button_overrides session.override_suspension with
+            match PlatformMouseActions.resume session.override_suspension with
             | Ok() -> ()
             | Error error -> failwith error)
 
@@ -311,7 +311,7 @@ let finish_active_core (session: ActiveSession) (activeResult: Result<unit, stri
     if not session.raw_input_clean then
         cleanupErrors.Add "raw input did not shut down cleanly; restart Rhino before using fly mode again"
 
-    if PlatformInput.cursor_clip_recovery_count () > 0 then
+    if PlatformCursorClip.recovery_count () > 0 then
         session.input_safe <- false
 
     if not session.input_safe then
@@ -338,12 +338,12 @@ let cleanup_starting (starting: StartingSession) (failure: string) =
     sessionState <- Finishing
     let errors = ResizeArray<string>()
 
-    attempt_cleanup errors "main-loop wake" (fun () -> PlatformInput.dispose_raw_input_wake starting.input_wake)
+    attempt_cleanup errors "main-loop wake" (fun () -> PlatformInputWake.dispose starting.input_wake)
     |> ignore
 
     let resumed =
         attempt_cleanup errors "mouse button overrides" (fun () ->
-            match PlatformInput.resume_mouse_button_overrides starting.override_suspension with
+            match PlatformMouseActions.resume starting.override_suspension with
             | Ok() -> ()
             | Error error -> failwith error)
 
@@ -359,13 +359,7 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
         sessionMode.lifetime = FlightLifetime.WhileRightMouseHeld
         || state.config.mouse.exit_on_right
 
-    match
-        PlatformInput.start_flight_input_routing
-            state.config
-            session.raw_input
-            session.input_available
-            rightReleaseExits
-    with
+    match PlatformFlightInput.start state.config session.raw_input session.input_available rightReleaseExits with
     | Ok() -> session.input_routing_started <- true
     | Error error -> failwith $"Could not start flight input routing: {error}"
 
@@ -390,14 +384,19 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
                         | RawMouseButtonEvent.Mouse5Up -> false
                         | _ -> false
 
-                    if exitsFlight || PlatformInput.mouse_transition_requests_flight_exit transition then
-                        PlatformInput.allow_keyboard_passthrough ())
+                    if exitsFlight || PlatformFlightKeyboard.mouse_transition_requests_exit transition then
+                        PlatformFlightKeyboard.allow_passthrough ())
 
-            PlatformInput.open_raw_input session.raw_input session.input_available buttonObserved
+            PlatformRawInput.start session.raw_input session.input_available buttonObserved
         with error ->
             FlyState.request_exit (SessionFailure(error.ToString())) state
 
-            if PlatformInput.raw_input_start_requires_restart error then
+            let restartRequired =
+                match error with
+                | :? PlatformRawInput.StartFailureException as failure -> failure.RestartRequired
+                | _ -> false
+
+            if restartRequired then
                 session.raw_input_clean <- false
 
             raise error
@@ -431,7 +430,7 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
             session.gumball_changed <- true
             ModelAidSettings.AutoGumballEnabled <- false
 
-        match PlatformInput.acquire_cursor_clip state.view with
+        match PlatformCursorClip.acquire state.view with
         | Ok lease -> session.cursor_clip <- Some lease
         | Error error -> failwith error
 
@@ -461,7 +460,7 @@ let begin_active (starting: StartingSession) =
             { state = state
               raw_input = InputAccumulator.create ()
               input_wake = starting.input_wake
-              input_available = PlatformInput.raw_input_wake_action starting.input_wake
+              input_available = Action(fun () -> PlatformInputWake.signal starting.input_wake)
               override_suspension = starting.override_suspension
               cleanup_errors = ResizeArray<string>()
               original_tooltips_enabled = originalTooltipsEnabled
@@ -523,12 +522,12 @@ let begin_active (starting: StartingSession) =
                 |> ignore
             | None -> ()
 
-            attempt_cleanup errors "main-loop wake" (fun () -> PlatformInput.dispose_raw_input_wake starting.input_wake)
+            attempt_cleanup errors "main-loop wake" (fun () -> PlatformInputWake.dispose starting.input_wake)
             |> ignore
 
             let resumed =
                 attempt_cleanup errors "mouse button overrides" (fun () ->
-                    match PlatformInput.resume_mouse_button_overrides starting.override_suspension with
+                    match PlatformMouseActions.resume starting.override_suspension with
                     | Ok() -> ()
                     | Error resumeError -> failwith resumeError)
 
@@ -546,7 +545,7 @@ let finish_and_report (result: Result<unit, string>) =
     | Error error -> report $"RhinosCanFly failed: {error}"
 
 let process_starting (starting: StartingSession) =
-    PlatformInput.acknowledge_raw_input_wake starting.input_wake
+    PlatformInputWake.acknowledge starting.input_wake
 
     if not (PlatformInput.viewport_host_is_active starting.host_identity starting.view) then
         cleanup_starting starting "The active Rhino document or viewport changed before flight began."
@@ -561,7 +560,7 @@ let process_starting (starting: StartingSession) =
         cleanup_starting starting "The active viewport did not release its mouse capture within 250 ms."
         |> finish_and_report
     else
-        PlatformInput.wake_flight_loop starting.input_wake
+        PlatformInputWake.signal starting.input_wake
 
 let process_main_loop () =
     if not processingMainLoop then
@@ -612,7 +611,7 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
     | RestartRequired -> Error "Input cleanup did not finish safely. Run RhinosCanFlyInputRecover or restart Rhino."
     | Ready ->
         try
-            match PlatformInput.suspend_mouse_button_overrides () with
+            match PlatformMouseActions.suspend () with
             | Error error -> Error $"Could not suspend mouse button overrides: {error}"
             | Ok suspension ->
                 match suspension.cleanup_error with
@@ -620,7 +619,7 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                     let errors = ResizeArray<string>()
 
                     attempt_cleanup errors "mouse button overrides" (fun () ->
-                        match PlatformInput.resume_mouse_button_overrides suspension with
+                        match PlatformMouseActions.resume suspension with
                         | Ok() -> ()
                         | Error resumeError -> failwith resumeError)
                     |> ignore
@@ -628,11 +627,11 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                     sessionState <- RestartRequired
                     finish_result (Error $"Could not suspend mouse button overrides safely: {error}") errors
                 | None ->
-                    let mutable pendingWake: PlatformInput.RawInputWake option = None
+                    let mutable pendingWake: PlatformInputWake.State option = None
 
                     try
                         let hostIdentity = PlatformInput.capture_viewport_host view
-                        let wake = PlatformInput.create_raw_input_wake hostIdentity.root_window
+                        let wake = PlatformInputWake.create hostIdentity.root_window
                         pendingWake <- Some wake
 
                         let starting =
@@ -650,7 +649,7 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                         try
                             if view.MouseCaptured false then
                                 ensure_main_loop_handler ()
-                                PlatformInput.wake_flight_loop wake
+                                PlatformInputWake.signal wake
                                 Ok()
                             else
                                 begin_active starting
@@ -661,13 +660,12 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
 
                         match pendingWake with
                         | Some wake ->
-                            attempt_cleanup errors "main-loop wake" (fun () ->
-                                PlatformInput.dispose_raw_input_wake wake)
+                            attempt_cleanup errors "main-loop wake" (fun () -> PlatformInputWake.dispose wake)
                             |> ignore
                         | None -> ()
 
                         attempt_cleanup errors "mouse button overrides" (fun () ->
-                            match PlatformInput.resume_mouse_button_overrides suspension with
+                            match PlatformMouseActions.resume suspension with
                             | Ok() -> ()
                             | Error resumeError -> failwith resumeError)
                         |> ignore

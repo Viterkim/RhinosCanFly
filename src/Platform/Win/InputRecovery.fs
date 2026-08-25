@@ -4,13 +4,12 @@ open Rhino
 open Rhino.Commands
 
 let run () =
-    let struct (remainingRawSessions, rawErrors) =
-        PlatformInput.retry_raw_input_cleanup ()
+    let struct (remainingRawSessions, rawErrors) = PlatformRawInput.retry_recovery ()
 
     let struct (remainingCursorClips, cursorErrors) =
-        PlatformInput.retry_cursor_clip_cleanup ()
+        PlatformCursorClip.retry_cleanup ()
 
-    let hookErrors = PlatformInput.retry_input_hook_cleanup ()
+    let hookErrors = PlatformMouseActions.retry_hook_cleanup ()
 
     RhinoApp.WriteLine "RhinosCanFly input recovery"
     RhinoApp.WriteLine $"Raw cleanup items remaining: {remainingRawSessions}"

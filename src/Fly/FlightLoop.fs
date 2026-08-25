@@ -7,7 +7,7 @@ open Rhino
 [<Literal>]
 let MAXIMUM_FRAME_DELTA_SECONDS = 0.05
 
-let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.State) (state: FlyState) =
+let run (inputWake: PlatformInputWake.State) (rawInput: InputAccumulator.State) (state: FlyState) =
     let clock = Stopwatch.StartNew()
     let mutable previousFrameSeconds = clock.Elapsed.TotalSeconds
     let mutable movementActive = false
@@ -33,11 +33,11 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
 
         let frameSeconds = clock.Elapsed.TotalSeconds
         let observedRawRevision = InputAccumulator.work_revision rawInput
-        let observedKeyboardRevision = PlatformInput.flight_keyboard_revision ()
+        let observedKeyboardRevision = PlatformFlightKeyboard.revision ()
         FlightControls.update_state frameSeconds rawInput state
 
         if not (FlyState.is_running state) then
-            PlatformInput.allow_keyboard_passthrough ()
+            PlatformFlightKeyboard.allow_passthrough ()
             InputAccumulator.discard_transient_input rawInput
         else
             if update_navigation_mode () then
@@ -92,14 +92,14 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
                 timelineIndex <- timelineIndex + 1
 
             if not (FlyState.is_running state) then
-                PlatformInput.allow_keyboard_passthrough ()
+                PlatformFlightKeyboard.allow_passthrough ()
                 InputAccumulator.discard_transient_input rawInput
 
-        PlatformInput.acknowledge_raw_input_wake inputWake
+        PlatformInputWake.acknowledge inputWake
 
         inputReady <-
             InputAccumulator.work_pending_since observedRawRevision rawInput
-            || PlatformInput.flight_keyboard_revision () <> observedKeyboardRevision
+            || PlatformFlightKeyboard.revision () <> observedKeyboardRevision
 
         if FlyState.is_running state then
             let mutable viewChange = ViewChange.none
@@ -216,4 +216,4 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
                 && viewChange.parallel_magnification = 1.
             then
                 // If the first step is zero there is no redraw to wake the loop.
-                PlatformInput.wake_flight_loop inputWake
+                PlatformInputWake.signal inputWake

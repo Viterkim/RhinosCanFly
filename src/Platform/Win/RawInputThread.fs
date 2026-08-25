@@ -1,10 +1,11 @@
-module RhinosCanFly.Platform.Win.RawInputThread
+module RhinosCanFly.PlatformRawInput
 
 open System
 open System.Collections.Concurrent
 open System.Threading
 open System.Windows.Forms
 open RhinosCanFly
+open RhinosCanFly.Platform.Win
 
 type ThreadResult =
     { mutable startup_error: exn option

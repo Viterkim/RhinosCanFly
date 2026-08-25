@@ -14,7 +14,7 @@ let MOUSE5_BUTTON_BIT = 4
 
 let is_optional_down (key: KeyBinding option) =
     match key with
-    | Some binding -> PlatformInput.flight_binding_down binding
+    | Some binding -> PlatformFlightKeyboard.binding_is_down binding
     | None -> false
 
 let current_mouse_hold_buttons (matches: RoutedMouseAction -> bool) (mouse: FlyingMouseConfig) =
@@ -166,7 +166,9 @@ let apply_mouse_action_up (buttonBit: int) (action: RoutedMouseAction) (state: F
     set_mouse_hold buttonBit false action state
 
 let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) (state: FlyState) =
-    let keyboardActions = PlatformInput.apply_flight_mouse_button_transition transition
+    let keyboardActions =
+        PlatformFlightKeyboard.apply_raw_mouse_button_transition transition
+
     let mutable effect = apply_keyboard_actions keyboardActions state
 
     if FlyState.is_running state then
@@ -237,7 +239,7 @@ let update_state (now: float) (input: InputAccumulator.State) (state: FlyState) 
 
     if periodicValidationDue then
         state.next_host_validation_at <- now + HOST_VALIDATION_INTERVAL_SECONDS
-        PlatformInput.reconcile_flight_keyboard ()
+        PlatformFlightKeyboard.reconcile_physical_keys ()
 
     let exitReason =
         match InputAccumulator.exit_reason input with
@@ -270,25 +272,25 @@ let read_movement (state: FlyState) =
 
     let slowActive =
         if movement.slow_mode = KeyActivationMode.Hold then
-            PlatformInput.flight_binding_down bindings.slow
+            PlatformFlightKeyboard.binding_is_down bindings.slow
         else
             state.slow_enabled
 
     let boostActive =
         if movement.boost_mode = KeyActivationMode.Hold then
-            PlatformInput.flight_binding_down bindings.boost
+            PlatformFlightKeyboard.binding_is_down bindings.boost
         else
             state.boost_enabled
 
     let slow = if slowActive then movement.slow_multiplier else 1.
     let boost = if boostActive then movement.boost_multiplier else 1.
 
-    { forward = PlatformInput.flight_binding_down bindings.forward
-      backward = PlatformInput.flight_binding_down bindings.backward
-      left = PlatformInput.flight_binding_down bindings.left
-      right = PlatformInput.flight_binding_down bindings.right
-      up = PlatformInput.flight_binding_down bindings.up
-      down = PlatformInput.flight_binding_down bindings.down
-      key_pivot_left = PlatformInput.flight_binding_down bindings.key_pivot_left
-      key_pivot_right = PlatformInput.flight_binding_down bindings.key_pivot_right
+    { forward = PlatformFlightKeyboard.binding_is_down bindings.forward
+      backward = PlatformFlightKeyboard.binding_is_down bindings.backward
+      left = PlatformFlightKeyboard.binding_is_down bindings.left
+      right = PlatformFlightKeyboard.binding_is_down bindings.right
+      up = PlatformFlightKeyboard.binding_is_down bindings.up
+      down = PlatformFlightKeyboard.binding_is_down bindings.down
+      key_pivot_left = PlatformFlightKeyboard.binding_is_down bindings.key_pivot_left
+      key_pivot_right = PlatformFlightKeyboard.binding_is_down bindings.key_pivot_right
       move_speed = state.speed * slow * boost }

@@ -33,8 +33,8 @@ type Session
         host: ViewportHostIdentity,
         mode: ViewportNavigation.Operation,
         input: InputAccumulator.State,
-        wake: RawInputWake.State,
-        raw: RawInputThread.Session,
+        wake: PlatformInputWake.State,
+        raw: PlatformRawInput.Session,
         view: RhinoView,
         viewport: RhinoViewport,
         originalCursor: System.Drawing.Point,
@@ -75,7 +75,7 @@ type Session
         && wakeDisposed
 
     member _.RawInputRegistrationIsCurrent() =
-        RawInputThread.registration_is_current raw
+        PlatformRawInput.registration_is_current raw
 
     member _.Matches(expectedHost: ViewportHostIdentity, expectedMode: ViewportNavigation.Operation) =
         active && host = expectedHost && mode = expectedMode
@@ -85,7 +85,7 @@ type Session
 
     member _.RequestDrain() =
         if active then
-            RawInputWake.signal wake
+            PlatformInputWake.signal wake
 
     member this.Drain(destination: InputAccumulator.TimelineEvent array) =
         if not active || draining then
@@ -96,7 +96,7 @@ type Session
 
             try
                 try
-                    if RawInputThread.runtime_failed raw then
+                    if PlatformRawInput.runtime_failed raw then
                         this.NotifyFailure()
                         ValueNone
                     else
@@ -110,14 +110,14 @@ type Session
                     this.NotifyFailure()
                     ValueNone
             finally
-                RawInputWake.acknowledge wake
+                PlatformInputWake.acknowledge wake
 
                 if
                     active
                     && not failureNotified
                     && InputAccumulator.work_pending_since observedRevision input
                 then
-                    RawInputWake.signal wake
+                    PlatformInputWake.signal wake
 
                 draining <- false
 
@@ -148,17 +148,17 @@ type Session
         | None -> ()
 
         if not rawInputClean then
-            match RawInputThread.request_stop raw with
+            match PlatformRawInput.request_stop raw with
             | Ok() -> ()
             | Error error -> errors.Add $"raw-input stop request: {error}"
 
         if not clipReleased then
-            match Win32.release_cursor_clip cursorClip with
+            match PlatformCursorClip.release cursorClip with
             | Ok() -> clipReleased <- true
             | Error error -> errors.Add $"cursor clip: {error}"
 
         if not rawInputClean then
-            let outcome = RawInputThread.stop raw
+            let outcome = PlatformRawInput.stop raw
 
             rawInputClean <-
                 outcome.terminated
@@ -190,7 +190,7 @@ type Session
             cursorHidden <- false
 
         if not wakeDisposed then
-            RawInputWake.dispose wake
+            PlatformInputWake.dispose wake
             wakeDisposed <- true
 
         if errors.Count = 0 then
@@ -217,17 +217,17 @@ let start (host: ViewportHostIdentity) (mode: ViewportNavigation.Operation) (fai
             | Error error -> Error error
             | Ok originalCursor ->
                 let input = InputAccumulator.create ()
-                let wake = RawInputWake.create host.root_window
-                let inputAvailable = Action(fun () -> RawInputWake.signal wake)
-                let mutable raw: RawInputThread.Session option = None
+                let wake = PlatformInputWake.create host.root_window
+                let inputAvailable = Action(fun () -> PlatformInputWake.signal wake)
+                let mutable raw: PlatformRawInput.Session option = None
                 let mutable cursorClip: CursorClipLease option = None
                 let mutable cursorHidden = false
 
                 try
-                    let createdRaw = RawInputThread.start input inputAvailable ignoreButton
+                    let createdRaw = PlatformRawInput.start input inputAvailable ignoreButton
                     raw <- Some createdRaw
 
-                    match Win32.acquire_cursor_clip view.ScreenRectangle with
+                    match PlatformCursorClip.acquire view with
                     | Error error -> failwith error
                     | Ok lease -> cursorClip <- Some lease
 
@@ -241,24 +241,24 @@ let start (host: ViewportHostIdentity) (mode: ViewportNavigation.Operation) (fai
 
                         let startupRevision = InputAccumulator.work_revision input
                         InputAccumulator.discard_pointer_input input
-                        RawInputWake.acknowledge wake
+                        PlatformInputWake.acknowledge wake
 
                         if InputAccumulator.work_pending_since startupRevision input then
-                            RawInputWake.signal wake
+                            PlatformInputWake.signal wake
 
                         Ok session
                     | None -> failwith "The navigation cursor clip was not acquired."
                 with error ->
                     match cursorClip with
-                    | Some lease -> Win32.release_cursor_clip lease |> ignore
+                    | Some lease -> PlatformCursorClip.release lease |> ignore
                     | None -> ()
 
                     match raw with
-                    | Some created -> RawInputThread.stop created |> ignore
+                    | Some created -> PlatformRawInput.stop created |> ignore
                     | None -> ()
 
                     if cursorHidden then
                         Win32Native.ShowCursor true |> ignore
 
-                    RawInputWake.dispose wake
+                    PlatformInputWake.dispose wake
                     Error $"Could not start raw view navigation: {error.Message}"

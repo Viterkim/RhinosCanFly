@@ -1,10 +1,11 @@
-module RhinosCanFly.Platform.Win.FlightKeyboardSuppression
+module RhinosCanFly.PlatformFlightKeyboard
 
 open System
 open System.Collections.Generic
 open System.Diagnostics
 open System.Threading
 open RhinosCanFly
+open RhinosCanFly.Platform.Win
 
 type ConfiguredKeys =
     { exact: HashSet<int>
