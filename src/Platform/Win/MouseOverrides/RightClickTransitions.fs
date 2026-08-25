@@ -135,9 +135,10 @@ let navigation_exit_capture_needed (navigation: State) =
     && ViewNavigationState.right_mouse_exit_capture_needed navigation
 
 let capture_needed (navigation: State) (state: RightClickState) =
-    navigation.routing.runtime_enabled
-    || entry_enabled navigation
-    || modified_navigation_enabled navigation
+    (ViewportNameList.has_allowed_viewports navigation.routing.viewport_capabilities
+     && (navigation.routing.runtime_enabled
+         || entry_enabled navigation
+         || modified_navigation_enabled navigation))
     || navigation_exit_capture_needed navigation
     || owns_button state
     || action_pending state
@@ -163,6 +164,13 @@ let requested_gesture_action (navigation: State) (modifiers: Modifiers) =
     else
         ValueNone
 
+let capabilities_allowed (navigation: State) (viewportName: string) =
+    ViewportNameList.allows viewportName navigation.routing.viewport_capabilities
+
+let right_click_flight_entry_allowed (navigation: State) (viewportName: string) =
+    capabilities_allowed navigation viewportName
+    && ViewportNameList.allows viewportName navigation.routing.right_click_flight_entry
+
 let action
     (navigation: State)
     (viewport: RightClickViewport)
@@ -171,8 +179,15 @@ let action
     (commandActive: bool)
     =
     let host = viewport.host
+    let capabilitiesAllowed = capabilities_allowed navigation viewport.name
 
-    match requested_gesture_action navigation modifiers with
+    let requestedAction =
+        if capabilitiesAllowed then
+            requested_gesture_action navigation modifiers
+        else
+            ValueNone
+
+    match requestedAction with
     | ValueSome gestureAction ->
         ValueSome(
             NavigateView
@@ -184,6 +199,7 @@ let action
     | ValueNone when navigation_active navigation -> ValueNone
     | ValueNone when
         navigation.routing.runtime_enabled
+        && capabilitiesAllowed
         && viewport.is_parallel
         && modifiers.shift
         && not modifiers.alt
@@ -192,6 +208,7 @@ let action
         ValueSome(PanParallel host)
     | ValueNone when
         navigation.routing.runtime_enabled
+        && capabilitiesAllowed
         && viewport.is_parallel
         && modifiers.alt
         && not modifiers.shift
@@ -200,10 +217,8 @@ let action
         ValueSome(ZoomParallel host)
     | ValueNone when
         entry_enabled navigation
-        && (viewport.is_perspective
-            || (viewport.is_parallel
-                && navigation.routing.parallel_right_click_entry
-                && ParallelViewFlying.allows viewport.name navigation.routing.parallel_view_flying))
+        && right_click_flight_entry_allowed navigation viewport.name
+        && (viewport.is_perspective || viewport.is_parallel)
         && (entry_during_commands navigation.routing.right_click_entry || not commandActive)
         && not modifiers.shift
         && not modifiers.alt
@@ -267,34 +282,35 @@ let rec handle_event
             clear_action state
 
         true
-    elif not isDown || navigation.lifecycle <> Available then
+    elif
+        not isDown
+        || navigation.lifecycle <> Available
+        || Win32Native.GetCapture() <> nativeint 0
+    then
         false
     else
         let currentModifiers = modifiers ()
 
-        match tryView event.hook_window with
-        | ValueNone -> false
-        | ValueSome hookViewport ->
-            match tryView event.point_window with
-            | ValueSome pointViewport when ViewNavigationState.same_host hookViewport.host pointViewport.host ->
-                match action navigation pointViewport event.screen_point currentModifiers commandActive with
-                | ValueNone when
-                    not (navigation_active navigation)
-                    && (currentModifiers.shift || currentModifiers.alt || currentModifiers.control)
-                    ->
-                    state.gesture <- NativeModifiedGesture
-                    false
-                | ValueNone -> false
-                | ValueSome captured ->
-                    state.button_ownership <- Owned
-                    state.gesture <- ButtonDown captured
-
-                    if not (try_wake navigation) then
-                        clear_action state
-
-                    true
-            | ValueSome _
+        match tryView event.point_window with
+        | ValueSome pointViewport when pointViewport.host.root_window = ViewNavigationState.foreground_root_window () ->
+            match action navigation pointViewport event.screen_point currentModifiers commandActive with
+            | ValueNone when
+                not (navigation_active navigation)
+                && (currentModifiers.shift || currentModifiers.alt || currentModifiers.control)
+                ->
+                state.gesture <- NativeModifiedGesture
+                false
             | ValueNone -> false
+            | ValueSome captured ->
+                state.button_ownership <- Owned
+                state.gesture <- ButtonDown captured
+
+                if not (try_wake navigation) then
+                    clear_action state
+
+                true
+        | ValueSome _
+        | ValueNone -> false
 
 let entry_timed_out (entry: FlyEntry) =
     let elapsedTicks = Stopwatch.GetTimestamp() - entry.started_at
@@ -327,7 +343,6 @@ let try_entry_view (entry: FlyEntry) =
         || isNull activeDocument
         || activeDocument.RuntimeSerialNumber <> entry.host.document_serial_number
         || view.Handle <> expectedWindow
-        || view.ActiveViewportID <> entry.host.viewport_id
         || ViewNavigationState.root_window view.Handle <> entry.host.root_window
     then
         ValueNone
@@ -362,16 +377,17 @@ let dispatch_entry (state: RightClickState) (entry: FlyEntry) =
 let projection_allows_entry (navigation: State) (view: RhinoView) =
     let viewport = view.ActiveViewport
 
-    viewport.IsPerspectiveProjection
-    || (viewport.IsParallelProjection
-        && navigation.routing.parallel_right_click_entry
-        && ParallelViewFlying.allows viewport.Name navigation.routing.parallel_view_flying)
+    right_click_flight_entry_allowed navigation viewport.Name
+    && (viewport.IsPerspectiveProjection || viewport.IsParallelProjection)
 
 let apply_navigation_click (navigation: State) (click: NavigationClick) =
-    if
-        navigation.lifecycle = Available
+    let available = navigation.lifecycle = Available
+
+    let foregroundReady =
+        available
         && ViewNavigationState.try_bring_root_window_to_foreground click.host.root_window
-    then
+
+    if foregroundReady then
         GestureNavigationTransitions.press_or_log
             navigation
             GestureOwner.ModifiedRightClick

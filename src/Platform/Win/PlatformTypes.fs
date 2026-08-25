@@ -70,8 +70,8 @@ type MouseOverrideConfig =
       mouse5: RoutedMouseAction
       right_click_entry: RightClickEntryMode
       default_flight_mode: DefaultFlightMode
-      parallel_view_flying: ParallelViewFlying
-      parallel_right_click_entry: bool
+      viewport_capabilities: ViewportNameList
+      right_click_flight_entry: ViewportNameList
       shift_right_click: RoutedMouseAction
       alt_right_click: RoutedMouseAction
       ctrl_right_click: RoutedMouseAction

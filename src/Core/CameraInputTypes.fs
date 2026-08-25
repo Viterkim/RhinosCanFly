@@ -6,6 +6,10 @@ open Rhino.Geometry
 [<Struct>]
 type ViewportClientPoint = { x: int; y: int }
 
+type RetargetScope =
+    | AllViews = 0
+    | OtherViews = 1
+
 type RawMouseButtonEvent =
     | None = 0
     | LeftDown = 1

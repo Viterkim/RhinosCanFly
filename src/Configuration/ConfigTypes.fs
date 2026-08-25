@@ -28,37 +28,37 @@ type RightClickEntryMode =
     | HoldToFly = 3
     | HoldToFlyDuringCommands = 4
 
-type ParallelViewFlyingMode =
+type ViewportNameListMode =
     | DisabledAll = 0
     | EnabledAll = 1
     | EnabledSome = 2
     | DisabledSome = 3
 
 [<CLIMutable>]
-type ParallelViewFlyingFile =
-    { mode: ParallelViewFlyingMode
+type ViewportNameListFile =
+    { mode: ViewportNameListMode
       viewports: string array }
 
-type ParallelViewFlying =
+type ViewportNameList =
     | EnabledAll
     | EnabledSome of viewports: string array
     | DisabledSome of viewports: string array
     | DisabledAll
 
-module ParallelViewFlying =
+module ViewportNameList =
     let listed (viewportName: string) (viewports: string array) =
         viewports
         |> Array.exists (fun (configured: string) ->
             System.String.Equals(configured, viewportName, System.StringComparison.OrdinalIgnoreCase))
 
-    let allows (viewportName: string) (mode: ParallelViewFlying) =
+    let allows (viewportName: string) (mode: ViewportNameList) =
         match mode with
         | EnabledAll -> true
         | EnabledSome viewports -> listed viewportName viewports
         | DisabledSome viewports -> not (listed viewportName viewports)
         | DisabledAll -> false
 
-    let has_allowed_viewports (mode: ParallelViewFlying) =
+    let has_allowed_viewports (mode: ViewportNameList) =
         match mode with
         | EnabledAll
         | DisabledSome _ -> true
@@ -153,6 +153,8 @@ type FlyConfigFile =
       slow: string
       speed_increase: string
       speed_decrease: string
+      retarget_all_views: string
+      retarget_other_views: string
       exit_key: string
       cancel_flight_and_restore: string
       toggle_projection: string
@@ -188,6 +190,8 @@ type FlyConfigFile =
       middle_mouse_retarget: RetargetMode
       mouse4_retarget: RetargetMode
       mouse5_retarget: RetargetMode
+      retarget_all_views_mode: RetargetMode
+      retarget_other_views_mode: RetargetMode
       middle_mouse_uses_cursor_outside_flight: bool
       mouse4_uses_cursor_outside_flight: bool
       mouse5_uses_cursor_outside_flight: bool
@@ -209,8 +213,8 @@ type FlyConfigFile =
       boost_mode: KeyActivationMode
       slow_mode: KeyActivationMode
       vertical_speed_multiplier: float
-      parallel_view_flying: ParallelViewFlyingFile
-      right_click_enters_parallel_views: bool
+      viewport_capabilities: ViewportNameListFile
+      right_click_flight_entry: ViewportNameListFile
       parallel_mouse_sensitivity: float
       parallel_mouse_pivot_multiplier: float
       parallel_mouse_pan_multiplier: float

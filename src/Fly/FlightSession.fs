@@ -355,7 +355,12 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
 
     PlatformInput.focus_view state.view
 
-    match PlatformInput.suppress_flight_keyboard state.config.bindings session.input_available with
+    match
+        PlatformInput.suppress_flight_keyboard
+            state.config.bindings
+            state.config.behavior.retarget
+            session.input_available
+    with
     | Ok() -> session.keyboard_suppressed <- true
     | Error error -> failwith $"Could not suppress flight keys: {error}"
 

@@ -43,9 +43,12 @@ let compile_detailed (source: FlyConfigFile) =
         else
             RoutedMouseAction.Off
 
-    let parallelViewFlying =
-        let sourceValue = source.parallel_view_flying
-
+    let viewport_name_list
+        (setting: string)
+        (sourceValue: ViewportNameListFile)
+        (defaultValue: ViewportNameListFile)
+        (repair: FlyConfigFile -> FlyConfigFile)
+        =
         let viewports =
             if isNull (box sourceValue) || isNull sourceValue.viewports then
                 Array.empty
@@ -55,24 +58,44 @@ let compile_detailed (source: FlyConfigFile) =
                 |> Array.filter (String.IsNullOrWhiteSpace >> not)
                 |> Array.distinctBy (fun (value: string) -> value.ToUpperInvariant())
 
-        if isNull (box sourceValue) then
-            add_issue "parallel_view_flying" "parallel_view_flying is missing" (fun (config: FlyConfigFile) ->
-                { config with
-                    parallel_view_flying = defaults.parallel_view_flying })
+        let compile_mode (mode: ViewportNameListMode) (names: string array) =
+            match mode with
+            | ViewportNameListMode.EnabledAll -> ViewportNameList.EnabledAll
+            | ViewportNameListMode.EnabledSome -> ViewportNameList.EnabledSome names
+            | ViewportNameListMode.DisabledSome -> ViewportNameList.DisabledSome names
+            | ViewportNameListMode.DisabledAll -> ViewportNameList.DisabledAll
+            | _ -> ViewportNameList.DisabledAll
 
-            ParallelViewFlying.DisabledAll
+        if isNull (box sourceValue) then
+            add_issue setting $"{setting} is missing" repair
+            compile_mode defaultValue.mode defaultValue.viewports
         else
             match sourceValue.mode with
-            | ParallelViewFlyingMode.EnabledAll -> ParallelViewFlying.EnabledAll
-            | ParallelViewFlyingMode.EnabledSome -> ParallelViewFlying.EnabledSome viewports
-            | ParallelViewFlyingMode.DisabledSome -> ParallelViewFlying.DisabledSome viewports
-            | ParallelViewFlyingMode.DisabledAll -> ParallelViewFlying.DisabledAll
+            | ViewportNameListMode.EnabledAll
+            | ViewportNameListMode.EnabledSome
+            | ViewportNameListMode.DisabledSome
+            | ViewportNameListMode.DisabledAll -> compile_mode sourceValue.mode viewports
             | _ ->
-                add_issue "parallel_view_flying" "parallel_view_flying.mode is invalid" (fun (config: FlyConfigFile) ->
-                    { config with
-                        parallel_view_flying = defaults.parallel_view_flying })
+                add_issue setting $"{setting}.mode is invalid" repair
+                compile_mode defaultValue.mode defaultValue.viewports
 
-                ParallelViewFlying.DisabledAll
+    let viewportCapabilities =
+        viewport_name_list
+            "viewport_capabilities"
+            source.viewport_capabilities
+            defaults.viewport_capabilities
+            (fun (config: FlyConfigFile) ->
+                { config with
+                    viewport_capabilities = defaults.viewport_capabilities })
+
+    let rightClickFlightEntry =
+        viewport_name_list
+            "right_click_flight_entry"
+            source.right_click_flight_entry
+            defaults.right_click_flight_entry
+            (fun (config: FlyConfigFile) ->
+                { config with
+                    right_click_flight_entry = defaults.right_click_flight_entry })
 
     let required (name: string) (value: string) (repair: FlyConfigFile -> FlyConfigFile) =
         match PlatformBindings.parse value with
@@ -421,6 +444,16 @@ let compile_detailed (source: FlyConfigFile) =
           (fun (config: FlyConfigFile) ->
               { config with
                   mouse5_retarget = defaults.mouse5_retarget })
+          "retarget_all_views_mode",
+          source.retarget_all_views_mode,
+          (fun (config: FlyConfigFile) ->
+              { config with
+                  retarget_all_views_mode = defaults.retarget_all_views_mode })
+          "retarget_other_views_mode",
+          source.retarget_other_views_mode,
+          (fun (config: FlyConfigFile) ->
+              { config with
+                  retarget_other_views_mode = defaults.retarget_other_views_mode })
           "retarget_on_pivot",
           source.retarget_on_pivot,
           (fun (config: FlyConfigFile) ->
@@ -553,6 +586,14 @@ let compile_detailed (source: FlyConfigFile) =
                 optional "speed_decrease" source.speed_decrease (fun (config: FlyConfigFile) ->
                     { config with
                         speed_decrease = defaults.speed_decrease })
+              retarget_all_views =
+                optional "retarget_all_views" source.retarget_all_views (fun (config: FlyConfigFile) ->
+                    { config with
+                        retarget_all_views = defaults.retarget_all_views })
+              retarget_other_views =
+                optional "retarget_other_views" source.retarget_other_views (fun (config: FlyConfigFile) ->
+                    { config with
+                        retarget_other_views = defaults.retarget_other_views })
               exit_key =
                 required "exit_key" source.exit_key (fun (config: FlyConfigFile) ->
                     { config with
@@ -562,12 +603,12 @@ let compile_detailed (source: FlyConfigFile) =
                     { config with
                         cancel_flight_and_restore = defaults.cancel_flight_and_restore })
               toggle_projection =
-                if ParallelViewFlying.has_allowed_viewports parallelViewFlying then
-                    optional "toggle_projection" source.toggle_projection (fun (config: FlyConfigFile) ->
-                        { config with
-                            toggle_projection = defaults.toggle_projection })
-                else
-                    None }
+                optional "toggle_projection" source.toggle_projection (fun (config: FlyConfigFile) ->
+                    { config with
+                        toggle_projection = defaults.toggle_projection }) }
+          viewport_access =
+            { capabilities = viewportCapabilities
+              right_click_flight_entry = rightClickFlightEntry }
           movement =
             { base_speed = source.base_speed
               speed_range =
@@ -584,9 +625,7 @@ let compile_detailed (source: FlyConfigFile) =
               boost_mode = source.boost_mode
               slow_mode = source.slow_mode
               parallel_view =
-                { flying = parallelViewFlying
-                  right_click_entry = source.right_click_enters_parallel_views
-                  mouse_sensitivity =
+                { mouse_sensitivity =
                     source.parallel_mouse_sensitivity
                     |> ConfigMouseSensitivity
                     |> MouseSensitivity.to_runtime
@@ -616,7 +655,9 @@ let compile_detailed (source: FlyConfigFile) =
             { hide_gumball = source.hide_gumball_while_flying
               flight_pivot_uses_gumball = source.flight_pivot_uses_gumball
               retarget =
-                { shift_right_click = source.shift_right_click_retarget
+                { keyboard_all_views = source.retarget_all_views_mode
+                  keyboard_other_views = source.retarget_other_views_mode
+                  shift_right_click = source.shift_right_click_retarget
                   alt_right_click = source.alt_right_click_retarget
                   ctrl_right_click = source.ctrl_right_click_retarget
                   middle_mouse = source.middle_mouse_retarget

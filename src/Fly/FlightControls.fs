@@ -180,7 +180,10 @@ let apply_wheel_input (input: InputAccumulator.State) (state: FlyState) =
 
 let update_state (now: float) (input: InputAccumulator.State) (state: FlyState) =
     let cancelAndRestore =
-        PlatformInput.flight_binding_down state.config.bindings.cancel_flight_and_restore
+        PlatformInput.drain_flight_cancel_and_restore_pressed ()
+        || PlatformInput.flight_binding_down state.config.bindings.cancel_flight_and_restore
+
+    let exitPressed = PlatformInput.drain_flight_exit_pressed ()
 
     let periodicValidationDue = now >= state.next_host_validation_at
 
@@ -208,7 +211,7 @@ let update_state (now: float) (input: InputAccumulator.State) (state: FlyState) 
                 Some RightMouseReleased
             elif cancelAndRestore then
                 Some ExplicitRestoreCamera
-            elif PlatformInput.flight_binding_down state.config.bindings.exit_key then
+            elif exitPressed || PlatformInput.flight_binding_down state.config.bindings.exit_key then
                 if state.restore_camera_on_exit then
                     Some ExplicitRestoreCamera
                 else

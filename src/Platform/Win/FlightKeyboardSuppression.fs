@@ -18,6 +18,14 @@ type State =
       suppressed_keys_down: HashSet<int>
       key_is_down: bool array
       mouse_key_configured: bool array
+      mutable exit_binding: KeyBinding option
+      mutable cancel_and_restore_binding: KeyBinding option
+      mutable retarget_all_views_binding: KeyBinding option
+      mutable retarget_other_views_binding: KeyBinding option
+      mutable exit_pressed: int
+      mutable cancel_and_restore_pressed: int
+      mutable retarget_all_views_pressed: int
+      mutable retarget_other_views_pressed: int
       mutable input_available: Action option
       mutable revision: int64
       mutable last_change_timestamp: int64
@@ -33,6 +41,14 @@ let state =
       suppressed_keys_down = HashSet<int>()
       key_is_down = Array.zeroCreate 256
       mouse_key_configured = Array.zeroCreate 256
+      exit_binding = None
+      cancel_and_restore_binding = None
+      retarget_all_views_binding = None
+      retarget_other_views_binding = None
+      exit_pressed = 0
+      cancel_and_restore_pressed = 0
+      retarget_all_views_pressed = 0
+      retarget_other_views_pressed = 0
       input_available = None
       revision = 0L
       last_change_timestamp = 0L
@@ -82,10 +98,23 @@ let add_passthrough_if_down (physicalKey: int) =
         state.passthrough_keys_down.Add physicalKey |> ignore
         state.key_is_down[physicalKey] <- true
 
-let configure (bindings: FlightBindings) (inputAvailable: Action) =
+let configure (bindings: FlightBindings) (retarget: RetargetConfig) (inputAvailable: Action) =
     let releasedKeys = ResizeArray<int>()
 
+    let enabled_binding (mode: RetargetMode) (binding: KeyBinding option) =
+        if mode = RetargetMode.Off then None else binding
+
+    let retargetAllViewsBinding =
+        enabled_binding retarget.keyboard_all_views bindings.retarget_all_views
+
+    let retargetOtherViewsBinding =
+        enabled_binding retarget.keyboard_other_views bindings.retarget_other_views
+
     Volatile.Write(&state.last_change_timestamp, 0L)
+    Interlocked.Exchange(&state.exit_pressed, 0) |> ignore
+    Interlocked.Exchange(&state.cancel_and_restore_pressed, 0) |> ignore
+    Interlocked.Exchange(&state.retarget_all_views_pressed, 0) |> ignore
+    Interlocked.Exchange(&state.retarget_other_views_pressed, 0) |> ignore
     System.Array.Clear(state.key_is_down, 0, state.key_is_down.Length)
 
     for physicalKey in state.suppressed_keys_down do
@@ -113,6 +142,8 @@ let configure (bindings: FlightBindings) (inputAvailable: Action) =
     add_binding bindings.slow
     add_optional_binding bindings.speed_increase
     add_optional_binding bindings.speed_decrease
+    add_optional_binding retargetAllViewsBinding
+    add_optional_binding retargetOtherViewsBinding
     add_binding bindings.exit_key
     add_binding bindings.cancel_flight_and_restore
     add_optional_binding bindings.toggle_projection
@@ -141,11 +172,23 @@ let configure (bindings: FlightBindings) (inputAvailable: Action) =
         add_passthrough_if_down Win32Native.VK_RMENU
 
     state.input_available <- Some inputAvailable
+    state.exit_binding <- Some bindings.exit_key
+    state.cancel_and_restore_binding <- Some bindings.cancel_flight_and_restore
+    state.retarget_all_views_binding <- retargetAllViewsBinding
+    state.retarget_other_views_binding <- retargetOtherViewsBinding
     Volatile.Write(&state.active, true)
 
 let stop () =
     Volatile.Write(&state.active, false)
     state.input_available <- None
+    state.exit_binding <- None
+    state.cancel_and_restore_binding <- None
+    state.retarget_all_views_binding <- None
+    state.retarget_other_views_binding <- None
+    Interlocked.Exchange(&state.exit_pressed, 0) |> ignore
+    Interlocked.Exchange(&state.cancel_and_restore_pressed, 0) |> ignore
+    Interlocked.Exchange(&state.retarget_all_views_pressed, 0) |> ignore
+    Interlocked.Exchange(&state.retarget_other_views_pressed, 0) |> ignore
     clear_configured ()
     state.passthrough_keys_down.Clear()
     System.Array.Clear(state.key_is_down, 0, state.key_is_down.Length)
@@ -225,6 +268,30 @@ let hook_event (event: Win32.KeyboardHookEvent) =
         swallow <- handle_event event
 
         if wasDown <> state.key_is_down[event.physical_key] then
+            if state.key_is_down[event.physical_key] then
+                match state.exit_binding with
+                | Some binding when binding_is_down binding -> Interlocked.Exchange(&state.exit_pressed, 1) |> ignore
+                | Some _
+                | None -> ()
+
+                match state.cancel_and_restore_binding with
+                | Some binding when binding_is_down binding ->
+                    Interlocked.Exchange(&state.cancel_and_restore_pressed, 1) |> ignore
+                | Some _
+                | None -> ()
+
+                match state.retarget_all_views_binding with
+                | Some binding when binding_is_down binding ->
+                    Interlocked.Exchange(&state.retarget_all_views_pressed, 1) |> ignore
+                | Some _
+                | None -> ()
+
+                match state.retarget_other_views_binding with
+                | Some binding when binding_is_down binding ->
+                    Interlocked.Exchange(&state.retarget_other_views_pressed, 1) |> ignore
+                | Some _
+                | None -> ()
+
             Volatile.Write(&state.last_change_timestamp, Stopwatch.GetTimestamp())
             Interlocked.Increment(&state.revision) |> ignore
 
@@ -273,6 +340,18 @@ let revision () = Volatile.Read(&state.revision)
 let last_change_timestamp () =
     Volatile.Read(&state.last_change_timestamp)
 
+let drain_exit_pressed () =
+    Interlocked.Exchange(&state.exit_pressed, 0) <> 0
+
+let drain_cancel_and_restore_pressed () =
+    Interlocked.Exchange(&state.cancel_and_restore_pressed, 0) <> 0
+
+let drain_retarget_all_views_pressed () =
+    Interlocked.Exchange(&state.retarget_all_views_pressed, 0) <> 0
+
+let drain_retarget_other_views_pressed () =
+    Interlocked.Exchange(&state.retarget_other_views_pressed, 0) <> 0
+
 let ensure_hook () =
     match keyboardHook with
     | Some _ -> Ok()
@@ -283,12 +362,12 @@ let ensure_hook () =
             Ok()
         | Error error -> Error error
 
-let start (bindings: FlightBindings) (inputAvailable: Action) =
+let start (bindings: FlightBindings) (retarget: RetargetConfig) (inputAvailable: Action) =
     match ensure_hook () with
     | Error error -> Error error
     | Ok() ->
         try
-            configure bindings inputAvailable
+            configure bindings retarget inputAvailable
             Ok()
         with error ->
             stop ()

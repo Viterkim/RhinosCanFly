@@ -96,6 +96,38 @@ let selection_filter_allows (enabled: bool) (filter: ObjectType) (rhinoObject: R
         filter = ObjectType.AnyObject
         || (rhinoObject.ObjectType &&& filter) <> ObjectType.None
 
+let viewport_pick_mode (viewport: RhinoViewport) =
+    let displayMode = viewport.DisplayMode
+
+    if not (isNull displayMode) && displayMode.SupportsShading then
+        PickMode.Shaded
+    else
+        PickMode.Wireframe
+
+let create_pick_context
+    (view: RhinoView)
+    (viewport: RhinoViewport)
+    (point: ViewportClientPoint)
+    (pickLine: Line)
+    (pickMode: PickMode)
+    =
+    let context = new PickContext()
+    context.View <- view
+    context.PickLine <- pickLine
+    context.PickStyle <- PickStyle.PointPick
+    context.PickMode <- pickMode
+    context.PickGroupsEnabled <- false
+    context.SubObjectSelectionEnabled <- false
+    context.SetPickTransform(viewport.GetPickTransform(point.x, point.y))
+    context.UpdateClippingPlanes()
+    context
+
+let dispose_object_references (picked: ObjRef array) =
+    if not (isNull picked) then
+        for reference in picked do
+            if not (isNull reference) then
+                reference.Dispose()
+
 let try_filtered_object_at_internal
     (selectedObjectPick: SelectedObjectPick)
     (view: RhinoView)
@@ -120,17 +152,25 @@ let try_filtered_object_at_internal
                     else
                         oneShotFilter
 
-                use context = new PickContext()
-                context.View <- view
-                context.PickLine <- pickLine
-                context.PickStyle <- PickStyle.PointPick
-                context.PickMode <- PickMode.Shaded
-                context.PickGroupsEnabled <- false
-                context.SubObjectSelectionEnabled <- false
-                context.SetPickTransform(viewport.GetPickTransform(point.x, point.y))
-                context.UpdateClippingPlanes()
+                let pickMode = viewport_pick_mode viewport
+                use context = create_pick_context view viewport point pickLine pickMode
 
-                let picked = view.Document.Objects.PickObjects context
+                let primaryPicked = view.Document.Objects.PickObjects context
+
+                use shadedContext =
+                    if
+                        pickMode = PickMode.Wireframe
+                        && (isNull primaryPicked || primaryPicked.Length = 0)
+                    then
+                        create_pick_context view viewport point pickLine PickMode.Shaded
+                    else
+                        null
+
+                let picked =
+                    if isNull shadedContext then
+                        primaryPicked
+                    else
+                        view.Document.Objects.PickObjects shadedContext
 
                 let cameraLocation = viewport.CameraLocation
                 let mutable cameraDirection = viewport.CameraDirection
@@ -192,6 +232,7 @@ let try_filtered_object_at_internal
                                 if
                                     not (isNull rhinoObject)
                                     && rhinoObject.Visible
+                                    && rhinoObject.IsActiveInViewport viewport
                                     && selection_filter_allows filterEnabled geometryFilter rhinoObject
                                 then
                                     match object_bounds false rhinoObject with
@@ -232,10 +273,10 @@ let try_filtered_object_at_internal
                             { rhino_object = selectedObject
                               estimated_target = estimatedTarget }
                 finally
-                    if not (isNull picked) then
-                        for reference in picked do
-                            if not (isNull reference) then
-                                reference.Dispose()
+                    dispose_object_references picked
+
+                    if not (obj.ReferenceEquals(primaryPicked, picked)) then
+                        dispose_object_references primaryPicked
     with error ->
         Debug.WriteLine $"RhinosCanFly filtered target: {error}"
         None

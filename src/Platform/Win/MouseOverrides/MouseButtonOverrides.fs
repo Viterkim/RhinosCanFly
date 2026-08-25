@@ -209,27 +209,24 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
                     || not (RoutedMouseAction.enabled (ViewNavigationState.action_for state button))
                 then
                     false
-                elif isDown then
-                    match ViewportRegistry.try_viewport viewport_registry event.hook_window with
-                    | ValueSome hookViewport ->
-                        match ViewportRegistry.try_viewport viewport_registry event.point_window with
-                        | ValueSome pointViewport when
-                            ViewNavigationState.same_host hookViewport.host pointViewport.host
-                            && pointViewport.host.root_window = ViewNavigationState.foreground_root_window ()
-                            ->
-                            swallow <- true
-                            ViewNavigationState.set_hook_button_ownership state button Owned
+                elif isDown && Win32Native.GetCapture() = nativeint 0 then
+                    match ViewportRegistry.try_viewport viewport_registry event.point_window with
+                    | ValueSome pointViewport when
+                        pointViewport.host.root_window = ViewNavigationState.foreground_root_window ()
+                        && ViewNavigationState.capabilities_allowed state pointViewport.name
+                        ->
+                        swallow <- true
+                        ViewNavigationState.set_hook_button_ownership state button Owned
 
-                            state.pending_side_button_events.Enqueue(
-                                ButtonDown(button, pointViewport.host, event.screen_point)
-                            )
+                        state.pending_side_button_events.Enqueue(
+                            ButtonDown(button, pointViewport.host, event.screen_point)
+                        )
 
-                            signal_hook_ui_work ()
+                        signal_hook_ui_work ()
 
-                            ViewNavigationState.keep_timer_running state
-                            true
-                        | ValueSome _
-                        | ValueNone -> false
+                        ViewNavigationState.keep_timer_running state
+                        true
+                    | ValueSome _
                     | ValueNone -> false
                 else
                     false
@@ -504,7 +501,9 @@ let command_ended =
             command_depth <- command_depth - 1
 
         if MouseHook.installed mouse_hook then
-            ViewportRegistry.refresh_active viewport_registry)
+            match ViewportRegistry.refresh viewport_registry with
+            | Ok() -> ()
+            | Error error -> Debug.WriteLine $"RhinosCanFly command viewport refresh: {error}")
 
 do Command.BeginCommand.AddHandler command_began
 do Command.EndCommand.AddHandler command_ended
@@ -512,6 +511,8 @@ do Command.EndCommand.AddHandler command_ended
 let start_view_latch (view: RhinoView) (mode: ViewNavigationMode) (completion: Action option) =
     if isNull view || isNull view.Document || view.Handle = nativeint 0 then
         Error "The active viewport is unavailable."
+    elif not (ViewNavigationState.capabilities_allowed state view.ActiveViewport.Name) then
+        Error "RhinosCanFly capabilities are disabled for this viewport."
     else
         let host = ViewportRegistry.capture_host view
 
@@ -624,8 +625,8 @@ let apply (config: MouseOverrideConfig) =
                   mouse5 = config.mouse5
                   right_click_entry = config.right_click_entry
                   default_flight_mode = config.default_flight_mode
-                  parallel_view_flying = config.parallel_view_flying
-                  parallel_right_click_entry = config.parallel_right_click_entry
+                  viewport_capabilities = config.viewport_capabilities
+                  right_click_flight_entry = config.right_click_flight_entry
                   shift_right_click = config.shift_right_click
                   alt_right_click = config.alt_right_click
                   ctrl_right_click = config.ctrl_right_click

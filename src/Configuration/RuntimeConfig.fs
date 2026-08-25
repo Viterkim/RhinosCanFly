@@ -22,18 +22,22 @@ type FlightBindings =
       slow: KeyBinding
       speed_increase: KeyBinding option
       speed_decrease: KeyBinding option
+      retarget_all_views: KeyBinding option
+      retarget_other_views: KeyBinding option
       exit_key: KeyBinding
       cancel_flight_and_restore: KeyBinding
       toggle_projection: KeyBinding option }
 
 type ParallelViewConfig =
-    { flying: ParallelViewFlying
-      right_click_entry: bool
-      mouse_sensitivity: RuntimeMouseSensitivity
+    { mouse_sensitivity: RuntimeMouseSensitivity
       mouse_pivot_multiplier: MousePivotMultiplier
       mouse_pan_multiplier: MousePanMultiplier
       zoom_speed_multiplier: float
       up_down_multiplier: float }
+
+type ViewportAccessConfig =
+    { capabilities: ViewportNameList
+      right_click_flight_entry: ViewportNameList }
 
 type MovementConfig =
     { base_speed: float
@@ -63,7 +67,9 @@ type FlyingMouseConfig =
       mouse5: RoutedMouseAction }
 
 type RetargetConfig =
-    { shift_right_click: RetargetMode
+    { keyboard_all_views: RetargetMode
+      keyboard_other_views: RetargetMode
+      shift_right_click: RetargetMode
       alt_right_click: RetargetMode
       ctrl_right_click: RetargetMode
       middle_mouse: RetargetMode
@@ -89,6 +95,7 @@ type FlightBehavior =
 
 type FlyConfig =
     { bindings: FlightBindings
+      viewport_access: ViewportAccessConfig
       movement: MovementConfig
       mouse: FlyingMouseConfig
       behavior: FlightBehavior }

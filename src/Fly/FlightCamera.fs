@@ -89,40 +89,35 @@ let redraw (state: FlyState) =
 let toggle_projection (state: FlyState) =
     let viewport = state.viewport
 
-    if
-        state.projection = ViewProjectionKind.Parallel
-        || ParallelViewFlying.allows viewport.Name state.config.movement.parallel_view.flying
-    then
+    let conversion =
+        if state.projection = ViewProjectionKind.Parallel then
+            let lens = state.perspective_lens_length_mm
+            let targetDistance = Movement.target_distance state.camera
 
-        let conversion =
-            if state.projection = ViewProjectionKind.Parallel then
-                let lens = state.perspective_lens_length_mm
-                let targetDistance = Movement.target_distance state.camera
+            match state.perspective_projection with
+            | ViewProjectionKind.TwoPointPerspective ->
+                struct (ViewProjectionKind.TwoPointPerspective,
+                        viewport.ChangeToTwoPointPerspectiveProjection(targetDistance, viewport.CameraY, lens))
+            | ViewProjectionKind.Parallel
+            | ViewProjectionKind.Perspective ->
+                struct (ViewProjectionKind.Perspective,
+                        viewport.ChangeToPerspectiveProjection(targetDistance, false, lens))
+        else
+            state.perspective_projection <- state.projection
+            struct (ViewProjectionKind.Parallel, viewport.ChangeToParallelProjection false)
 
-                match state.perspective_projection with
-                | ViewProjectionKind.TwoPointPerspective ->
-                    struct (ViewProjectionKind.TwoPointPerspective,
-                            viewport.ChangeToTwoPointPerspectiveProjection(targetDistance, viewport.CameraY, lens))
-                | ViewProjectionKind.Parallel
-                | ViewProjectionKind.Perspective ->
-                    struct (ViewProjectionKind.Perspective,
-                            viewport.ChangeToPerspectiveProjection(targetDistance, false, lens))
-            else
-                state.perspective_projection <- state.projection
-                struct (ViewProjectionKind.Parallel, viewport.ChangeToParallelProjection false)
+    let struct (nextProjection, changed) = conversion
 
-        let struct (nextProjection, changed) = conversion
+    if not changed then
+        state.restore_camera_on_exit <- true
+        failwith "Rhino could not change the viewport projection."
 
-        if not changed then
-            state.restore_camera_on_exit <- true
-            failwith "Rhino could not change the viewport projection."
+    state.projection <- nextProjection
+    sync_camera_from_viewport state
+    state.wheel_remainder <- 0L
+    redraw state
 
-        state.projection <- nextProjection
-        sync_camera_from_viewport state
-        state.wheel_remainder <- 0L
-        redraw state
-
-let apply_retarget_request (mode: RetargetMode) (state: FlyState) =
+let apply_retarget_request (scope: RetargetScope) (mode: RetargetMode) (state: FlyState) =
     if mode = RetargetMode.Off then
         ViewChange.none
     else
@@ -137,15 +132,17 @@ let apply_retarget_request (mode: RetargetMode) (state: FlyState) =
         with
         | None -> ViewChange.none
         | Some selection ->
-            NavigationTarget.apply_selection state.config.behavior.retarget mode state.speed selection state.view
-            sync_camera_from_viewport state
+            NavigationTarget.apply_selection state.config.behavior.retarget scope mode state.speed selection state.view
 
-            match state.active_mouse_navigation with
-            | MousePivot _ -> state.active_mouse_navigation <- MousePivot selection.target
-            | MousePan _ ->
-                state.active_mouse_navigation <-
-                    MousePan(selection.target, pan_units_per_radian selection.target state.camera)
-            | MouseLook -> ()
+            if scope = RetargetScope.AllViews then
+                sync_camera_from_viewport state
+
+                match state.active_mouse_navigation with
+                | MousePivot _ -> state.active_mouse_navigation <- MousePivot selection.target
+                | MousePan _ ->
+                    state.active_mouse_navigation <-
+                        MousePan(selection.target, pan_units_per_radian selection.target state.camera)
+                | MouseLook -> ()
 
             ViewChange.none
 
@@ -156,8 +153,17 @@ let update_navigation_mode (input: InputAccumulator.State) (state: FlyState) =
     if InputAccumulator.drain_pan_toggles input % 2 <> 0 then
         state.latched_mouse_navigation <- MouseNavigationMode.toggle PanNavigation state.latched_mouse_navigation
 
+    let retargetAllViews = PlatformInput.drain_flight_retarget_all_views_pressed ()
+    let retargetOtherViews = PlatformInput.drain_flight_retarget_other_views_pressed ()
+    let mouseRetargetMode = InputAccumulator.drain_retarget_request input
+
     let retargetChange =
-        apply_retarget_request (InputAccumulator.drain_retarget_request input) state
+        if retargetAllViews then
+            apply_retarget_request RetargetScope.AllViews state.config.behavior.retarget.keyboard_all_views state
+        elif retargetOtherViews then
+            apply_retarget_request RetargetScope.OtherViews state.config.behavior.retarget.keyboard_other_views state
+        else
+            apply_retarget_request RetargetScope.AllViews mouseRetargetMode state
 
     let requestedNavigation =
         if state.keyboard_held_mouse_navigation <> LookNavigation then

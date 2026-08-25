@@ -39,10 +39,14 @@ let action_for (state: State) (button: SideButton) =
     | Mouse4 -> state.routing.mouse4
     | Mouse5 -> state.routing.mouse5
 
+let capabilities_allowed (state: State) (viewportName: string) =
+    ViewportNameList.allows viewportName state.routing.viewport_capabilities
+
 let side_button_routing_enabled (state: State) =
-    RoutedMouseAction.enabled state.routing.middle
-    || RoutedMouseAction.enabled state.routing.mouse4
-    || RoutedMouseAction.enabled state.routing.mouse5
+    ViewportNameList.has_allowed_viewports state.routing.viewport_capabilities
+    && (RoutedMouseAction.enabled state.routing.middle
+        || RoutedMouseAction.enabled state.routing.mouse4
+        || RoutedMouseAction.enabled state.routing.mouse5)
 
 let gesture_navigation_engaged (state: State) =
     match state.gesture_navigation with
@@ -175,13 +179,6 @@ let try_bring_root_window_to_foreground (window: RootWindow) =
         && Win32Native.IsWindowEnabled handle
         && Win32Native.SetForegroundWindow handle
         && foreground_root_window () = window
-
-let same_host (left: ViewportHostIdentity) (right: ViewportHostIdentity) =
-    left.view_serial_number = right.view_serial_number
-    && left.document_serial_number = right.document_serial_number
-    && left.viewport_id = right.viewport_id
-    && left.view_window = right.view_window
-    && left.root_window = right.root_window
 
 let navigation_host (state: State) =
     // Keep these matches nested because reference tuples allocate.

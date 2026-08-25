@@ -160,12 +160,12 @@ let clamped_mouse_angle_deltas
             currentPitch
         elif currentPitch > maximum_pitch_radians then
             if deltas.pitch_delta < 0. then
-                max maximum_pitch_radians requestedPitch
+                max -maximum_pitch_radians requestedPitch
             else
                 currentPitch
         elif currentPitch < -maximum_pitch_radians then
             if deltas.pitch_delta > 0. then
-                min -maximum_pitch_radians requestedPitch
+                min maximum_pitch_radians requestedPitch
             else
                 currentPitch
         else
@@ -179,6 +179,9 @@ let rotate_vector (axis: Vector3d) (angle: float) (vector: Vector3d) =
 
     if rotated.Rotate(angle, axis) then rotated else vector
 
+let screen_yaw_delta (camera: CameraState) (yawDelta: float) =
+    if camera.up.Z < 0. then -yawDelta else yawDelta
+
 let mouse_look
     (config: FlyingMouseConfig)
     (mouseSensitivity: RuntimeMouseSensitivity)
@@ -189,8 +192,10 @@ let mouse_look
     let rotation =
         clamped_mouse_angle_deltas config mouseSensitivity 1. mouseDx mouseDy camera
 
-    let yawDirection = rotate_vector Vector3d.ZAxis rotation.yaw_delta camera.direction
-    let yawUp = rotate_vector Vector3d.ZAxis rotation.yaw_delta camera.up
+    let yawDelta = screen_yaw_delta camera rotation.yaw_delta
+
+    let yawDirection = rotate_vector Vector3d.ZAxis yawDelta camera.direction
+    let yawUp = rotate_vector Vector3d.ZAxis yawDelta camera.up
 
     let yawedCamera =
         { camera with
@@ -220,14 +225,15 @@ let mouse_orbit
     let targetOffset = camera.target - pivotCenter
 
     let rotation =
-        clamped_mouse_angle_deltas config mouseSensitivity multiplier mouseDx mouseDy camera
+        scaled_mouse_angle_deltas config mouseSensitivity multiplier mouseDx mouseDy
 
-    let yawPositionOffset =
-        rotate_vector Vector3d.ZAxis rotation.yaw_delta positionOffset
+    let yawDelta = screen_yaw_delta camera rotation.yaw_delta
 
-    let yawTargetOffset = rotate_vector Vector3d.ZAxis rotation.yaw_delta targetOffset
-    let yawDirection = rotate_vector Vector3d.ZAxis rotation.yaw_delta camera.direction
-    let yawUp = rotate_vector Vector3d.ZAxis rotation.yaw_delta camera.up
+    let yawPositionOffset = rotate_vector Vector3d.ZAxis yawDelta positionOffset
+
+    let yawTargetOffset = rotate_vector Vector3d.ZAxis yawDelta targetOffset
+    let yawDirection = rotate_vector Vector3d.ZAxis yawDelta camera.direction
+    let yawUp = rotate_vector Vector3d.ZAxis yawDelta camera.up
 
     let yawedCamera =
         { camera with
