@@ -47,19 +47,17 @@ let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyCo
     let speed =
         FlightSpeed.current view.Document behavior.load_speed_from_document movement.speed_range movement.base_speed
 
-    let keyboardPivotToggleWasDown =
-        FlightControls.is_optional_down mouseNavigationBindings.pivot.toggle
+    let keyboardPivotHeld =
+        FlightControls.is_optional_down mouseNavigationBindings.pivot.hold
 
-    let keyboardPanToggleWasDown =
-        FlightControls.is_optional_down mouseNavigationBindings.pan.toggle
+    let keyboardPanHeld =
+        FlightControls.is_optional_down mouseNavigationBindings.pan.hold
 
-    let keyboardProjectionToggleWasDown =
-        FlightControls.is_optional_down bindings.toggle_projection
+    let mousePivotHoldButtons =
+        FlightControls.current_mouse_hold_buttons RoutedMouseAction.holds_pivot config.mouse
 
-    let boostWasDown = PlatformInput.flight_binding_down bindings.boost
-    let slowWasDown = PlatformInput.flight_binding_down bindings.slow
-    let speedIncreaseWasDown = FlightControls.is_optional_down bindings.speed_increase
-    let speedDecreaseWasDown = FlightControls.is_optional_down bindings.speed_decrease
+    let mousePanHoldButtons =
+        FlightControls.current_mouse_hold_buttons RoutedMouseAction.holds_pan config.mouse
 
     let originalCamera = CameraSnapshot.capture viewport
 
@@ -86,10 +84,10 @@ let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyCo
       key_pivot_input_state = WaitingForNeutralKeyPivotInput
       active_mouse_navigation = MouseLook
       latched_mouse_navigation = LookNavigation
-      keyboard_held_mouse_navigation = LookNavigation
-      keyboard_pivot_toggle_was_down = keyboardPivotToggleWasDown
-      keyboard_pan_toggle_was_down = keyboardPanToggleWasDown
-      keyboard_projection_toggle_was_down = keyboardProjectionToggleWasDown
+      keyboard_pivot_held = keyboardPivotHeld
+      keyboard_pan_held = keyboardPanHeld
+      mouse_pivot_hold_buttons = mousePivotHoldButtons
+      mouse_pan_hold_buttons = mousePanHoldButtons
       projection = originalCamera.projection
       perspective_projection = perspectiveProjection
       perspective_lens_length_mm = perspectiveLensLength
@@ -98,10 +96,6 @@ let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyCo
       camera = camera
       speed = speed
       boost_enabled = false
-      boost_was_down = boostWasDown
       slow_enabled = false
-      slow_was_down = slowWasDown
-      speed_increase_was_down = speedIncreaseWasDown
-      speed_decrease_was_down = speedDecreaseWasDown
       wheel_remainder = 0L
       next_host_validation_at = FlightControls.HOST_VALIDATION_INTERVAL_SECONDS }

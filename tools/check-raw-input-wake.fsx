@@ -66,11 +66,8 @@ let stateDrainIndex =
 let keyboardRevisionIndex =
     loopSource.IndexOf("let observedKeyboardRevision", StringComparison.Ordinal)
 
-let discardIndex =
-    loopSource.IndexOf("InputAccumulator.discard_transient_input", StringComparison.Ordinal)
-
-let mouseDrainIndex =
-    loopSource.IndexOf("FlightCamera.apply_mouse_input", StringComparison.Ordinal)
+let timelineDrainIndex =
+    loopSource.IndexOf("InputAccumulator.drain_timeline", StringComparison.Ordinal)
 
 let acknowledgeIndex =
     loopSource.IndexOf("PlatformInput.acknowledge_raw_input_wake", StringComparison.Ordinal)
@@ -86,13 +83,20 @@ if
     || keyboardRevisionIndex < revisionIndex
     || stateDrainIndex < revisionIndex
     || stateDrainIndex < keyboardRevisionIndex
-    || discardIndex < stateDrainIndex
-    || mouseDrainIndex < discardIndex
-    || acknowledgeIndex < mouseDrainIndex
+    || timelineDrainIndex < stateDrainIndex
+    || acknowledgeIndex < timelineDrainIndex
     || recheckIndex < acknowledgeIndex
     || keyboardRecheckIndex < acknowledgeIndex
 then
-    fail "FlightLoop must observe raw and keyboard work, drain it, acknowledge the wake, then recheck work."
+    fail
+        "FlightLoop must observe raw and keyboard work, drain the ordered timeline, acknowledge the wake, then recheck work."
+
+if
+    not (loopSource.Contains("TimelineEventKind.RawMouseButton", StringComparison.Ordinal))
+    || not (loopSource.Contains("TimelineEventKind.KeyboardActions", StringComparison.Ordinal))
+    || not (keyboardSource.Contains("InputAccumulator.add_keyboard_actions", StringComparison.Ordinal))
+then
+    fail "Mouse button and keyboard boundaries must be consumed through the ordered input timeline."
 
 let startingIndex =
     sessionSource.IndexOf("let process_starting", StringComparison.Ordinal)

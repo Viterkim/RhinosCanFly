@@ -13,26 +13,39 @@ type ConfiguredKeys =
       mutable either_alt: bool }
 
 type State =
-    { configured: ConfiguredKeys
+    { transition_gate: obj
+      configured: ConfiguredKeys
       passthrough_keys_down: HashSet<int>
       suppressed_keys_down: HashSet<int>
       key_is_down: bool array
       mouse_key_configured: bool array
-      mutable exit_binding: KeyBinding option
-      mutable cancel_and_restore_binding: KeyBinding option
+      mutable bindings: FlightBindings option
+      mutable boost_mode: KeyActivationMode
+      mutable slow_mode: KeyActivationMode
       mutable retarget_all_views_binding: KeyBinding option
       mutable retarget_other_views_binding: KeyBinding option
-      mutable exit_pressed: int
-      mutable cancel_and_restore_pressed: int
-      mutable retarget_all_views_pressed: int
-      mutable retarget_other_views_pressed: int
+      mutable pivot_toggle_down: bool
+      mutable pan_toggle_down: bool
+      mutable pivot_hold_down: bool
+      mutable pan_hold_down: bool
+      mutable boost_down: bool
+      mutable slow_down: bool
+      mutable speed_increase_down: bool
+      mutable speed_decrease_down: bool
+      mutable projection_toggle_down: bool
+      mutable retarget_all_views_down: bool
+      mutable retarget_other_views_down: bool
+      mutable exit_down: bool
+      mutable cancel_and_restore_down: bool
+      mutable input: InputAccumulator.State option
       mutable input_available: Action option
       mutable revision: int64
       mutable last_change_timestamp: int64
       mutable active: bool }
 
 let state =
-    { configured =
+    { transition_gate = obj ()
+      configured =
         { exact = HashSet<int>()
           either_shift = false
           either_control = false
@@ -41,14 +54,25 @@ let state =
       suppressed_keys_down = HashSet<int>()
       key_is_down = Array.zeroCreate 256
       mouse_key_configured = Array.zeroCreate 256
-      exit_binding = None
-      cancel_and_restore_binding = None
+      bindings = None
+      boost_mode = KeyActivationMode.Hold
+      slow_mode = KeyActivationMode.Hold
       retarget_all_views_binding = None
       retarget_other_views_binding = None
-      exit_pressed = 0
-      cancel_and_restore_pressed = 0
-      retarget_all_views_pressed = 0
-      retarget_other_views_pressed = 0
+      pivot_toggle_down = false
+      pan_toggle_down = false
+      pivot_hold_down = false
+      pan_hold_down = false
+      boost_down = false
+      slow_down = false
+      speed_increase_down = false
+      speed_decrease_down = false
+      projection_toggle_down = false
+      retarget_all_views_down = false
+      retarget_other_views_down = false
+      exit_down = false
+      cancel_and_restore_down = false
+      input = None
       input_available = None
       revision = 0L
       last_change_timestamp = 0L
@@ -98,8 +122,48 @@ let add_passthrough_if_down (physicalKey: int) =
         state.passthrough_keys_down.Add physicalKey |> ignore
         state.key_is_down[physicalKey] <- true
 
-let configure (bindings: FlightBindings) (retarget: RetargetConfig) (inputAvailable: Action) =
+let virtual_key_down (virtualKey: int) =
+    match virtualKey with
+    | Win32Native.VK_LBUTTON
+    | Win32Native.VK_RBUTTON
+    | Win32Native.VK_MBUTTON
+    | Win32Native.VK_XBUTTON1
+    | Win32Native.VK_XBUTTON2 -> Volatile.Read(&state.key_is_down[virtualKey])
+    | Win32Native.VK_SHIFT ->
+        state.key_is_down[Win32Native.VK_LSHIFT]
+        || state.key_is_down[Win32Native.VK_RSHIFT]
+    | Win32Native.VK_CONTROL ->
+        state.key_is_down[Win32Native.VK_LCONTROL]
+        || state.key_is_down[Win32Native.VK_RCONTROL]
+    | Win32Native.VK_MENU ->
+        state.key_is_down[Win32Native.VK_LMENU]
+        || state.key_is_down[Win32Native.VK_RMENU]
+    | _ -> state.key_is_down[virtualKey]
+
+let binding_is_down (binding: KeyBinding) =
+    if not state.active then
+        PlatformBindings.is_down binding
+    else
+        let keys = binding.virtual_keys
+        let mutable index = 0
+        let mutable down = keys.Length > 0
+
+        while down && index < keys.Length do
+            let (VirtualKey virtualKey) = keys[index]
+            down <- virtual_key_down virtualKey
+            index <- index + 1
+
+        down
+
+let is_optional_binding_down (binding: KeyBinding option) =
+    match binding with
+    | Some value -> binding_is_down value
+    | None -> false
+
+let configure (config: FlyConfig) (input: InputAccumulator.State) (inputAvailable: Action) =
     let releasedKeys = ResizeArray<int>()
+    let bindings = config.bindings
+    let retarget = config.behavior.retarget
 
     let enabled_binding (mode: RetargetMode) (binding: KeyBinding option) =
         if mode = RetargetMode.Off then None else binding
@@ -111,10 +175,6 @@ let configure (bindings: FlightBindings) (retarget: RetargetConfig) (inputAvaila
         enabled_binding retarget.keyboard_other_views bindings.retarget_other_views
 
     Volatile.Write(&state.last_change_timestamp, 0L)
-    Interlocked.Exchange(&state.exit_pressed, 0) |> ignore
-    Interlocked.Exchange(&state.cancel_and_restore_pressed, 0) |> ignore
-    Interlocked.Exchange(&state.retarget_all_views_pressed, 0) |> ignore
-    Interlocked.Exchange(&state.retarget_other_views_pressed, 0) |> ignore
     System.Array.Clear(state.key_is_down, 0, state.key_is_down.Length)
 
     for physicalKey in state.suppressed_keys_down do
@@ -171,28 +231,62 @@ let configure (bindings: FlightBindings) (retarget: RetargetConfig) (inputAvaila
         add_passthrough_if_down Win32Native.VK_LMENU
         add_passthrough_if_down Win32Native.VK_RMENU
 
-    state.input_available <- Some inputAvailable
-    state.exit_binding <- Some bindings.exit_key
-    state.cancel_and_restore_binding <- Some bindings.cancel_flight_and_restore
+    state.bindings <- Some bindings
+    state.boost_mode <- config.movement.boost_mode
+    state.slow_mode <- config.movement.slow_mode
     state.retarget_all_views_binding <- retargetAllViewsBinding
     state.retarget_other_views_binding <- retargetOtherViewsBinding
+    state.pivot_toggle_down <- is_optional_binding_down bindings.mouse_navigation.pivot.toggle
+    state.pan_toggle_down <- is_optional_binding_down bindings.mouse_navigation.pan.toggle
+    state.pivot_hold_down <- is_optional_binding_down bindings.mouse_navigation.pivot.hold
+    state.pan_hold_down <- is_optional_binding_down bindings.mouse_navigation.pan.hold
+    state.boost_down <- binding_is_down bindings.boost
+    state.slow_down <- binding_is_down bindings.slow
+    state.speed_increase_down <- is_optional_binding_down bindings.speed_increase
+    state.speed_decrease_down <- is_optional_binding_down bindings.speed_decrease
+    state.projection_toggle_down <- is_optional_binding_down bindings.toggle_projection
+    state.retarget_all_views_down <- is_optional_binding_down retargetAllViewsBinding
+    state.retarget_other_views_down <- is_optional_binding_down retargetOtherViewsBinding
+    state.exit_down <- binding_is_down bindings.exit_key
+    state.cancel_and_restore_down <- binding_is_down bindings.cancel_flight_and_restore
+    state.input <- Some input
+    state.input_available <- Some inputAvailable
     Volatile.Write(&state.active, true)
 
-let stop () =
+let stop_core () =
     Volatile.Write(&state.active, false)
+    state.input <- None
     state.input_available <- None
-    state.exit_binding <- None
-    state.cancel_and_restore_binding <- None
+    state.bindings <- None
+    state.boost_mode <- KeyActivationMode.Hold
+    state.slow_mode <- KeyActivationMode.Hold
     state.retarget_all_views_binding <- None
     state.retarget_other_views_binding <- None
-    Interlocked.Exchange(&state.exit_pressed, 0) |> ignore
-    Interlocked.Exchange(&state.cancel_and_restore_pressed, 0) |> ignore
-    Interlocked.Exchange(&state.retarget_all_views_pressed, 0) |> ignore
-    Interlocked.Exchange(&state.retarget_other_views_pressed, 0) |> ignore
+    state.pivot_toggle_down <- false
+    state.pan_toggle_down <- false
+    state.pivot_hold_down <- false
+    state.pan_hold_down <- false
+    state.boost_down <- false
+    state.slow_down <- false
+    state.speed_increase_down <- false
+    state.speed_decrease_down <- false
+    state.projection_toggle_down <- false
+    state.retarget_all_views_down <- false
+    state.retarget_other_views_down <- false
+    state.exit_down <- false
+    state.cancel_and_restore_down <- false
     clear_configured ()
     state.passthrough_keys_down.Clear()
     System.Array.Clear(state.key_is_down, 0, state.key_is_down.Length)
     System.Array.Clear(state.mouse_key_configured, 0, state.mouse_key_configured.Length)
+
+let stop () =
+    Monitor.Enter state.transition_gate
+
+    try
+        stop_core ()
+    finally
+        Monitor.Exit state.transition_gate
 
 let classify_fresh_key_down (physicalKey: int) =
     if state.active && configured_key physicalKey then
@@ -227,82 +321,150 @@ let handle_event (event: Win32.KeyboardHookEvent) =
     else
         classify_fresh_key_down physicalKey
 
-let virtual_key_down (virtualKey: int) =
-    match virtualKey with
-    | Win32Native.VK_LBUTTON
-    | Win32Native.VK_RBUTTON
-    | Win32Native.VK_MBUTTON
-    | Win32Native.VK_XBUTTON1
-    | Win32Native.VK_XBUTTON2 -> Volatile.Read(&state.key_is_down[virtualKey])
-    | Win32Native.VK_SHIFT ->
-        state.key_is_down[Win32Native.VK_LSHIFT]
-        || state.key_is_down[Win32Native.VK_RSHIFT]
-    | Win32Native.VK_CONTROL ->
-        state.key_is_down[Win32Native.VK_LCONTROL]
-        || state.key_is_down[Win32Native.VK_RCONTROL]
-    | Win32Native.VK_MENU ->
-        state.key_is_down[Win32Native.VK_LMENU]
-        || state.key_is_down[Win32Native.VK_RMENU]
-    | _ -> state.key_is_down[virtualKey]
+let add_action (current: InputAccumulator.KeyboardAction) (added: InputAccumulator.KeyboardAction) =
+    enum<InputAccumulator.KeyboardAction> (int current ||| int added)
 
-let binding_is_down (binding: KeyBinding) =
-    if not state.active then
-        PlatformBindings.is_down binding
-    else
-        let keys = binding.virtual_keys
-        let mutable index = 0
-        let mutable down = keys.Length > 0
+let collect_actions () =
+    match state.bindings with
+    | None -> InputAccumulator.KeyboardAction.None
+    | Some bindings ->
+        let mutable actions = InputAccumulator.KeyboardAction.None
 
-        while down && index < keys.Length do
-            let (VirtualKey virtualKey) = keys[index]
-            down <- virtual_key_down virtualKey
-            index <- index + 1
+        let pivotToggle = is_optional_binding_down bindings.mouse_navigation.pivot.toggle
 
-        down
+        if pivotToggle && not state.pivot_toggle_down then
+            actions <- add_action actions InputAccumulator.KeyboardAction.PivotToggle
+
+        state.pivot_toggle_down <- pivotToggle
+
+        let panToggle = is_optional_binding_down bindings.mouse_navigation.pan.toggle
+
+        if panToggle && not state.pan_toggle_down then
+            actions <- add_action actions InputAccumulator.KeyboardAction.PanToggle
+
+        state.pan_toggle_down <- panToggle
+
+        let pivotHold = is_optional_binding_down bindings.mouse_navigation.pivot.hold
+
+        if pivotHold <> state.pivot_hold_down then
+            actions <-
+                add_action
+                    actions
+                    (if pivotHold then
+                         InputAccumulator.KeyboardAction.PivotHoldStarted
+                     else
+                         InputAccumulator.KeyboardAction.PivotHoldEnded)
+
+        state.pivot_hold_down <- pivotHold
+
+        let panHold = is_optional_binding_down bindings.mouse_navigation.pan.hold
+
+        if panHold <> state.pan_hold_down then
+            actions <-
+                add_action
+                    actions
+                    (if panHold then
+                         InputAccumulator.KeyboardAction.PanHoldStarted
+                     else
+                         InputAccumulator.KeyboardAction.PanHoldEnded)
+
+        state.pan_hold_down <- panHold
+
+        let boost = binding_is_down bindings.boost
+
+        if boost && not state.boost_down && state.boost_mode = KeyActivationMode.Toggle then
+            actions <- add_action actions InputAccumulator.KeyboardAction.BoostToggle
+
+        state.boost_down <- boost
+
+        let slow = binding_is_down bindings.slow
+
+        if slow && not state.slow_down && state.slow_mode = KeyActivationMode.Toggle then
+            actions <- add_action actions InputAccumulator.KeyboardAction.SlowToggle
+
+        state.slow_down <- slow
+
+        let speedIncrease = is_optional_binding_down bindings.speed_increase
+
+        if speedIncrease && not state.speed_increase_down then
+            actions <- add_action actions InputAccumulator.KeyboardAction.SpeedIncrease
+
+        state.speed_increase_down <- speedIncrease
+
+        let speedDecrease = is_optional_binding_down bindings.speed_decrease
+
+        if speedDecrease && not state.speed_decrease_down then
+            actions <- add_action actions InputAccumulator.KeyboardAction.SpeedDecrease
+
+        state.speed_decrease_down <- speedDecrease
+
+        let projectionToggle = is_optional_binding_down bindings.toggle_projection
+
+        if projectionToggle && not state.projection_toggle_down then
+            actions <- add_action actions InputAccumulator.KeyboardAction.ProjectionToggle
+
+        state.projection_toggle_down <- projectionToggle
+
+        let retargetAll = is_optional_binding_down state.retarget_all_views_binding
+
+        if retargetAll && not state.retarget_all_views_down then
+            actions <- add_action actions InputAccumulator.KeyboardAction.RetargetAllViews
+
+        state.retarget_all_views_down <- retargetAll
+
+        let retargetOther = is_optional_binding_down state.retarget_other_views_binding
+
+        if retargetOther && not state.retarget_other_views_down then
+            actions <- add_action actions InputAccumulator.KeyboardAction.RetargetOtherViews
+
+        state.retarget_other_views_down <- retargetOther
+
+        let exit = binding_is_down bindings.exit_key
+
+        if exit && not state.exit_down then
+            actions <- add_action actions InputAccumulator.KeyboardAction.Exit
+
+        state.exit_down <- exit
+
+        let cancelAndRestore = binding_is_down bindings.cancel_flight_and_restore
+
+        if cancelAndRestore && not state.cancel_and_restore_down then
+            actions <- add_action actions InputAccumulator.KeyboardAction.CancelAndRestore
+
+        state.cancel_and_restore_down <- cancelAndRestore
+        actions
 
 let hook_event (event: Win32.KeyboardHookEvent) =
     let mutable swallow = false
+    Monitor.Enter state.transition_gate
 
     try
-        let wasDown = state.key_is_down[event.physical_key]
-        swallow <- handle_event event
+        try
+            let wasDown = state.key_is_down[event.physical_key]
+            swallow <- handle_event event
 
-        if wasDown <> state.key_is_down[event.physical_key] then
-            if state.key_is_down[event.physical_key] then
-                match state.exit_binding with
-                | Some binding when binding_is_down binding -> Interlocked.Exchange(&state.exit_pressed, 1) |> ignore
-                | Some _
+            if wasDown <> state.key_is_down[event.physical_key] then
+                let timestamp = Stopwatch.GetTimestamp()
+                let actions = collect_actions ()
+
+                match state.input with
+                | Some input -> InputAccumulator.add_keyboard_actions actions timestamp input
                 | None -> ()
 
-                match state.cancel_and_restore_binding with
-                | Some binding when binding_is_down binding ->
-                    Interlocked.Exchange(&state.cancel_and_restore_pressed, 1) |> ignore
-                | Some _
+                Volatile.Write(&state.last_change_timestamp, timestamp)
+                Interlocked.Increment(&state.revision) |> ignore
+
+                match state.input_available with
+                | Some available -> available.Invoke()
                 | None -> ()
-
-                match state.retarget_all_views_binding with
-                | Some binding when binding_is_down binding ->
-                    Interlocked.Exchange(&state.retarget_all_views_pressed, 1) |> ignore
-                | Some _
-                | None -> ()
-
-                match state.retarget_other_views_binding with
-                | Some binding when binding_is_down binding ->
-                    Interlocked.Exchange(&state.retarget_other_views_pressed, 1) |> ignore
-                | Some _
-                | None -> ()
-
-            Volatile.Write(&state.last_change_timestamp, Stopwatch.GetTimestamp())
-            Interlocked.Increment(&state.revision) |> ignore
-
-            state.input_available
-            |> Option.iter (fun (available: Action) -> available.Invoke())
-    with error ->
-        Debug.WriteLine $"RhinosCanFly keyboard suppression failed: {error}"
+        with error ->
+            Debug.WriteLine $"RhinosCanFly keyboard suppression failed: {error}"
+    finally
+        Monitor.Exit state.transition_gate
 
     swallow
 
-let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) =
+let apply_raw_mouse_button_transition_core (transition: RawMouseButtonTransition) =
     let mutable physicalKey = 0
     let mutable down = false
 
@@ -333,24 +495,23 @@ let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) =
     if state.active && physicalKey <> 0 && state.mouse_key_configured[physicalKey] then
         state.key_is_down[physicalKey] <- down
         Volatile.Write(&state.last_change_timestamp, transition.timestamp)
-        Interlocked.Increment(&state.revision) |> ignore
+
+        collect_actions ()
+    else
+        InputAccumulator.KeyboardAction.None
+
+let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) =
+    Monitor.Enter state.transition_gate
+
+    try
+        apply_raw_mouse_button_transition_core transition
+    finally
+        Monitor.Exit state.transition_gate
 
 let revision () = Volatile.Read(&state.revision)
 
 let last_change_timestamp () =
     Volatile.Read(&state.last_change_timestamp)
-
-let drain_exit_pressed () =
-    Interlocked.Exchange(&state.exit_pressed, 0) <> 0
-
-let drain_cancel_and_restore_pressed () =
-    Interlocked.Exchange(&state.cancel_and_restore_pressed, 0) <> 0
-
-let drain_retarget_all_views_pressed () =
-    Interlocked.Exchange(&state.retarget_all_views_pressed, 0) <> 0
-
-let drain_retarget_other_views_pressed () =
-    Interlocked.Exchange(&state.retarget_other_views_pressed, 0) <> 0
 
 let ensure_hook () =
     match keyboardHook with
@@ -362,12 +523,18 @@ let ensure_hook () =
             Ok()
         | Error error -> Error error
 
-let start (bindings: FlightBindings) (retarget: RetargetConfig) (inputAvailable: Action) =
+let start (config: FlyConfig) (input: InputAccumulator.State) (inputAvailable: Action) =
     match ensure_hook () with
     | Error error -> Error error
     | Ok() ->
         try
-            configure bindings retarget inputAvailable
+            Monitor.Enter state.transition_gate
+
+            try
+                configure config input inputAvailable
+            finally
+                Monitor.Exit state.transition_gate
+
             Ok()
         with error ->
             stop ()
@@ -375,8 +542,13 @@ let start (bindings: FlightBindings) (retarget: RetargetConfig) (inputAvailable:
 
 let shutdown () =
     stop ()
-    state.suppressed_keys_down.Clear()
-    System.Array.Clear(state.key_is_down, 0, state.key_is_down.Length)
+    Monitor.Enter state.transition_gate
+
+    try
+        state.suppressed_keys_down.Clear()
+        System.Array.Clear(state.key_is_down, 0, state.key_is_down.Length)
+    finally
+        Monitor.Exit state.transition_gate
 
     match keyboardHook with
     | None -> Ok()

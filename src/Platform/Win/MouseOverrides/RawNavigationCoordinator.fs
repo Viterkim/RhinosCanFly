@@ -155,8 +155,12 @@ let start (state: State) (requested: DesiredNavigation) =
     let failed = Action state.request_exit
 
     let buttonEvents =
-        Action<RawMouseButtonEvent, Point>(fun (event: RawMouseButtonEvent) (point: Point) ->
-            handle_button state requested.host event point)
+        Func<RawMouseButtonEvent, Point, bool>(fun (event: RawMouseButtonEvent) (point: Point) ->
+            handle_button state requested.host event point
+
+            match desired state with
+            | ValueSome current -> current.host = requested.host && current.mode = requested.mode
+            | ValueNone -> false)
 
     match
         RawViewNavigationSession.start

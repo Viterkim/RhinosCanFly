@@ -228,6 +228,7 @@ let try_filtered_object_at_internal
                             | None -> Double.PositiveInfinity
 
                         if checkSelectedObjects then
+                            // PickObjects can omit selected objects and RhinoCommon has no public per-object picker.
                             for rhinoObject in view.Document.Objects.GetSelectedObjects(false, false) do
                                 if
                                     not (isNull rhinoObject)

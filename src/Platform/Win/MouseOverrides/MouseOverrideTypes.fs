@@ -13,7 +13,7 @@ type SideButton =
 
 [<Struct>]
 type SideButtonHookEvent =
-    | ButtonDown of button: SideButton * host: ViewportHostIdentity * screen_point: Point
+    | ButtonDown of button: SideButton * host: ViewportHostIdentity * screen_point: Point * started_at: int64
     | ButtonUp of button: SideButton
 
 type HookButtonOwnership =

@@ -355,25 +355,13 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
 
     PlatformInput.focus_view state.view
 
-    match
-        PlatformInput.suppress_flight_keyboard
-            state.config.bindings
-            state.config.behavior.retarget
-            session.input_available
-    with
+    match PlatformInput.suppress_flight_keyboard state.config session.raw_input session.input_available with
     | Ok() -> session.keyboard_suppressed <- true
     | Error error -> failwith $"Could not suppress flight keys: {error}"
 
-    let rawInputConfig: RawMouseInputConfig =
-        { exit_on_mouse_left = state.config.mouse.exit_on_left
-          exit_on_mouse_right = state.config.mouse.exit_on_right
-          middle_mouse_action = state.config.mouse.middle_button
-          mouse4_action = state.config.mouse.mouse4
-          mouse5_action = state.config.mouse.mouse5 }
-
     let raw =
         try
-            PlatformInput.open_raw_input rawInputConfig sessionMode session.raw_input session.input_available
+            PlatformInput.open_raw_input session.raw_input session.input_available
         with error ->
             FlyState.request_exit (SessionFailure(error.ToString())) state
 
@@ -421,6 +409,7 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
         session.perspective_lens_changed <- FlightCamera.entry_perspective_lens_changes state
         FlightCamera.apply_entry_perspective_lens state
         state.view.Redraw()
+        InputAccumulator.discard_movement session.raw_input
         session.flight_entered <- true
 
 let begin_active (starting: StartingSession) =

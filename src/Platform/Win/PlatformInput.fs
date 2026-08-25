@@ -183,13 +183,8 @@ let wake_flight_loop (wake: RawInputWake) =
 let dispose_raw_input_wake (wake: RawInputWake) =
     RhinosCanFly.Platform.Win.RawInputWake.dispose wake
 
-let open_raw_input
-    (config: RawMouseInputConfig)
-    (sessionMode: FlightSessionMode)
-    (input: InputAccumulator.State)
-    (inputAvailable: Action)
-    =
-    RawInputThread.start config sessionMode input inputAvailable
+let open_raw_input (input: InputAccumulator.State) (inputAvailable: Action) =
+    RawInputThread.start input inputAvailable
 
 let raw_input_start_requires_restart (error: exn) =
     match error with
@@ -208,8 +203,8 @@ let prepare_raw_input_worker () = RawInputThread.prepare ()
 
 let shutdown_raw_input_worker () = RawInputThread.shutdown ()
 
-let suppress_flight_keyboard (bindings: FlightBindings) (retarget: RetargetConfig) (inputAvailable: Action) =
-    FlightKeyboardSuppression.start bindings retarget inputAvailable
+let suppress_flight_keyboard (config: FlyConfig) (input: InputAccumulator.State) (inputAvailable: Action) =
+    FlightKeyboardSuppression.start config input inputAvailable
 
 let release_flight_keyboard () = FlightKeyboardSuppression.stop ()
 
@@ -217,18 +212,6 @@ let flight_keyboard_revision () = FlightKeyboardSuppression.revision ()
 
 let flight_keyboard_change_timestamp () =
     FlightKeyboardSuppression.last_change_timestamp ()
-
-let drain_flight_exit_pressed () =
-    FlightKeyboardSuppression.drain_exit_pressed ()
-
-let drain_flight_cancel_and_restore_pressed () =
-    FlightKeyboardSuppression.drain_cancel_and_restore_pressed ()
-
-let drain_flight_retarget_all_views_pressed () =
-    FlightKeyboardSuppression.drain_retarget_all_views_pressed ()
-
-let drain_flight_retarget_other_views_pressed () =
-    FlightKeyboardSuppression.drain_retarget_other_views_pressed ()
 
 let apply_flight_mouse_button_transition (transition: RawMouseButtonTransition) =
     FlightKeyboardSuppression.apply_raw_mouse_button_transition transition

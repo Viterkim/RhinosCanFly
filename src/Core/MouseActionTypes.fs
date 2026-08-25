@@ -93,13 +93,6 @@ module RoutedMouseAction =
         | RoutedMouseAction.TogglePan
         | RoutedMouseAction.HoldPan -> RetargetMode.Off
 
-type RawMouseInputConfig =
-    { exit_on_mouse_left: bool
-      exit_on_mouse_right: bool
-      middle_mouse_action: RoutedMouseAction
-      mouse4_action: RoutedMouseAction
-      mouse5_action: RoutedMouseAction }
-
 [<Struct>]
 type OutsideFlightCursorConfig =
     { middle: bool

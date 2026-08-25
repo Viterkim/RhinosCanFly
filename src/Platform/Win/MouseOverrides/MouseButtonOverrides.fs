@@ -219,7 +219,7 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
                         MouseOverrideState.set_hook_button_ownership state button Owned
 
                         state.pending_side_button_events.Enqueue(
-                            ButtonDown(button, pointViewport.host, event.screen_point)
+                            ButtonDown(button, pointViewport.host, event.screen_point, Stopwatch.GetTimestamp())
                         )
 
                         signal_hook_ui_work ()

@@ -2,9 +2,60 @@ module RhinosCanFly.Platform.Win.GestureNavigationTransitions
 
 open System.Diagnostics
 open System.Drawing
+open Rhino
 open Rhino.Display
 open RhinosCanFly
 open RhinosCanFly.Platform.Win.MouseOverrideTypes
+
+[<Struct>]
+type PressResult =
+    | Applied
+    | Deferred
+    | Failed of error: string
+
+[<Struct>]
+type ActionViewPreparation =
+    | ActionViewReady of view: RhinoView * host: ViewportHostIdentity
+    | ActionViewDeferred
+    | ActionViewUnavailable of error: string
+
+let prepare_action_view (host: ViewportHostIdentity) =
+    if MouseOverrideState.foreground_root_window () <> host.root_window then
+        if MouseOverrideState.try_bring_root_window_to_foreground host.root_window then
+            ActionViewDeferred
+        else
+            ActionViewUnavailable "The navigation window could not be activated."
+    else
+        let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
+        let document = if isNull view then null else view.Document
+        let activeDocument = RhinoDoc.ActiveDoc
+        let (ViewWindowHandle expectedWindow) = host.view_window
+
+        if
+            isNull view
+            || isNull document
+            || isNull activeDocument
+            || document.RuntimeSerialNumber <> host.document_serial_number
+            || activeDocument.RuntimeSerialNumber <> host.document_serial_number
+            || view.Handle <> expectedWindow
+            || MouseOverrideState.root_window view.Handle <> host.root_window
+        then
+            ActionViewUnavailable "The navigation viewport is unavailable."
+        else
+            let activeView = document.Views.ActiveView
+
+            if isNull activeView || activeView.RuntimeSerialNumber <> view.RuntimeSerialNumber then
+                document.Views.ActiveView <- view
+                ActionViewDeferred
+            else
+                ActionViewReady(
+                    view,
+                    { document_serial_number = document.RuntimeSerialNumber
+                      view_serial_number = view.RuntimeSerialNumber
+                      viewport_id = view.ActiveViewportID
+                      view_window = ViewWindowHandle view.Handle
+                      root_window = MouseOverrideState.root_window view.Handle }
+                )
 
 let complete_view_latch (state: State) =
     let previous = state.view_latch
@@ -142,22 +193,33 @@ let press
     (screenPoint: Point)
     =
     match action with
-    | RoutedMouseAction.Off -> Ok()
-    | RoutedMouseAction.Retarget mode ->
-        let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
-
-        if isNull view then
-            Error "The retarget viewport is unavailable."
-        else
-            state.routing.retarget host (client_target_point state owner view screenPoint) mode
-    | RoutedMouseAction.TogglePivot ->
-        begin_navigation state owner host screenPoint ViewNavigationMode.Pivot GestureLifetime.Toggle
-    | RoutedMouseAction.HoldPivot ->
-        begin_navigation state owner host screenPoint ViewNavigationMode.Pivot GestureLifetime.Hold
-    | RoutedMouseAction.TogglePan ->
-        begin_navigation state owner host screenPoint ViewNavigationMode.Pan GestureLifetime.Toggle
+    | RoutedMouseAction.Off -> Applied
+    | RoutedMouseAction.Retarget _
+    | RoutedMouseAction.TogglePivot
+    | RoutedMouseAction.HoldPivot
+    | RoutedMouseAction.TogglePan
     | RoutedMouseAction.HoldPan ->
-        begin_navigation state owner host screenPoint ViewNavigationMode.Pan GestureLifetime.Hold
+        match prepare_action_view host with
+        | ActionViewDeferred -> Deferred
+        | ActionViewUnavailable error -> Failed error
+        | ActionViewReady(view, activeHost) ->
+            let result =
+                match action with
+                | RoutedMouseAction.Retarget mode ->
+                    state.routing.retarget activeHost (client_target_point state owner view screenPoint) mode
+                | RoutedMouseAction.TogglePivot ->
+                    begin_navigation state owner activeHost screenPoint ViewNavigationMode.Pivot GestureLifetime.Toggle
+                | RoutedMouseAction.HoldPivot ->
+                    begin_navigation state owner activeHost screenPoint ViewNavigationMode.Pivot GestureLifetime.Hold
+                | RoutedMouseAction.TogglePan ->
+                    begin_navigation state owner activeHost screenPoint ViewNavigationMode.Pan GestureLifetime.Toggle
+                | RoutedMouseAction.HoldPan ->
+                    begin_navigation state owner activeHost screenPoint ViewNavigationMode.Pan GestureLifetime.Hold
+                | RoutedMouseAction.Off -> Ok()
+
+            match result with
+            | Ok() -> Applied
+            | Error error -> Failed error
 
 let release (state: State) (owner: GestureOwner) =
     match state.gesture_navigation with
@@ -190,5 +252,6 @@ let press_or_log
     (point: Point)
     =
     match press state owner action host point with
-    | Ok() -> ()
-    | Error error -> Debug.WriteLine $"RhinosCanFly mouse action: {error}"
+    | Applied
+    | Deferred -> ()
+    | Failed error -> Debug.WriteLine $"RhinosCanFly mouse action: {error}"

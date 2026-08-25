@@ -12,6 +12,12 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
     let mutable previousFrameSeconds = clock.Elapsed.TotalSeconds
     let mutable movementActive = false
     let mutable inputReady = true
+    let timeline = InputAccumulator.timeline_buffer ()
+
+    let update_navigation_mode () =
+        if FlightCamera.update_navigation_mode state then
+            // Rhino can block while finding the target, so ignore mouse input gathered during that pause.
+            InputAccumulator.discard_movement rawInput
 
     while FlyState.is_running state do
         if not movementActive && not inputReady then
@@ -26,27 +32,50 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
         let frameTimestamp = Stopwatch.GetTimestamp()
         let frameSeconds = clock.Elapsed.TotalSeconds
         let observedRawRevision = InputAccumulator.work_revision rawInput
-
-        match InputAccumulator.try_drain_raw_mouse_button_event rawInput with
-        | ValueSome transition -> PlatformInput.apply_flight_mouse_button_transition transition
-        | ValueNone -> ()
-
-        if InputAccumulator.drain_raw_mouse_button_event_overflow rawInput then
-            FlyState.request_exit (SessionFailure "The raw mouse button queue overflowed.") state
-
         let observedKeyboardRevision = PlatformInput.flight_keyboard_revision ()
         FlightControls.update_state frameSeconds rawInput state
-        let mutable wheelChange = ViewChange.none
-        let mutable mouseChange = ViewChange.none
 
         if not (FlyState.is_running state) then
             InputAccumulator.discard_transient_input rawInput
         else
-            FlightControls.update_keyboard_navigation_input state
-            let navigationChange = FlightCamera.update_navigation_mode rawInput state
-            wheelChange <- FlightControls.apply_wheel_input rawInput state
-            mouseChange <- FlightCamera.apply_mouse_input rawInput state
-            mouseChange <- ViewChange.combine navigationChange mouseChange
+            update_navigation_mode ()
+
+            let struct (timelineCount, timelineOverflowed) =
+                InputAccumulator.drain_timeline timeline rawInput
+
+            if timelineOverflowed then
+                FlyState.request_exit (SessionFailure "The input timeline overflowed.") state
+
+            let mutable timelineIndex = 0
+
+            while FlyState.is_running state && timelineIndex < timelineCount do
+                let event = timeline[timelineIndex]
+
+                match event.kind with
+                | InputAccumulator.TimelineEventKind.Movement ->
+                    let wheelChange = FlightControls.apply_wheel_delta event.wheel state
+                    let mouseChange = FlightCamera.apply_mouse_delta event.dx event.dy state
+                    ViewChange.combine wheelChange mouseChange |> FlightCamera.apply state
+                | InputAccumulator.TimelineEventKind.RawMouseButton ->
+                    let actionChange =
+                        FlightControls.apply_raw_mouse_button_transition event.button state
+
+                    if FlyState.is_running state then
+                        update_navigation_mode ()
+                        FlightCamera.apply state actionChange
+                | InputAccumulator.TimelineEventKind.KeyboardActions ->
+                    let actionChange =
+                        FlightControls.apply_keyboard_actions event.keyboard_actions state
+
+                    if FlyState.is_running state then
+                        update_navigation_mode ()
+                        FlightCamera.apply state actionChange
+                | _ -> failwith "The input timeline contains an unknown event."
+
+                timelineIndex <- timelineIndex + 1
+
+            if not (FlyState.is_running state) then
+                InputAccumulator.discard_transient_input rawInput
 
         PlatformInput.acknowledge_raw_input_wake inputWake
 
@@ -54,11 +83,8 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
             InputAccumulator.work_pending_since observedRawRevision rawInput
             || PlatformInput.flight_keyboard_revision () <> observedKeyboardRevision
 
-        if InputAccumulator.raw_mouse_button_event_pending rawInput then
-            PlatformInput.wake_flight_loop inputWake
-
         if FlyState.is_running state then
-            let mutable viewChange = ViewChange.combine wheelChange mouseChange
+            let mutable viewChange = ViewChange.none
 
             let input = FlightControls.read_movement state
             let requestedPivotKeysDown = input.key_pivot_left || input.key_pivot_right

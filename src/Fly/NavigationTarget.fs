@@ -70,21 +70,21 @@ let prepare
                 let activeView = document.Views.ActiveView
 
                 if isNull activeView || activeView.RuntimeSerialNumber <> host.view_serial_number then
-                    document.Views.ActiveView <- view
-
-                let currentHost = PlatformInput.capture_viewport_host view
-
-                if
-                    currentHost.document_serial_number = host.document_serial_number
-                    && currentHost.view_serial_number = host.view_serial_number
-                    && currentHost.view_window = host.view_window
-                    && currentHost.root_window = host.root_window
-                then
-                    match apply loaded targetPoint mode view with
-                    | Ok() -> Ok currentHost
-                    | Error error -> Error error
+                    Error "The navigation viewport is not active yet."
                 else
-                    Error "The navigation viewport changed before it could be activated."
+                    let currentHost = PlatformInput.capture_viewport_host view
+
+                    if
+                        currentHost.document_serial_number = host.document_serial_number
+                        && currentHost.view_serial_number = host.view_serial_number
+                        && currentHost.view_window = host.view_window
+                        && currentHost.root_window = host.root_window
+                    then
+                        match apply loaded targetPoint mode view with
+                        | Ok() -> Ok currentHost
+                        | Error error -> Error error
+                    else
+                        Error "The navigation viewport changed before it could be prepared."
     with error ->
         Error $"Could not prepare view navigation: {error.Message}"
 
@@ -196,23 +196,23 @@ let retarget
                 let activeView = document.Views.ActiveView
 
                 if isNull activeView || activeView.RuntimeSerialNumber <> view.RuntimeSerialNumber then
-                    document.Views.ActiveView <- view
+                    Error "The retarget viewport is not active yet."
+                else
+                    let viewport = view.ActiveViewport
+                    let behavior = loaded.config.behavior
+                    let movement = loaded.config.movement
 
-                let viewport = view.ActiveViewport
-                let behavior = loaded.config.behavior
-                let movement = loaded.config.movement
+                    let speed =
+                        FlightSpeed.current
+                            document
+                            behavior.load_speed_from_document
+                            movement.speed_range
+                            movement.base_speed
 
-                let speed =
-                    FlightSpeed.current
-                        document
-                        behavior.load_speed_from_document
-                        movement.speed_range
-                        movement.base_speed
-
-                match ViewTarget.selected_selection_at behavior.retarget mode speed view viewport clientPoint with
-                | None -> Ok()
-                | Some selection ->
-                    apply_selection behavior.retarget RetargetScope.AllViews mode speed selection view
-                    Ok()
+                    match ViewTarget.selected_selection_at behavior.retarget mode speed view viewport clientPoint with
+                    | None -> Ok()
+                    | Some selection ->
+                        apply_selection behavior.retarget RetargetScope.AllViews mode speed selection view
+                        Ok()
     with error ->
         Error $"Could not retarget the viewports: {error.Message}"

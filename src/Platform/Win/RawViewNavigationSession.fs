@@ -38,7 +38,7 @@ type Session
         initialPivotCenter: Point3d,
         originalCursor: System.Drawing.Point,
         cursorClip: CursorClipLease,
-        buttonEvents: Action<RawMouseButtonEvent, System.Drawing.Point>,
+        buttonEvents: Func<RawMouseButtonEvent, System.Drawing.Point, bool>,
         failed: Action
     ) as self =
 
@@ -54,6 +54,7 @@ type Session
     let mutable wheelRemainder = 0L
     let mutable parallelZoomExponentRemainder = 0.
     let mutable pivotCenter = initialPivotCenter
+    let timeline = InputAccumulator.timeline_buffer ()
 
     let parallelZoomMode =
         match mode with
@@ -67,6 +68,67 @@ type Session
 
     let mainLoopHandler = EventHandler(fun (_: obj) (_: EventArgs) -> self.Drain())
 
+    let apply_movement (dx: int64) (dy: int64) (wheelDelta: int64) =
+        let wheel = wheelRemainder + wheelDelta
+        let wheelSteps = wheel / int64 Win32Native.WHEEL_DELTA
+        wheelRemainder <- wheel - wheelSteps * int64 Win32Native.WHEEL_DELTA
+
+        let parallelZoomPending = parallelZoomMode && parallelZoomExponentRemainder <> 0.
+
+        if dx <> 0L || dy <> 0L || wheelSteps <> 0L || parallelZoomPending then
+            let now = Stopwatch.GetTimestamp()
+            let hostValidationDue = now >= nextHostValidationAt
+
+            if hostValidationDue then
+                nextHostValidationAt <- now + hostValidationIntervalTicks
+
+            if hostValidationDue && not (view_matches_host host view) then
+                self.NotifyFailure()
+            else
+                let movementChanged =
+                    if dx = 0L && dy = 0L && not parallelZoomPending then
+                        false
+                    else
+                        match mode with
+                        | ViewportNavigation.Operation.Pivot ->
+                            ViewportNavigation.apply_pivot viewport mouseConfig pivotCenter dx dy
+                        | ViewportNavigation.Operation.Pan
+                        | ViewportNavigation.Operation.ParallelPan ->
+                            ViewportNavigation.apply_pan viewport mouseConfig dx dy
+                        | ViewportNavigation.Operation.ParallelZoom ->
+                            let requestedExponent =
+                                parallelZoomExponentRemainder + ViewportNavigation.parallel_zoom_exponent dy
+
+                            if requestedExponent = 0. then
+                                false
+                            else
+                                let appliedExponent = max -0.25 (min 0.25 requestedExponent)
+
+                                if viewport.Magnify(Math.Exp appliedExponent, true) then
+                                    let remaining = requestedExponent - appliedExponent
+
+                                    parallelZoomExponentRemainder <-
+                                        if abs remaining < 0.000000000001 then 0. else remaining
+
+                                    true
+                                else
+                                    parallelZoomExponentRemainder <- 0.
+                                    Debug.WriteLine "RhinosCanFly parallel zoom was rejected by Rhino."
+                                    self.NotifyFailure()
+                                    false
+
+                let wheelChanged =
+                    if wheelSteps = 0L then
+                        false
+                    else
+                        let magnification = ViewportNavigation.wheel_magnification wheelSteps
+
+                        magnification <> 1.
+                        && viewport.Magnify(magnification, viewport.IsParallelProjection)
+
+                if movementChanged || wheelChanged then
+                    view.Redraw()
+
     member _.NotifyFailure() =
         if active && not failureNotified then
             failureNotified <- true
@@ -79,79 +141,35 @@ type Session
 
             try
                 try
-                    let struct (dx, dy) = InputAccumulator.drain_mouse input
-                    let wheel = wheelRemainder + InputAccumulator.drain_wheel input
-                    let wheelSteps = wheel / int64 Win32Native.WHEEL_DELTA
-                    wheelRemainder <- wheel - wheelSteps * int64 Win32Native.WHEEL_DELTA
-
-                    let parallelZoomPending = parallelZoomMode && parallelZoomExponentRemainder <> 0.
-
                     if RawInputThread.runtime_failed raw then
                         this.NotifyFailure()
-                    elif dx <> 0L || dy <> 0L || wheelSteps <> 0L || parallelZoomPending then
-                        let now = Stopwatch.GetTimestamp()
-                        let hostValidationDue = now >= nextHostValidationAt
+                    else
+                        let struct (timelineCount, timelineOverflowed) =
+                            InputAccumulator.drain_timeline timeline input
 
-                        if hostValidationDue then
-                            nextHostValidationAt <- now + hostValidationIntervalTicks
-
-                        if hostValidationDue && not (view_matches_host host view) then
+                        if timelineOverflowed then
+                            Debug.WriteLine "RhinosCanFly raw view navigation timeline overflowed."
                             this.NotifyFailure()
                         else
-                            let movementChanged =
-                                if dx = 0L && dy = 0L && not parallelZoomPending then
-                                    false
-                                else
-                                    match mode with
-                                    | ViewportNavigation.Operation.Pivot ->
-                                        ViewportNavigation.apply_pivot viewport mouseConfig pivotCenter dx dy
-                                    | ViewportNavigation.Operation.Pan
-                                    | ViewportNavigation.Operation.ParallelPan ->
-                                        ViewportNavigation.apply_pan viewport mouseConfig dx dy
-                                    | ViewportNavigation.Operation.ParallelZoom ->
-                                        let requestedExponent =
-                                            parallelZoomExponentRemainder + ViewportNavigation.parallel_zoom_exponent dy
+                            let mutable acceptMovement = true
+                            let mutable timelineIndex = 0
 
-                                        if requestedExponent = 0. then
-                                            false
-                                        else
-                                            let appliedExponent = max -0.25 (min 0.25 requestedExponent)
+                            while active && not failureNotified && timelineIndex < timelineCount do
+                                let event = timeline[timelineIndex]
 
-                                            if viewport.Magnify(Math.Exp appliedExponent, true) then
-                                                let remaining = requestedExponent - appliedExponent
+                                match event.kind with
+                                | InputAccumulator.TimelineEventKind.Movement when acceptMovement ->
+                                    apply_movement event.dx event.dy event.wheel
+                                | InputAccumulator.TimelineEventKind.RawMouseButton ->
+                                    acceptMovement <- buttonEvents.Invoke(event.button.event, originalCursor)
+                                | InputAccumulator.TimelineEventKind.Movement
+                                | InputAccumulator.TimelineEventKind.KeyboardActions -> ()
+                                | _ -> invalidOp "The raw view navigation timeline contains an unknown event."
 
-                                                parallelZoomExponentRemainder <-
-                                                    if abs remaining < 0.000000000001 then 0. else remaining
+                                timelineIndex <- timelineIndex + 1
 
-                                                true
-                                            else
-                                                parallelZoomExponentRemainder <- 0.
-                                                Debug.WriteLine "RhinosCanFly parallel zoom was rejected by Rhino."
-                                                this.NotifyFailure()
-                                                false
-
-                            let wheelChanged =
-                                if wheelSteps = 0L then
-                                    false
-                                else
-                                    let magnification = ViewportNavigation.wheel_magnification wheelSteps
-
-                                    magnification <> 1.
-                                    && viewport.Magnify(magnification, viewport.IsParallelProjection)
-
-                            if movementChanged || wheelChanged then
-                                view.Redraw()
-
-                    let mutable drainingButtons = true
-
-                    while drainingButtons do
-                        match InputAccumulator.try_drain_raw_mouse_button_event input with
-                        | ValueSome transition -> buttonEvents.Invoke(transition.event, originalCursor)
-                        | ValueNone -> drainingButtons <- false
-
-                    if InputAccumulator.drain_raw_mouse_button_event_overflow input then
-                        Debug.WriteLine "RhinosCanFly raw view navigation button queue overflowed."
-                        this.NotifyFailure()
+                            if acceptMovement && parallelZoomMode && parallelZoomExponentRemainder <> 0. then
+                                apply_movement 0L 0L 0L
                 with error ->
                     Debug.WriteLine $"RhinosCanFly raw view navigation failed: {error}"
                     this.NotifyFailure()
@@ -267,7 +285,7 @@ let start
     (mode: ViewportNavigation.Operation)
     (requestedPivotCenter: Point3d voption)
     (mouseConfig: ViewNavigationMouseConfig)
-    (buttonEvents: Action<RawMouseButtonEvent, System.Drawing.Point>)
+    (buttonEvents: Func<RawMouseButtonEvent, System.Drawing.Point, bool>)
     (failed: Action)
     =
     let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
@@ -300,20 +318,12 @@ let start
                 let wake = RawInputWake.create host.root_window
                 let inputAvailable = Action(fun () -> RawInputWake.signal wake)
 
-                let rawConfig: RawMouseInputConfig =
-                    { exit_on_mouse_left = false
-                      exit_on_mouse_right = false
-                      middle_mouse_action = RoutedMouseAction.Off
-                      mouse4_action = RoutedMouseAction.Off
-                      mouse5_action = RoutedMouseAction.Off }
-
-                let sessionMode = FlightSessionMode.until_exit FlightMode.Normal
                 let mutable raw: RawInputThread.Session option = None
                 let mutable cursorClip: CursorClipLease option = None
                 let mutable cursorHidden = false
 
                 try
-                    let createdRaw = RawInputThread.start rawConfig sessionMode input inputAvailable
+                    let createdRaw = RawInputThread.start input inputAvailable
                     raw <- Some createdRaw
 
                     match Win32.acquire_cursor_clip view.ScreenRectangle with
@@ -346,8 +356,7 @@ let start
 
                         // Ignore startup movement but keep button releases from the same gesture.
                         let startupRevision = InputAccumulator.work_revision input
-                        InputAccumulator.drain_mouse input |> ignore
-                        InputAccumulator.drain_wheel input |> ignore
+                        InputAccumulator.discard_movement input
                         RawInputWake.acknowledge wake
 
                         if InputAccumulator.work_pending_since startupRevision input then

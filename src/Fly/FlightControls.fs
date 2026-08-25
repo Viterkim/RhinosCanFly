@@ -3,10 +3,33 @@ module RhinosCanFly.FlightControls
 [<Literal>]
 let HOST_VALIDATION_INTERVAL_SECONDS = 0.1
 
+[<Literal>]
+let MIDDLE_BUTTON_BIT = 1
+
+[<Literal>]
+let MOUSE4_BUTTON_BIT = 2
+
+[<Literal>]
+let MOUSE5_BUTTON_BIT = 4
+
 let is_optional_down (key: KeyBinding option) =
     match key with
     | Some binding -> PlatformInput.flight_binding_down binding
     | None -> false
+
+let current_mouse_hold_buttons (matches: RoutedMouseAction -> bool) (mouse: FlyingMouseConfig) =
+    let mutable buttons = 0
+
+    if matches mouse.middle_button && PlatformInput.middle_mouse_button_down () then
+        buttons <- buttons ||| MIDDLE_BUTTON_BIT
+
+    if matches mouse.mouse4 && PlatformInput.mouse4_button_down () then
+        buttons <- buttons ||| MOUSE4_BUTTON_BIT
+
+    if matches mouse.mouse5 && PlatformInput.mouse5_button_down () then
+        buttons <- buttons ||| MOUSE5_BUTTON_BIT
+
+    buttons
 
 let speed_step (state: FlyState) (steps: SpeedStepCount) =
     state.speed <- FlightSpeed.step state.config.movement state.speed steps
@@ -22,131 +45,150 @@ let speed_steps (state: FlyState) (steps: int64) =
         speed_step state (SpeedStepCount -1.)
         remaining <- remaining + 1L
 
-let update_keyboard_navigation_input (state: FlyState) =
-    let bindings = state.config.bindings.mouse_navigation
-    let pivotToggle = is_optional_down bindings.pivot.toggle
+let has_keyboard_action (actions: InputAccumulator.KeyboardAction) (action: InputAccumulator.KeyboardAction) =
+    int actions &&& int action <> 0
 
-    if pivotToggle && not state.keyboard_pivot_toggle_was_down then
+let explicit_exit_reason (state: FlyState) =
+    if state.restore_camera_on_exit then
+        ExplicitRestoreCamera
+    else
+        ExplicitKeepCamera
+
+let apply_keyboard_actions (actions: InputAccumulator.KeyboardAction) (state: FlyState) =
+    if has_keyboard_action actions InputAccumulator.KeyboardAction.CancelAndRestore then
+        FlyState.request_exit ExplicitRestoreCamera state
+        ViewChange.none
+    elif has_keyboard_action actions InputAccumulator.KeyboardAction.Exit then
+        FlyState.request_exit (explicit_exit_reason state) state
+        ViewChange.none
+    else
+        if has_keyboard_action actions InputAccumulator.KeyboardAction.PivotToggle then
+            state.latched_mouse_navigation <- MouseNavigationMode.toggle PivotNavigation state.latched_mouse_navigation
+
+        if has_keyboard_action actions InputAccumulator.KeyboardAction.PanToggle then
+            state.latched_mouse_navigation <- MouseNavigationMode.toggle PanNavigation state.latched_mouse_navigation
+
+        if has_keyboard_action actions InputAccumulator.KeyboardAction.PivotHoldStarted then
+            state.keyboard_pivot_held <- true
+
+        if has_keyboard_action actions InputAccumulator.KeyboardAction.PivotHoldEnded then
+            state.keyboard_pivot_held <- false
+
+        if has_keyboard_action actions InputAccumulator.KeyboardAction.PanHoldStarted then
+            state.keyboard_pan_held <- true
+
+        if has_keyboard_action actions InputAccumulator.KeyboardAction.PanHoldEnded then
+            state.keyboard_pan_held <- false
+
+        let movement = state.config.movement
+
+        if
+            movement.boost_mode = KeyActivationMode.Toggle
+            && has_keyboard_action actions InputAccumulator.KeyboardAction.BoostToggle
+        then
+            state.boost_enabled <- not state.boost_enabled
+
+        if
+            movement.slow_mode = KeyActivationMode.Toggle
+            && has_keyboard_action actions InputAccumulator.KeyboardAction.SlowToggle
+        then
+            state.slow_enabled <- not state.slow_enabled
+
+        if has_keyboard_action actions InputAccumulator.KeyboardAction.SpeedIncrease then
+            speed_step state (SpeedStepCount 1.)
+
+        if has_keyboard_action actions InputAccumulator.KeyboardAction.SpeedDecrease then
+            speed_step state (SpeedStepCount -1.)
+
+        let mutable retargetChange = ViewChange.none
+
+        if has_keyboard_action actions InputAccumulator.KeyboardAction.RetargetAllViews then
+            retargetChange <-
+                FlightCamera.apply_retarget_request
+                    RetargetScope.AllViews
+                    state.config.behavior.retarget.keyboard_all_views
+                    state
+        elif has_keyboard_action actions InputAccumulator.KeyboardAction.RetargetOtherViews then
+            retargetChange <-
+                FlightCamera.apply_retarget_request
+                    RetargetScope.OtherViews
+                    state.config.behavior.retarget.keyboard_other_views
+                    state
+
+        if
+            FlyState.is_running state
+            && has_keyboard_action actions InputAccumulator.KeyboardAction.ProjectionToggle
+        then
+            FlightCamera.toggle_projection state
+
+        retargetChange
+
+let set_mouse_hold (buttonBit: int) (down: bool) (action: RoutedMouseAction) (state: FlyState) =
+    if RoutedMouseAction.holds_pivot action then
+        if down then
+            state.mouse_pivot_hold_buttons <- state.mouse_pivot_hold_buttons ||| buttonBit
+        else
+            state.mouse_pivot_hold_buttons <- state.mouse_pivot_hold_buttons &&& (~~~buttonBit)
+
+    if RoutedMouseAction.holds_pan action then
+        if down then
+            state.mouse_pan_hold_buttons <- state.mouse_pan_hold_buttons ||| buttonBit
+        else
+            state.mouse_pan_hold_buttons <- state.mouse_pan_hold_buttons &&& (~~~buttonBit)
+
+let apply_mouse_action_down (buttonBit: int) (action: RoutedMouseAction) (state: FlyState) =
+    match action with
+    | RoutedMouseAction.TogglePivot ->
         state.latched_mouse_navigation <- MouseNavigationMode.toggle PivotNavigation state.latched_mouse_navigation
 
-    state.keyboard_pivot_toggle_was_down <- pivotToggle
-
-    let panToggle = is_optional_down bindings.pan.toggle
-
-    if panToggle && not state.keyboard_pan_toggle_was_down then
+        ViewChange.none
+    | RoutedMouseAction.TogglePan ->
         state.latched_mouse_navigation <- MouseNavigationMode.toggle PanNavigation state.latched_mouse_navigation
 
-    state.keyboard_pan_toggle_was_down <- panToggle
+        ViewChange.none
+    | RoutedMouseAction.HoldPivot
+    | RoutedMouseAction.HoldPan ->
+        set_mouse_hold buttonBit true action state
+        ViewChange.none
+    | RoutedMouseAction.Retarget mode -> FlightCamera.apply_retarget_request RetargetScope.AllViews mode state
+    | RoutedMouseAction.Off -> ViewChange.none
 
-    state.keyboard_held_mouse_navigation <-
-        if is_optional_down bindings.pan.hold then
-            PanNavigation
-        elif is_optional_down bindings.pivot.hold then
-            PivotNavigation
-        else
-            LookNavigation
+let apply_mouse_action_up (buttonBit: int) (action: RoutedMouseAction) (state: FlyState) =
+    set_mouse_hold buttonBit false action state
 
-let update_toggles (state: FlyState) =
-    let bindings = state.config.bindings
-    let movement = state.config.movement
-    let boost = PlatformInput.flight_binding_down bindings.boost
+let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) (state: FlyState) =
+    let keyboardActions = PlatformInput.apply_flight_mouse_button_transition transition
+    let mutable change = apply_keyboard_actions keyboardActions state
 
-    if
-        movement.boost_mode = KeyActivationMode.Toggle
-        && boost
-        && not state.boost_was_down
-    then
-        state.boost_enabled <- not state.boost_enabled
+    if FlyState.is_running state then
+        let mouse = state.config.mouse
 
-    state.boost_was_down <- boost
+        match transition.event with
+        | RawMouseButtonEvent.MiddleDown ->
+            change <- ViewChange.combine change (apply_mouse_action_down MIDDLE_BUTTON_BIT mouse.middle_button state)
+        | RawMouseButtonEvent.MiddleUp -> apply_mouse_action_up MIDDLE_BUTTON_BIT mouse.middle_button state
+        | RawMouseButtonEvent.Mouse4Down ->
+            change <- ViewChange.combine change (apply_mouse_action_down MOUSE4_BUTTON_BIT mouse.mouse4 state)
+        | RawMouseButtonEvent.Mouse4Up -> apply_mouse_action_up MOUSE4_BUTTON_BIT mouse.mouse4 state
+        | RawMouseButtonEvent.Mouse5Down ->
+            change <- ViewChange.combine change (apply_mouse_action_down MOUSE5_BUTTON_BIT mouse.mouse5 state)
+        | RawMouseButtonEvent.Mouse5Up -> apply_mouse_action_up MOUSE5_BUTTON_BIT mouse.mouse5 state
+        | RawMouseButtonEvent.LeftUp when mouse.exit_on_left -> FlyState.request_exit (explicit_exit_reason state) state
+        | RawMouseButtonEvent.RightUp when state.session_mode.lifetime = FlightLifetime.WhileRightMouseHeld ->
+            FlyState.request_exit RightMouseReleased state
+        | RawMouseButtonEvent.RightUp when mouse.exit_on_right ->
+            FlyState.request_exit (explicit_exit_reason state) state
+        | RawMouseButtonEvent.None
+        | RawMouseButtonEvent.LeftDown
+        | RawMouseButtonEvent.LeftUp
+        | RawMouseButtonEvent.RightDown
+        | RawMouseButtonEvent.RightUp -> ()
+        | _ -> ()
 
-    let slow = PlatformInput.flight_binding_down bindings.slow
+    change
 
-    if movement.slow_mode = KeyActivationMode.Toggle && slow && not state.slow_was_down then
-        state.slow_enabled <- not state.slow_enabled
-
-    state.slow_was_down <- slow
-
-    let increase = is_optional_down bindings.speed_increase
-
-    if increase && not state.speed_increase_was_down then
-        speed_step state (SpeedStepCount 1.)
-
-    state.speed_increase_was_down <- increase
-
-    let decrease = is_optional_down bindings.speed_decrease
-
-    if decrease && not state.speed_decrease_was_down then
-        speed_step state (SpeedStepCount -1.)
-
-    state.speed_decrease_was_down <- decrease
-
-    let toggleProjection = is_optional_down bindings.toggle_projection
-
-    if toggleProjection && not state.keyboard_projection_toggle_was_down then
-        FlightCamera.toggle_projection state
-
-    state.keyboard_projection_toggle_was_down <- toggleProjection
-
-let read_movement (state: FlyState) =
-    let bindings = state.config.bindings
-    let movement = state.config.movement
-
-    let slowActive =
-        if movement.slow_mode = KeyActivationMode.Hold then
-            state.slow_was_down
-        else
-            state.slow_enabled
-
-    let boostActive =
-        if movement.boost_mode = KeyActivationMode.Hold then
-            state.boost_was_down
-        else
-            state.boost_enabled
-
-    let slow = if slowActive then movement.slow_multiplier else 1.
-    let boost = if boostActive then movement.boost_multiplier else 1.
-
-    { forward = PlatformInput.flight_binding_down bindings.forward
-      backward = PlatformInput.flight_binding_down bindings.backward
-      left = PlatformInput.flight_binding_down bindings.left
-      right = PlatformInput.flight_binding_down bindings.right
-      up = PlatformInput.flight_binding_down bindings.up
-      down = PlatformInput.flight_binding_down bindings.down
-      key_pivot_left = PlatformInput.flight_binding_down bindings.key_pivot_left
-      key_pivot_right = PlatformInput.flight_binding_down bindings.key_pivot_right
-      move_speed = state.speed * slow * boost }
-
-let reconcile_held_mouse_navigation (input: InputAccumulator.State) (state: FlyState) =
-    let mouse = state.config.mouse
-
-    let middlePivotConfigured = RoutedMouseAction.holds_pivot mouse.middle_button
-    let mouse4PivotConfigured = RoutedMouseAction.holds_pivot mouse.mouse4
-    let mouse5PivotConfigured = RoutedMouseAction.holds_pivot mouse.mouse5
-    let middlePanConfigured = RoutedMouseAction.holds_pan mouse.middle_button
-    let mouse4PanConfigured = RoutedMouseAction.holds_pan mouse.mouse4
-    let mouse5PanConfigured = RoutedMouseAction.holds_pan mouse.mouse5
-
-    let middleHeld = PlatformInput.middle_mouse_button_down ()
-    let mouse4Held = PlatformInput.mouse4_button_down ()
-    let mouse5Held = PlatformInput.mouse5_button_down ()
-
-    if middlePivotConfigured || mouse4PivotConfigured || mouse5PivotConfigured then
-        InputAccumulator.set_pivot_held
-            ((middlePivotConfigured && middleHeld)
-             || (mouse4PivotConfigured && mouse4Held)
-             || (mouse5PivotConfigured && mouse5Held))
-            input
-
-    if middlePanConfigured || mouse4PanConfigured || mouse5PanConfigured then
-        InputAccumulator.set_pan_held
-            ((middlePanConfigured && middleHeld)
-             || (mouse4PanConfigured && mouse4Held)
-             || (mouse5PanConfigured && mouse5Held))
-            input
-
-let apply_wheel_input (input: InputAccumulator.State) (state: FlyState) =
-    let wheel = state.wheel_remainder + InputAccumulator.drain_wheel input
+let apply_wheel_delta (wheelDelta: int64) (state: FlyState) =
+    let wheel = state.wheel_remainder + wheelDelta
 
     if wheel = 0L then
         ViewChange.none
@@ -179,12 +221,6 @@ let apply_wheel_input (input: InputAccumulator.State) (state: FlyState) =
             FlightCamera.apply_navigation_wheel wheelSteps state
 
 let update_state (now: float) (input: InputAccumulator.State) (state: FlyState) =
-    let cancelAndRestore =
-        PlatformInput.drain_flight_cancel_and_restore_pressed ()
-        || PlatformInput.flight_binding_down state.config.bindings.cancel_flight_and_restore
-
-    let exitPressed = PlatformInput.drain_flight_exit_pressed ()
-
     let periodicValidationDue = now >= state.next_host_validation_at
 
     if periodicValidationDue then
@@ -203,19 +239,6 @@ let update_state (now: float) (input: InputAccumulator.State) (state: FlyState) 
                 Some HostInvalid
             elif PlatformInput.foreground_root_window () <> state.host_identity.root_window then
                 Some FocusLost
-            elif
-                periodicValidationDue
-                && state.session_mode.lifetime = FlightLifetime.WhileRightMouseHeld
-                && not (PlatformInput.right_mouse_button_down ())
-            then
-                Some RightMouseReleased
-            elif cancelAndRestore then
-                Some ExplicitRestoreCamera
-            elif exitPressed || PlatformInput.flight_binding_down state.config.bindings.exit_key then
-                if state.restore_camera_on_exit then
-                    Some ExplicitRestoreCamera
-                else
-                    Some ExplicitKeepCamera
             else if periodicValidationDue then
                 if PlatformInput.viewport_host_is_active state.host_identity state.view then
                     None
@@ -226,8 +249,33 @@ let update_state (now: float) (input: InputAccumulator.State) (state: FlyState) 
 
     match exitReason with
     | Some reason -> FlyState.request_exit reason state
-    | None ->
-        if periodicValidationDue then
-            reconcile_held_mouse_navigation input state
+    | None -> ()
 
-        update_toggles state
+let read_movement (state: FlyState) =
+    let bindings = state.config.bindings
+    let movement = state.config.movement
+
+    let slowActive =
+        if movement.slow_mode = KeyActivationMode.Hold then
+            PlatformInput.flight_binding_down bindings.slow
+        else
+            state.slow_enabled
+
+    let boostActive =
+        if movement.boost_mode = KeyActivationMode.Hold then
+            PlatformInput.flight_binding_down bindings.boost
+        else
+            state.boost_enabled
+
+    let slow = if slowActive then movement.slow_multiplier else 1.
+    let boost = if boostActive then movement.boost_multiplier else 1.
+
+    { forward = PlatformInput.flight_binding_down bindings.forward
+      backward = PlatformInput.flight_binding_down bindings.backward
+      left = PlatformInput.flight_binding_down bindings.left
+      right = PlatformInput.flight_binding_down bindings.right
+      up = PlatformInput.flight_binding_down bindings.up
+      down = PlatformInput.flight_binding_down bindings.down
+      key_pivot_left = PlatformInput.flight_binding_down bindings.key_pivot_left
+      key_pivot_right = PlatformInput.flight_binding_down bindings.key_pivot_right
+      move_speed = state.speed * slow * boost }
