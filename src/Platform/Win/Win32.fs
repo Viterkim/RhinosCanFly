@@ -235,7 +235,18 @@ type MouseHookEvent =
     { message: int
       mouse_data: uint32
       point_window: nativeint
-      screen_point: System.Drawing.Point }
+      screen_point: System.Drawing.Point
+      modifiers: MouseModifiers }
+
+let modifier_down (generalKey: int) (leftKey: int) (rightKey: int) =
+    Win32Native.GetAsyncKeyState generalKey < 0s
+    || Win32Native.GetAsyncKeyState leftKey < 0s
+    || Win32Native.GetAsyncKeyState rightKey < 0s
+
+let mouse_modifiers () =
+    { shift = modifier_down Win32Native.VK_SHIFT Win32Native.VK_LSHIFT Win32Native.VK_RSHIFT
+      alt = modifier_down Win32Native.VK_MENU Win32Native.VK_LMENU Win32Native.VK_RMENU
+      control = modifier_down Win32Native.VK_CONTROL Win32Native.VK_LCONTROL Win32Native.VK_RCONTROL }
 
 let keyboard_physical_key (virtualKey: int) (eventData: int64) =
     let extended = eventData &&& Win32Native.KEYBOARD_EXTENDED_KEY <> 0L
@@ -324,7 +335,8 @@ let install_mouse_hook (handleEvent: MouseHookEvent -> bool) =
                     { message = message
                       mouse_data = data.mouse_data
                       point_window = pointWindow
-                      screen_point = System.Drawing.Point(data.point.x, data.point.y) }
+                      screen_point = System.Drawing.Point(data.point.x, data.point.y)
+                      modifiers = mouse_modifiers () }
 
                 if handleEvent event then
                     nativeint 1

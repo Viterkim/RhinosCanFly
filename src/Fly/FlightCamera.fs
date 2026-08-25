@@ -157,6 +157,9 @@ let update_navigation_mode (input: InputAccumulator.State) (state: FlyState) =
     let retargetOtherViews = PlatformInput.drain_flight_retarget_other_views_pressed ()
     let mouseRetargetMode = InputAccumulator.drain_retarget_request input
 
+    let retargetRequested =
+        retargetAllViews || retargetOtherViews || mouseRetargetMode <> RetargetMode.Off
+
     let retargetChange =
         if retargetAllViews then
             apply_retarget_request RetargetScope.AllViews state.config.behavior.retarget.keyboard_all_views state
@@ -197,8 +200,8 @@ let update_navigation_mode (input: InputAccumulator.State) (state: FlyState) =
                 let panTarget = navigation_target state ViewNavigationMode.Pan None
                 MousePan(panTarget, pan_units_per_radian panTarget state.camera)
 
-    if previousNavigation <> requestedNavigation then
-        InputAccumulator.drain_mouse input |> ignore
+    if previousNavigation <> requestedNavigation || retargetRequested then
+        InputAccumulator.discard_pointer_input input
         state.wheel_remainder <- 0L
 
     retargetChange

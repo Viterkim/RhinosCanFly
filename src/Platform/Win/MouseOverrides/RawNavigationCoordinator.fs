@@ -3,6 +3,8 @@ module RhinosCanFly.Platform.Win.RawNavigationCoordinator
 open System
 open System.Diagnostics
 open System.Drawing
+open Rhino
+open Rhino.Display
 open RhinosCanFly
 open RhinosCanFly.Platform.Win.MouseOverrideTypes
 
@@ -32,15 +34,19 @@ let create
       session = None }
 
 let active_host (state: State) =
-    match RightClickTransitions.direct_navigation_host state.right_click with
-    | ValueSome host -> ValueSome host
-    | ValueNone -> MouseOverrideState.navigation_host state.navigation
+    match state.session with
+    | Some session when session.IsActive -> ValueSome session.Host
+    | Some _
+    | None ->
+        match RightClickTransitions.direct_navigation_host state.right_click with
+        | ValueSome host -> ValueSome host
+        | ValueNone -> MouseOverrideState.navigation_host state.navigation
 
 let desired (state: State) =
     let navigation = state.navigation
     let rightClick = state.right_click
 
-    if navigation.lifecycle <> Available then
+    if navigation.lifecycle <> Available || navigation.navigation_exit_requested then
         ValueNone
     else
         match RightClickTransitions.parallel_zoom_host rightClick with
@@ -98,14 +104,43 @@ let stop (state: State) =
 
         result
 
-let handle_right_down (state: State) (host: ViewportHostIdentity) (screenPoint: Point) =
+let apply_action_result
+    (state: State)
+    (host: ViewportHostIdentity)
+    (action: RoutedMouseAction)
+    (result: GestureNavigationTransitions.PressResult)
+    =
+    match result with
+    | GestureNavigationTransitions.Applied _ ->
+        match action with
+        | RoutedMouseAction.Retarget _ ->
+            let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
+
+            if not (isNull view) && not (isNull view.Document) then
+                let target = view.ActiveViewport.CameraTarget
+                GestureNavigationTransitions.update_active_pivot_center state.navigation host target
+
+                match state.session with
+                | Some session when session.Host = host -> session.UpdatePivotCenter(ValueSome target)
+                | Some _
+                | None -> ()
+        | RoutedMouseAction.Off
+        | RoutedMouseAction.TogglePivot
+        | RoutedMouseAction.HoldPivot
+        | RoutedMouseAction.TogglePan
+        | RoutedMouseAction.HoldPan -> ()
+    | GestureNavigationTransitions.Deferred -> ()
+    | GestureNavigationTransitions.Failed error -> Debug.WriteLine $"RhinosCanFly mouse action: {error}"
+
+let handle_right_down (state: State) (host: ViewportHostIdentity) (screenPoint: Point) (modifiers: MouseModifiers) =
     let navigation = state.navigation
     let rightClick = state.right_click
     rightClick.button_ownership <- Owned
 
-    match RightClickTransitions.requested_gesture_action navigation (RightClickTransitions.modifiers ()) with
+    match RightClickTransitions.requested_gesture_action navigation modifiers with
     | ValueSome action ->
-        GestureNavigationTransitions.press_or_log navigation GestureOwner.ModifiedRightClick action host screenPoint
+        GestureNavigationTransitions.press navigation GestureOwner.ModifiedRightClick action host screenPoint
+        |> apply_action_result state host action
     | ValueNone when navigation.routing.actions.exit_on_mouse_right -> state.request_exit ()
     | ValueNone -> ()
 
@@ -116,24 +151,26 @@ let handle_right_up (state: State) =
 
 let handle_side_down (state: State) (button: SideButton) (host: ViewportHostIdentity) (screenPoint: Point) =
     let navigation = state.navigation
+    let action = MouseOverrideState.action_for navigation button
     MouseOverrideState.set_hook_button_ownership navigation button Owned
 
-    GestureNavigationTransitions.press_or_log
-        navigation
-        (SideButtonTransitions.owner button)
-        (MouseOverrideState.action_for navigation button)
-        host
-        screenPoint
+    GestureNavigationTransitions.press navigation (SideButtonTransitions.owner button) action host screenPoint
+    |> apply_action_result state host action
 
 let handle_side_up (state: State) (button: SideButton) =
     MouseOverrideState.set_hook_button_ownership state.navigation button NotOwned
     GestureNavigationTransitions.release state.navigation (SideButtonTransitions.owner button)
 
-let handle_button (state: State) (host: ViewportHostIdentity) (event: RawMouseButtonEvent) (screenPoint: Point) =
+let handle_button
+    (state: State)
+    (host: ViewportHostIdentity)
+    (transition: RawMouseButtonTransition)
+    (screenPoint: Point)
+    =
     try
-        match event with
+        match transition.event with
         | RawMouseButtonEvent.LeftUp when state.navigation.routing.actions.exit_on_mouse_left -> state.request_exit ()
-        | RawMouseButtonEvent.RightDown -> handle_right_down state host screenPoint
+        | RawMouseButtonEvent.RightDown -> handle_right_down state host screenPoint transition.modifiers
         | RawMouseButtonEvent.RightUp -> handle_right_up state
         | RawMouseButtonEvent.MiddleDown -> handle_side_down state Middle host screenPoint
         | RawMouseButtonEvent.MiddleUp -> handle_side_up state Middle
@@ -155,8 +192,8 @@ let start (state: State) (requested: DesiredNavigation) =
     let failed = Action state.request_exit
 
     let buttonEvents =
-        Action<RawMouseButtonEvent, Point>(fun (event: RawMouseButtonEvent) (point: Point) ->
-            handle_button state requested.host event point)
+        Action<RawMouseButtonTransition, Point>(fun (transition: RawMouseButtonTransition) (point: Point) ->
+            handle_button state requested.host transition point)
 
     match
         RawViewNavigationSession.start

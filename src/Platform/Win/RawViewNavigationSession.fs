@@ -24,6 +24,9 @@ let view_matches_host (host: ViewportHostIdentity) (view: RhinoView) =
 
 let hostValidationIntervalTicks = max 1L (Stopwatch.Frequency / 10L)
 
+let ignoreButton =
+    Action<RawMouseButtonTransition>(fun (_: RawMouseButtonTransition) -> ())
+
 type Session
     internal
     (
@@ -38,7 +41,7 @@ type Session
         initialPivotCenter: Point3d,
         originalCursor: System.Drawing.Point,
         cursorClip: CursorClipLease,
-        buttonEvents: Action<RawMouseButtonEvent, System.Drawing.Point>,
+        buttonEvents: Action<RawMouseButtonTransition, System.Drawing.Point>,
         failed: Action
     ) as self =
 
@@ -146,7 +149,7 @@ type Session
 
                     while drainingButtons do
                         match InputAccumulator.try_drain_raw_mouse_button_event input with
-                        | ValueSome transition -> buttonEvents.Invoke(transition.event, originalCursor)
+                        | ValueSome transition -> buttonEvents.Invoke(transition, originalCursor)
                         | ValueNone -> drainingButtons <- false
 
                     if InputAccumulator.drain_raw_mouse_button_event_overflow input then
@@ -267,7 +270,7 @@ let start
     (mode: ViewportNavigation.Operation)
     (requestedPivotCenter: Point3d voption)
     (mouseConfig: ViewNavigationMouseConfig)
-    (buttonEvents: Action<RawMouseButtonEvent, System.Drawing.Point>)
+    (buttonEvents: Action<RawMouseButtonTransition, System.Drawing.Point>)
     (failed: Action)
     =
     let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
@@ -313,7 +316,9 @@ let start
                 let mutable cursorHidden = false
 
                 try
-                    let createdRaw = RawInputThread.start rawConfig sessionMode input inputAvailable
+                    let createdRaw =
+                        RawInputThread.start rawConfig sessionMode input inputAvailable ignoreButton
+
                     raw <- Some createdRaw
 
                     match Win32.acquire_cursor_clip view.ScreenRectangle with
@@ -346,8 +351,7 @@ let start
 
                         // Ignore startup movement but keep button releases from the same gesture.
                         let startupRevision = InputAccumulator.work_revision input
-                        InputAccumulator.drain_mouse input |> ignore
-                        InputAccumulator.drain_wheel input |> ignore
+                        InputAccumulator.discard_pointer_input input
                         RawInputWake.acknowledge wake
 
                         if InputAccumulator.work_pending_since startupRevision input then

@@ -23,9 +23,9 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
 
         RhinoApp.Wait()
 
-        let frameTimestamp = Stopwatch.GetTimestamp()
         let frameSeconds = clock.Elapsed.TotalSeconds
         let observedRawRevision = InputAccumulator.work_revision rawInput
+        let previousProjection = state.projection
 
         match InputAccumulator.try_drain_raw_mouse_button_event rawInput with
         | ValueSome transition -> PlatformInput.apply_flight_mouse_button_transition transition
@@ -40,8 +40,13 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
         let mutable mouseChange = ViewChange.none
 
         if not (FlyState.is_running state) then
+            PlatformInput.allow_keyboard_passthrough ()
             InputAccumulator.discard_transient_input rawInput
         else
+            if state.projection <> previousProjection then
+                state.wheel_remainder <- 0L
+                InputAccumulator.discard_pointer_input rawInput
+
             FlightControls.update_keyboard_navigation_input state
             let navigationChange = FlightCamera.update_navigation_mode rawInput state
             wheelChange <- FlightControls.apply_wheel_input rawInput state
@@ -87,6 +92,8 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
                 state.key_pivot_target <-
                     FlightCamera.navigation_target state ViewNavigationMode.Pivot state.gumball_pivot_target
 
+                state.wheel_remainder <- 0L
+                InputAccumulator.discard_pointer_input rawInput
                 state.key_pivot_input_state <- KeyPivotInputActive
             elif not pivotKeysDown && state.key_pivot_input_state = KeyPivotInputActive then
                 state.key_pivot_input_state <- KeyPivotInputArmed
@@ -94,13 +101,7 @@ let run (inputWake: PlatformInput.RawInputWake) (rawInput: InputAccumulator.Stat
             if currentlyMoving then
                 let dt =
                     if movementStarting then
-                        let changedAt = PlatformInput.flight_keyboard_change_timestamp ()
-                        let elapsedTicks = frameTimestamp - changedAt
-
-                        if changedAt > 0L && elapsedTicks >= 0L then
-                            min (float elapsedTicks / float Stopwatch.Frequency) MAXIMUM_FRAME_DELTA_SECONDS
-                        else
-                            0.
+                        0.
                     else
                         min (now - previousFrameSeconds) MAXIMUM_FRAME_DELTA_SECONDS
 

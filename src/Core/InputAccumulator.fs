@@ -106,8 +106,8 @@ let request_retarget (mode: RetargetMode) (state: State) =
         Interlocked.Exchange(&state.retarget_request, int mode) |> ignore
         mark_work_available state
 
-let add_raw_mouse_button_event (event: RawMouseButtonEvent) (timestamp: int64) (state: State) =
-    if event <> RawMouseButtonEvent.None then
+let add_raw_mouse_button_transition (transition: RawMouseButtonTransition) (state: State) =
+    if transition.event <> RawMouseButtonEvent.None then
         // One raw worker fills each slot before the UI can see the new write position.
         let write = Volatile.Read(&state.raw_mouse_button_event_write)
         let read = Volatile.Read(&state.raw_mouse_button_event_read)
@@ -116,7 +116,7 @@ let add_raw_mouse_button_event (event: RawMouseButtonEvent) (timestamp: int64) (
             Interlocked.Exchange(&state.raw_mouse_button_event_overflow, 1) |> ignore
         else
             let index = int (write % int64 state.raw_mouse_button_events.Length)
-            state.raw_mouse_button_events[index] <- { event = event; timestamp = timestamp }
+            state.raw_mouse_button_events[index] <- transition
 
             Volatile.Write(&state.raw_mouse_button_event_write, write + 1L)
 
@@ -158,6 +158,10 @@ let drain_raw_mouse_button_event_overflow (state: State) =
 
 let raw_mouse_button_event_pending (state: State) =
     Volatile.Read(&state.raw_mouse_button_event_read) < Volatile.Read(&state.raw_mouse_button_event_write)
+
+let discard_pointer_input (state: State) =
+    Interlocked.Exchange(&state.mouse_xy, 0L) |> ignore
+    Interlocked.Exchange(&state.wheel_delta, 0L) |> ignore
 
 let exit_reason (state: State) = Volatile.Read(&state.exit_reason)
 

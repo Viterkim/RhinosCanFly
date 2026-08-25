@@ -188,8 +188,9 @@ let open_raw_input
     (sessionMode: FlightSessionMode)
     (input: InputAccumulator.State)
     (inputAvailable: Action)
+    (buttonObserved: Action<RawMouseButtonTransition>)
     =
-    RawInputThread.start config sessionMode input inputAvailable
+    RawInputThread.start config sessionMode input inputAvailable buttonObserved
 
 let raw_input_start_requires_restart (error: exn) =
     match error with
@@ -213,10 +214,13 @@ let suppress_flight_keyboard (bindings: FlightBindings) (retarget: RetargetConfi
 
 let release_flight_keyboard () = FlightKeyboardSuppression.stop ()
 
-let flight_keyboard_revision () = FlightKeyboardSuppression.revision ()
+let allow_keyboard_passthrough () =
+    FlightKeyboardSuppression.allow_passthrough ()
 
-let flight_keyboard_change_timestamp () =
-    FlightKeyboardSuppression.last_change_timestamp ()
+let mouse_transition_requests_flight_exit (transition: RawMouseButtonTransition) =
+    FlightKeyboardSuppression.mouse_transition_requests_exit transition
+
+let flight_keyboard_revision () = FlightKeyboardSuppression.revision ()
 
 let drain_flight_exit_pressed () =
     FlightKeyboardSuppression.drain_exit_pressed ()
