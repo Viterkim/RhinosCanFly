@@ -162,7 +162,6 @@ type KeyPivotDirection =
     | KeyPivotRight
 
 type KeyPivotInputState =
-    | WaitingForNeutralKeyPivotInput
     | KeyPivotInputArmed
     | KeyPivotInputActive
 

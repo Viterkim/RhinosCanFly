@@ -13,8 +13,3 @@ let key_pivot_direction (input: InputSnapshot) =
         KeyPivotLeft
     else
         KeyPivotRight
-
-let without_key_pivot (input: InputSnapshot) =
-    { input with
-        key_pivot_left = false
-        key_pivot_right = false }

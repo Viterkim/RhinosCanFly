@@ -15,7 +15,6 @@ let state = create_state ()
 let right_click = RightClickTransitions.create ()
 let mutable hook_ui_wake: PlatformInputWake.State option = None
 let mutable hook_ui_main_loop_handler: EventHandler option = None
-let mutable flight_right_release_observer: Action option = None
 let hook_ui_work_requested = Event<unit>()
 
 let signal_hook_ui_work () =
@@ -149,11 +148,6 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
     let mutable rightClickWasOwned = false
 
     try
-        if event.message = Win32Native.WM_RBUTTONUP then
-            match flight_right_release_observer with
-            | Some observer -> observer.Invoke()
-            | None -> ()
-
         if
             raw_navigation_button_message event.message
             && raw_navigation_captures_button_messages ()
@@ -271,8 +265,7 @@ let remove_mouse_hook () =
 
 let mouse_hook_needed () =
     state.lifecycle <> ShutDown
-    && (flight_right_release_observer.IsSome
-        || RightClickTransitions.capture_needed state right_click
+    && (RightClickTransitions.capture_needed state right_click
         || MouseOverrideState.side_button_routing_enabled state
         || MouseOverrideState.hook_owns_any_button state)
 
@@ -693,22 +686,6 @@ let suspend () =
         state.suspension_ids.Add lease.id |> ignore
         Ok lease
 
-let configure_flight_right_release_observer (observer: Action option) =
-    match observer with
-    | Some value when state.lifecycle <> Suspended ->
-        Error "Mouse button overrides must be suspended before observing a flight exit."
-    | Some value ->
-        flight_right_release_observer <- Some value
-
-        match refresh_mouse_hook () with
-        | Ok() -> Ok()
-        | Error error ->
-            flight_right_release_observer <- None
-            Error error
-    | None ->
-        flight_right_release_observer <- None
-        Ok()
-
 let resume (lease: InputSuspensionLease) =
     if state.lifecycle = ShutDown then
         Error "Mouse button overrides have already shut down."
@@ -778,7 +755,6 @@ let shutdown () =
                 log_exception $"mouse override {name} shutdown" error
 
         state.lifecycle <- ShutDown
-        flight_right_release_observer <- None
         RightClickTransitions.reset right_click
         state.suspension_ids.Clear()
         state.suspension_cleanup_error <- None

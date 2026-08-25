@@ -73,8 +73,10 @@ let run (inputWake: PlatformInputWake.State) (rawInput: InputAccumulator.State) 
 
                         let navigationChanged = update_navigation_mode ()
 
-                        if effect.pointer_barrier || navigationChanged then
+                        if effect.pointer_barrier then
                             apply_pointer_barrier ()
+                        elif navigationChanged then
+                            discard_pointer_input ()
                 | InputAccumulator.TimelineEventKind.KeyboardActions ->
                     let effect = FlightControls.apply_keyboard_actions event.keyboard_actions state
 
@@ -83,8 +85,10 @@ let run (inputWake: PlatformInputWake.State) (rawInput: InputAccumulator.State) 
 
                         let navigationChanged = update_navigation_mode ()
 
-                        if effect.pointer_barrier || navigationChanged then
+                        if effect.pointer_barrier then
                             apply_pointer_barrier ()
+                        elif navigationChanged then
+                            discard_pointer_input ()
                 | InputAccumulator.TimelineEventKind.Movement
                 | InputAccumulator.TimelineEventKind.Wheel -> ()
                 | _ -> failwith "The input timeline contains an unknown event."
@@ -104,19 +108,7 @@ let run (inputWake: PlatformInputWake.State) (rawInput: InputAccumulator.State) 
         if FlyState.is_running state then
             let mutable viewChange = ViewChange.none
 
-            let input = FlightControls.read_movement state
-            let requestedPivotKeysDown = input.key_pivot_left || input.key_pivot_right
-
-            let movement =
-                match state.key_pivot_input_state with
-                | WaitingForNeutralKeyPivotInput ->
-                    if requestedPivotKeysDown then
-                        FlightInput.without_key_pivot input
-                    else
-                        state.key_pivot_input_state <- KeyPivotInputArmed
-                        input
-                | KeyPivotInputArmed
-                | KeyPivotInputActive -> input
+            let movement = FlightControls.read_movement state
 
             let now = frameSeconds
             let currentlyMoving = FlightInput.movement_active movement

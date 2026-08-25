@@ -24,9 +24,6 @@ let view_matches_host (host: ViewportHostIdentity) (view: RhinoView) =
 [<Struct>]
 type DrainResult = { count: int; overflowed: bool }
 
-let ignoreButton =
-    Action<RawMouseButtonTransition>(fun (_: RawMouseButtonTransition) -> ())
-
 type Session
     internal
     (
@@ -224,7 +221,7 @@ let start (host: ViewportHostIdentity) (mode: ViewportNavigation.Operation) (fai
                 let mutable cursorHidden = false
 
                 try
-                    let createdRaw = PlatformRawInput.start input inputAvailable ignoreButton
+                    let createdRaw = PlatformRawInput.start input inputAvailable
                     raw <- Some createdRaw
 
                     match PlatformCursorClip.acquire view with
