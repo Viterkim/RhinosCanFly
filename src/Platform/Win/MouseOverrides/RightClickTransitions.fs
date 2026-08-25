@@ -518,6 +518,14 @@ let prune_released_button (state: RightClickState) =
         else
             state.button_ownership <- ReleaseObserved
 
+let reconcile_physical_button (state: RightClickState) =
+    if owns_button state then
+        if Win32Native.GetAsyncKeyState Win32Native.VK_RBUTTON < 0s then
+            state.button_ownership <- Owned
+        else
+            state.button_ownership <- NotOwned
+            clear_action state
+
 let parallel_zoom_host (state: RightClickState) =
     match state.gesture with
     | ButtonDownHandled(ZoomParallel click) ->

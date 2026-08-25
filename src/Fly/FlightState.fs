@@ -5,8 +5,6 @@ open Rhino.Geometry
 
 let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyConfig) (sessionMode: FlightSessionMode) =
     let viewport = view.ActiveViewport
-    let bindings = config.bindings
-    let mouseNavigationBindings = bindings.mouse_navigation
     let movement = config.movement
     let behavior = config.behavior
 
@@ -47,18 +45,6 @@ let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyCo
     let speed =
         FlightSpeed.current view.Document behavior.load_speed_from_document movement.speed_range movement.base_speed
 
-    let keyboardPivotHeld =
-        FlightControls.is_optional_down mouseNavigationBindings.pivot.hold
-
-    let keyboardPanHeld =
-        FlightControls.is_optional_down mouseNavigationBindings.pan.hold
-
-    let mousePivotHoldButtons =
-        FlightControls.current_mouse_hold_buttons RoutedMouseAction.holds_pivot config.mouse
-
-    let mousePanHoldButtons =
-        FlightControls.current_mouse_hold_buttons RoutedMouseAction.holds_pan config.mouse
-
     let originalCamera = CameraSnapshot.capture viewport
 
     let perspectiveProjection =
@@ -68,9 +54,9 @@ let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyCo
         | ViewProjectionKind.Perspective -> ViewProjectionKind.Perspective
 
     let perspectiveLensLength =
-        match originalCamera.perspective_lens_length_mm with
+        match originalCamera.perspective_lens_length with
         | ValueSome lens -> lens
-        | ValueNone -> behavior.perspective_lens.after_parallel_mm
+        | ValueNone -> behavior.perspective_lens.after_parallel
 
     { view = view
       viewport = viewport
@@ -84,13 +70,13 @@ let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyCo
       key_pivot_input_state = KeyPivotInputArmed
       active_mouse_navigation = MouseLook
       latched_mouse_navigation = LookNavigation
-      keyboard_pivot_held = keyboardPivotHeld
-      keyboard_pan_held = keyboardPanHeld
-      mouse_pivot_hold_buttons = mousePivotHoldButtons
-      mouse_pan_hold_buttons = mousePanHoldButtons
+      keyboard_pivot_held = false
+      keyboard_pan_held = false
+      mouse_pivot_hold_buttons = 0
+      mouse_pan_hold_buttons = 0
       projection = originalCamera.projection
       perspective_projection = perspectiveProjection
-      perspective_lens_length_mm = perspectiveLensLength
+      perspective_lens_length = perspectiveLensLength
       exit_reason = None
       restore_camera_on_exit = sessionMode.flight_mode = FlightMode.Temporary
       camera = camera

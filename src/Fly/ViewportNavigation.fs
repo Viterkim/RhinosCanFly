@@ -17,7 +17,7 @@ type Operation =
 type MouseConfig =
     { x_mode: MouseAxisMode
       y_mode: MouseAxisMode
-      sensitivity: RuntimeMouseSensitivity
+      sensitivity: MouseRadiansPerCount
       pivot_multiplier: MousePivotMultiplier
       pan_multiplier: MousePanMultiplier }
 

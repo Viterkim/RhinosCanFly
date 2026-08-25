@@ -32,6 +32,7 @@ let run (inputWake: PlatformInputWake.State) (rawInput: InputAccumulator.State) 
         RhinoApp.Wait()
 
         let frameSeconds = clock.Elapsed.TotalSeconds
+        let mutable resetMovementClock = false
         let observedRawRevision = InputAccumulator.work_revision rawInput
         let observedKeyboardRevision = PlatformFlightKeyboard.revision ()
         FlightControls.update_state frameSeconds rawInput state
@@ -42,6 +43,7 @@ let run (inputWake: PlatformInputWake.State) (rawInput: InputAccumulator.State) 
         else
             if update_navigation_mode () then
                 discard_pointer_input ()
+                resetMovementClock <- true
 
             let struct (timelineCount, timelineOverflowed) =
                 InputAccumulator.drain_timeline timeline rawInput
@@ -50,20 +52,19 @@ let run (inputWake: PlatformInputWake.State) (rawInput: InputAccumulator.State) 
                 FlyState.request_exit (SessionFailure "The input timeline overflowed.") state
 
             let mutable timelineIndex = 0
-            let mutable acceptPointerInput = true
 
-            let apply_pointer_barrier () =
-                acceptPointerInput <- false
+            let rebase_pointer () =
                 discard_pointer_input ()
+                resetMovementClock <- true
 
             while FlyState.is_running state && timelineIndex < timelineCount do
                 let event = timeline[timelineIndex]
 
                 match event.kind with
-                | InputAccumulator.TimelineEventKind.Movement when acceptPointerInput ->
+                | InputAccumulator.TimelineEventKind.Movement ->
                     FlightCamera.apply_mouse_delta event.dx event.dy state
                     |> FlightCamera.apply state
-                | InputAccumulator.TimelineEventKind.Wheel when acceptPointerInput ->
+                | InputAccumulator.TimelineEventKind.Wheel ->
                     FlightControls.apply_wheel_delta event.wheel state |> FlightCamera.apply state
                 | InputAccumulator.TimelineEventKind.RawMouseButton ->
                     let effect = FlightControls.apply_raw_mouse_button_transition event.button state
@@ -73,10 +74,11 @@ let run (inputWake: PlatformInputWake.State) (rawInput: InputAccumulator.State) 
 
                         let navigationChanged = update_navigation_mode ()
 
-                        if effect.pointer_barrier then
-                            apply_pointer_barrier ()
+                        if effect.pointer_rebase_required then
+                            rebase_pointer ()
                         elif navigationChanged then
                             discard_pointer_input ()
+                            resetMovementClock <- true
                 | InputAccumulator.TimelineEventKind.KeyboardActions ->
                     let effect = FlightControls.apply_keyboard_actions event.keyboard_actions state
 
@@ -85,12 +87,11 @@ let run (inputWake: PlatformInputWake.State) (rawInput: InputAccumulator.State) 
 
                         let navigationChanged = update_navigation_mode ()
 
-                        if effect.pointer_barrier then
-                            apply_pointer_barrier ()
+                        if effect.pointer_rebase_required then
+                            rebase_pointer ()
                         elif navigationChanged then
                             discard_pointer_input ()
-                | InputAccumulator.TimelineEventKind.Movement
-                | InputAccumulator.TimelineEventKind.Wheel -> ()
+                            resetMovementClock <- true
                 | _ -> failwith "The input timeline contains an unknown event."
 
                 timelineIndex <- timelineIndex + 1
@@ -137,13 +138,13 @@ let run (inputWake: PlatformInputWake.State) (rawInput: InputAccumulator.State) 
                         min (now - previousFrameSeconds) MAXIMUM_FRAME_DELTA_SECONDS
 
                 let previousCamera = state.camera
-                let parallelView = state.config.movement.parallel_view
+                let parallelProjection = state.config.movement.parallel_projection
 
                 let parallelFlight = state.projection = ViewProjectionKind.Parallel
 
                 let verticalSpeedMultiplier =
                     if parallelFlight then
-                        parallelView.up_down_multiplier
+                        parallelProjection.up_down_multiplier
                     else
                         state.config.movement.vertical_speed_multiplier
 
@@ -192,8 +193,8 @@ let run (inputWake: PlatformInputWake.State) (rawInput: InputAccumulator.State) 
                           parallel_magnification = parallelMagnification }
 
             previousFrameSeconds <-
-                if movementStarting || pivotTargetStarting then
-                    // Don't count target lookup time as movement or the next frame jumps.
+                if movementStarting || pivotTargetStarting || resetMovementClock then
+                    // Don't count target or projection work as movement or the next frame jumps.
                     clock.Elapsed.TotalSeconds
                 else
                     now

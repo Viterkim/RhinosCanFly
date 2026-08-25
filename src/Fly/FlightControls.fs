@@ -57,10 +57,10 @@ let explicit_exit_reason (state: FlyState) =
 let apply_keyboard_actions (actions: InputAccumulator.KeyboardAction) (state: FlyState) =
     if has_keyboard_action actions InputAccumulator.KeyboardAction.CancelAndRestore then
         FlyState.request_exit ExplicitRestoreCamera state
-        InputEffect.barrier ViewChange.none
+        InputEffect.rebase_pointer ViewChange.none
     elif has_keyboard_action actions InputAccumulator.KeyboardAction.Exit then
         FlyState.request_exit (explicit_exit_reason state) state
-        InputEffect.barrier ViewChange.none
+        InputEffect.rebase_pointer ViewChange.none
     else
         if has_keyboard_action actions InputAccumulator.KeyboardAction.PivotToggle then
             state.latched_mouse_navigation <- MouseNavigationMode.toggle PivotNavigation state.latched_mouse_navigation
@@ -101,10 +101,10 @@ let apply_keyboard_actions (actions: InputAccumulator.KeyboardAction) (state: Fl
             speed_step state (SpeedStepCount -1.)
 
         let mutable retargetChange = ViewChange.none
-        let mutable pointerBarrier = false
+        let mutable pointerRebaseRequired = false
 
         if has_keyboard_action actions InputAccumulator.KeyboardAction.RetargetAllViews then
-            pointerBarrier <- state.config.behavior.retarget.keyboard_all_views <> RetargetMode.Off
+            pointerRebaseRequired <- state.config.behavior.retarget.keyboard_all_views <> RetargetMode.Off
 
             retargetChange <-
                 FlightCamera.apply_retarget_request
@@ -112,7 +112,7 @@ let apply_keyboard_actions (actions: InputAccumulator.KeyboardAction) (state: Fl
                     state.config.behavior.retarget.keyboard_all_views
                     state
         elif has_keyboard_action actions InputAccumulator.KeyboardAction.RetargetOtherViews then
-            pointerBarrier <- state.config.behavior.retarget.keyboard_other_views <> RetargetMode.Off
+            pointerRebaseRequired <- state.config.behavior.retarget.keyboard_other_views <> RetargetMode.Off
 
             retargetChange <-
                 FlightCamera.apply_retarget_request
@@ -125,10 +125,10 @@ let apply_keyboard_actions (actions: InputAccumulator.KeyboardAction) (state: Fl
             && has_keyboard_action actions InputAccumulator.KeyboardAction.ProjectionToggle
         then
             FlightCamera.toggle_projection state
-            pointerBarrier <- true
+            pointerRebaseRequired <- true
 
         { view_change = retargetChange
-          pointer_barrier = pointerBarrier }
+          pointer_rebase_required = pointerRebaseRequired }
 
 let set_mouse_hold (buttonBit: int) (down: bool) (action: RoutedMouseAction) (state: FlyState) =
     if RoutedMouseAction.holds_pivot action then
@@ -159,7 +159,7 @@ let apply_mouse_action_down (buttonBit: int) (action: RoutedMouseAction) (state:
         InputEffect.none
     | RoutedMouseAction.Retarget mode ->
         FlightCamera.apply_retarget_request RetargetScope.AllViews mode state
-        |> InputEffect.barrier
+        |> InputEffect.rebase_pointer
     | RoutedMouseAction.Off -> InputEffect.none
 
 let apply_mouse_action_up (buttonBit: int) (action: RoutedMouseAction) (state: FlyState) =
@@ -199,7 +199,8 @@ let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) (st
     if FlyState.is_running state then
         effect
     else
-        { effect with pointer_barrier = true }
+        { effect with
+            pointer_rebase_required = true }
 
 let apply_wheel_delta (wheelDelta: int64) (state: FlyState) =
     let wheel = state.wheel_remainder + wheelDelta

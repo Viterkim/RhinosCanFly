@@ -220,11 +220,14 @@ type SettingsControl() as self =
         let mouseButtonLayout = new TableLayout(Spacing = Size(16, 4))
 
         let mouse_button_row (label: string) (action: Control) (whileFlying: Control) (useCursor: Control) =
+            action.Width <- 220
+
             SettingsLayout.row
                 [ new TableCell(new Label(Text = label, Width = SettingsLayout.ITEM_LABEL_WIDTH), false)
-                  new TableCell(action, true)
+                  new TableCell(action, false)
                   new TableCell(whileFlying, false)
-                  new TableCell(useCursor, false) ]
+                  new TableCell(useCursor, false)
+                  new TableCell(new Panel(), true) ]
 
         mouseButtonLayout.Rows.Add(
             mouse_button_row
@@ -252,12 +255,16 @@ type SettingsControl() as self =
 
         mainTable.Rows.Add(SettingsLayout.full_width mouseButtonLayout)
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Sensitivity"))
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Mouse sensitivity"))
 
         SettingsLayout.grid
             2
-            [ SettingsLayout.item "Perspective sens" numbers.mouse_sensitivity
-              SettingsLayout.item "Parallel sens" numbers.parallel_mouse_sensitivity ]
+            [ SettingsLayout.fixed_item SettingsLayout.ITEM_LABEL_WIDTH 220 "Perspective sens" numbers.mouse_sensitivity
+              SettingsLayout.fixed_item
+                  SettingsLayout.ITEM_LABEL_WIDTH
+                  220
+                  "Parallel sens"
+                  numbers.parallel_mouse_sensitivity ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
@@ -444,10 +451,14 @@ type SettingsControl() as self =
 
         SettingsLayout.grid
             2
-            [ SettingsLayout.item
+            [ SettingsLayout.fixed_item
+                  235
+                  175
                   "Forced perspective lens on flight start"
                   numbers.forced_perspective_lens_length_on_flight_start_mm
-              SettingsLayout.item
+              SettingsLayout.fixed_item
+                  235
+                  175
                   "Perspective lens diff during flight"
                   numbers.perspective_lens_length_delta_during_flight_mm ]
         |> SettingsLayout.full_width

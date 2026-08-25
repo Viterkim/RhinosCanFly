@@ -1,6 +1,5 @@
 module RhinosCanFly.Platform.Win.GestureNavigationTransitions
 
-open System.Diagnostics
 open System.Drawing
 open Rhino
 open Rhino.Display
@@ -9,7 +8,7 @@ open RhinosCanFly.Platform.Win.MouseOverrideTypes
 
 [<Struct>]
 type PressResult =
-    | Applied of pointer_barrier: bool
+    | Applied of pointer_rebase_required: bool
     | Deferred
     | Failed of error: string
 
@@ -259,15 +258,3 @@ let poll (state: State) =
             stop state
         elif session.lifetime = GestureLifetime.Hold && not (owner_button_down session.owner) then
             stop state
-
-let press_or_log
-    (state: State)
-    (owner: GestureOwner)
-    (action: RoutedMouseAction)
-    (host: ViewportHostIdentity)
-    (point: Point)
-    =
-    match press state owner action host point with
-    | Applied _
-    | Deferred -> ()
-    | Failed error -> Debug.WriteLine $"RhinosCanFly mouse action: {error}"

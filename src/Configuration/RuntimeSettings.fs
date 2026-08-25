@@ -51,11 +51,11 @@ let apply_live (loaded: ConfigLoadResult) =
             { x_mode = runtime.mouse.x_mode
               y_mode = runtime.mouse.y_mode
               perspective_sensitivity = runtime.mouse.sensitivity
-              parallel_sensitivity = runtime.movement.parallel_view.mouse_sensitivity
+              parallel_sensitivity = runtime.movement.parallel_projection.mouse_sensitivity
               perspective_pivot_multiplier = runtime.mouse.pivot_multiplier
-              parallel_pivot_multiplier = runtime.movement.parallel_view.mouse_pivot_multiplier
+              parallel_pivot_multiplier = runtime.movement.parallel_projection.mouse_pivot_multiplier
               perspective_pan_multiplier = runtime.mouse.pan_multiplier
-              parallel_pan_multiplier = runtime.movement.parallel_view.mouse_pan_multiplier }
+              parallel_pan_multiplier = runtime.movement.parallel_projection.mouse_pan_multiplier }
 
         let mouseOverrides: MouseOverrideConfig =
             if runtime_enabled_for config then

@@ -77,14 +77,14 @@ type CameraSnapshot
         viewProjection: ViewportInfo,
         target: Point3d,
         projectionKind: ViewProjectionKind,
-        perspectiveLensLengthMm: float voption
+        perspectiveLensLength: PerspectiveLensLengthMm voption
     ) =
     let mutable disposed = false
 
     member internal _.view_projection = viewProjection
     member _.target = target
     member _.projection = projectionKind
-    member _.perspective_lens_length_mm = perspectiveLensLengthMm
+    member _.perspective_lens_length = perspectiveLensLength
     member _.is_disposed = disposed
 
     member _.dispose() =
@@ -102,7 +102,8 @@ module CameraSnapshot =
                 match projection with
                 | ViewProjectionKind.Parallel -> ValueNone
                 | ViewProjectionKind.Perspective
-                | ViewProjectionKind.TwoPointPerspective -> ValueSome viewProjection.Camera35mmLensLength
+                | ViewProjectionKind.TwoPointPerspective ->
+                    ValueSome(PerspectiveLensLengthMm viewProjection.Camera35mmLensLength)
 
             CameraSnapshot(viewProjection, viewport.CameraTarget, projection, perspectiveLensLength)
         with _ ->
@@ -141,20 +142,20 @@ module ViewChange =
 [<Struct>]
 type InputEffect =
     { view_change: ViewChange
-      pointer_barrier: bool }
+      pointer_rebase_required: bool }
 
 module InputEffect =
     let none =
         { view_change = ViewChange.none
-          pointer_barrier = false }
+          pointer_rebase_required = false }
 
-    let barrier (change: ViewChange) =
+    let rebase_pointer (change: ViewChange) =
         { view_change = change
-          pointer_barrier = true }
+          pointer_rebase_required = true }
 
     let combine (first: InputEffect) (second: InputEffect) =
         { view_change = ViewChange.combine first.view_change second.view_change
-          pointer_barrier = first.pointer_barrier || second.pointer_barrier }
+          pointer_rebase_required = first.pointer_rebase_required || second.pointer_rebase_required }
 
 type KeyPivotDirection =
     | NoKeyPivot
@@ -184,7 +185,7 @@ type ActiveMouseNavigation =
     | MousePan of target: Point3d * units_per_radian: MousePanUnitsPerRadian
 
 [<Struct>]
-type InputSnapshot =
+type FlightMovementInput =
     { forward: bool
       backward: bool
       left: bool

@@ -294,6 +294,36 @@ let prune_released_side_buttons () =
         else
             MouseOverrideState.observe_hook_button_released state Mouse5
 
+let reconcile_button_ownership_after_suspension () =
+    RightClickTransitions.reconcile_physical_button right_click
+
+    if MouseOverrideState.hook_owns_button state Middle then
+        MouseOverrideState.set_hook_button_ownership
+            state
+            Middle
+            (if SideButtonTransitions.is_down Middle then
+                 Owned
+             else
+                 NotOwned)
+
+    if MouseOverrideState.hook_owns_button state Mouse4 then
+        MouseOverrideState.set_hook_button_ownership
+            state
+            Mouse4
+            (if SideButtonTransitions.is_down Mouse4 then
+                 Owned
+             else
+                 NotOwned)
+
+    if MouseOverrideState.hook_owns_button state Mouse5 then
+        MouseOverrideState.set_hook_button_ownership
+            state
+            Mouse5
+            (if SideButtonTransitions.is_down Mouse5 then
+                 Owned
+             else
+                 NotOwned)
+
 let release_after_timer_error (error: exn) =
     log_exception "mouse override timer" error
     RightClickTransitions.clear_action right_click
@@ -698,6 +728,8 @@ let resume (lease: InputSuspensionLease) =
         state.lifecycle <- Resuming
 
         try
+            reconcile_button_ownership_after_suspension ()
+
             match refresh_mouse_hook () with
             | Error error ->
                 activate_degraded error

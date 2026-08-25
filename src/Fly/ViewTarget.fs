@@ -15,7 +15,7 @@ type RetargetSelection =
       bounds: BoundingBox voption }
 
 [<Struct>]
-type SelectedObjectPick =
+type SelectedObjectPickMode =
     | BoundsWhenNothingElsePicked
     | ExactUnderCursor
 
@@ -129,7 +129,7 @@ let dispose_object_references (picked: ObjRef array) =
                 reference.Dispose()
 
 let try_filtered_object_at_internal
-    (selectedObjectPick: SelectedObjectPick)
+    (selectedObjectPickMode: SelectedObjectPickMode)
     (view: RhinoView)
     (viewport: RhinoViewport)
     (point: ViewportClientPoint)
@@ -213,7 +213,7 @@ let try_filtered_object_at_internal
                                                 estimatedTarget <- center
                                     | ValueNone -> ()
 
-                        let exactSelectedHit = selectedObjectPick = ExactUnderCursor
+                        let exactSelectedHit = selectedObjectPickMode = ExactUnderCursor
                         let checkSelectedObjects = exactSelectedHit || isNull selectedObject
 
                         let geometryTarget =

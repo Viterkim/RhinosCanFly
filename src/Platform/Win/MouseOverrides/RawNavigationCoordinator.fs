@@ -10,7 +10,7 @@ open RhinosCanFly.Platform.Win.MouseOverrideTypes
 [<Struct; RequireQualifiedAccess>]
 type PointerInputDisposition =
     | Continue
-    | Barrier
+    | Rebase
     | Invalidate
 
 [<Struct>]
@@ -126,14 +126,14 @@ let stop (state: State) =
 
         result
 
-let applied_barrier
+let press_requires_pointer_rebase
     (state: State)
     (host: ViewportHostIdentity)
     (action: RoutedMouseAction)
     (result: GestureNavigationTransitions.PressResult)
     =
     match result with
-    | GestureNavigationTransitions.Applied pointerBarrier ->
+    | GestureNavigationTransitions.Applied pointerRebaseRequired ->
         match action with
         | RoutedMouseAction.Retarget _ ->
             match state.session with
@@ -150,7 +150,7 @@ let applied_barrier
         | RoutedMouseAction.TogglePan
         | RoutedMouseAction.HoldPan -> ()
 
-        pointerBarrier
+        pointerRebaseRequired
     | GestureNavigationTransitions.Deferred -> true
     | GestureNavigationTransitions.Failed error ->
         Debug.WriteLine $"RhinosCanFly mouse action: {error}"
@@ -171,7 +171,7 @@ let handle_right_down
         let result =
             GestureNavigationTransitions.press navigation GestureOwner.ModifiedRightClick action host screenPoint
 
-        applied_barrier state host action result
+        press_requires_pointer_rebase state host action result
     | ValueNone when navigation.routing.actions.exit_on_mouse_right ->
         state.request_exit ()
         true
@@ -195,13 +195,13 @@ let handle_side_down
     let result =
         GestureNavigationTransitions.press navigation (SideButtonTransitions.owner button) action host screenPoint
 
-    applied_barrier state host action result
+    press_requires_pointer_rebase state host action result
 
 let handle_side_up (state: State) (button: SideButton) =
     MouseOverrideState.set_hook_button_ownership state.navigation button NotOwned
     GestureNavigationTransitions.release state.navigation (SideButtonTransitions.owner button)
 
-let disposition_after_button (state: State) (active: ActiveNavigation) (pointerBarrier: bool) =
+let disposition_after_button (state: State) (active: ActiveNavigation) (pointerRebaseRequired: bool) =
     match desired state with
     | ValueSome requested when same_navigation requested active.requested ->
         match requested.pivot_center with
@@ -209,8 +209,8 @@ let disposition_after_button (state: State) (active: ActiveNavigation) (pointerB
         | ValueSome _
         | ValueNone -> ()
 
-        if pointerBarrier then
-            PointerInputDisposition.Barrier
+        if pointerRebaseRequired then
+            PointerInputDisposition.Rebase
         else
             PointerInputDisposition.Continue
     | ValueSome _
@@ -223,21 +223,21 @@ let handle_button
     (screenPoint: System.Drawing.Point)
     =
     try
-        let mutable pointerBarrier = false
+        let mutable pointerRebaseRequired = false
 
         match transition.event with
         | RawMouseButtonEvent.LeftUp when state.navigation.routing.actions.exit_on_mouse_left -> state.request_exit ()
         | RawMouseButtonEvent.RightDown ->
-            pointerBarrier <- handle_right_down state active.requested.host screenPoint transition.modifiers
+            pointerRebaseRequired <- handle_right_down state active.requested.host screenPoint transition.modifiers
         | RawMouseButtonEvent.RightUp -> handle_right_up state
         | RawMouseButtonEvent.MiddleDown ->
-            pointerBarrier <- handle_side_down state Middle active.requested.host screenPoint
+            pointerRebaseRequired <- handle_side_down state Middle active.requested.host screenPoint
         | RawMouseButtonEvent.MiddleUp -> handle_side_up state Middle
         | RawMouseButtonEvent.Mouse4Down ->
-            pointerBarrier <- handle_side_down state Mouse4 active.requested.host screenPoint
+            pointerRebaseRequired <- handle_side_down state Mouse4 active.requested.host screenPoint
         | RawMouseButtonEvent.Mouse4Up -> handle_side_up state Mouse4
         | RawMouseButtonEvent.Mouse5Down ->
-            pointerBarrier <- handle_side_down state Mouse5 active.requested.host screenPoint
+            pointerRebaseRequired <- handle_side_down state Mouse5 active.requested.host screenPoint
         | RawMouseButtonEvent.Mouse5Up -> handle_side_up state Mouse5
         | RawMouseButtonEvent.None
         | RawMouseButtonEvent.LeftDown
@@ -245,7 +245,7 @@ let handle_button
         | _ -> invalidOp "Raw mouse button events must be delivered one at a time."
 
         MouseOverrideState.keep_timer_running state.navigation
-        disposition_after_button state active pointerBarrier
+        disposition_after_button state active pointerRebaseRequired
     with error ->
         state.log_exception "raw navigation buttons" error
         state.request_exit ()
@@ -366,9 +366,7 @@ let drain (state: State) =
                     | InputAccumulator.TimelineEventKind.RawMouseButton when active.pointer_input_valid ->
                         match handle_button state active event.button active.transport.OriginalCursor with
                         | PointerInputDisposition.Continue -> ()
-                        | PointerInputDisposition.Barrier ->
-                            acceptPointerInput <- false
-                            discard_pointer_input active
+                        | PointerInputDisposition.Rebase -> discard_pointer_input active
                         | PointerInputDisposition.Invalidate ->
                             acceptPointerInput <- false
                             active.pointer_input_valid <- false

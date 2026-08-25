@@ -39,8 +39,7 @@ type TimelineEvent =
       dy: int64
       wheel: int64
       button: RawMouseButtonTransition
-      keyboard_actions: KeyboardAction
-      timestamp: int64 }
+      keyboard_actions: KeyboardAction }
 
 type State =
     { mutable mouse_xy: int64
@@ -108,8 +107,7 @@ let movement_event (dx: int64) (dy: int64) =
       dy = dy
       wheel = 0L
       button = Unchecked.defaultof<RawMouseButtonTransition>
-      keyboard_actions = KeyboardAction.None
-      timestamp = 0L }
+      keyboard_actions = KeyboardAction.None }
 
 let wheel_event (delta: int64) =
     { kind = TimelineEventKind.Wheel
@@ -117,8 +115,7 @@ let wheel_event (delta: int64) =
       dy = 0L
       wheel = delta
       button = Unchecked.defaultof<RawMouseButtonTransition>
-      keyboard_actions = KeyboardAction.None
-      timestamp = 0L }
+      keyboard_actions = KeyboardAction.None }
 
 let raw_mouse_button_event (transition: RawMouseButtonTransition) =
     { kind = TimelineEventKind.RawMouseButton
@@ -126,17 +123,15 @@ let raw_mouse_button_event (transition: RawMouseButtonTransition) =
       dy = 0L
       wheel = 0L
       button = transition
-      keyboard_actions = KeyboardAction.None
-      timestamp = transition.timestamp }
+      keyboard_actions = KeyboardAction.None }
 
-let keyboard_actions_event (actions: KeyboardAction) (timestamp: int64) =
+let keyboard_actions_event (actions: KeyboardAction) =
     { kind = TimelineEventKind.KeyboardActions
       dx = 0L
       dy = 0L
       wheel = 0L
       button = Unchecked.defaultof<RawMouseButtonTransition>
-      keyboard_actions = actions
-      timestamp = timestamp }
+      keyboard_actions = actions }
 
 let enqueue_locked (event: TimelineEvent) (state: State) =
     if state.timeline_write - state.timeline_read >= int64 state.timeline_events.Length then
@@ -171,9 +166,9 @@ let add_wheel (delta: int) (state: State) =
     if delta <> 0 then
         add_boundary_event (wheel_event (int64 delta)) state
 
-let add_keyboard_actions (actions: KeyboardAction) (timestamp: int64) (state: State) =
+let add_keyboard_actions (actions: KeyboardAction) (state: State) =
     if actions <> KeyboardAction.None then
-        add_boundary_event (keyboard_actions_event actions timestamp) state
+        add_boundary_event (keyboard_actions_event actions) state
 
 let drain_timeline (destination: TimelineEvent array) (state: State) =
     Monitor.Enter state.timeline_gate

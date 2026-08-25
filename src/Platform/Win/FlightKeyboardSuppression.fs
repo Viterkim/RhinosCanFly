@@ -487,7 +487,7 @@ let reconcile_physical_keys () =
                 let actions = collect_actions ()
 
                 match state.input with
-                | Some input -> InputAccumulator.add_keyboard_actions actions (Stopwatch.GetTimestamp()) input
+                | Some input -> InputAccumulator.add_keyboard_actions actions input
                 | None -> ()
 
                 Interlocked.Increment(&state.revision) |> ignore
@@ -508,7 +508,6 @@ let hook_event (event: Win32.KeyboardHookEvent) =
             swallow <- handle_event event
 
             if wasDown <> state.key_is_down[event.physical_key] then
-                let timestamp = Stopwatch.GetTimestamp()
                 let actions = collect_actions ()
 
                 if
@@ -518,7 +517,7 @@ let hook_event (event: Win32.KeyboardHookEvent) =
                     Volatile.Write(&state.accept_new_keys, false)
 
                 match state.input with
-                | Some input -> InputAccumulator.add_keyboard_actions actions timestamp input
+                | Some input -> InputAccumulator.add_keyboard_actions actions input
                 | None -> ()
 
                 Interlocked.Increment(&state.revision) |> ignore

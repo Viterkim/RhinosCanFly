@@ -624,11 +624,11 @@ let compile_detailed (source: FlyConfigFile) =
               wheel_changes_speed_during_flight_navigation = source.wheel_changes_speed_during_flight_navigation
               boost_mode = source.boost_mode
               slow_mode = source.slow_mode
-              parallel_view =
+              parallel_projection =
                 { mouse_sensitivity =
                     source.parallel_mouse_sensitivity
-                    |> ConfigMouseSensitivity
-                    |> MouseSensitivity.to_runtime
+                    |> MouseSensitivitySetting
+                    |> MouseSensitivity.to_radians_per_count
                   mouse_pivot_multiplier = MousePivotMultiplier source.parallel_mouse_pivot_multiplier
                   mouse_pan_multiplier = MousePanMultiplier source.parallel_mouse_pan_multiplier
                   zoom_speed_multiplier = source.parallel_zoom_speed_multiplier
@@ -638,8 +638,8 @@ let compile_detailed (source: FlyConfigFile) =
               pan_multiplier = MousePanMultiplier source.mouse_pan_multiplier
               sensitivity =
                 source.mouse_sensitivity
-                |> ConfigMouseSensitivity
-                |> MouseSensitivity.to_runtime
+                |> MouseSensitivitySetting
+                |> MouseSensitivity.to_radians_per_count
               x_mode = source.mouse_x_mode
               y_mode = source.mouse_y_mode
               exit_on_left = source.exit_on_mouse_left
@@ -675,13 +675,13 @@ let compile_detailed (source: FlyConfigFile) =
               save_speed_to_document = source.save_speed_to_document
               load_speed_from_document = source.load_speed_from_document
               perspective_lens =
-                { after_parallel_mm = source.perspective_lens_length_after_parallel_mm
-                  forced_on_flight_start_mm =
+                { after_parallel = PerspectiveLensLengthMm source.perspective_lens_length_after_parallel_mm
+                  forced_on_flight_start =
                     if source.forced_perspective_lens_length_on_flight_start_mm = 0. then
                         None
                     else
-                        Some source.forced_perspective_lens_length_on_flight_start_mm
-                  delta_during_flight_mm = source.perspective_lens_length_delta_during_flight_mm }
+                        Some(PerspectiveLensLengthMm source.forced_perspective_lens_length_on_flight_start_mm)
+                  delta_during_flight = PerspectiveLensDeltaMm source.perspective_lens_length_delta_during_flight_mm }
               viewport_paint_mode = source.viewport_paint_mode } }
 
     if issues.Count = 0 then

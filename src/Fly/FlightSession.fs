@@ -244,8 +244,8 @@ let finish_active_core (session: ActiveSession) (activeResult: Result<unit, stri
         && state.projection <> ViewProjectionKind.Parallel
     then
         attempt_cleanup cleanupErrors "perspective lens" (fun () ->
-            match state.original_camera.perspective_lens_length_mm with
-            | ValueSome lens -> state.viewport.Camera35mmLensLength <- lens
+            match state.original_camera.perspective_lens_length with
+            | ValueSome(PerspectiveLensLengthMm lens) -> state.viewport.Camera35mmLensLength <- lens
             | ValueNone -> failwith "The original perspective lens length is unavailable.")
         |> ignore
 
@@ -377,6 +377,16 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
 
     session.raw <- Some raw
     session.raw_input_clean <- false
+
+    let navigationBindings = state.config.bindings.mouse_navigation
+    state.keyboard_pivot_held <- FlightControls.is_optional_down navigationBindings.pivot.hold
+    state.keyboard_pan_held <- FlightControls.is_optional_down navigationBindings.pan.hold
+
+    state.mouse_pivot_hold_buttons <-
+        FlightControls.current_mouse_hold_buttons RoutedMouseAction.holds_pivot state.config.mouse
+
+    state.mouse_pan_hold_buttons <-
+        FlightControls.current_mouse_hold_buttons RoutedMouseAction.holds_pan state.config.mouse
 
     let heldEntryReleased =
         sessionMode.lifetime = FlightLifetime.WhileRightMouseHeld

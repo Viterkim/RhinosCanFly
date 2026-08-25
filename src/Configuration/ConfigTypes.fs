@@ -226,10 +226,10 @@ type FlyConfigFile =
       viewport_paint_mode: ViewportPaintMode }
 
 [<Struct>]
-type ConfigMouseSensitivity = ConfigMouseSensitivity of float
+type MouseSensitivitySetting = MouseSensitivitySetting of float
 
 [<Struct>]
-type RuntimeMouseSensitivity = RuntimeMouseSensitivity of float
+type MouseRadiansPerCount = MouseRadiansPerCount of float
 
 [<Struct>]
 type MousePivotMultiplier = MousePivotMultiplier of float
@@ -237,7 +237,13 @@ type MousePivotMultiplier = MousePivotMultiplier of float
 [<Struct>]
 type MousePanMultiplier = MousePanMultiplier of float
 
+[<Struct>]
+type PerspectiveLensLengthMm = PerspectiveLensLengthMm of float
+
+[<Struct>]
+type PerspectiveLensDeltaMm = PerspectiveLensDeltaMm of float
+
 type PerspectiveLensConfig =
-    { after_parallel_mm: float
-      forced_on_flight_start_mm: float option
-      delta_during_flight_mm: float }
+    { after_parallel: PerspectiveLensLengthMm
+      forced_on_flight_start: PerspectiveLensLengthMm option
+      delta_during_flight: PerspectiveLensDeltaMm }

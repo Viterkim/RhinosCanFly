@@ -22,7 +22,7 @@ type FlyState =
       mutable mouse_pan_hold_buttons: int
       mutable projection: ViewProjectionKind
       mutable perspective_projection: ViewProjectionKind
-      mutable perspective_lens_length_mm: float
+      mutable perspective_lens_length: PerspectiveLensLengthMm
       mutable exit_reason: FlightExitReason option
       mutable restore_camera_on_exit: bool
       mutable camera: CameraState

@@ -116,7 +116,7 @@ type MouseAngleDeltas =
 let mouse_angle_deltas
     (xMode: MouseAxisMode)
     (yMode: MouseAxisMode)
-    (mouseSensitivity: RuntimeMouseSensitivity)
+    (mouseSensitivity: MouseRadiansPerCount)
     (multiplier: float)
     (mouseDx: int64)
     (mouseDy: int64)
@@ -134,7 +134,7 @@ let mouse_angle_deltas
 
 let scaled_mouse_angle_deltas
     (config: FlyingMouseConfig)
-    (mouseSensitivity: RuntimeMouseSensitivity)
+    (mouseSensitivity: MouseRadiansPerCount)
     (multiplier: float)
     (mouseDx: int64)
     (mouseDy: int64)
@@ -143,7 +143,7 @@ let scaled_mouse_angle_deltas
 
 let clamped_mouse_angle_deltas
     (config: FlyingMouseConfig)
-    (mouseSensitivity: RuntimeMouseSensitivity)
+    (mouseSensitivity: MouseRadiansPerCount)
     (multiplier: float)
     (mouseDx: int64)
     (mouseDy: int64)
@@ -184,7 +184,7 @@ let screen_yaw_delta (camera: CameraState) (yawDelta: float) =
 
 let mouse_look
     (config: FlyingMouseConfig)
-    (mouseSensitivity: RuntimeMouseSensitivity)
+    (mouseSensitivity: MouseRadiansPerCount)
     (mouseDx: int64)
     (mouseDy: int64)
     (camera: CameraState)
@@ -214,7 +214,7 @@ let mouse_look
 
 let mouse_orbit
     (config: FlyingMouseConfig)
-    (mouseSensitivity: RuntimeMouseSensitivity)
+    (mouseSensitivity: MouseRadiansPerCount)
     (multiplier: float)
     (pivotCenter: Point3d)
     (mouseDx: int64)
@@ -261,7 +261,7 @@ let mouse_orbit
 
 let mouse_pivot
     (config: FlyingMouseConfig)
-    (mouseSensitivity: RuntimeMouseSensitivity)
+    (mouseSensitivity: MouseRadiansPerCount)
     (MousePivotMultiplier multiplier: MousePivotMultiplier)
     (pivotCenter: Point3d)
     (mouseDx: int64)
@@ -272,7 +272,7 @@ let mouse_pivot
 
 let mouse_pan
     (config: FlyingMouseConfig)
-    (mouseSensitivity: RuntimeMouseSensitivity)
+    (mouseSensitivity: MouseRadiansPerCount)
     (MousePanMultiplier multiplier: MousePanMultiplier)
     (MousePanUnitsPerRadian unitsPerRadian: MousePanUnitsPerRadian)
     (mouseDx: int64)
@@ -334,7 +334,7 @@ type MovementStep =
 let step
     (config: MovementConfig)
     (verticalSpeedMultiplier: float)
-    (input: InputSnapshot)
+    (input: FlightMovementInput)
     (keyPivotTarget: Point3d)
     (dt: float)
     (camera: CameraState)

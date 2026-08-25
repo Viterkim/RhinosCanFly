@@ -53,16 +53,6 @@ let gesture_navigation_engaged (state: State) =
     | NoGestureNavigation -> false
     | GestureNavigationActive _ -> true
 
-let gesture_navigation_host (state: State) =
-    match state.gesture_navigation with
-    | NoGestureNavigation -> ValueNone
-    | GestureNavigationActive session -> ValueSome session.host
-
-let gesture_navigation_mode (state: State) =
-    match state.gesture_navigation with
-    | NoGestureNavigation -> ValueNone
-    | GestureNavigationActive session -> ValueSome session.mode
-
 let view_latch_engaged (state: State) =
     match state.view_latch with
     | NoViewLatch -> false

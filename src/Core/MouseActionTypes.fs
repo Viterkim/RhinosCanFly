@@ -28,7 +28,6 @@ type RawMouseButtonEvent =
 [<Struct>]
 type RawMouseButtonTransition =
     { event: RawMouseButtonEvent
-      timestamp: int64
       modifiers: MouseModifiers }
 
 [<Struct; RequireQualifiedAccess>]
@@ -149,8 +148,8 @@ module MouseActionConfig =
           view_navigation_mouse =
             { x_mode = MouseAxisMode.Normal
               y_mode = MouseAxisMode.Normal
-              perspective_sensitivity = RuntimeMouseSensitivity 0.
-              parallel_sensitivity = RuntimeMouseSensitivity 0.
+              perspective_sensitivity = MouseRadiansPerCount 0.
+              parallel_sensitivity = MouseRadiansPerCount 0.
               perspective_pivot_multiplier = MousePivotMultiplier 1.
               parallel_pivot_multiplier = MousePivotMultiplier 1.
               perspective_pan_multiplier = MousePanMultiplier 1.
