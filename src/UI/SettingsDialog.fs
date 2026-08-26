@@ -50,13 +50,19 @@ type RhinosCanFlySettingsDialog() as self =
             Resizable = true
         )
 
-    let control = new SettingsControl()
+    let control =
+        InputDebugTrace.write "Settings dialog SettingsControl construction begin"
+        let value = new SettingsControl()
+        InputDebugTrace.write "Settings dialog SettingsControl construction end"
+        value
+
     let saveButton = new Button(Text = "Save")
     let cancelButton = new Button(Text = "Cancel")
     let windowIcon = SettingsUi.load_icon ()
     let mutable resourcesDisposed = false
 
     do
+        InputDebugTrace.write "Settings dialog layout begin"
         windowIcon |> Option.iter (fun (icon: Icon) -> self.Icon <- icon)
 
         let buttons = new TableLayout(Spacing = Size(8, 0))
@@ -79,27 +85,51 @@ type RhinosCanFlySettingsDialog() as self =
         SettingsUi.use_rhino_style self
 
         saveButton.Click.Add(fun (_: EventArgs) ->
+            InputDebugTrace.write "Settings dialog Save click begin"
+
             if Settings.save control then
-                self.Close())
+                InputDebugTrace.write "Settings dialog Save click saved=true close begin"
+                self.Close()
+                InputDebugTrace.write "Settings dialog Save click close end"
+            else
+                InputDebugTrace.write "Settings dialog Save click saved=false")
 
-        cancelButton.Click.Add(fun (_: EventArgs) -> self.Close())
+        cancelButton.Click.Add(fun (_: EventArgs) ->
+            InputDebugTrace.write "Settings dialog Cancel click close begin"
+            self.Close()
+            InputDebugTrace.write "Settings dialog Cancel click close end")
 
-        self.LoadComplete.Add(fun (_: EventArgs) -> control.SetScrollPosition SettingsScrollPosition.command_dialog)
+        self.LoadComplete.Add(fun (_: EventArgs) ->
+            InputDebugTrace.write "Settings dialog LoadComplete begin"
+            control.SetScrollPosition SettingsScrollPosition.command_dialog
+            InputDebugTrace.write "Settings dialog LoadComplete end")
 
         self.Closed.Add(fun (_: EventArgs) ->
+            InputDebugTrace.write "Settings dialog Closed begin"
             SettingsDialogPlacement.last_location <- Some self.Location
-            SettingsScrollPosition.command_dialog <- control.ReadScrollPosition())
+            SettingsScrollPosition.command_dialog <- control.ReadScrollPosition()
+            InputDebugTrace.write "Settings dialog Closed end")
 
+        InputDebugTrace.write "Settings dialog Settings.load begin"
         Settings.load control
+        InputDebugTrace.write "Settings dialog Settings.load end"
+        InputDebugTrace.write "Settings dialog layout end"
 
     override _.Dispose(disposing: bool) =
+        InputDebugTrace.write
+            $"Settings dialog Dispose begin disposing={disposing} resources-disposed={resourcesDisposed}"
+
         if disposing && not resourcesDisposed then
             resourcesDisposed <- true
+            control.Dispose()
             windowIcon |> Option.iter (fun (icon: Icon) -> icon.Dispose())
 
         base.Dispose disposing
+        InputDebugTrace.write "Settings dialog Dispose end"
 
     member _.ShowForRhino(document: RhinoDoc) =
+        InputDebugTrace.write "Settings dialog ShowForRhino placement begin"
+
         let parent =
             if isNull document then
                 RhinoEtoApp.MainWindow
@@ -130,7 +160,11 @@ type RhinosCanFlySettingsDialog() as self =
 
         self.Location <- SettingsDialogPlacement.clamped_location workingArea self.Size location
 
+        InputDebugTrace.write
+            $"Settings dialog ShowSemiModal begin x={self.Location.X} y={self.Location.Y} width={self.Size.Width} height={self.Size.Height}"
+
         self.ShowSemiModal(document, parent)
+        InputDebugTrace.write "Settings dialog ShowSemiModal end"
 
 type RhinosCanFlyOptionsPage() =
     inherit OptionsDialogPage "RhinosCanFly"
@@ -143,31 +177,53 @@ type RhinosCanFlyOptionsPage() =
             SettingsScrollPosition.rhino_options <- control.Value.ReadScrollPosition()
 
     let suspend_input () =
+        InputDebugTrace.write $"Rhino Options page suspend begin existing-lease={inputSuspension.IsSome}"
+
         match inputSuspension with
-        | Some _ -> Ok()
+        | Some _ ->
+            InputDebugTrace.write "Rhino Options page suspend end reused=true result=ok"
+            Ok()
         | None ->
             match RuntimeSettings.suspend_input () with
             | Ok lease ->
                 inputSuspension <- Some lease
 
                 match lease.cleanup_error with
-                | None -> Ok()
+                | None ->
+                    InputDebugTrace.write $"Rhino Options page suspend end lease={lease.id} result=ok"
+                    Ok()
                 | Some cleanupError ->
                     inputSuspension <- None
 
                     match RuntimeSettings.resume_input lease with
-                    | Ok() -> Error $"Input cleanup is incomplete: {cleanupError}"
+                    | Ok() ->
+                        InputDebugTrace.write
+                            $"Rhino Options page suspend end lease={lease.id} result=cleanup-error error={cleanupError}"
+
+                        Error $"Input cleanup is incomplete: {cleanupError}"
                     | Error resumeError ->
+                        InputDebugTrace.write
+                            $"Rhino Options page suspend end lease={lease.id} result=cleanup-and-resume-error cleanup={cleanupError} resume={resumeError}"
+
                         Error $"Input cleanup is incomplete: {cleanupError}; resume failed: {resumeError}"
-            | Error error -> Error error
+            | Error error ->
+                InputDebugTrace.write $"Rhino Options page suspend end result=error error={error}"
+                Error error
 
     let resume_input () =
         let suspension = inputSuspension
         inputSuspension <- None
 
+        InputDebugTrace.write $"Rhino Options page resume begin had-lease={suspension.IsSome}"
+
         match suspension with
-        | Some lease -> RuntimeSettings.resume_input lease
-        | None -> Ok()
+        | Some lease ->
+            let result = RuntimeSettings.resume_input lease
+            InputDebugTrace.write $"Rhino Options page resume end lease={lease.id} result={result}"
+            result
+        | None ->
+            InputDebugTrace.write "Rhino Options page resume end result=ok no-lease=true"
+            Ok()
 
     let resume_input_after_options () =
         match resume_input () with
@@ -180,6 +236,8 @@ type RhinosCanFlyOptionsPage() =
     override _.PageControl = control.Value
 
     override _.OnActivate(active: bool) =
+        InputDebugTrace.write $"Rhino Options page OnActivate begin active={active}"
+
         if active then
             match suspend_input () with
             | Error error ->
@@ -189,10 +247,12 @@ type RhinosCanFlyOptionsPage() =
                 try
                     Settings.load control.Value
                     control.Value.SetScrollPosition SettingsScrollPosition.rhino_options
+                    InputDebugTrace.write "Rhino Options page OnActivate end active=true result=true"
                     true
                 with error ->
                     resume_input_after_options () |> ignore
                     SettingsUi.report_error $"RhinosCanFly Options activation failed: {error.Message}"
+                    InputDebugTrace.write $"Rhino Options page OnActivate end active=true result=false error={error}"
                     false
         else
             save_scroll_position ()
@@ -205,9 +265,12 @@ type RhinosCanFlyOptionsPage() =
                 SettingsUi.report_error $"RhinosCanFly Options deactivation failed: {error.Message}"
                 deactivated <- false
 
+            InputDebugTrace.write $"Rhino Options page OnActivate end active=false result={deactivated}"
             deactivated
 
     override _.OnApply() =
+        InputDebugTrace.write "Rhino Options page OnApply begin"
+
         try
             save_scroll_position ()
 
@@ -216,14 +279,21 @@ type RhinosCanFlyOptionsPage() =
 
                 let saved = Settings.save control.Value
 
-                if saved then resume_input_after_options () else false
+                let result = if saved then resume_input_after_options () else false
+                InputDebugTrace.write $"Rhino Options page OnApply end result={result} saved={saved}"
+                result
             else
-                resume_input_after_options ()
+                let result = resume_input_after_options ()
+                InputDebugTrace.write $"Rhino Options page OnApply end result={result} control-created=false"
+                result
         with error ->
             SettingsUi.report_error $"RhinosCanFly Options apply failed: {error.Message}"
+            InputDebugTrace.write $"Rhino Options page OnApply end result=false error={error}"
             false
 
     override _.OnCancel() =
+        InputDebugTrace.write "Rhino Options page OnCancel begin"
+
         try
             save_scroll_position ()
 
@@ -234,11 +304,16 @@ type RhinosCanFlyOptionsPage() =
             SettingsUi.report_error $"RhinosCanFly Options cancel failed: {error.Message}"
 
         resume_input_after_options () |> ignore
+        InputDebugTrace.write "Rhino Options page OnCancel end"
 
     override _.OnDefaults() =
+        InputDebugTrace.write "Rhino Options page OnDefaults begin"
+
         try
             control.Value.CancelBindingCapture()
             control.Value.LoadConfig ConfigSchema.defaults
             control.Value.ClearError()
         with error ->
             SettingsUi.report_error $"RhinosCanFly Options defaults failed: {error.Message}"
+
+        InputDebugTrace.write "Rhino Options page OnDefaults end"

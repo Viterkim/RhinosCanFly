@@ -2,7 +2,7 @@
 
 Don't cancel mouse Down/Up with `Rhino.UI.MouseCallback`. This caused white Rhino windows, frozen panels and a dead command line.
 
-`WH_MOUSE` owns the pair. Only take Down when the target window and the window under the cursor are the same viewport and no existing mouse capture is active.
+`WH_MOUSE` owns the pair. Only take Down when the target window and the window under the cursor are the same viewport and `GetCapture()` is zero. Capture belonging to the expected host is still existing capture.
 
 If Down is ours, Up is ours. Don't fake either half or switch owners halfway through.
 

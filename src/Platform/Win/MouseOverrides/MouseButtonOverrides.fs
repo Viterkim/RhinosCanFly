@@ -16,6 +16,10 @@ let right_click = RightClickTransitions.create ()
 let mutable hook_ui_wake: PlatformInputWake.State option = None
 let mutable hook_ui_main_loop_handler: EventHandler option = None
 let hook_ui_work_requested = Event<unit>()
+let mutable suspended_hook_events = 0L
+let mutable suspended_hook_right_down = 0L
+let mutable suspended_hook_right_up = 0L
+let mutable suspended_hook_other_buttons = 0L
 
 let signal_hook_ui_work () =
     match hook_ui_wake with
@@ -148,6 +152,19 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
     let mutable rightClickWasOwned = false
 
     try
+        if state.lifecycle = Suspended then
+            suspended_hook_events <- suspended_hook_events + 1L
+
+            if
+                event.message = Win32Native.WM_RBUTTONDOWN
+                || event.message = Win32Native.WM_RBUTTONDBLCLK
+            then
+                suspended_hook_right_down <- suspended_hook_right_down + 1L
+            elif event.message = Win32Native.WM_RBUTTONUP then
+                suspended_hook_right_up <- suspended_hook_right_up + 1L
+            elif raw_navigation_button_message event.message then
+                suspended_hook_other_buttons <- suspended_hook_other_buttons + 1L
+
         if
             raw_navigation_button_message event.message
             && raw_navigation_captures_button_messages ()
@@ -267,10 +284,17 @@ let remove_mouse_hook () =
     MouseHook.remove mouse_hook mouse_hook_environment
 
 let mouse_hook_needed () =
-    state.lifecycle <> ShutDown
-    && (RightClickTransitions.capture_needed state right_click
+    match state.lifecycle with
+    | ShutDown -> false
+    | Suspended ->
+        RightClickTransitions.owns_button right_click
+        || MouseOverrideState.hook_owns_any_button state
+    | Available
+    | Resuming
+    | Degraded _ ->
+        RightClickTransitions.capture_needed state right_click
         || MouseOverrideState.side_button_routing_enabled state
-        || MouseOverrideState.hook_owns_any_button state)
+        || MouseOverrideState.hook_owns_any_button state
 
 let refresh_mouse_hook () =
     MouseHook.refresh mouse_hook mouse_hook_environment (mouse_hook_needed ())
@@ -505,6 +529,9 @@ let keeps_navigation_active (commandName: string) =
 
 let command_began =
     EventHandler<CommandEventArgs>(fun (_: obj) (event: CommandEventArgs) ->
+        InputDebugTrace.write
+            $"mouse overrides command begin name={event.CommandEnglishName} depth-before={command_depth} lifecycle={state.lifecycle} hook-installed={MouseHook.installed mouse_hook} capture={Win32Native.GetCapture()}"
+
         command_depth <- command_depth + 1
 
         try
@@ -528,7 +555,10 @@ let command_began =
             log_exception "command navigation callback" error)
 
 let command_ended =
-    EventHandler<CommandEventArgs>(fun (_: obj) (_: CommandEventArgs) ->
+    EventHandler<CommandEventArgs>(fun (_: obj) (event: CommandEventArgs) ->
+        InputDebugTrace.write
+            $"mouse overrides command end name={event.CommandEnglishName} depth-before={command_depth} lifecycle={state.lifecycle} hook-installed={MouseHook.installed mouse_hook} capture={Win32Native.GetCapture()}"
+
         if command_depth > 0 then
             command_depth <- command_depth - 1
 
@@ -638,19 +668,25 @@ let stop_view_latch (mode: ViewNavigationMode) =
 let view_latch_is (mode: ViewNavigationMode) = ViewLatchTransitions.is_mode state mode
 
 let apply (config: MouseOverrideConfig) =
+    InputDebugTrace.write
+        $"PlatformMouseActions.apply begin lifecycle={state.lifecycle} suspensions={state.suspension_ids.Count} hook-installed={MouseHook.installed mouse_hook} capture={Win32Native.GetCapture()}"
+
     if state.lifecycle = ShutDown then
+        InputDebugTrace.write "PlatformMouseActions.apply end result=shutdown-error"
         Error "Mouse button overrides have already shut down."
     else
         RightClickTransitions.clear_action right_click
 
         match RawNavigationCoordinator.release raw_navigation with
         | Error error ->
+            InputDebugTrace.write $"PlatformMouseActions.apply navigation release result=error error={error}"
             activate_degraded error
             Error error
         | Ok() ->
             state.routing <- config
 
             if state.lifecycle = Suspended then
+                InputDebugTrace.write "PlatformMouseActions.apply end result=ok suspended=true"
                 Ok()
             else
                 state.lifecycle <- Resuming
@@ -658,17 +694,26 @@ let apply (config: MouseOverrideConfig) =
                 try
                     match refresh_mouse_hook () with
                     | Error error ->
+                        InputDebugTrace.write $"PlatformMouseActions.apply hook refresh result=error error={error}"
                         activate_degraded error
                         Error error
-                    | Ok() -> activate_available ()
+                    | Ok() ->
+                        let result = activate_available ()
+                        InputDebugTrace.write $"PlatformMouseActions.apply end result={result}"
+                        result
                 with error ->
                     let message = $"Could not apply mouse button overrides: {error.Message}"
                     log_exception "mouse override configuration" error
                     activate_degraded message
+                    InputDebugTrace.write $"PlatformMouseActions.apply exception={error}"
                     Error message
 
 let suspend () =
+    InputDebugTrace.write
+        $"PlatformMouseActions.suspend begin lifecycle={state.lifecycle} suspensions={state.suspension_ids.Count} hook-installed={MouseHook.installed mouse_hook} hook-pending={hook_removal_pending ()} right-owned={RightClickTransitions.owns_button right_click} side-owned={MouseOverrideState.hook_owns_any_button state} capture={Win32Native.GetCapture()}"
+
     if state.lifecycle = ShutDown then
+        InputDebugTrace.write "PlatformMouseActions.suspend end result=shutdown-error"
         Error "Mouse button overrides have already shut down."
     elif state.suspension_ids.Count > 0 then
         state.next_suspension_id <- state.next_suspension_id + 1L
@@ -678,23 +723,64 @@ let suspend () =
               cleanup_error = state.suspension_cleanup_error }
 
         state.suspension_ids.Add lease.id |> ignore
+
+        InputDebugTrace.write
+            $"PlatformMouseActions.suspend end result=ok nested=true lease={lease.id} suspensions={state.suspension_ids.Count} cleanup-error={lease.cleanup_error}"
+
         Ok lease
     else
         let errors = ResizeArray<string>()
+        suspended_hook_events <- 0L
+        suspended_hook_right_down <- 0L
+        suspended_hook_right_up <- 0L
+        suspended_hook_other_buttons <- 0L
         state.lifecycle <- Suspended
         RightClickTransitions.clear_action right_click
 
+        InputDebugTrace.write
+            $"PlatformMouseActions.suspend lifecycle set hook-needed={mouse_hook_needed ()} right-owned={RightClickTransitions.owns_button right_click} side-owned={MouseOverrideState.hook_owns_any_button state}"
+
         try
+            InputDebugTrace.write "PlatformMouseActions.suspend raw navigation release begin"
+
             match RawNavigationCoordinator.release raw_navigation with
-            | Ok() -> ()
-            | Error error -> errors.Add error
+            | Ok() -> InputDebugTrace.write "PlatformMouseActions.suspend raw navigation release end result=ok"
+            | Error error ->
+                InputDebugTrace.write
+                    $"PlatformMouseActions.suspend raw navigation release end result=error error={error}"
+
+                errors.Add error
         with error ->
+            InputDebugTrace.write $"PlatformMouseActions.suspend raw navigation release exception={error}"
             log_exception "mouse override suspension cleanup" error
             errors.Add error.Message
 
         try
-            apply_poll_requirement ()
+            InputDebugTrace.write
+                $"PlatformMouseActions.suspend hook refresh begin installed={MouseHook.installed mouse_hook} needed={mouse_hook_needed ()} capture={Win32Native.GetCapture()}"
+
+            match refresh_mouse_hook () with
+            | Ok() ->
+                InputDebugTrace.write
+                    $"PlatformMouseActions.suspend hook refresh end result=ok installed={MouseHook.installed mouse_hook} pending={hook_removal_pending ()}"
+            | Error error ->
+                InputDebugTrace.write
+                    $"PlatformMouseActions.suspend hook refresh end result=error installed={MouseHook.installed mouse_hook} pending={hook_removal_pending ()} error={error}"
+
+                errors.Add error
         with error ->
+            InputDebugTrace.write $"PlatformMouseActions.suspend hook refresh exception={error}"
+            log_exception "mouse override suspension hook" error
+            errors.Add error.Message
+
+        try
+            InputDebugTrace.write "PlatformMouseActions.suspend poll apply begin"
+            apply_poll_requirement ()
+
+            InputDebugTrace.write
+                $"PlatformMouseActions.suspend poll apply end timer-enabled={state.poll_timer.Enabled}"
+        with error ->
+            InputDebugTrace.write $"PlatformMouseActions.suspend poll apply exception={error}"
             log_exception "mouse override suspension timer" error
             errors.Add error.Message
 
@@ -713,33 +799,64 @@ let suspend () =
               cleanup_error = cleanupError }
 
         state.suspension_ids.Add lease.id |> ignore
+
+        InputDebugTrace.write
+            $"PlatformMouseActions.suspend end result=ok lease={lease.id} suspensions={state.suspension_ids.Count} cleanup-error={cleanupError} hook-installed={MouseHook.installed mouse_hook} hook-pending={hook_removal_pending ()} capture={Win32Native.GetCapture()}"
+
         Ok lease
 
 let resume (lease: InputSuspensionLease) =
+    InputDebugTrace.write
+        $"PlatformMouseActions.resume begin lease={lease.id} lifecycle={state.lifecycle} suspensions={state.suspension_ids.Count} hook-installed={MouseHook.installed mouse_hook} hook-pending={hook_removal_pending ()} capture={Win32Native.GetCapture()} suspended-events={suspended_hook_events} right-down={suspended_hook_right_down} right-up={suspended_hook_right_up} other-buttons={suspended_hook_other_buttons}"
+
     if state.lifecycle = ShutDown then
+        InputDebugTrace.write $"PlatformMouseActions.resume end lease={lease.id} result=shutdown-error"
         Error "Mouse button overrides have already shut down."
     elif not (state.suspension_ids.Remove lease.id) then
+        InputDebugTrace.write $"PlatformMouseActions.resume end lease={lease.id} result=ok unknown-lease=true"
         Ok()
     elif state.suspension_ids.Count > 0 then
+        InputDebugTrace.write
+            $"PlatformMouseActions.resume end lease={lease.id} result=ok remaining-suspensions={state.suspension_ids.Count}"
+
         Ok()
     else
         state.suspension_cleanup_error <- None
         state.lifecycle <- Resuming
 
         try
+            InputDebugTrace.write "PlatformMouseActions.resume ownership reconciliation begin"
             reconcile_button_ownership_after_suspension ()
+
+            InputDebugTrace.write
+                $"PlatformMouseActions.resume ownership reconciliation end right-owned={RightClickTransitions.owns_button right_click} side-owned={MouseOverrideState.hook_owns_any_button state}"
+
+            InputDebugTrace.write
+                $"PlatformMouseActions.resume hook refresh begin installed={MouseHook.installed mouse_hook} needed={mouse_hook_needed ()} capture={Win32Native.GetCapture()}"
 
             match refresh_mouse_hook () with
             | Error error ->
+                InputDebugTrace.write
+                    $"PlatformMouseActions.resume hook refresh end result=error installed={MouseHook.installed mouse_hook} pending={hook_removal_pending ()} error={error}"
+
                 activate_degraded error
                 Error error
             | Ok() ->
+                InputDebugTrace.write
+                    $"PlatformMouseActions.resume hook refresh end result=ok installed={MouseHook.installed mouse_hook} pending={hook_removal_pending ()}"
+
                 ViewportRegistry.refresh_active viewport_registry
-                activate_available ()
+                let result = activate_available ()
+
+                InputDebugTrace.write
+                    $"PlatformMouseActions.resume end lease={lease.id} result={result} lifecycle={state.lifecycle} hook-installed={MouseHook.installed mouse_hook} capture={Win32Native.GetCapture()}"
+
+                result
         with error ->
             let message = $"Could not resume mouse button overrides: {error.Message}"
             log_exception "mouse override resume" error
             activate_degraded message
+            InputDebugTrace.write $"PlatformMouseActions.resume exception lease={lease.id} error={error}"
             Error message
 
 let retry_hook_cleanup () =

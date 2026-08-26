@@ -211,7 +211,7 @@ let run (inputWake: PlatformInputWake.State) (rawInput: InputAccumulator.State) 
                 // If the first step is zero there is no redraw to wake the loop.
                 PlatformInputWake.signal inputWake
 
-        if pumpAfterInput && FlyState.is_running state then
+        if pumpAfterInput then
             RhinoApp.Wait()
 
         inputReady <-

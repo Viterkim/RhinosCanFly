@@ -36,6 +36,7 @@
   </Target>
   <ItemGroup>
     <Compile Include="src/AssemblyInfo.fs" />
+    <Compile Include="src/Core/InputDebugTrace.fs" />
     <Compile Include="src/Configuration/ConfigTypes.fs" />
     <Compile Include="src/Configuration/ConfigSchema.fs" />
     <Compile Include="src/Core/CameraInputTypes.fs" />
