@@ -151,6 +151,7 @@ let run (inputWake: PlatformInputWake.State) (rawInput: InputAccumulator.State) 
                     Movement.step
                         state.config.movement
                         verticalSpeedMultiplier
+                        state.walking_plane
                         movement
                         state.key_pivot_target
                         dt

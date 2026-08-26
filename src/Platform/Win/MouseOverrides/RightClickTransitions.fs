@@ -253,12 +253,23 @@ let rec handle_event
         else
             true
     elif isDown && action_pending state then
-        state.button_ownership <- Owned
-
-        if not (try_wake navigation) then
+        match state.gesture with
+        | ButtonReleasedBeforeHandling _
+        | ButtonReleased _ ->
+            state.button_ownership <- NotOwned
             clear_action state
+            handle_event navigation state tryView captureAllowsHost commandActive event
+        | ButtonDown _
+        | FlightDispatched ->
+            state.button_ownership <- Owned
 
-        true
+            if not (try_wake navigation) then
+                clear_action state
+
+            true
+        | Idle
+        | NativeModifiedGesture
+        | ButtonDownHandled _ -> false
     elif not isDown || navigation.lifecycle <> Available then
         false
     else

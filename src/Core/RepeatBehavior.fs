@@ -4,7 +4,10 @@ open System
 open Rhino.ApplicationSettings
 
 let commandNames =
-    [| "RhinosCanFly"; "RhinosCanFlyTempFly"; "RhinosCanFlyToggleEnable" |]
+    [| "RhinosCanFly"
+       "RhinosCanFlyTempFly"
+       "RhinosCanWalk"
+       "RhinosCanFlyToggleEnable" |]
 
 let contains_name (names: string array) (candidate: string) =
     names

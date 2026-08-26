@@ -31,6 +31,11 @@ type RhinosCanFlyCommand() =
 type RhinosCanFlyTempFlyCommand() =
     inherit PluginCommand(Commands.RhinosCanFlyTempFly.run)
 
+[<Guid("75BD5B16-C069-4123-919B-FB5E5F912575")>]
+[<CommandStyle(Style.Transparent)>]
+type RhinosCanWalkCommand() =
+    inherit PluginCommand(Commands.RhinosCanWalk.run)
+
 [<Guid("D78B9DD9-30B0-45E5-9436-57C4253BA0C6")>]
 [<CommandStyle(Style.Hidden ||| Style.Transparent ||| Style.DoNotRepeat)>]
 type RhinosCanFlyHeldCommand() =

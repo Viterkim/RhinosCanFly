@@ -1,5 +1,6 @@
 module RhinosCanFly.FlightState
 
+open Rhino
 open Rhino.Display
 open Rhino.Geometry
 
@@ -33,14 +34,38 @@ let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyCo
     let cameraTarget =
         Movement.target_on_camera_axis cameraLocation viewport.CameraTarget cameraDirection
 
-    let camera =
+    let capturedCamera =
         { position = cameraLocation
           target = cameraTarget
           direction = cameraDirection
           up = cameraUp }
 
-    if not (CameraState.valid camera) then
+    if not (CameraState.valid capturedCamera) then
         failwith "The active viewport has an invalid camera."
+
+    let struct (walkingPlane, camera) =
+        match sessionMode.movement_mode with
+        | FreeFlight -> struct (ValueNone, capturedCamera)
+        | CPlaneWalk eyeHeight ->
+            if not (RhinoMath.IsValidDouble eyeHeight) || eyeHeight <= 0. then
+                failwith "Walking eye height must be greater than zero."
+
+            let plane = viewport.ConstructionPlane()
+
+            if not plane.IsValid then
+                failwith "The active viewport has an invalid CPlane."
+
+            if abs plane.Normal.Z < 0.999 then
+                RhinoApp.WriteLine
+                    "RhinosCanWalk: the current CPlane is tilted from World XY, so movement may feel weird."
+
+            let heightOffset = eyeHeight - plane.DistanceTo capturedCamera.position
+            let translation = plane.Normal * heightOffset
+
+            struct (ValueSome plane,
+                    { capturedCamera with
+                        position = capturedCamera.position + translation
+                        target = capturedCamera.target + translation })
 
     let speed =
         FlightSpeed.current view.Document behavior.load_speed_from_document movement.speed_range movement.base_speed
@@ -63,6 +88,7 @@ let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyCo
       config = config
       host_identity = hostIdentity
       session_mode = sessionMode
+      walking_plane = walkingPlane
       original_cursor = originalCursor
       original_camera = originalCamera
       gumball_pivot_target = gumballPivotTarget

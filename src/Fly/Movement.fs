@@ -334,13 +334,37 @@ type MovementStep =
 let step
     (config: MovementConfig)
     (verticalSpeedMultiplier: float)
+    (walkingPlane: Plane voption)
     (input: FlightMovementInput)
     (keyPivotTarget: Point3d)
     (dt: float)
     (camera: CameraState)
     =
-    let forward = camera.direction
-    let right = camera_right camera
+    let struct (forward, right) =
+        match walkingPlane with
+        | ValueNone -> struct (camera.direction, camera_right camera)
+        | ValueSome plane ->
+            let normal = plane.Normal
+            let cameraRight = camera_right camera
+
+            let mutable walkingForward =
+                camera.direction - normal * Vector3d.Multiply(camera.direction, normal)
+
+            if not (walkingForward.Unitize()) then
+                walkingForward <- camera.up - normal * Vector3d.Multiply(camera.up, normal)
+
+                if not (walkingForward.Unitize()) then
+                    walkingForward <- plane.YAxis
+
+            let mutable walkingRight = Vector3d.CrossProduct(walkingForward, normal)
+
+            if not (walkingRight.Unitize()) then
+                failwith "The walking CPlane has an invalid orientation."
+
+            if Vector3d.Multiply(walkingRight, cameraRight) < 0. then
+                walkingRight <- -walkingRight
+
+            struct (walkingForward, walkingRight)
 
     let amount (positive: bool) (negative: bool) =
         (if positive then 1. else 0.) - if negative then 1. else 0.

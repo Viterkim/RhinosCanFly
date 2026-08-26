@@ -415,7 +415,12 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
         session.perspective_lens_changed <- FlightCamera.entry_perspective_lens_changes state
         FlightCamera.apply_entry_perspective_lens state
 
-        if session.gumball_changed || session.perspective_lens_changed then
+        if ValueOption.isSome state.walking_plane then
+            FlightCamera.apply
+                state
+                { camera_changed = true
+                  parallel_magnification = 1. }
+        elif session.gumball_changed || session.perspective_lens_changed then
             state.view.Redraw()
 
         session.flight_entered <- true
