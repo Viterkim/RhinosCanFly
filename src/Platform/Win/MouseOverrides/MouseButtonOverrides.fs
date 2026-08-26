@@ -166,6 +166,7 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
                     state
                     right_click
                     (ViewportRegistry.try_viewport viewport_registry)
+                    (ViewportRegistry.capture_allows_host viewport_registry)
                     (command_depth > 0)
                     event
 
@@ -211,24 +212,28 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
                 then
                     false
                 elif isDown then
-                    match ViewportRegistry.try_viewport viewport_registry event.point_window with
-                    | ValueSome pointViewport when
-                        pointViewport.host.root_window = MouseOverrideState.foreground_root_window ()
-                        && MouseOverrideState.capabilities_allowed state pointViewport.name
-                        && ViewportRegistry.capture_allows_host viewport_registry pointViewport.host
-                        ->
-                        swallow <- true
-                        MouseOverrideState.set_hook_button_ownership state button Owned
+                    match ViewportRegistry.try_viewport viewport_registry event.hook_window with
+                    | ValueSome hookViewport ->
+                        match ViewportRegistry.try_viewport viewport_registry event.point_window with
+                        | ValueSome pointViewport when
+                            MouseOverrideState.same_host hookViewport.host pointViewport.host
+                            && pointViewport.host.root_window = MouseOverrideState.foreground_root_window ()
+                            && MouseOverrideState.capabilities_allowed state pointViewport.name
+                            && ViewportRegistry.capture_allows_host viewport_registry pointViewport.host
+                            ->
+                            swallow <- true
+                            MouseOverrideState.set_hook_button_ownership state button Owned
 
-                        state.pending_side_button_events.Enqueue(
-                            ButtonDown(button, pointViewport.host, event.screen_point)
-                        )
+                            state.pending_side_button_events.Enqueue(
+                                ButtonDown(button, pointViewport.host, event.screen_point)
+                            )
 
-                        signal_hook_ui_work ()
+                            signal_hook_ui_work ()
 
-                        MouseOverrideState.keep_timer_running state
-                        true
-                    | ValueSome _
+                            MouseOverrideState.keep_timer_running state
+                            true
+                        | ValueSome _
+                        | ValueNone -> false
                     | ValueNone -> false
                 else
                     false

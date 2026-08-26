@@ -144,6 +144,7 @@ type KeyboardHookEvent =
 type MouseHookEvent =
     { message: int
       mouse_data: uint32
+      hook_window: nativeint
       point_window: nativeint
       screen_point: System.Drawing.Point
       modifiers: MouseModifiers }
@@ -244,6 +245,7 @@ let install_mouse_hook (handleEvent: MouseHookEvent -> bool) =
                 let event: MouseHookEvent =
                     { message = message
                       mouse_data = data.mouse_data
+                      hook_window = data.window
                       point_window = pointWindow
                       screen_point = System.Drawing.Point(data.point.x, data.point.y)
                       modifiers = mouse_modifiers () }

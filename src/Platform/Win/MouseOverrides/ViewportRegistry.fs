@@ -250,9 +250,7 @@ let capture_allows_host (state: State) (host: ViewportHostIdentity) =
         true
     else
         match try_viewport state captureWindow with
-        | ValueSome captureViewport ->
-            captureViewport.host.document_serial_number = host.document_serial_number
-            && captureViewport.host.view_serial_number = host.view_serial_number
+        | ValueSome captureViewport -> MouseOverrideState.same_host captureViewport.host host
         | ValueNone -> false
 
 let remove_application_handler (state: State) =

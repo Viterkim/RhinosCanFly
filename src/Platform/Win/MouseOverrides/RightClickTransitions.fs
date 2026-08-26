@@ -213,6 +213,7 @@ let rec handle_event
     (navigation: State)
     (state: RightClickState)
     (tryView: nativeint -> RightClickViewport voption)
+    (captureAllowsHost: ViewportHostIdentity -> bool)
     (commandActive: bool)
     (event: Win32.MouseHookEvent)
     =
@@ -248,7 +249,7 @@ let rec handle_event
     elif isDown && owns_button state then
         if state.button_ownership = ReleaseObserved then
             state.button_ownership <- NotOwned
-            handle_event navigation state tryView commandActive event
+            handle_event navigation state tryView captureAllowsHost commandActive event
         else
             true
     elif isDown && action_pending state then
@@ -263,25 +264,32 @@ let rec handle_event
     else
         let currentModifiers = event.modifiers
 
-        match tryView event.point_window with
-        | ValueSome pointViewport when pointViewport.host.root_window = MouseOverrideState.foreground_root_window () ->
-            match action navigation pointViewport event.screen_point currentModifiers commandActive with
-            | ValueNone when
-                not (navigation_active navigation)
-                && (currentModifiers.shift || currentModifiers.alt || currentModifiers.control)
+        match tryView event.hook_window with
+        | ValueSome hookViewport ->
+            match tryView event.point_window with
+            | ValueSome pointViewport when
+                MouseOverrideState.same_host hookViewport.host pointViewport.host
+                && pointViewport.host.root_window = MouseOverrideState.foreground_root_window ()
+                && captureAllowsHost pointViewport.host
                 ->
-                state.gesture <- NativeModifiedGesture
-                false
+                match action navigation pointViewport event.screen_point currentModifiers commandActive with
+                | ValueNone when
+                    not (navigation_active navigation)
+                    && (currentModifiers.shift || currentModifiers.alt || currentModifiers.control)
+                    ->
+                    state.gesture <- NativeModifiedGesture
+                    false
+                | ValueNone -> false
+                | ValueSome captured ->
+                    state.button_ownership <- Owned
+                    state.gesture <- ButtonDown captured
+
+                    if not (try_wake navigation) then
+                        clear_action state
+
+                    true
+            | ValueSome _
             | ValueNone -> false
-            | ValueSome captured ->
-                state.button_ownership <- Owned
-                state.gesture <- ButtonDown captured
-
-                if not (try_wake navigation) then
-                    clear_action state
-
-                true
-        | ValueSome _
         | ValueNone -> false
 
 let entry_command (entry: FlyEntry) =

@@ -405,6 +405,13 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
             FlyState.request_exit FocusLost state
             failwith "The Rhino window lost focus before flight began."
 
+        match PlatformCursorClip.acquire state.view with
+        | Ok lease -> session.cursor_clip <- Some lease
+        | Error error -> failwith error
+
+        session.cursor_hidden <- true
+        PlatformInput.hide_cursor ()
+
         session.tooltips_changed <- true
         CursorTooltipSettings.TooltipsEnabled <- false
         PlatformInput.clear_mouse_hover state.view
@@ -413,13 +420,6 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
         if state.config.behavior.hide_gumball && session.original_gumball_enabled then
             session.gumball_changed <- true
             ModelAidSettings.AutoGumballEnabled <- false
-
-        match PlatformCursorClip.acquire state.view with
-        | Ok lease -> session.cursor_clip <- Some lease
-        | Error error -> failwith error
-
-        session.cursor_hidden <- true
-        PlatformInput.hide_cursor ()
 
         session.perspective_lens_changed <- FlightCamera.entry_perspective_lens_changes state
         FlightCamera.apply_entry_perspective_lens state
