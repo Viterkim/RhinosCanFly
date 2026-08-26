@@ -166,7 +166,6 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
                     state
                     right_click
                     (ViewportRegistry.try_viewport viewport_registry)
-                    (ViewportRegistry.capture_allows_host viewport_registry)
                     (command_depth > 0)
                     event
 
@@ -211,14 +210,13 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
                     || not (RoutedMouseAction.enabled (MouseOverrideState.action_for state button))
                 then
                     false
-                elif isDown then
+                elif isDown && Win32Native.GetCapture() = nativeint 0 then
                     match ViewportRegistry.try_viewport viewport_registry event.hook_window with
                     | ValueSome hookViewport ->
                         match ViewportRegistry.try_viewport viewport_registry event.point_window with
                         | ValueSome pointViewport when
                             MouseOverrideState.same_host hookViewport.host pointViewport.host
                             && MouseOverrideState.capabilities_allowed state pointViewport.name
-                            && ViewportRegistry.capture_allows_host viewport_registry pointViewport.host
                             ->
                             swallow <- true
                             MouseOverrideState.set_hook_button_ownership state button Owned

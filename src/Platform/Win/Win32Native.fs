@@ -220,9 +220,6 @@ extern bool SetForegroundWindow(nativeint window)
 [<DllImport("user32.dll")>]
 extern nativeint GetAncestor(nativeint window, uint32 flags)
 
-[<DllImport("user32.dll")>]
-extern nativeint SendMessage(nativeint window, int message, nativeint wparam, nativeint lparam)
-
 [<DllImport("user32.dll", SetLastError = true)>]
 extern bool PostMessage(nativeint window, int message, nativeint wparam, nativeint lparam)
 

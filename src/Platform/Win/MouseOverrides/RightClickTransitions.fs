@@ -213,7 +213,6 @@ let rec handle_event
     (navigation: State)
     (state: RightClickState)
     (tryView: nativeint -> RightClickViewport voption)
-    (captureAllowsHost: ViewportHostIdentity -> bool)
     (commandActive: bool)
     (event: Win32.MouseHookEvent)
     =
@@ -249,7 +248,7 @@ let rec handle_event
     elif isDown && owns_button state then
         if state.button_ownership = ReleaseObserved then
             state.button_ownership <- NotOwned
-            handle_event navigation state tryView captureAllowsHost commandActive event
+            handle_event navigation state tryView commandActive event
         else
             true
     elif isDown && action_pending state then
@@ -258,7 +257,7 @@ let rec handle_event
         | ButtonReleased _ ->
             state.button_ownership <- NotOwned
             clear_action state
-            handle_event navigation state tryView captureAllowsHost commandActive event
+            handle_event navigation state tryView commandActive event
         | ButtonDown _
         | FlightDispatched ->
             state.button_ownership <- Owned
@@ -270,7 +269,11 @@ let rec handle_event
         | Idle
         | NativeModifiedGesture
         | ButtonDownHandled _ -> false
-    elif not isDown || navigation.lifecycle <> Available then
+    elif
+        not isDown
+        || navigation.lifecycle <> Available
+        || Win32Native.GetCapture() <> nativeint 0
+    then
         false
     else
         let currentModifiers = event.modifiers
@@ -278,10 +281,7 @@ let rec handle_event
         match tryView event.hook_window with
         | ValueSome hookViewport ->
             match tryView event.point_window with
-            | ValueSome pointViewport when
-                MouseOverrideState.same_host hookViewport.host pointViewport.host
-                && captureAllowsHost pointViewport.host
-                ->
+            | ValueSome pointViewport when MouseOverrideState.same_host hookViewport.host pointViewport.host ->
                 match action navigation pointViewport event.screen_point currentModifiers commandActive with
                 | ValueNone when
                     not (navigation_active navigation)

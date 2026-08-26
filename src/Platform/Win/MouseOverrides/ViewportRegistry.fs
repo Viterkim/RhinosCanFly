@@ -243,16 +243,6 @@ let try_viewport (state: State) (window: nativeint) =
 
     result
 
-let capture_allows_host (state: State) (host: ViewportHostIdentity) =
-    let captureWindow = Win32Native.GetCapture()
-
-    if captureWindow = nativeint 0 then
-        true
-    else
-        match try_viewport state captureWindow with
-        | ValueSome captureViewport -> MouseOverrideState.same_host captureViewport.host host
-        | ValueNone -> false
-
 let remove_application_handler (state: State) =
     match state.application_initialized with
     | Some handler ->
