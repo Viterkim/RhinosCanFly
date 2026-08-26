@@ -269,7 +269,6 @@ let rec handle_event
             match tryView event.point_window with
             | ValueSome pointViewport when
                 MouseOverrideState.same_host hookViewport.host pointViewport.host
-                && pointViewport.host.root_window = MouseOverrideState.foreground_root_window ()
                 && captureAllowsHost pointViewport.host
                 ->
                 match action navigation pointViewport event.screen_point currentModifiers commandActive with
@@ -326,11 +325,12 @@ let try_entry_view (entry: FlyEntry) =
         ValueSome view
 
 let try_prepare_entry_view (entry: FlyEntry) =
-    if MouseOverrideState.foreground_root_window () <> entry.host.root_window then
-        if MouseOverrideState.try_bring_root_window_to_foreground entry.host.root_window then
-            EntryDeferred
-        else
-            EntryUnavailable
+    let foregroundReady =
+        MouseOverrideState.foreground_root_window () = entry.host.root_window
+        || MouseOverrideState.try_bring_root_window_to_foreground entry.host.root_window
+
+    if not foregroundReady then
+        EntryUnavailable
     else
         match try_entry_view entry with
         | ValueNone -> EntryUnavailable

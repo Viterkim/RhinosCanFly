@@ -19,11 +19,12 @@ type ActionViewPreparation =
     | ActionViewUnavailable of error: string
 
 let prepare_action_view (host: ViewportHostIdentity) =
-    if MouseOverrideState.foreground_root_window () <> host.root_window then
-        if MouseOverrideState.try_bring_root_window_to_foreground host.root_window then
-            ActionViewDeferred
-        else
-            ActionViewUnavailable "The navigation window could not be activated."
+    let foregroundReady =
+        MouseOverrideState.foreground_root_window () = host.root_window
+        || MouseOverrideState.try_bring_root_window_to_foreground host.root_window
+
+    if not foregroundReady then
+        ActionViewUnavailable "The navigation window could not be activated."
     else
         let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
         let document = if isNull view then null else view.Document

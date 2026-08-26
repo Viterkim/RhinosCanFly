@@ -217,7 +217,6 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
                         match ViewportRegistry.try_viewport viewport_registry event.point_window with
                         | ValueSome pointViewport when
                             MouseOverrideState.same_host hookViewport.host pointViewport.host
-                            && pointViewport.host.root_window = MouseOverrideState.foreground_root_window ()
                             && MouseOverrideState.capabilities_allowed state pointViewport.name
                             && ViewportRegistry.capture_allows_host viewport_registry pointViewport.host
                             ->

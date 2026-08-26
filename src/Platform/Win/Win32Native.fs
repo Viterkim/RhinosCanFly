@@ -126,6 +126,9 @@ let VK_CONTROL = 0x11
 let VK_MENU = 0x12
 
 [<Literal>]
+let VK_ESCAPE = 0x1B
+
+[<Literal>]
 let VK_LSHIFT = 0xA0
 
 [<Literal>]
