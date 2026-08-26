@@ -121,7 +121,9 @@ let escape_key_pressed =
         Monitor.Enter state.transition_gate
 
         try
-            if try_request_plain_escape_exit () then
+            let requested = try_request_plain_escape_exit ()
+
+            if requested then
                 match state.input_available with
                 | Some available -> available.Invoke()
                 | None -> ()
@@ -553,10 +555,25 @@ let hook_event (event: Win32.KeyboardHookEvent) =
 
     try
         try
+            let escapeUpWithoutDown =
+                event.physical_key = Win32Native.VK_ESCAPE
+                && event.released
+                && Volatile.Read(&state.active)
+                && Volatile.Read(&state.accept_new_keys)
+                && not state.key_is_down[event.physical_key]
+                && not (state.suppressed_keys_down.Contains event.physical_key)
+                && not (state.passthrough_keys_down.Contains event.physical_key)
+
             let wasDown = state.key_is_down[event.physical_key]
             swallow <- handle_event event
 
-            if wasDown <> state.key_is_down[event.physical_key] then
+            if escapeUpWithoutDown && try_request_plain_escape_exit () then
+                Interlocked.Increment(&state.revision) |> ignore
+
+                match state.input_available with
+                | Some available -> available.Invoke()
+                | None -> ()
+            elif wasDown <> state.key_is_down[event.physical_key] then
                 let mutable actions = collect_actions ()
 
                 let escapeRequested =
@@ -589,6 +606,7 @@ let hook_event (event: Win32.KeyboardHookEvent) =
                 match state.input_available with
                 | Some available -> available.Invoke()
                 | None -> ()
+
         with error ->
             Debug.WriteLine $"RhinosCanFly keyboard suppression failed: {error}"
     finally

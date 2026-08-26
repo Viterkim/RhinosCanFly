@@ -13,6 +13,8 @@ type StartingSession =
       session_mode: FlightSessionMode
       override_suspension: InputSuspensionLease
       input_wake: PlatformInputWake.State
+      raw_input: InputAccumulator.State
+      input_available: Action
       capture_wait: Stopwatch }
 
 type ActiveSession =
@@ -22,12 +24,10 @@ type ActiveSession =
       input_available: Action
       override_suspension: InputSuspensionLease
       cleanup_errors: ResizeArray<string>
-      original_tooltips_enabled: bool
       original_gumball_enabled: bool
       mutable raw: PlatformRawInput.Session option
       mutable cursor_clip: CursorClipLease option
       mutable cursor_hidden: bool
-      mutable tooltips_changed: bool
       mutable gumball_changed: bool
       mutable perspective_lens_changed: bool
       mutable flight_entered: bool
@@ -273,11 +273,6 @@ let finish_active_core (session: ActiveSession) (activeResult: Result<unit, stri
                 ViewTarget.apply state.config.behavior.retarget retargetMode state.speed state.view state.viewport)
             |> ignore
 
-    if session.tooltips_changed then
-        attempt_cleanup cleanupErrors "tooltips" (fun () ->
-            CursorTooltipSettings.TooltipsEnabled <- session.original_tooltips_enabled)
-        |> ignore
-
     if session.gumball_changed then
         attempt_cleanup cleanupErrors "gumball" (fun () ->
             ModelAidSettings.AutoGumballEnabled <- session.original_gumball_enabled)
@@ -317,9 +312,6 @@ let finish_active_core (session: ActiveSession) (activeResult: Result<unit, stri
     if not session.input_safe then
         cleanupErrors.Add "input cleanup did not finish safely; run RhinosCanFlyInputRecover or restart Rhino"
 
-    if session.raw_input_clean && session.input_safe then
-        PlatformInput.request_application_redraw ()
-
     sessionState <-
         if session.raw_input_clean && session.input_safe then
             Ready
@@ -338,6 +330,9 @@ let cleanup_starting (starting: StartingSession) (failure: string) =
     sessionState <- Finishing
     let errors = ResizeArray<string>()
 
+    attempt_cleanup errors "keyboard suppression" (fun () -> PlatformFlightKeyboard.stop ())
+    |> ignore
+
     attempt_cleanup errors "main-loop wake" (fun () -> PlatformInputWake.dispose starting.input_wake)
     |> ignore
 
@@ -347,7 +342,12 @@ let cleanup_starting (starting: StartingSession) (failure: string) =
             | Ok() -> ()
             | Error error -> failwith error)
 
-    sessionState <- if resumed then Ready else RestartRequired
+    sessionState <-
+        if resumed && errors.Count = 0 then
+            Ready
+        else
+            RestartRequired
+
     finish_result (Error failure) errors
 
 let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
@@ -373,10 +373,6 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
 
     session.raw <- Some raw
     session.raw_input_clean <- false
-
-    match PlatformFlightKeyboard.start state.config session.raw_input session.input_available with
-    | Ok() -> session.keyboard_suppressed <- true
-    | Error error -> failwith $"Could not suppress flight keys: {error}"
 
     let navigationBindings = state.config.bindings.mouse_navigation
     state.keyboard_pivot_held <- FlightControls.is_optional_down navigationBindings.pivot.hold
@@ -412,8 +408,6 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
         session.cursor_hidden <- true
         PlatformInput.hide_cursor ()
 
-        session.tooltips_changed <- true
-        CursorTooltipSettings.TooltipsEnabled <- false
         PlatformInput.clear_mouse_hover state.view
         PlatformInput.dismiss_native_tooltips state.host_identity.root_window
 
@@ -434,7 +428,6 @@ let begin_active (starting: StartingSession) =
     let mutable createdState: FlyState option = None
 
     try
-        let originalTooltipsEnabled = CursorTooltipSettings.TooltipsEnabled
         let originalGumballEnabled = ModelAidSettings.AutoGumballEnabled
 
         let state =
@@ -444,21 +437,19 @@ let begin_active (starting: StartingSession) =
 
         let session =
             { state = state
-              raw_input = InputAccumulator.create ()
+              raw_input = starting.raw_input
               input_wake = starting.input_wake
-              input_available = Action(fun () -> PlatformInputWake.signal starting.input_wake)
+              input_available = starting.input_available
               override_suspension = starting.override_suspension
               cleanup_errors = ResizeArray<string>()
-              original_tooltips_enabled = originalTooltipsEnabled
               original_gumball_enabled = originalGumballEnabled
               raw = None
               cursor_clip = None
               cursor_hidden = false
-              tooltips_changed = false
               gumball_changed = false
               perspective_lens_changed = false
               flight_entered = false
-              keyboard_suppressed = false
+              keyboard_suppressed = true
               raw_input_clean = true
               raw_input_failed = false
               input_safe = true }
@@ -501,6 +492,9 @@ let begin_active (starting: StartingSession) =
             finish_active session (Error message)
         | None ->
             let errors = ResizeArray<string>()
+
+            attempt_cleanup errors "keyboard suppression" (fun () -> PlatformFlightKeyboard.stop ())
+            |> ignore
 
             match createdState with
             | Some state ->
@@ -619,6 +613,12 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                         let hostIdentity = PlatformInput.capture_viewport_host view
                         let wake = PlatformInputWake.create hostIdentity.root_window
                         pendingWake <- Some wake
+                        let rawInput = InputAccumulator.create ()
+                        let inputAvailable = Action(fun () -> PlatformInputWake.signal wake)
+
+                        match PlatformFlightKeyboard.start config rawInput inputAvailable with
+                        | Ok() -> ()
+                        | Error error -> failwith $"Could not suppress flight keys: {error}"
 
                         let starting =
                             { view = view
@@ -627,6 +627,8 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                               session_mode = sessionMode
                               override_suspension = suspension
                               input_wake = wake
+                              raw_input = rawInput
+                              input_available = inputAvailable
                               capture_wait = Stopwatch.StartNew() }
 
                         sessionState <- Starting starting
@@ -643,6 +645,9 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                             cleanup_starting starting (error_message error)
                     with error ->
                         let errors = ResizeArray<string>()
+
+                        attempt_cleanup errors "keyboard suppression" (fun () -> PlatformFlightKeyboard.stop ())
+                        |> ignore
 
                         match pendingWake with
                         | Some wake ->
