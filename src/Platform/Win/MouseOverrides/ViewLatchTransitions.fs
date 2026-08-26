@@ -42,7 +42,6 @@ let start (state: State) (host: ViewportHostIdentity) (mode: ViewNavigationMode)
             { host = host
               mode = mode
               pivot_center = view.ActiveViewport.CameraTarget
-              started_at = Stopwatch.GetTimestamp()
               completion = completion }
 
         if input_released () then
@@ -56,12 +55,7 @@ let update (state: State) =
     match state.view_latch with
     | NoViewLatch -> ()
     | WaitingForRelease pending ->
-        let timedOut = MouseOverrideState.transition_timed_out pending
-
-        if
-            MouseOverrideState.foreground_root_window () <> pending.host.root_window
-            || timedOut
-        then
+        if MouseOverrideState.foreground_root_window () <> pending.host.root_window then
             state.view_latch <- NoViewLatch
             MouseOverrideState.stop_timer_if_idle state
             complete_or_log (WaitingForRelease pending)

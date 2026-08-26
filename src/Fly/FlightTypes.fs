@@ -20,6 +20,7 @@ type FlyState =
       mutable keyboard_pan_held: bool
       mutable mouse_pivot_hold_buttons: int
       mutable mouse_pan_hold_buttons: int
+      mutable ignore_next_right_mouse_release: bool
       mutable projection: ViewProjectionKind
       mutable perspective_projection: ViewProjectionKind
       mutable perspective_lens_length: PerspectiveLensLengthMm

@@ -166,41 +166,56 @@ let apply_mouse_action_up (buttonBit: int) (action: RoutedMouseAction) (state: F
     set_mouse_hold buttonBit false action state
 
 let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) (state: FlyState) =
-    let keyboardActions =
-        PlatformFlightKeyboard.apply_raw_mouse_button_transition transition
-
-    let mutable effect = apply_keyboard_actions keyboardActions state
-
-    if FlyState.is_running state then
-        let mouse = state.config.mouse
-
-        match transition.event with
-        | RawMouseButtonEvent.MiddleDown ->
-            effect <- InputEffect.combine effect (apply_mouse_action_down MIDDLE_BUTTON_BIT mouse.middle_button state)
-        | RawMouseButtonEvent.MiddleUp -> apply_mouse_action_up MIDDLE_BUTTON_BIT mouse.middle_button state
-        | RawMouseButtonEvent.Mouse4Down ->
-            effect <- InputEffect.combine effect (apply_mouse_action_down MOUSE4_BUTTON_BIT mouse.mouse4 state)
-        | RawMouseButtonEvent.Mouse4Up -> apply_mouse_action_up MOUSE4_BUTTON_BIT mouse.mouse4 state
-        | RawMouseButtonEvent.Mouse5Down ->
-            effect <- InputEffect.combine effect (apply_mouse_action_down MOUSE5_BUTTON_BIT mouse.mouse5 state)
-        | RawMouseButtonEvent.Mouse5Up -> apply_mouse_action_up MOUSE5_BUTTON_BIT mouse.mouse5 state
-        | RawMouseButtonEvent.LeftUp when mouse.exit_on_left -> FlyState.request_exit (explicit_exit_reason state) state
-        | RawMouseButtonEvent.RightUp when state.session_mode.lifetime = FlightLifetime.WhileRightMouseHeld ->
-            FlyState.request_exit RightMouseReleased state
-        | RawMouseButtonEvent.RightUp when mouse.exit_on_right ->
-            FlyState.request_exit (explicit_exit_reason state) state
-        | RawMouseButtonEvent.None
-        | RawMouseButtonEvent.LeftDown
-        | RawMouseButtonEvent.LeftUp
-        | RawMouseButtonEvent.RightDown
-        | RawMouseButtonEvent.RightUp -> ()
-        | _ -> ()
-
-    if FlyState.is_running state then
-        effect
+    if
+        transition.event = RawMouseButtonEvent.RightUp
+        && state.ignore_next_right_mouse_release
+    then
+        state.ignore_next_right_mouse_release <- false
+        InputEffect.none
     else
-        { effect with
-            pointer_rebase_required = true }
+        if
+            transition.event = RawMouseButtonEvent.RightDown
+            && state.ignore_next_right_mouse_release
+        then
+            state.ignore_next_right_mouse_release <- false
+
+        let keyboardActions =
+            PlatformFlightKeyboard.apply_raw_mouse_button_transition transition
+
+        let mutable effect = apply_keyboard_actions keyboardActions state
+
+        if FlyState.is_running state then
+            let mouse = state.config.mouse
+
+            match transition.event with
+            | RawMouseButtonEvent.MiddleDown ->
+                effect <-
+                    InputEffect.combine effect (apply_mouse_action_down MIDDLE_BUTTON_BIT mouse.middle_button state)
+            | RawMouseButtonEvent.MiddleUp -> apply_mouse_action_up MIDDLE_BUTTON_BIT mouse.middle_button state
+            | RawMouseButtonEvent.Mouse4Down ->
+                effect <- InputEffect.combine effect (apply_mouse_action_down MOUSE4_BUTTON_BIT mouse.mouse4 state)
+            | RawMouseButtonEvent.Mouse4Up -> apply_mouse_action_up MOUSE4_BUTTON_BIT mouse.mouse4 state
+            | RawMouseButtonEvent.Mouse5Down ->
+                effect <- InputEffect.combine effect (apply_mouse_action_down MOUSE5_BUTTON_BIT mouse.mouse5 state)
+            | RawMouseButtonEvent.Mouse5Up -> apply_mouse_action_up MOUSE5_BUTTON_BIT mouse.mouse5 state
+            | RawMouseButtonEvent.LeftUp when mouse.exit_on_left ->
+                FlyState.request_exit (explicit_exit_reason state) state
+            | RawMouseButtonEvent.RightUp when state.session_mode.lifetime = FlightLifetime.WhileRightMouseHeld ->
+                FlyState.request_exit RightMouseReleased state
+            | RawMouseButtonEvent.RightUp when mouse.exit_on_right ->
+                FlyState.request_exit (explicit_exit_reason state) state
+            | RawMouseButtonEvent.None
+            | RawMouseButtonEvent.LeftDown
+            | RawMouseButtonEvent.LeftUp
+            | RawMouseButtonEvent.RightDown
+            | RawMouseButtonEvent.RightUp -> ()
+            | _ -> ()
+
+        if FlyState.is_running state then
+            effect
+        else
+            { effect with
+                pointer_rebase_required = true }
 
 let apply_wheel_delta (wheelDelta: int64) (state: FlyState) =
     let wheel = state.wheel_remainder + wheelDelta

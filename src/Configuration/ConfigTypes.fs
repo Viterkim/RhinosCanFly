@@ -115,19 +115,32 @@ type FlightLifetime =
     | UntilExit
     | WhileRightMouseHeld
 
+[<RequireQualifiedAccess>]
+type FlightEntrySource =
+    | Command
+    | RightMouseButton
+
 [<Struct>]
 type FlightSessionMode =
     { lifetime: FlightLifetime
-      flight_mode: FlightMode }
+      flight_mode: FlightMode
+      entry_source: FlightEntrySource }
 
 module FlightSessionMode =
     let until_exit (flightMode: FlightMode) =
         { lifetime = FlightLifetime.UntilExit
-          flight_mode = flightMode }
+          flight_mode = flightMode
+          entry_source = FlightEntrySource.Command }
+
+    let until_exit_from_right_mouse (flightMode: FlightMode) =
+        { lifetime = FlightLifetime.UntilExit
+          flight_mode = flightMode
+          entry_source = FlightEntrySource.RightMouseButton }
 
     let while_right_mouse_held (flightMode: FlightMode) =
         { lifetime = FlightLifetime.WhileRightMouseHeld
-          flight_mode = flightMode }
+          flight_mode = flightMode
+          entry_source = FlightEntrySource.RightMouseButton }
 
 type ViewportPaintMode =
     | Immediate = 0

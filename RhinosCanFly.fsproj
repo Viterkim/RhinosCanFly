@@ -108,6 +108,8 @@
     <Compile Include="src/Commands/RhinosCanFlyTempFly.fs" />
     <Compile Include="src/Commands/RhinosCanFlyHeld.fs" />
     <Compile Include="src/Commands/RhinosCanFlyTempFlyHeld.fs" />
+    <Compile Include="src/Commands/RhinosCanFlyRightClick.fs" />
+    <Compile Include="src/Commands/RhinosCanFlyTempFlyRightClick.fs" />
     <Compile Include="src/Commands/RhinosCanFlyOptions.fs" />
     <Compile Include="src/Commands/RhinosCanFlySetSpeed.fs" />
     <Compile Include="src/Commands/RhinosCanFlyPivot.fs" />

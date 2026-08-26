@@ -41,6 +41,16 @@ type RhinosCanFlyHeldCommand() =
 type RhinosCanFlyTempFlyHeldCommand() =
     inherit PluginCommand(Commands.RhinosCanFlyTempFlyHeld.run)
 
+[<Guid("D424CA6C-187E-4E77-8F8B-14AE8AF8D1ED")>]
+[<CommandStyle(Style.Hidden ||| Style.Transparent ||| Style.DoNotRepeat)>]
+type RhinosCanFlyRightClickCommand() =
+    inherit PluginCommand(Commands.RhinosCanFlyRightClick.run)
+
+[<Guid("3C49844E-F10F-4BB9-9EC3-D1BA62ADFE24")>]
+[<CommandStyle(Style.Hidden ||| Style.Transparent ||| Style.DoNotRepeat)>]
+type RhinosCanFlyTempFlyRightClickCommand() =
+    inherit PluginCommand(Commands.RhinosCanFlyTempFlyRightClick.run)
+
 [<Guid("06912096-2514-4F29-9E35-A00D0D436334")>]
 type RhinosCanFlyOptionsCommand() =
     inherit PluginCommand(Commands.RhinosCanFlyOptions.run)

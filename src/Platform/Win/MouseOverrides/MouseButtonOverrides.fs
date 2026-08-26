@@ -210,17 +210,18 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
                     || not (RoutedMouseAction.enabled (MouseOverrideState.action_for state button))
                 then
                     false
-                elif isDown && Win32Native.GetCapture() = nativeint 0 then
+                elif isDown then
                     match ViewportRegistry.try_viewport viewport_registry event.point_window with
                     | ValueSome pointViewport when
                         pointViewport.host.root_window = MouseOverrideState.foreground_root_window ()
                         && MouseOverrideState.capabilities_allowed state pointViewport.name
+                        && ViewportRegistry.capture_allows_host viewport_registry pointViewport.host
                         ->
                         swallow <- true
                         MouseOverrideState.set_hook_button_ownership state button Owned
 
                         state.pending_side_button_events.Enqueue(
-                            ButtonDown(button, pointViewport.host, event.screen_point, Stopwatch.GetTimestamp())
+                            ButtonDown(button, pointViewport.host, event.screen_point)
                         )
 
                         signal_hook_ui_work ()
@@ -511,8 +512,6 @@ let command_began =
                 not (keeps_navigation_active event.CommandEnglishName)
                 && state.lifecycle = Available
                 && (state.pending_side_button_events.Count > 0
-                    || MouseOverrideState.hook_owns_any_button state
-                    || RightClickTransitions.owns_button right_click
                     || MouseOverrideState.gesture_navigation_engaged state
                     || MouseOverrideState.view_latch_engaged state
                     || RawNavigationCoordinator.is_present raw_navigation)
@@ -532,9 +531,7 @@ let command_ended =
             command_depth <- command_depth - 1
 
         if MouseHook.installed mouse_hook then
-            match ViewportRegistry.refresh viewport_registry with
-            | Ok() -> ()
-            | Error error -> Debug.WriteLine $"RhinosCanFly command viewport refresh: {error}")
+            ViewportRegistry.refresh_active viewport_registry)
 
 do Command.BeginCommand.AddHandler command_began
 do Command.EndCommand.AddHandler command_ended

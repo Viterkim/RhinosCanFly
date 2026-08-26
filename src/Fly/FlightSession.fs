@@ -355,9 +355,12 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
 
     PlatformInput.focus_view state.view
 
-    match PlatformFlightKeyboard.start state.config session.raw_input session.input_available with
-    | Ok() -> session.keyboard_suppressed <- true
-    | Error error -> failwith $"Could not suppress flight keys: {error}"
+    let ignoreEntryRelease =
+        sessionMode.entry_source = FlightEntrySource.RightMouseButton
+        && sessionMode.lifetime = FlightLifetime.UntilExit
+
+    let rightMouseWasDownBeforeRawInput =
+        ignoreEntryRelease && PlatformInput.right_mouse_button_down ()
 
     let raw =
         try
@@ -377,6 +380,16 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
 
     session.raw <- Some raw
     session.raw_input_clean <- false
+
+    state.ignore_next_right_mouse_release <-
+        ignoreEntryRelease
+        && rightMouseWasDownBeforeRawInput
+        && (PlatformInput.right_mouse_button_down ()
+            || InputAccumulator.raw_mouse_button_transition_pending RawMouseButtonEvent.RightUp session.raw_input)
+
+    match PlatformFlightKeyboard.start state.config session.raw_input session.input_available with
+    | Ok() -> session.keyboard_suppressed <- true
+    | Error error -> failwith $"Could not suppress flight keys: {error}"
 
     let navigationBindings = state.config.bindings.mouse_navigation
     state.keyboard_pivot_held <- FlightControls.is_optional_down navigationBindings.pivot.hold
@@ -405,6 +418,13 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
             FlyState.request_exit FocusLost state
             failwith "The Rhino window lost focus before flight began."
 
+        match PlatformCursorClip.acquire state.view with
+        | Ok lease -> session.cursor_clip <- Some lease
+        | Error error -> failwith error
+
+        session.cursor_hidden <- true
+        PlatformInput.hide_cursor ()
+
         session.tooltips_changed <- true
         CursorTooltipSettings.TooltipsEnabled <- false
         PlatformInput.clear_mouse_hover state.view
@@ -414,17 +434,12 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
             session.gumball_changed <- true
             ModelAidSettings.AutoGumballEnabled <- false
 
-        match PlatformCursorClip.acquire state.view with
-        | Ok lease -> session.cursor_clip <- Some lease
-        | Error error -> failwith error
-
-        session.cursor_hidden <- true
-        PlatformInput.hide_cursor ()
-
         session.perspective_lens_changed <- FlightCamera.entry_perspective_lens_changes state
         FlightCamera.apply_entry_perspective_lens state
-        state.view.Redraw()
-        InputAccumulator.discard_pointer_input session.raw_input
+
+        if session.gumball_changed || session.perspective_lens_changed then
+            state.view.Redraw()
+
         session.flight_entered <- true
 
 let begin_active (starting: StartingSession) =
@@ -631,7 +646,7 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                         pendingWake <- None
 
                         try
-                            if view.MouseCaptured false then
+                            if sessionMode.entry_source = FlightEntrySource.Command && view.MouseCaptured false then
                                 ensure_main_loop_handler ()
                                 PlatformInputWake.signal wake
                                 Ok()
