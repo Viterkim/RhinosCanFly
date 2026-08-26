@@ -116,18 +116,31 @@ type FlightLifetime =
     | WhileRightMouseHeld
 
 [<Struct>]
+type FlightMovementMode =
+    | FreeFlight
+    | CPlaneWalk of eye_height: float
+
+[<Struct>]
 type FlightSessionMode =
     { lifetime: FlightLifetime
-      flight_mode: FlightMode }
+      flight_mode: FlightMode
+      movement_mode: FlightMovementMode }
 
 module FlightSessionMode =
     let until_exit (flightMode: FlightMode) =
         { lifetime = FlightLifetime.UntilExit
-          flight_mode = flightMode }
+          flight_mode = flightMode
+          movement_mode = FreeFlight }
 
     let while_right_mouse_held (flightMode: FlightMode) =
         { lifetime = FlightLifetime.WhileRightMouseHeld
-          flight_mode = flightMode }
+          flight_mode = flightMode
+          movement_mode = FreeFlight }
+
+    let walk (eyeHeight: float) =
+        { lifetime = FlightLifetime.UntilExit
+          flight_mode = FlightMode.Normal
+          movement_mode = CPlaneWalk eyeHeight }
 
 type ViewportPaintMode =
     | Immediate = 0

@@ -59,7 +59,7 @@ let clip_cursor (rectangle: Rectangle) =
         Error(last_error "ClipCursor")
 
 let clear_mouse_hover (window: nativeint) =
-    Win32Native.SendMessage(window, Win32Native.WM_MOUSELEAVE, nativeint 0, nativeint 0)
+    Win32Native.PostMessage(window, Win32Native.WM_MOUSELEAVE, nativeint 0, nativeint 0)
     |> ignore
 
 let dismiss_native_tooltips (window: nativeint) =
@@ -80,7 +80,7 @@ let dismiss_native_tooltips (window: nativeint) =
                             StringComparison.OrdinalIgnoreCase
                         )
                     then
-                        Win32Native.SendMessage(candidate, Win32Native.TTM_POP, nativeint 0, nativeint 0)
+                        Win32Native.PostMessage(candidate, Win32Native.TTM_POP, nativeint 0, nativeint 0)
                         |> ignore
 
                 true)
@@ -144,6 +144,7 @@ type KeyboardHookEvent =
 type MouseHookEvent =
     { message: int
       mouse_data: uint32
+      hook_window: nativeint
       point_window: nativeint
       screen_point: System.Drawing.Point
       modifiers: MouseModifiers }
@@ -244,6 +245,7 @@ let install_mouse_hook (handleEvent: MouseHookEvent -> bool) =
                 let event: MouseHookEvent =
                     { message = message
                       mouse_data = data.mouse_data
+                      hook_window = data.window
                       point_window = pointWindow
                       screen_point = System.Drawing.Point(data.point.x, data.point.y)
                       modifiers = mouse_modifiers () }

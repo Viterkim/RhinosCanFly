@@ -4,6 +4,7 @@ open System
 open System.Collections.Generic
 open System.Diagnostics
 open System.Threading
+open Rhino
 open RhinosCanFly
 open RhinosCanFly.Platform.Win
 
@@ -80,6 +81,56 @@ let state =
       active = false }
 
 let mutable keyboardHook: Win32Native.WindowsHook option = None
+
+let is_plain_escape (binding: KeyBinding) =
+    let keys = binding.virtual_keys
+
+    if keys.Length = 1 then
+        let (VirtualKey virtualKey) = keys[0]
+        virtualKey = Win32Native.VK_ESCAPE
+    else
+        false
+
+let try_request_plain_escape_exit () =
+    if not (Volatile.Read(&state.active)) then
+        false
+    else
+        match state.bindings with
+        | Some bindings ->
+            let exitReason =
+                if is_plain_escape bindings.cancel_flight_and_restore then
+                    ValueSome ExplicitRestoreCamera
+                elif is_plain_escape bindings.exit_key then
+                    ValueSome ExplicitKeepCamera
+                else
+                    ValueNone
+
+            match exitReason with
+            | ValueSome reason ->
+                match state.input with
+                | Some input ->
+                    Volatile.Write(&state.accept_new_keys, false)
+                    InputAccumulator.request_exit reason input
+                    true
+                | None -> false
+            | ValueNone -> false
+        | None -> false
+
+let escape_key_pressed =
+    EventHandler(fun (_: obj) (_: EventArgs) ->
+        Monitor.Enter state.transition_gate
+
+        try
+            let requested = try_request_plain_escape_exit ()
+
+            if requested then
+                match state.input_available with
+                | Some available -> available.Invoke()
+                | None -> ()
+        finally
+            Monitor.Exit state.transition_gate)
+
+do RhinoApp.EscapeKeyPressed.AddHandler escape_key_pressed
 
 let clear_configured () =
     state.configured.exact.Clear()
@@ -504,11 +555,41 @@ let hook_event (event: Win32.KeyboardHookEvent) =
 
     try
         try
+            let escapeUpWithoutDown =
+                event.physical_key = Win32Native.VK_ESCAPE
+                && event.released
+                && Volatile.Read(&state.active)
+                && Volatile.Read(&state.accept_new_keys)
+                && not state.key_is_down[event.physical_key]
+                && not (state.suppressed_keys_down.Contains event.physical_key)
+                && not (state.passthrough_keys_down.Contains event.physical_key)
+
             let wasDown = state.key_is_down[event.physical_key]
             swallow <- handle_event event
 
-            if wasDown <> state.key_is_down[event.physical_key] then
-                let actions = collect_actions ()
+            if escapeUpWithoutDown && try_request_plain_escape_exit () then
+                Interlocked.Increment(&state.revision) |> ignore
+
+                match state.input_available with
+                | Some available -> available.Invoke()
+                | None -> ()
+            elif wasDown <> state.key_is_down[event.physical_key] then
+                let mutable actions = collect_actions ()
+
+                let escapeRequested =
+                    int actions &&& int InputAccumulator.KeyboardAction.CancelAndRestore <> 0
+                    || int actions &&& int InputAccumulator.KeyboardAction.Exit <> 0
+
+                if
+                    event.physical_key = Win32Native.VK_ESCAPE
+                    && escapeRequested
+                    && try_request_plain_escape_exit ()
+                then
+                    let escapeActions =
+                        int InputAccumulator.KeyboardAction.Exit
+                        ||| int InputAccumulator.KeyboardAction.CancelAndRestore
+
+                    actions <- enum<InputAccumulator.KeyboardAction> (int actions &&& ~~~escapeActions)
 
                 if
                     int actions &&& int InputAccumulator.KeyboardAction.Exit <> 0
@@ -525,6 +606,7 @@ let hook_event (event: Win32.KeyboardHookEvent) =
                 match state.input_available with
                 | Some available -> available.Invoke()
                 | None -> ()
+
         with error ->
             Debug.WriteLine $"RhinosCanFly keyboard suppression failed: {error}"
     finally
@@ -642,6 +724,7 @@ let start (config: FlyConfig) (input: InputAccumulator.State) (inputAvailable: A
 
 let shutdown () =
     stop ()
+    RhinoApp.EscapeKeyPressed.RemoveHandler escape_key_pressed
     Monitor.Enter state.transition_gate
 
     try

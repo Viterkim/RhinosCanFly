@@ -95,6 +95,7 @@ type RhinosCanFlySettingsDialog() as self =
     override _.Dispose(disposing: bool) =
         if disposing && not resourcesDisposed then
             resourcesDisposed <- true
+            control.Dispose()
             windowIcon |> Option.iter (fun (icon: Icon) -> icon.Dispose())
 
         base.Dispose disposing

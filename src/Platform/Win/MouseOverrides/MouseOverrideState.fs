@@ -1,6 +1,5 @@
 module RhinosCanFly.Platform.Win.MouseOverrideState
 
-open System.Diagnostics
 open RhinosCanFly
 open RhinosCanFly.Platform.Win.MouseOverrideTypes
 
@@ -122,9 +121,12 @@ let control_down () =
     || Win32Native.GetAsyncKeyState Win32Native.VK_LCONTROL < 0s
     || Win32Native.GetAsyncKeyState Win32Native.VK_RCONTROL < 0s
 
-let transition_timed_out (session: ViewLatchSession) =
-    let elapsedTicks = Stopwatch.GetTimestamp() - session.started_at
-    float elapsedTicks / float Stopwatch.Frequency >= TRANSITION_TIMEOUT_SECONDS
+let same_host (left: ViewportHostIdentity) (right: ViewportHostIdentity) =
+    left.document_serial_number = right.document_serial_number
+    && left.view_serial_number = right.view_serial_number
+    && left.viewport_id = right.viewport_id
+    && left.view_window = right.view_window
+    && left.root_window = right.root_window
 
 let keep_timer_running (state: State) =
     state.poll_timer.Interval <- POLL_TIMER_INTERVAL_MILLISECONDS

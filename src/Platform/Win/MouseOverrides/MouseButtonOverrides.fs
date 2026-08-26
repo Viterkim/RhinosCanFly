@@ -211,23 +211,26 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
                 then
                     false
                 elif isDown && Win32Native.GetCapture() = nativeint 0 then
-                    match ViewportRegistry.try_viewport viewport_registry event.point_window with
-                    | ValueSome pointViewport when
-                        pointViewport.host.root_window = MouseOverrideState.foreground_root_window ()
-                        && MouseOverrideState.capabilities_allowed state pointViewport.name
-                        ->
-                        swallow <- true
-                        MouseOverrideState.set_hook_button_ownership state button Owned
+                    match ViewportRegistry.try_viewport viewport_registry event.hook_window with
+                    | ValueSome hookViewport ->
+                        match ViewportRegistry.try_viewport viewport_registry event.point_window with
+                        | ValueSome pointViewport when
+                            MouseOverrideState.same_host hookViewport.host pointViewport.host
+                            && MouseOverrideState.capabilities_allowed state pointViewport.name
+                            ->
+                            swallow <- true
+                            MouseOverrideState.set_hook_button_ownership state button Owned
 
-                        state.pending_side_button_events.Enqueue(
-                            ButtonDown(button, pointViewport.host, event.screen_point, Stopwatch.GetTimestamp())
-                        )
+                            state.pending_side_button_events.Enqueue(
+                                ButtonDown(button, pointViewport.host, event.screen_point)
+                            )
 
-                        signal_hook_ui_work ()
+                            signal_hook_ui_work ()
 
-                        MouseOverrideState.keep_timer_running state
-                        true
-                    | ValueSome _
+                            MouseOverrideState.keep_timer_running state
+                            true
+                        | ValueSome _
+                        | ValueNone -> false
                     | ValueNone -> false
                 else
                     false
@@ -264,10 +267,17 @@ let remove_mouse_hook () =
     MouseHook.remove mouse_hook mouse_hook_environment
 
 let mouse_hook_needed () =
-    state.lifecycle <> ShutDown
-    && (RightClickTransitions.capture_needed state right_click
+    match state.lifecycle with
+    | ShutDown -> false
+    | Suspended ->
+        RightClickTransitions.owns_button right_click
+        || MouseOverrideState.hook_owns_any_button state
+    | Available
+    | Resuming
+    | Degraded _ ->
+        RightClickTransitions.capture_needed state right_click
         || MouseOverrideState.side_button_routing_enabled state
-        || MouseOverrideState.hook_owns_any_button state)
+        || MouseOverrideState.hook_owns_any_button state
 
 let refresh_mouse_hook () =
     MouseHook.refresh mouse_hook mouse_hook_environment (mouse_hook_needed ())
@@ -505,14 +515,12 @@ let command_began =
         command_depth <- command_depth + 1
 
         try
-            RightClickTransitions.clear_action right_click
+            RightClickTransitions.command_began right_click
 
             if
                 not (keeps_navigation_active event.CommandEnglishName)
                 && state.lifecycle = Available
                 && (state.pending_side_button_events.Count > 0
-                    || MouseOverrideState.hook_owns_any_button state
-                    || RightClickTransitions.owns_button right_click
                     || MouseOverrideState.gesture_navigation_engaged state
                     || MouseOverrideState.view_latch_engaged state
                     || RawNavigationCoordinator.is_present raw_navigation)
@@ -532,9 +540,7 @@ let command_ended =
             command_depth <- command_depth - 1
 
         if MouseHook.installed mouse_hook then
-            match ViewportRegistry.refresh viewport_registry with
-            | Ok() -> ()
-            | Error error -> Debug.WriteLine $"RhinosCanFly command viewport refresh: {error}")
+            ViewportRegistry.refresh_active viewport_registry)
 
 do Command.BeginCommand.AddHandler command_began
 do Command.EndCommand.AddHandler command_ended
@@ -691,6 +697,14 @@ let suspend () =
             | Error error -> errors.Add error
         with error ->
             log_exception "mouse override suspension cleanup" error
+            errors.Add error.Message
+
+        try
+            match refresh_mouse_hook () with
+            | Ok() -> ()
+            | Error error -> errors.Add error
+        with error ->
+            log_exception "mouse override suspension hook" error
             errors.Add error.Message
 
         try

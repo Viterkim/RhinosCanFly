@@ -13,7 +13,7 @@ type SideButton =
 
 [<Struct>]
 type SideButtonHookEvent =
-    | ButtonDown of button: SideButton * host: ViewportHostIdentity * screen_point: Point * started_at: int64
+    | ButtonDown of button: SideButton * host: ViewportHostIdentity * screen_point: Point
     | ButtonUp of button: SideButton
 
 type HookButtonOwnership =
@@ -54,7 +54,6 @@ type ViewLatchSession =
     { host: ViewportHostIdentity
       mode: ViewNavigationMode
       pivot_center: Rhino.Geometry.Point3d
-      started_at: int64
       completion: Action option }
 
 type ViewLatch =
@@ -92,9 +91,6 @@ let POLL_TIMER_INTERVAL_MILLISECONDS = 15
 
 [<Literal>]
 let POLL_TIMER_WATCHDOG_INTERVAL_MILLISECONDS = 250
-
-[<Literal>]
-let TRANSITION_TIMEOUT_SECONDS = 2.
 
 let empty_routing =
     { actions = MouseActionConfig.disabled

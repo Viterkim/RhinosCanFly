@@ -126,6 +126,9 @@ let VK_CONTROL = 0x11
 let VK_MENU = 0x12
 
 [<Literal>]
+let VK_ESCAPE = 0x1B
+
+[<Literal>]
 let VK_LSHIFT = 0xA0
 
 [<Literal>]
@@ -216,9 +219,6 @@ extern bool SetForegroundWindow(nativeint window)
 
 [<DllImport("user32.dll")>]
 extern nativeint GetAncestor(nativeint window, uint32 flags)
-
-[<DllImport("user32.dll")>]
-extern nativeint SendMessage(nativeint window, int message, nativeint wparam, nativeint lparam)
 
 [<DllImport("user32.dll", SetLastError = true)>]
 extern bool PostMessage(nativeint window, int message, nativeint wparam, nativeint lparam)

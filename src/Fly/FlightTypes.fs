@@ -9,6 +9,7 @@ type FlyState =
       config: FlyConfig
       host_identity: ViewportHostIdentity
       session_mode: FlightSessionMode
+      walking_plane: Plane voption
       original_cursor: CursorPosition
       original_camera: CameraSnapshot
       gumball_pivot_target: Point3d option

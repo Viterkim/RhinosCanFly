@@ -36,8 +36,8 @@ let aliases =
       "Left", 0x25
       "ArrowRight", 0x27
       "Right", 0x27
-      "Escape", 0x1B
-      "Esc", 0x1B
+      "Escape", Win32Native.VK_ESCAPE
+      "Esc", Win32Native.VK_ESCAPE
       "Space", 0x20
       "Enter", 0x0D
       "Return", 0x0D

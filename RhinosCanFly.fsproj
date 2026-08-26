@@ -106,6 +106,7 @@
     <Compile Include="src/Plugin/Plugin.fs" />
     <Compile Include="src/Commands/RhinosCanFly.fs" />
     <Compile Include="src/Commands/RhinosCanFlyTempFly.fs" />
+    <Compile Include="src/Commands/RhinosCanWalk.fs" />
     <Compile Include="src/Commands/RhinosCanFlyHeld.fs" />
     <Compile Include="src/Commands/RhinosCanFlyTempFlyHeld.fs" />
     <Compile Include="src/Commands/RhinosCanFlyOptions.fs" />
