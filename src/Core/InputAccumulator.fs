@@ -209,6 +209,12 @@ let timeline_buffer () =
 let timeline_pending (state: State) =
     Volatile.Read(&state.timeline_read) < Volatile.Read(&state.timeline_write)
 
+let work_pending (state: State) =
+    Option.isSome (Volatile.Read(&state.exit_reason))
+    || Volatile.Read(&state.mouse_xy) <> 0L
+    || timeline_pending state
+    || Volatile.Read(&state.timeline_overflow) <> 0
+
 let discard_pointer_input (state: State) =
     Monitor.Enter state.timeline_gate
 
@@ -242,10 +248,7 @@ let work_revision (state: State) =
     WorkRevision(Volatile.Read(&state.work_revision))
 
 let work_pending_since (WorkRevision observed: WorkRevision) (state: State) =
-    Option.isSome (exit_reason state)
-    || Volatile.Read(&state.work_revision) <> observed
-    || timeline_pending state
-    || Volatile.Read(&state.timeline_overflow) <> 0
+    work_pending state || Volatile.Read(&state.work_revision) <> observed
 
 let discard_transient_input (state: State) =
     Monitor.Enter state.timeline_gate

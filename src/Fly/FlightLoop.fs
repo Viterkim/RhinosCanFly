@@ -22,14 +22,20 @@ let run (inputWake: PlatformInputWake.State) (rawInput: InputAccumulator.State) 
         InputAccumulator.discard_pointer_input rawInput
 
     while FlyState.is_running state do
-        if not movementActive && not inputReady then
+        let mutable pumpAfterInput =
+            movementActive || inputReady || InputAccumulator.work_pending rawInput
+
+        if not pumpAfterInput then
             let remainingSeconds =
                 max 0. (state.next_host_validation_at - clock.Elapsed.TotalSeconds)
 
             let timeoutMilliseconds = int (Math.Ceiling(remainingSeconds * 1000.))
             PlatformInput.wait_for_input_for timeoutMilliseconds
 
-        RhinoApp.Wait()
+            pumpAfterInput <- InputAccumulator.work_pending rawInput
+
+        if not pumpAfterInput then
+            RhinoApp.Wait()
 
         let frameSeconds = clock.Elapsed.TotalSeconds
         let mutable resetMovementClock = false
@@ -101,10 +107,6 @@ let run (inputWake: PlatformInputWake.State) (rawInput: InputAccumulator.State) 
                 InputAccumulator.discard_transient_input rawInput
 
         PlatformInputWake.acknowledge inputWake
-
-        inputReady <-
-            InputAccumulator.work_pending_since observedRawRevision rawInput
-            || PlatformFlightKeyboard.revision () <> observedKeyboardRevision
 
         if FlyState.is_running state then
             let mutable viewChange = ViewChange.none
@@ -210,3 +212,10 @@ let run (inputWake: PlatformInputWake.State) (rawInput: InputAccumulator.State) 
             then
                 // If the first step is zero there is no redraw to wake the loop.
                 PlatformInputWake.signal inputWake
+
+        if pumpAfterInput && FlyState.is_running state then
+            RhinoApp.Wait()
+
+        inputReady <-
+            InputAccumulator.work_pending_since observedRawRevision rawInput
+            || PlatformFlightKeyboard.revision () <> observedKeyboardRevision
