@@ -26,7 +26,6 @@ let current_speed (config: FlyConfigFile) =
     FlightSpeed.current document config.load_speed_from_document range config.base_speed
 
 let load (control: SettingsControl) =
-    InputDebugTrace.write "Settings.load begin"
     control.ShowRuntimeEnabled(RuntimeSettings.runtime_enabled ())
 
     match RuntimeSettings.current () with
@@ -49,38 +48,26 @@ let load (control: SettingsControl) =
         | [] -> control.ClearError()
         | messages -> control.ShowError(String.concat "; " messages)
 
-    InputDebugTrace.write "Settings.load end"
-
 let save (control: SettingsControl) =
-    InputDebugTrace.write "Settings.save begin"
-
     try
         match control.ReadConfig() with
         | Error error ->
-            InputDebugTrace.write $"Settings.save config read result=error error={error}"
             control.ShowError error
             SettingsUi.report_error $"RhinosCanFly settings were not saved: {error}"
             false
         | Ok config ->
-            InputDebugTrace.write "Settings.save config read result=ok save-and-apply begin"
-
             match RuntimeSettings.save_and_apply config with
             | Ok saved ->
-                InputDebugTrace.write "Settings.save save-and-apply end result=ok control refresh begin"
                 control.RefreshRawIfVisible()
                 control.ShowRuntimeState(current_speed saved.config_file, current_lens ())
                 control.ShowRuntimeEnabled(RuntimeSettings.runtime_enabled ())
                 control.ClearError()
-                InputDebugTrace.write "Settings.save end result=true"
                 true
             | Error error ->
-                InputDebugTrace.write $"Settings.save save-and-apply end result=error error={error}"
                 control.ShowError error
                 SettingsUi.report_error $"RhinosCanFly settings error: {error}"
                 false
     with error ->
-        InputDebugTrace.write $"Settings.save exception={error}"
-
         try
             control.ShowError $"Could not save settings: {error.Message}"
         with _ ->

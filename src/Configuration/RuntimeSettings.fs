@@ -43,9 +43,6 @@ let runtime_enabled () =
     | None -> false
 
 let apply_live (loaded: ConfigLoadResult) =
-    InputDebugTrace.write
-        $"RuntimeSettings.apply_live begin suspended={input_suspended ()} runtime-enabled={runtime_enabled_for loaded.config_file}"
-
     try
         let config = loaded.config_file
         let runtime = loaded.config
@@ -95,21 +92,12 @@ let apply_live (loaded: ConfigLoadResult) =
                   prepare_navigation = NavigationTarget.prepare loaded
                   retarget = NavigationTarget.retarget loaded }
 
-        InputDebugTrace.write "RuntimeSettings.apply_live PlatformMouseActions.apply begin"
-
         match PlatformMouseActions.apply mouseOverrides with
-        | Error error ->
-            InputDebugTrace.write $"RuntimeSettings.apply_live end result=error error={error}"
-            Error error
+        | Error error -> Error error
         | Ok() ->
-            InputDebugTrace.write
-                "RuntimeSettings.apply_live PlatformMouseActions.apply end result=ok RepeatBehavior.apply begin"
-
             RepeatBehavior.apply config.commands_do_not_repeat
-            InputDebugTrace.write "RuntimeSettings.apply_live end result=ok"
             Ok()
     with error ->
-        InputDebugTrace.write $"RuntimeSettings.apply_live exception={error}"
         Debug.WriteLine $"RhinosCanFly live settings: {error}"
         Error $"Could not apply live settings: {error.Message}"
 
@@ -137,20 +125,15 @@ let toggle_runtime_enabled () =
             | Error rollbackError -> Error $"{error}; rollback failed: {rollbackError}"
 
 let suspend_input () =
-    InputDebugTrace.write $"RuntimeSettings.suspend_input begin active-leases={inputSuspensionIds.Count}"
-
     let platformResult =
         try
             PlatformMouseActions.suspend ()
         with error ->
-            InputDebugTrace.write $"RuntimeSettings.suspend_input platform exception={error}"
             record_exception "RhinosCanFly mouse override suspension failed" error
             Error error.Message
 
     match platformResult with
-    | Error error ->
-        InputDebugTrace.write $"RuntimeSettings.suspend_input end result=error error={error}"
-        Error error
+    | Error error -> Error error
     | Ok lease ->
         inputSuspensionIds.Add lease.id |> ignore
 
@@ -162,17 +145,10 @@ let suspend_input () =
                 record_exception "RhinosCanFly input cleanup warning failed" outputError
         | None -> ()
 
-        InputDebugTrace.write
-            $"RuntimeSettings.suspend_input end result=ok lease={lease.id} active-leases={inputSuspensionIds.Count} cleanup-error={lease.cleanup_error}"
-
         Ok lease
 
 let resume_input (lease: InputSuspensionLease) =
-    InputDebugTrace.write
-        $"RuntimeSettings.resume_input begin lease={lease.id} active-leases={inputSuspensionIds.Count} known={inputSuspensionIds.Contains lease.id}"
-
     if not (inputSuspensionIds.Contains lease.id) then
-        InputDebugTrace.write $"RuntimeSettings.resume_input end lease={lease.id} result=ok already-resumed=true"
         Ok()
     else
         let lastSuspension = inputSuspensionIds.Count = 1
@@ -181,7 +157,6 @@ let resume_input (lease: InputSuspensionLease) =
             try
                 PlatformMouseActions.resume lease
             with error ->
-                InputDebugTrace.write $"RuntimeSettings.resume_input platform exception lease={lease.id} error={error}"
                 record_exception "RhinosCanFly mouse override resume failed" error
                 Error error.Message
 
@@ -190,19 +165,10 @@ let resume_input (lease: InputSuspensionLease) =
         match platformResult with
         | Ok() ->
             if lastSuspension then
-                InputDebugTrace.write $"RuntimeSettings.resume_input redraw begin lease={lease.id}"
                 PlatformInput.request_application_redraw ()
-                InputDebugTrace.write $"RuntimeSettings.resume_input redraw end lease={lease.id}"
-
-            InputDebugTrace.write
-                $"RuntimeSettings.resume_input end lease={lease.id} result=ok active-leases={inputSuspensionIds.Count}"
 
             Ok()
-        | Error error ->
-            InputDebugTrace.write
-                $"RuntimeSettings.resume_input end lease={lease.id} result=error active-leases={inputSuspensionIds.Count} error={error}"
-
-            Error error
+        | Error error -> Error error
 
 let complete_input_recovery () =
     if inputSuspensionIds.Count > 0 then
@@ -222,61 +188,33 @@ let candidate (config: FlyConfigFile) =
               messages = [] }
 
 let save_and_apply (config: FlyConfigFile) =
-    InputDebugTrace.write "RuntimeSettings.save_and_apply begin"
-
     match candidate config with
-    | Error error ->
-        InputDebugTrace.write $"RuntimeSettings.save_and_apply end result=candidate-error error={error}"
-        Error error
+    | Error error -> Error error
     | Ok requested ->
         match loadedConfig with
         | None ->
-            InputDebugTrace.write "RuntimeSettings.save_and_apply no previous config save begin"
-
             match ConfigStorage.save requested.config_file with
-            | Error error ->
-                InputDebugTrace.write $"RuntimeSettings.save_and_apply end result=save-error error={error}"
-                Error $"Could not save settings: {error}"
+            | Error error -> Error $"Could not save settings: {error}"
             | Ok saved ->
-                InputDebugTrace.write "RuntimeSettings.save_and_apply no previous config apply begin"
-
                 match apply_live saved with
                 | Ok() ->
                     loadedConfig <- Some saved
-                    InputDebugTrace.write "RuntimeSettings.save_and_apply end result=ok"
                     Ok saved
-                | Error error ->
-                    InputDebugTrace.write $"RuntimeSettings.save_and_apply end result=apply-error error={error}"
-                    Error error
+                | Error error -> Error error
         | Some previous ->
             let rollback (error: string) =
-                InputDebugTrace.write $"RuntimeSettings.save_and_apply rollback begin original-error={error}"
-
                 match apply_live previous with
-                | Ok() ->
-                    InputDebugTrace.write "RuntimeSettings.save_and_apply rollback end result=ok"
-                    Error error
-                | Error rollbackError ->
-                    InputDebugTrace.write
-                        $"RuntimeSettings.save_and_apply rollback end result=error error={rollbackError}"
-
-                    Error $"{error}; rollback failed: {rollbackError}"
-
-            InputDebugTrace.write "RuntimeSettings.save_and_apply apply requested begin"
+                | Ok() -> Error error
+                | Error rollbackError -> Error $"{error}; rollback failed: {rollbackError}"
 
             match apply_live requested with
             | Error error -> rollback error
             | Ok() ->
-                InputDebugTrace.write "RuntimeSettings.save_and_apply apply requested end result=ok save begin"
-
                 match ConfigStorage.save requested.config_file with
                 | Ok saved ->
                     loadedConfig <- Some saved
-                    InputDebugTrace.write "RuntimeSettings.save_and_apply end result=ok"
                     Ok saved
-                | Error error ->
-                    InputDebugTrace.write $"RuntimeSettings.save_and_apply save end result=error error={error}"
-                    rollback $"Could not save settings: {error}"
+                | Error error -> rollback $"Could not save settings: {error}"
 
 let load_and_apply () =
     match ConfigStorage.load () with

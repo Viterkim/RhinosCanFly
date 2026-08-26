@@ -21,9 +21,7 @@ let same_button (left: Button) (right: Button) = Object.ReferenceEquals(left, ri
 
 let stop (state: State) =
     match state.active with
-    | Some active ->
-        InputDebugTrace.write "BindingCapture stop active=true"
-        active.button.Text <- "Set..."
+    | Some active -> active.button.Text <- "Set..."
     | None -> ()
 
     state.active <- None
@@ -32,21 +30,18 @@ let stop (state: State) =
         state.side_button_timer.Stop()
 
 let cancel (state: State) =
-    InputDebugTrace.write $"BindingCapture cancel active={state.active.IsSome}"
     stop state
     state.suppress_next_set_click <- None
 
 let complete (state: State) (binding: string) =
     match state.active with
     | Some active ->
-        InputDebugTrace.write $"BindingCapture complete binding={binding}"
         active.field.Text <- binding
         stop state
     | None -> ()
 
 let start (state: State) (field: TextBox) (button: Button) =
     if not state.disposed then
-        InputDebugTrace.write $"BindingCapture start previous-active={state.active.IsSome}"
         stop state
         state.active <- Some { field = field; button = button }
         button.Text <- "Press..."
@@ -106,9 +101,6 @@ let is_editor_control (control: Control) =
 let try_capture_mouse (state: State) (source: Control) (event: MouseEventArgs) =
     match state.active, PlatformBindings.binding_from_mouse event.Buttons event.Modifiers with
     | Some _, Some binding ->
-        InputDebugTrace.write
-            $"BindingCapture mouse binding={binding} source={source.GetType().Name} buttons={event.Buttons} modifiers={event.Modifiers}"
-
         match source with
         | :? Button as button when event.Buttons = MouseButtons.Primary -> state.suppress_next_set_click <- Some button
         | _ -> ()
@@ -119,9 +111,6 @@ let try_capture_mouse (state: State) (source: Control) (event: MouseEventArgs) =
 
 let attach_mouse_handler (state: State) (control: Control) =
     control.MouseDown.Add(fun (event: MouseEventArgs) ->
-        InputDebugTrace.write
-            $"BindingCapture control MouseDown source={control.GetType().Name} active={state.active.IsSome} buttons={event.Buttons} modifiers={event.Modifiers}"
-
         if try_capture_mouse state control event then
             event.Handled <- true
         elif not (is_editor_control control) then
@@ -138,8 +127,6 @@ let attach_mouse_behavior (state: State) (control: Control) =
     | _ -> ()
 
 let create () =
-    InputDebugTrace.write "BindingCapture create begin"
-
     let state =
         { focus_sink = new Drawable(CanFocus = true, Size = Size(1, 1))
           side_button_timer = new UITimer(Interval = SIDE_BUTTON_POLL_INTERVAL_SECONDS)
@@ -151,17 +138,13 @@ let create () =
         try
             PlatformBindings.try_side_mouse_binding () |> Option.iter (complete state)
         with error ->
-            InputDebugTrace.write $"BindingCapture timer exception={error}"
             Debug.WriteLine $"RhinosCanFly binding capture timer: {error}"
             cancel state)
 
-    InputDebugTrace.write "BindingCapture create end"
     state
 
 let dispose (state: State) =
     if not state.disposed then
-        InputDebugTrace.write $"BindingCapture dispose begin active={state.active.IsSome}"
         cancel state
         state.disposed <- true
         state.side_button_timer.Dispose()
-        InputDebugTrace.write "BindingCapture dispose end"

@@ -16,44 +16,25 @@ type RhinosCanFlyPlugin() as self =
             Debug.WriteLine $"{message}; output failed: {error.Message}"
 
     do
-        InputDebugTrace.start_session ()
-        InputDebugTrace.write "plugin initialization begin"
-
         try
-            InputDebugTrace.write "config storage initialization begin"
             ConfigStorage.initialize self.SettingsDirectory
-            InputDebugTrace.write "config storage initialization end"
-
-            InputDebugTrace.write "raw input preparation begin"
 
             match PlatformRawInput.prepare () with
-            | Ok() -> InputDebugTrace.write "raw input preparation end result=ok"
-            | Error error ->
-                InputDebugTrace.write $"raw input preparation end result=error error={error}"
-                report $"RhinosCanFly raw-input worker unavailable: {error}"
-
-            InputDebugTrace.write "runtime settings load begin"
+            | Ok() -> ()
+            | Error error -> report $"RhinosCanFly raw-input worker unavailable: {error}"
 
             match RuntimeSettings.load_and_apply () with
-            | Ok() -> InputDebugTrace.write "runtime settings load end result=ok"
-            | Error error ->
-                InputDebugTrace.write $"runtime settings load end result=error error={error}"
-                report $"RhinosCanFly settings unavailable: {error}"
+            | Ok() -> ()
+            | Error error -> report $"RhinosCanFly settings unavailable: {error}"
         with error ->
-            InputDebugTrace.write $"plugin initialization exception={error}"
             report $"RhinosCanFly initialization failed: {error.Message}"
-
-        InputDebugTrace.write "plugin initialization end"
 
     override _.LoadTime = PlugInLoadTime.AtStartup
 
     override _.OptionsDialogPages(pages: List<OptionsDialogPage>) =
-        InputDebugTrace.write "Rhino Options page registration"
         pages.Add(new RhinosCanFlyOptionsPage())
 
     override _.OnShutdown() =
-        InputDebugTrace.write "plugin shutdown begin"
-
         try
             FlightSession.shutdown ()
         with error ->
@@ -108,6 +89,3 @@ type RhinosCanFlyPlugin() as self =
             RuntimeSettings.shutdown ()
         with error ->
             report $"RhinosCanFly settings lifecycle shutdown failed: {error.Message}"
-
-        InputDebugTrace.write "plugin shutdown end"
-        InputDebugTrace.stop_session ()

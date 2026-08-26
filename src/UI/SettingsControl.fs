@@ -11,13 +11,7 @@ type SettingsControl() as self =
     inherit Panel()
 
     let defaults = ConfigSchema.defaults
-
-    let fields =
-        InputDebugTrace.write "SettingsControl fields construction begin"
-        let value = SettingsFields.create ()
-        InputDebugTrace.write "SettingsControl fields construction end"
-        value
-
+    let fields = SettingsFields.create ()
     let bindings = fields.config.bindings
     let numbers = fields.config.numbers
     let modes = fields.config.modes
@@ -195,7 +189,6 @@ type SettingsControl() as self =
         new Scrollable(Border = BorderType.None, ExpandContentWidth = true, Content = mainTable)
 
     do
-        InputDebugTrace.write "SettingsControl layout construction begin"
         mainTable.Rows.Add(SettingsLayout.full_width (title_row ()))
         mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "General behaviour"))
 
@@ -558,25 +551,15 @@ type SettingsControl() as self =
 
         BindingCapture.attach_mouse_behavior bindingCapture self
         SettingsUi.use_rhino_style self
-
-        self.UnLoad.Add(fun (_: EventArgs) ->
-            InputDebugTrace.write "SettingsControl UnLoad begin"
-            BindingCapture.cancel bindingCapture
-            InputDebugTrace.write "SettingsControl UnLoad end")
-
-        InputDebugTrace.write "SettingsControl layout construction end"
+        self.UnLoad.Add(fun (_: EventArgs) -> BindingCapture.cancel bindingCapture)
 
     override _.Dispose(disposing: bool) =
-        InputDebugTrace.write
-            $"SettingsControl Dispose begin disposing={disposing} resources-disposed={resourcesDisposed}"
-
         if disposing && not resourcesDisposed then
             resourcesDisposed <- true
             BindingCapture.dispose bindingCapture
             optionsIcon |> Option.iter (fun (icon: Icon) -> icon.Dispose())
 
         base.Dispose disposing
-        InputDebugTrace.write "SettingsControl Dispose end"
 
     member _.ShowError(message: string) =
         configurationError <- Some message
