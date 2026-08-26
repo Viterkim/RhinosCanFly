@@ -506,7 +506,7 @@ let command_began =
         command_depth <- command_depth + 1
 
         try
-            RightClickTransitions.clear_action right_click
+            RightClickTransitions.command_began right_click
 
             if
                 not (keeps_navigation_active event.CommandEnglishName)

@@ -355,13 +355,6 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
 
     PlatformInput.focus_view state.view
 
-    let ignoreEntryRelease =
-        sessionMode.entry_source = FlightEntrySource.RightMouseButton
-        && sessionMode.lifetime = FlightLifetime.UntilExit
-
-    let rightMouseWasDownBeforeRawInput =
-        ignoreEntryRelease && PlatformInput.right_mouse_button_down ()
-
     let raw =
         try
             PlatformRawInput.start session.raw_input session.input_available
@@ -380,12 +373,6 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
 
     session.raw <- Some raw
     session.raw_input_clean <- false
-
-    state.ignore_next_right_mouse_release <-
-        ignoreEntryRelease
-        && rightMouseWasDownBeforeRawInput
-        && (PlatformInput.right_mouse_button_down ()
-            || InputAccumulator.raw_mouse_button_transition_pending RawMouseButtonEvent.RightUp session.raw_input)
 
     match PlatformFlightKeyboard.start state.config session.raw_input session.input_available with
     | Ok() -> session.keyboard_suppressed <- true
@@ -418,13 +405,6 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
             FlyState.request_exit FocusLost state
             failwith "The Rhino window lost focus before flight began."
 
-        match PlatformCursorClip.acquire state.view with
-        | Ok lease -> session.cursor_clip <- Some lease
-        | Error error -> failwith error
-
-        session.cursor_hidden <- true
-        PlatformInput.hide_cursor ()
-
         session.tooltips_changed <- true
         CursorTooltipSettings.TooltipsEnabled <- false
         PlatformInput.clear_mouse_hover state.view
@@ -433,6 +413,13 @@ let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
         if state.config.behavior.hide_gumball && session.original_gumball_enabled then
             session.gumball_changed <- true
             ModelAidSettings.AutoGumballEnabled <- false
+
+        match PlatformCursorClip.acquire state.view with
+        | Ok lease -> session.cursor_clip <- Some lease
+        | Error error -> failwith error
+
+        session.cursor_hidden <- true
+        PlatformInput.hide_cursor ()
 
         session.perspective_lens_changed <- FlightCamera.entry_perspective_lens_changes state
         FlightCamera.apply_entry_perspective_lens state
@@ -646,7 +633,7 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                         pendingWake <- None
 
                         try
-                            if sessionMode.entry_source = FlightEntrySource.Command && view.MouseCaptured false then
+                            if view.MouseCaptured false then
                                 ensure_main_loop_handler ()
                                 PlatformInputWake.signal wake
                                 Ok()

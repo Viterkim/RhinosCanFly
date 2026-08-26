@@ -294,9 +294,9 @@ let entry_command (entry: FlyEntry) =
         | _ -> "'_RhinosCanFlyHeld"
     else
         match flightMode with
-        | FlightMode.Temporary -> "'_RhinosCanFlyTempFlyRightClick"
+        | FlightMode.Temporary -> "'_RhinosCanFlyTempFly"
         | FlightMode.Normal
-        | _ -> "'_RhinosCanFlyRightClick"
+        | _ -> "'_RhinosCanFly"
 
 let try_entry_view (entry: FlyEntry) =
     let view = RhinoView.FromRuntimeSerialNumber entry.host.view_serial_number
@@ -376,6 +376,8 @@ let try_dispatch_entry (navigation: State) (state: RightClickState) (commandActi
 
                 if not canEnter then
                     clear_action state
+                elif view.MouseCaptured false then
+                    ()
                 elif entry_while_held entry.entry_mode then
                     if Win32Native.GetAsyncKeyState Win32Native.VK_RBUTTON < 0s then
                         dispatch_entry state entry
@@ -435,7 +437,9 @@ let update (navigation: State) (state: RightClickState) (commandActive: bool) =
     | ButtonReleasedBeforeHandling(PanParallel _)
     | ButtonReleasedBeforeHandling(ZoomParallel _) -> clear_action state
     | ButtonReleasedBeforeHandling(EnterFlight entry) -> try_dispatch_entry navigation state commandActive entry
-    | ButtonDown(EnterFlight entry) -> try_dispatch_entry navigation state commandActive entry
+    | ButtonDown(EnterFlight entry) when entry_while_held entry.entry_mode ->
+        try_dispatch_entry navigation state commandActive entry
+    | ButtonDown(EnterFlight _) -> ()
     | ButtonReleased(NavigateView _) ->
         GestureNavigationTransitions.release navigation GestureOwner.ModifiedRightClick
         clear_action state
@@ -443,6 +447,19 @@ let update (navigation: State) (state: RightClickState) (commandActive: bool) =
     | ButtonReleased(PanParallel _) -> clear_action state
     | ButtonReleased(ZoomParallel _) -> clear_action state
     | ButtonReleased(EnterFlight entry) -> try_dispatch_entry navigation state commandActive entry
+
+let command_began (state: RightClickState) =
+    match state.gesture with
+    | ButtonDown(EnterFlight entry)
+    | ButtonReleasedBeforeHandling(EnterFlight entry)
+    | ButtonReleased(EnterFlight entry) when entry_during_commands entry.entry_mode -> ()
+    | Idle
+    | NativeModifiedGesture
+    | ButtonDown _
+    | ButtonDownHandled _
+    | ButtonReleasedBeforeHandling _
+    | ButtonReleased _
+    | FlightDispatched -> clear_action state
 
 let prune_released_button (state: RightClickState) =
     if owns_button state then

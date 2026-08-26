@@ -74,7 +74,6 @@ let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyCo
       keyboard_pan_held = false
       mouse_pivot_hold_buttons = 0
       mouse_pan_hold_buttons = 0
-      ignore_next_right_mouse_release = false
       projection = originalCamera.projection
       perspective_projection = perspectiveProjection
       perspective_lens_length = perspectiveLensLength

@@ -209,24 +209,6 @@ let timeline_buffer () =
 let timeline_pending (state: State) =
     Volatile.Read(&state.timeline_read) < Volatile.Read(&state.timeline_write)
 
-let raw_mouse_button_transition_pending (requested: RawMouseButtonEvent) (state: State) =
-    Monitor.Enter state.timeline_gate
-
-    try
-        let mutable index = state.timeline_read
-        let mutable found = false
-
-        while index < state.timeline_write && not found do
-            let event = state.timeline_events[int (index % int64 state.timeline_events.Length)]
-
-            found <- event.kind = TimelineEventKind.RawMouseButton && event.button.event = requested
-
-            index <- index + 1L
-
-        found
-    finally
-        Monitor.Exit state.timeline_gate
-
 let discard_pointer_input (state: State) =
     Monitor.Enter state.timeline_gate
 
