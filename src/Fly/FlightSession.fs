@@ -14,8 +14,7 @@ type StartingSession =
       override_suspension: InputSuspensionLease
       input_wake: PlatformInputWake.State
       raw_input: InputAccumulator.State
-      input_available: Action
-      capture_wait: Stopwatch }
+      input_available: Action }
 
 type ActiveSession =
     { state: FlyState
@@ -47,8 +46,6 @@ let mutable sessionState = Ready
 let mutable mainLoopHandlerInstalled = false
 let mutable processingMainLoop = false
 let mutable mainLoopHandler: EventHandler = null
-
-let viewport_gesture_timeout = TimeSpan.FromMilliseconds 250.
 
 let report (message: string) =
     Debug.WriteLine message
@@ -326,7 +323,7 @@ let finish_active (session: ActiveSession) (activeResult: Result<unit, string>) 
     finally
         CameraSnapshot.dispose session.state.original_camera
 
-let cleanup_starting (starting: StartingSession) (failure: string) =
+let cleanup_starting (starting: StartingSession) (result: Result<unit, string>) =
     sessionState <- Finishing
     let errors = ResizeArray<string>()
 
@@ -348,7 +345,7 @@ let cleanup_starting (starting: StartingSession) (failure: string) =
         else
             RestartRequired
 
-    finish_result (Error failure) errors
+    finish_result result errors
 
 let enter_active (sessionMode: FlightSessionMode) (session: ActiveSession) =
     let state = session.state
@@ -527,20 +524,19 @@ let finish_and_report (result: Result<unit, string>) =
 let process_starting (starting: StartingSession) =
     PlatformInputWake.acknowledge starting.input_wake
 
-    if not (PlatformInput.viewport_host_is_active starting.host_identity starting.view) then
-        cleanup_starting starting "The active Rhino document or viewport changed before flight began."
+    match InputAccumulator.exit_reason starting.raw_input with
+    | Some(SessionFailure error) -> cleanup_starting starting (Error error) |> finish_and_report
+    | Some _ -> cleanup_starting starting (Ok()) |> finish_and_report
+    | None when not (PlatformInput.viewport_host_is_active starting.host_identity starting.view) ->
+        cleanup_starting starting (Error "The active Rhino document or viewport changed before flight began.")
         |> finish_and_report
-    elif PlatformInput.foreground_root_window () <> starting.host_identity.root_window then
-        cleanup_starting starting "The Rhino window lost focus before flight began."
+    | None when PlatformInput.foreground_root_window () <> starting.host_identity.root_window ->
+        cleanup_starting starting (Error "The Rhino window lost focus before flight began.")
         |> finish_and_report
-    elif not (starting.view.MouseCaptured false) then
+    | None when not (starting.view.MouseCaptured false) ->
         remove_main_loop_handler ()
         begin_active starting |> finish_and_report
-    elif starting.capture_wait.Elapsed >= viewport_gesture_timeout then
-        cleanup_starting starting "The active viewport did not release its mouse capture within 250 ms."
-        |> finish_and_report
-    else
-        PlatformInputWake.signal starting.input_wake
+    | None -> PlatformInputWake.signal starting.input_wake
 
 let process_main_loop () =
     if not processingMainLoop then
@@ -556,7 +552,7 @@ let process_main_loop () =
                 | RestartRequired -> ()
             with error ->
                 match sessionState with
-                | Starting starting -> cleanup_starting starting (error_message error) |> finish_and_report
+                | Starting starting -> cleanup_starting starting (Error(error_message error)) |> finish_and_report
                 | Flying session ->
                     session.state.restore_camera_on_exit <- true
                     FlyState.request_exit (SessionFailure(error.ToString())) session.state
@@ -628,8 +624,7 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                               override_suspension = suspension
                               input_wake = wake
                               raw_input = rawInput
-                              input_available = inputAvailable
-                              capture_wait = Stopwatch.StartNew() }
+                              input_available = inputAvailable }
 
                         sessionState <- Starting starting
                         pendingWake <- None
@@ -642,7 +637,7 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                             else
                                 begin_active starting
                         with error ->
-                            cleanup_starting starting (error_message error)
+                            cleanup_starting starting (Error(error_message error))
                     with error ->
                         let errors = ResizeArray<string>()
 
@@ -665,7 +660,7 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
                         finish_result (Error(error_message error)) errors
         with error ->
             match sessionState with
-            | Starting starting -> cleanup_starting starting (error_message error)
+            | Starting starting -> cleanup_starting starting (Error(error_message error))
             | Flying session -> finish_active session (Error(error_message error))
             | Ready
             | Finishing
@@ -674,7 +669,7 @@ let run (view: RhinoView) (config: FlyConfig) (sessionMode: FlightSessionMode) =
 let shutdown () =
     try
         match sessionState with
-        | Starting starting -> cleanup_starting starting "Rhino is shutting down." |> ignore
+        | Starting starting -> cleanup_starting starting (Error "Rhino is shutting down.") |> ignore
         | Flying session ->
             session.state.restore_camera_on_exit <- true
             FlyState.request_exit (SessionFailure "Rhino is shutting down.") session.state

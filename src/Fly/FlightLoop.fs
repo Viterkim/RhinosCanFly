@@ -14,9 +14,6 @@ let run (inputWake: PlatformInputWake.State) (rawInput: InputAccumulator.State) 
     let mutable inputReady = true
     let timeline = InputAccumulator.timeline_buffer ()
 
-    let update_navigation_mode () =
-        FlightCamera.update_navigation_mode state
-
     let discard_pointer_input () =
         state.wheel_remainder <- 0L
         InputAccumulator.discard_pointer_input rawInput
@@ -47,7 +44,7 @@ let run (inputWake: PlatformInputWake.State) (rawInput: InputAccumulator.State) 
             PlatformFlightKeyboard.allow_passthrough ()
             InputAccumulator.discard_transient_input rawInput
         else
-            if update_navigation_mode () then
+            if FlightCamera.update_navigation_mode state then
                 discard_pointer_input ()
                 resetMovementClock <- true
 
@@ -78,7 +75,7 @@ let run (inputWake: PlatformInputWake.State) (rawInput: InputAccumulator.State) 
                     if FlyState.is_running state then
                         FlightCamera.apply state effect.view_change
 
-                        let navigationChanged = update_navigation_mode ()
+                        let navigationChanged = FlightCamera.update_navigation_mode state
 
                         if effect.pointer_rebase_required then
                             rebase_pointer ()
@@ -91,7 +88,7 @@ let run (inputWake: PlatformInputWake.State) (rawInput: InputAccumulator.State) 
                     if FlyState.is_running state then
                         FlightCamera.apply state effect.view_change
 
-                        let navigationChanged = update_navigation_mode ()
+                        let navigationChanged = FlightCamera.update_navigation_mode state
 
                         if effect.pointer_rebase_required then
                             rebase_pointer ()
