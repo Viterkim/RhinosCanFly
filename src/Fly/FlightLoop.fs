@@ -120,8 +120,7 @@ let run (inputWake: PlatformInputWake.State) (rawInput: InputAccumulator.State) 
                 pivotDirectionActive && state.key_pivot_input_state = KeyPivotInputArmed
 
             if pivotTargetStarting then
-                state.key_pivot_target <-
-                    FlightCamera.navigation_target state ViewNavigationMode.Pivot state.gumball_pivot_target
+                state.key_pivot_target <- FlightCamera.navigation_target state ViewNavigationMode.Pivot
 
                 discard_pointer_input ()
 

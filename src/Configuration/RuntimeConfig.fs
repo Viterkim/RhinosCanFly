@@ -86,7 +86,7 @@ type RetargetConfig =
 
 type FlightBehavior =
     { hide_gumball: bool
-      flight_pivot_uses_gumball: bool
+      use_gumball_as_target: bool
       retarget: RetargetConfig
       save_speed_to_document: bool
       load_speed_from_document: bool

@@ -26,13 +26,18 @@ let fallback_navigation_target (state: FlyState) =
 
         cameraLocation + cameraDirection * distance
 
-let navigation_target (state: FlyState) (mode: ViewNavigationMode) (gumballTarget: Point3d option) =
+let navigation_target (state: FlyState) (mode: ViewNavigationMode) =
     let viewport = state.viewport
 
     let retargetMode =
         match mode with
         | ViewNavigationMode.Pivot -> state.config.behavior.retarget.on_pivot
         | ViewNavigationMode.Pan -> state.config.behavior.retarget.on_pan
+
+    let gumballTarget =
+        match mode with
+        | ViewNavigationMode.Pivot -> state.gumball_target
+        | ViewNavigationMode.Pan -> None
 
     match gumballTarget with
     | Some target when ViewTarget.target_is_in_front viewport target -> target
@@ -168,13 +173,13 @@ let update_navigation_mode (state: FlyState) =
             match state.active_mouse_navigation with
             | MousePivot _ -> state.active_mouse_navigation
             | MouseLook
-            | MousePan _ -> MousePivot(navigation_target state ViewNavigationMode.Pivot state.gumball_pivot_target)
+            | MousePan _ -> MousePivot(navigation_target state ViewNavigationMode.Pivot)
         | PanNavigation ->
             match state.active_mouse_navigation with
             | MousePan _ -> state.active_mouse_navigation
             | MouseLook
             | MousePivot _ ->
-                let panTarget = navigation_target state ViewNavigationMode.Pan None
+                let panTarget = navigation_target state ViewNavigationMode.Pan
                 MousePan(panTarget, pan_units_per_radian panTarget state.camera)
 
     if previousNavigation <> requestedNavigation then

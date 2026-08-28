@@ -40,7 +40,6 @@
     <Compile Include="src/Configuration/ConfigSchema.fs" />
     <Compile Include="src/Core/CameraInputTypes.fs" />
     <Compile Include="src/Core/FlightInput.fs" />
-    <Compile Include="src/Core/RhinoSettings.fs" />
     <Compile Include="src/Core/Speed.fs" />
     <Compile Include="src/Core/MouseSensitivity.fs" />
     <Compile Include="src/Core/ViewNavigationTypes.fs" />

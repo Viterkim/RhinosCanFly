@@ -185,7 +185,7 @@ type FlyConfigFile =
       mouse_y_mode: MouseAxisMode
       normalize_diagonal_movement: bool
       hide_gumball_while_flying: bool
-      flight_pivot_uses_gumball: bool
+      use_gumball_as_target: bool
       save_speed_to_document: bool
       load_speed_from_document: bool
       wheel_speed_mode: MouseWheelSpeedMode

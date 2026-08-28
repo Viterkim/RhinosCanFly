@@ -9,17 +9,7 @@ let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyCo
     let movement = config.movement
     let behavior = config.behavior
 
-    let gumballPivotTarget =
-        let mutable gumballPlane = Plane.Unset
-
-        if
-            behavior.flight_pivot_uses_gumball
-            && RhinoSettings.rotate_view_around_gumball ()
-            && view.Document.GetGumballPlane(&gumballPlane)
-        then
-            Some gumballPlane.Origin
-        else
-            None
+    let gumballTarget = ViewTarget.gumball_target behavior.use_gumball_as_target view
 
     let originalCursor =
         match PlatformInput.get_cursor_position () with
@@ -91,7 +81,7 @@ let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyCo
       walking_plane = walkingPlane
       original_cursor = originalCursor
       original_camera = originalCamera
-      gumball_pivot_target = gumballPivotTarget
+      gumball_target = gumballTarget
       key_pivot_target = camera.target
       key_pivot_input_state = KeyPivotInputArmed
       active_mouse_navigation = MouseLook

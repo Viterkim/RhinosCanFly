@@ -24,6 +24,17 @@ type SelectedObjectCandidate =
     { rhino_object: RhinoObject
       estimated_target: Point3d }
 
+let gumball_target (enabled: bool) (view: RhinoView) =
+    if not enabled || isNull view || isNull view.Document then
+        None
+    else
+        let mutable plane = Plane.Unset
+
+        if view.Document.GetGumballPlane(&plane) && plane.IsValid && plane.Origin.IsValid then
+            Some plane.Origin
+        else
+            None
+
 let target_is_in_front (viewport: RhinoViewport) (target: Point3d) =
     let mutable direction = viewport.CameraDirection
     let offset = target - viewport.CameraLocation

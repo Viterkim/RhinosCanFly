@@ -293,8 +293,7 @@ type SettingsControl() as self =
             2
             [ options.exit_on_mouse_right
               options.exit_on_mouse_left
-              options.hide_gumball_while_flying
-              options.flight_pivot_uses_gumball ]
+              options.hide_gumball_while_flying ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
@@ -382,6 +381,8 @@ type SettingsControl() as self =
         mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Retarget"))
 
         mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Automatic retarget"))
+
+        mainTable.Rows.Add(SettingsLayout.full_width options.use_gumball_as_target)
 
         SettingsLayout.grid
             2
