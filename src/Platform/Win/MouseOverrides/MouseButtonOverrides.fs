@@ -131,17 +131,6 @@ let action_button_up (button: SideButton) (message: int) =
 let raw_navigation_captures_button_messages () =
     RawNavigationCoordinator.captures_button_messages raw_navigation
 
-let raw_navigation_button_message (message: int) =
-    message = Win32Native.WM_RBUTTONDOWN
-    || message = Win32Native.WM_RBUTTONUP
-    || message = Win32Native.WM_RBUTTONDBLCLK
-    || message = Win32Native.WM_MBUTTONDOWN
-    || message = Win32Native.WM_MBUTTONUP
-    || message = Win32Native.WM_MBUTTONDBLCLK
-    || message = Win32Native.WM_XBUTTONDOWN
-    || message = Win32Native.WM_XBUTTONUP
-    || message = Win32Native.WM_XBUTTONDBLCLK
-
 let handle_mouse_event (event: Win32.MouseHookEvent) =
     let mutable swallow = false
     let mutable rightClickEvent = false
@@ -149,11 +138,6 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
 
     try
         if
-            raw_navigation_button_message event.message
-            && raw_navigation_captures_button_messages ()
-        then
-            true
-        elif
             event.message = Win32Native.WM_RBUTTONDOWN
             || event.message = Win32Native.WM_RBUTTONUP
             || event.message = Win32Native.WM_RBUTTONDBLCLK
@@ -161,13 +145,32 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
             rightClickEvent <- true
             rightClickWasOwned <- RightClickTransitions.owns_button right_click
 
-            swallow <-
-                RightClickTransitions.handle_event
-                    state
-                    right_click
-                    (ViewportRegistry.try_viewport viewport_registry)
-                    (command_depth > 0)
-                    event
+            if raw_navigation_captures_button_messages () then
+                let isDown =
+                    event.message = Win32Native.WM_RBUTTONDOWN
+                    || event.message = Win32Native.WM_RBUTTONDBLCLK
+
+                if isDown then
+                    if right_click.button_ownership = ReleaseObserved then
+                        RightClickTransitions.clear_action right_click
+
+                    right_click.button_ownership <- Owned
+                    swallow <- true
+                elif
+                    event.message = Win32Native.WM_RBUTTONUP
+                    && RightClickTransitions.owns_button right_click
+                then
+                    right_click.button_ownership <- NotOwned
+                    RightClickTransitions.clear_action right_click
+                    swallow <- true
+            else
+                swallow <-
+                    RightClickTransitions.handle_event
+                        state
+                        right_click
+                        (ViewportRegistry.try_viewport viewport_registry)
+                        (command_depth > 0)
+                        event
 
             if RightClickTransitions.action_pending right_click then
                 signal_hook_ui_work ()
@@ -191,7 +194,18 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
 
                 let hookOwnsButton = MouseOverrideState.hook_owns_button state button
 
-                if isUp && hookOwnsButton then
+                if raw_navigation_captures_button_messages () then
+                    if isDown then
+                        swallow <- true
+                        MouseOverrideState.set_hook_button_ownership state button Owned
+                        true
+                    elif isUp && hookOwnsButton then
+                        swallow <- true
+                        MouseOverrideState.set_hook_button_ownership state button NotOwned
+                        true
+                    else
+                        false
+                elif isUp && hookOwnsButton then
                     swallow <- true
                     MouseOverrideState.set_hook_button_ownership state button NotOwned
 
@@ -308,31 +322,22 @@ let reconcile_button_ownership_after_suspension () =
     RightClickTransitions.reconcile_physical_button right_click
 
     if MouseOverrideState.hook_owns_button state Middle then
-        MouseOverrideState.set_hook_button_ownership
-            state
-            Middle
-            (if SideButtonTransitions.is_down Middle then
-                 Owned
-             else
-                 NotOwned)
+        if SideButtonTransitions.is_down Middle then
+            MouseOverrideState.set_hook_button_ownership state Middle Owned
+        else
+            MouseOverrideState.observe_hook_button_released state Middle
 
     if MouseOverrideState.hook_owns_button state Mouse4 then
-        MouseOverrideState.set_hook_button_ownership
-            state
-            Mouse4
-            (if SideButtonTransitions.is_down Mouse4 then
-                 Owned
-             else
-                 NotOwned)
+        if SideButtonTransitions.is_down Mouse4 then
+            MouseOverrideState.set_hook_button_ownership state Mouse4 Owned
+        else
+            MouseOverrideState.observe_hook_button_released state Mouse4
 
     if MouseOverrideState.hook_owns_button state Mouse5 then
-        MouseOverrideState.set_hook_button_ownership
-            state
-            Mouse5
-            (if SideButtonTransitions.is_down Mouse5 then
-                 Owned
-             else
-                 NotOwned)
+        if SideButtonTransitions.is_down Mouse5 then
+            MouseOverrideState.set_hook_button_ownership state Mouse5 Owned
+        else
+            MouseOverrideState.observe_hook_button_released state Mouse5
 
 let release_after_timer_error (error: exn) =
     log_exception "mouse override timer" error
@@ -347,10 +352,17 @@ let hook_removal_pending () = MouseHook.removal_pending mouse_hook
 let hook_removal_abandoned () = MouseHook.removal_abandoned mouse_hook
 
 let poll_requirement () =
-    if
+    let rightClickWorkPending =
         RightClickTransitions.action_pending right_click
-        || MouseOverrideState.fast_poll_required state
-    then
+        && right_click.button_ownership <> ReleaseObserved
+
+    let buttonReleasePollRequired =
+        right_click.button_ownership = Owned
+        || state.side_button_hook_capture.middle = Owned
+        || state.side_button_hook_capture.mouse4 = Owned
+        || state.side_button_hook_capture.mouse5 = Owned
+
+    if rightClickWorkPending || MouseOverrideState.fast_poll_required state then
         PollFast
     elif
         (match state.lifecycle with
@@ -359,8 +371,7 @@ let poll_requirement () =
          | Suspended
          | Resuming
          | ShutDown -> false)
-        || MouseOverrideState.hook_owns_any_button state
-        || RightClickTransitions.owns_button right_click
+        || buttonReleasePollRequired
         || RawNavigationCoordinator.is_present raw_navigation
         || hook_removal_pending ()
         || mouse_hook_needs_reconciliation ()
