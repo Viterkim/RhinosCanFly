@@ -58,6 +58,33 @@ let pan_units_per_radian (target: Point3d) (camera: CameraState) =
     else
         MousePanUnitsPerRadian 1.
 
+let pivot_angle_scales (state: FlyState) =
+    let parallelProjection = state.config.movement.parallel_projection
+
+    let struct (sensitivity, pivotMultiplier) =
+        if state.projection = ViewProjectionKind.Parallel then
+            struct (parallelProjection.mouse_sensitivity, parallelProjection.mouse_pivot_multiplier)
+        else
+            struct (state.config.mouse.sensitivity, state.config.mouse.pivot_multiplier)
+
+    let (MousePivotMultiplier multiplier) = pivotMultiplier
+
+    Movement.mouse_angle_scales state.config.mouse.x_mode state.config.mouse.y_mode sensitivity multiplier
+
+let create_pivot_drag (center: Point3d) (state: FlyState) =
+    let struct (horizontalScale, verticalScale) = pivot_angle_scales state
+    PivotOrbit.create center state.camera horizontalScale verticalScale
+
+let reset_pivot_drag (center: Point3d) (drag: PivotDragState) (state: FlyState) =
+    let struct (horizontalScale, verticalScale) = pivot_angle_scales state
+    PivotOrbit.reset center state.camera horizontalScale verticalScale drag
+
+let rebase_active_pivot (state: FlyState) =
+    match state.active_mouse_navigation with
+    | MousePivot drag -> PivotOrbit.rebase state.camera drag
+    | MouseLook
+    | MousePan _ -> ()
+
 let sync_camera_from_viewport (state: FlyState) =
     let viewport = state.viewport
     let position = viewport.CameraLocation
@@ -80,10 +107,10 @@ let sync_camera_from_viewport (state: FlyState) =
     state.camera <- camera
 
     match state.active_mouse_navigation with
+    | MousePivot drag -> reset_pivot_drag drag.center drag state
     | MousePan(panTarget, _) ->
         state.active_mouse_navigation <- MousePan(panTarget, pan_units_per_radian panTarget camera)
-    | MouseLook
-    | MousePivot _ -> ()
+    | MouseLook -> ()
 
 let redraw (state: FlyState) =
     state.view.Redraw()
@@ -143,7 +170,7 @@ let apply_retarget_request (scope: RetargetScope) (mode: RetargetMode) (state: F
                 sync_camera_from_viewport state
 
                 match state.active_mouse_navigation with
-                | MousePivot _ -> state.active_mouse_navigation <- MousePivot selection.target
+                | MousePivot drag -> reset_pivot_drag selection.target drag state
                 | MousePan _ ->
                     state.active_mouse_navigation <-
                         MousePan(selection.target, pan_units_per_radian selection.target state.camera)
@@ -173,7 +200,9 @@ let update_navigation_mode (state: FlyState) =
             match state.active_mouse_navigation with
             | MousePivot _ -> state.active_mouse_navigation
             | MouseLook
-            | MousePan _ -> MousePivot(navigation_target state ViewNavigationMode.Pivot)
+            | MousePan _ ->
+                let center = navigation_target state ViewNavigationMode.Pivot
+                MousePivot(create_pivot_drag center state)
         | PanNavigation ->
             match state.active_mouse_navigation with
             | MousePan _ -> state.active_mouse_navigation
@@ -194,7 +223,7 @@ let apply_navigation_wheel (steps: int64) (state: FlyState) =
         let target =
             match state.active_mouse_navigation with
             | MouseLook -> state.camera.target
-            | MousePivot target
+            | MousePivot drag -> drag.center
             | MousePan(target, _) -> target
 
         let zoomScale = ViewSettings.ZoomScale
@@ -222,11 +251,11 @@ let apply_navigation_wheel (steps: int64) (state: FlyState) =
 
                 if state.camera <> previousCamera then
                     match state.active_mouse_navigation with
+                    | MousePivot drag -> PivotOrbit.rebase state.camera drag
                     | MousePan(panTarget, _) ->
                         state.active_mouse_navigation <-
                             MousePan(panTarget, pan_units_per_radian panTarget state.camera)
-                    | MouseLook
-                    | MousePivot _ -> ()
+                    | MouseLook -> ()
 
                 { camera_changed = state.camera <> previousCamera
                   parallel_magnification = if parallelFlight then magnification else 1. }
@@ -246,12 +275,6 @@ let apply_mouse_delta (dx: int64) (dy: int64) (state: FlyState) =
             else
                 state.config.mouse.sensitivity
 
-        let pivotMultiplier =
-            if parallelFlight then
-                parallelProjection.mouse_pivot_multiplier
-            else
-                state.config.mouse.pivot_multiplier
-
         let panMultiplier =
             if parallelFlight then
                 parallelProjection.mouse_pan_multiplier
@@ -260,9 +283,7 @@ let apply_mouse_delta (dx: int64) (dy: int64) (state: FlyState) =
 
         match state.active_mouse_navigation with
         | MouseLook -> state.camera <- Movement.mouse_look state.config.mouse mouseSensitivity dx dy state.camera
-        | MousePivot target ->
-            state.camera <-
-                Movement.mouse_pivot state.config.mouse mouseSensitivity pivotMultiplier target dx dy state.camera
+        | MousePivot drag -> state.camera <- PivotOrbit.apply_delta dx dy drag
         | MousePan(panTarget, unitsPerRadian) ->
             state.camera <-
                 Movement.mouse_pan state.config.mouse mouseSensitivity panMultiplier unitsPerRadian dx dy state.camera

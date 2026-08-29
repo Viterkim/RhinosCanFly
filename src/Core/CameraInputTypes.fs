@@ -178,10 +178,18 @@ module MouseNavigationMode =
 [<Struct>]
 type MousePanUnitsPerRadian = MousePanUnitsPerRadian of units_per_radian: float
 
+type PivotDragState =
+    { mutable center: Point3d
+      mutable baseline: CameraState
+      mutable horizontal_radians_per_count: float
+      mutable vertical_radians_per_count: float
+      mutable total_dx: int64
+      mutable total_dy: int64 }
+
 [<Struct>]
 type ActiveMouseNavigation =
     | MouseLook
-    | MousePivot of target: Point3d
+    | MousePivot of drag: PivotDragState
     | MousePan of target: Point3d * units_per_radian: MousePanUnitsPerRadian
 
 [<Struct>]
