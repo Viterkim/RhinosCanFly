@@ -128,6 +128,7 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     bindings.speed_decrease.Text <- config.speed_decrease
     bindings.retarget_all_views.Text <- config.retarget_all_views
     bindings.retarget_other_views.Text <- config.retarget_other_views
+    bindings.untilt_view.Text <- config.untilt_view
     bindings.exit_key.Text <- config.exit_key
     bindings.cancel_flight_and_restore.Text <- config.cancel_flight_and_restore
     bindings.toggle_projection.Text <- config.toggle_projection
@@ -202,7 +203,7 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     fields.right_click_flight_entry_names.Text <- String.Join(", ", config.right_click_flight_entry.viewports)
     set_checked options.normalize_diagonal_movement config.normalize_diagonal_movement
     set_checked options.hide_gumball_while_flying config.hide_gumball_while_flying
-    set_checked options.flight_pivot_uses_gumball config.flight_pivot_uses_gumball
+    set_checked options.use_gumball_as_target config.use_gumball_as_target
     set_checked options.save_speed_to_document config.save_speed_to_document
     set_checked options.load_speed_from_document config.load_speed_from_document
     set_checked options.wheel_changes_speed_during_flight_navigation config.wheel_changes_speed_during_flight_navigation
@@ -260,6 +261,7 @@ let read (fields: SettingsFields.ConfigFields) =
               speed_decrease = bindings.speed_decrease.Text
               retarget_all_views = bindings.retarget_all_views.Text
               retarget_other_views = bindings.retarget_other_views.Text
+              untilt_view = bindings.untilt_view.Text
               exit_key = bindings.exit_key.Text
               cancel_flight_and_restore = bindings.cancel_flight_and_restore.Text
               toggle_projection = bindings.toggle_projection.Text
@@ -286,7 +288,7 @@ let read (fields: SettingsFields.ConfigFields) =
               mouse_y_mode = SettingsFields.selected_mode modes.mouse_y_mode
               normalize_diagonal_movement = is_checked options.normalize_diagonal_movement
               hide_gumball_while_flying = is_checked options.hide_gumball_while_flying
-              flight_pivot_uses_gumball = is_checked options.flight_pivot_uses_gumball
+              use_gumball_as_target = is_checked options.use_gumball_as_target
               save_speed_to_document = is_checked options.save_speed_to_document
               load_speed_from_document = is_checked options.load_speed_from_document
               wheel_speed_mode = SettingsFields.selected_mode modes.wheel_speed_mode

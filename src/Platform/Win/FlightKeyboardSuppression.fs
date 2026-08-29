@@ -37,6 +37,7 @@ type State =
       mutable projection_toggle_down: bool
       mutable retarget_all_views_down: bool
       mutable retarget_other_views_down: bool
+      mutable untilt_view_down: bool
       mutable exit_down: bool
       mutable cancel_and_restore_down: bool
       mutable input: InputAccumulator.State option
@@ -72,6 +73,7 @@ let state =
       projection_toggle_down = false
       retarget_all_views_down = false
       retarget_other_views_down = false
+      untilt_view_down = false
       exit_down = false
       cancel_and_restore_down = false
       input = None
@@ -255,6 +257,7 @@ let configure (config: FlyConfig) (input: InputAccumulator.State) (inputAvailabl
     add_optional_binding bindings.speed_decrease
     add_optional_binding retargetAllViewsBinding
     add_optional_binding retargetOtherViewsBinding
+    add_optional_binding bindings.untilt_view
     add_binding bindings.exit_key
     add_binding bindings.cancel_flight_and_restore
     add_optional_binding bindings.toggle_projection
@@ -298,6 +301,7 @@ let configure (config: FlyConfig) (input: InputAccumulator.State) (inputAvailabl
     state.projection_toggle_down <- is_optional_binding_down bindings.toggle_projection
     state.retarget_all_views_down <- is_optional_binding_down retargetAllViewsBinding
     state.retarget_other_views_down <- is_optional_binding_down retargetOtherViewsBinding
+    state.untilt_view_down <- is_optional_binding_down bindings.untilt_view
     state.exit_down <- binding_is_down bindings.exit_key
     state.cancel_and_restore_down <- binding_is_down bindings.cancel_flight_and_restore
     state.input <- Some input
@@ -326,6 +330,7 @@ let stop_core () =
     state.projection_toggle_down <- false
     state.retarget_all_views_down <- false
     state.retarget_other_views_down <- false
+    state.untilt_view_down <- false
     state.exit_down <- false
     state.cancel_and_restore_down <- false
     clear_configured ()
@@ -475,6 +480,13 @@ let collect_actions () =
             actions <- add_action actions InputAccumulator.KeyboardAction.RetargetOtherViews
 
         state.retarget_other_views_down <- retargetOther
+
+        let untiltView = is_optional_binding_down bindings.untilt_view
+
+        if untiltView && not state.untilt_view_down then
+            actions <- add_action actions InputAccumulator.KeyboardAction.UntiltView
+
+        state.untilt_view_down <- untiltView
 
         let exit = binding_is_down bindings.exit_key
 

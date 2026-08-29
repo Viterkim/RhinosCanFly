@@ -35,27 +35,45 @@ let mouse_config (config: ViewNavigationMouseConfig) (isParallel: bool) =
           pivot_multiplier = config.perspective_pivot_multiplier
           pan_multiplier = config.perspective_pan_multiplier }
 
-let apply_pivot (viewport: RhinoViewport) (config: MouseConfig) (center: Point3d) (dx: int64) (dy: int64) =
+let capture_camera (viewport: RhinoViewport) =
+    let position = viewport.CameraLocation
+
+    let struct (direction, up) =
+        Movement.camera_basis viewport.CameraDirection viewport.CameraY
+
+    let target = Movement.target_on_camera_axis position viewport.CameraTarget direction
+
+    let camera =
+        { position = position
+          target = target
+          direction = direction
+          up = up }
+
+    if CameraState.valid camera then
+        camera
+    else
+        failwith "The viewport has an invalid camera."
+
+let pivot_angle_scales (config: MouseConfig) =
     let (MousePivotMultiplier multiplier) = config.pivot_multiplier
 
-    let deltas =
-        Movement.mouse_angle_deltas config.x_mode config.y_mode config.sensitivity multiplier dx dy
+    Movement.mouse_angle_scales config.x_mode config.y_mode config.sensitivity multiplier
 
-    let mutable changed = false
+let create_pivot_drag (viewport: RhinoViewport) (config: MouseConfig) (center: Point3d) =
+    let struct (horizontalScale, verticalScale) = pivot_angle_scales config
 
-    if
-        deltas.yaw_delta <> 0.
-        && viewport.Rotate(deltas.yaw_delta, Vector3d.ZAxis, center)
-    then
-        changed <- true
+    PivotOrbit.create center (capture_camera viewport) horizontalScale verticalScale
 
-    if deltas.pitch_delta <> 0. then
-        let mutable right = viewport.CameraX
+let reset_pivot_drag (viewport: RhinoViewport) (config: MouseConfig) (center: Point3d) (drag: PivotDragState) =
+    let struct (horizontalScale, verticalScale) = pivot_angle_scales config
 
-        if right.Unitize() && viewport.Rotate(deltas.pitch_delta, right, center) then
-            changed <- true
+    PivotOrbit.reset center (capture_camera viewport) horizontalScale verticalScale drag
 
-    changed
+let apply_pivot (viewport: RhinoViewport) (drag: PivotDragState) (dx: int64) (dy: int64) =
+    let camera = PivotOrbit.apply_delta dx dy drag
+    viewport.SetCameraLocations(camera.target, camera.position)
+    viewport.CameraUp <- camera.up
+    true
 
 let apply_pan (viewport: RhinoViewport) (config: MouseConfig) (dx: int64) (dy: int64) =
     let (MousePanMultiplier multiplier) = config.pan_multiplier

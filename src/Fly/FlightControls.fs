@@ -100,13 +100,13 @@ let apply_keyboard_actions (actions: InputAccumulator.KeyboardAction) (state: Fl
         if has_keyboard_action actions InputAccumulator.KeyboardAction.SpeedDecrease then
             speed_step state (SpeedStepCount -1.)
 
-        let mutable retargetChange = ViewChange.none
+        let mutable viewChange = ViewChange.none
         let mutable pointerRebaseRequired = false
 
         if has_keyboard_action actions InputAccumulator.KeyboardAction.RetargetAllViews then
             pointerRebaseRequired <- state.config.behavior.retarget.keyboard_all_views <> RetargetMode.Off
 
-            retargetChange <-
+            viewChange <-
                 FlightCamera.apply_retarget_request
                     RetargetScope.AllViews
                     state.config.behavior.retarget.keyboard_all_views
@@ -114,7 +114,7 @@ let apply_keyboard_actions (actions: InputAccumulator.KeyboardAction) (state: Fl
         elif has_keyboard_action actions InputAccumulator.KeyboardAction.RetargetOtherViews then
             pointerRebaseRequired <- state.config.behavior.retarget.keyboard_other_views <> RetargetMode.Off
 
-            retargetChange <-
+            viewChange <-
                 FlightCamera.apply_retarget_request
                     RetargetScope.OtherViews
                     state.config.behavior.retarget.keyboard_other_views
@@ -127,7 +127,14 @@ let apply_keyboard_actions (actions: InputAccumulator.KeyboardAction) (state: Fl
             FlightCamera.toggle_projection state
             pointerRebaseRequired <- true
 
-        { view_change = retargetChange
+        if
+            FlyState.is_running state
+            && has_keyboard_action actions InputAccumulator.KeyboardAction.UntiltView
+        then
+            viewChange <- ViewChange.combine viewChange (FlightCamera.untilt state)
+            pointerRebaseRequired <- true
+
+        { view_change = viewChange
           pointer_rebase_required = pointerRebaseRequired }
 
 let set_mouse_hold (buttonBit: int) (down: bool) (action: RoutedMouseAction) (state: FlyState) =

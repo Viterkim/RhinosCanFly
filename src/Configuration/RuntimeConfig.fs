@@ -24,6 +24,7 @@ type FlightBindings =
       speed_decrease: KeyBinding option
       retarget_all_views: KeyBinding option
       retarget_other_views: KeyBinding option
+      untilt_view: KeyBinding option
       exit_key: KeyBinding
       cancel_flight_and_restore: KeyBinding
       toggle_projection: KeyBinding option }
@@ -86,7 +87,7 @@ type RetargetConfig =
 
 type FlightBehavior =
     { hide_gumball: bool
-      flight_pivot_uses_gumball: bool
+      use_gumball_as_target: bool
       retarget: RetargetConfig
       save_speed_to_document: bool
       load_speed_from_document: bool

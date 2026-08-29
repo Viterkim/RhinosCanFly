@@ -293,8 +293,7 @@ type SettingsControl() as self =
             2
             [ options.exit_on_mouse_right
               options.exit_on_mouse_left
-              options.hide_gumball_while_flying
-              options.flight_pivot_uses_gumball ]
+              options.hide_gumball_while_flying ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
 
@@ -331,6 +330,7 @@ type SettingsControl() as self =
               SettingsLayout.item
                   "Retarget others"
                   (binding_editor bindings.retarget_other_views defaults.retarget_other_views)
+              SettingsLayout.item "Untilt view" (binding_editor bindings.untilt_view defaults.untilt_view)
               SettingsLayout.item "Exit" (binding_editor bindings.exit_key defaults.exit_key)
               SettingsLayout.item
                   "Cancel flight and go back"
@@ -382,6 +382,8 @@ type SettingsControl() as self =
         mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Retarget"))
 
         mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Automatic retarget"))
+
+        mainTable.Rows.Add(SettingsLayout.full_width options.use_gumball_as_target)
 
         SettingsLayout.grid
             2

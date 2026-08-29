@@ -25,7 +25,7 @@ let observe_hook_button_released (state: State) (button: SideButton) =
     match hook_button_ownership state button with
     | NotOwned -> ()
     | Owned -> set_hook_button_ownership state button ReleaseObserved
-    | ReleaseObserved -> set_hook_button_ownership state button NotOwned
+    | ReleaseObserved -> ()
 
 let hook_owns_any_button (state: State) =
     hook_owns_button state Middle

@@ -168,6 +168,7 @@ type FlyConfigFile =
       speed_decrease: string
       retarget_all_views: string
       retarget_other_views: string
+      untilt_view: string
       exit_key: string
       cancel_flight_and_restore: string
       toggle_projection: string
@@ -185,7 +186,7 @@ type FlyConfigFile =
       mouse_y_mode: MouseAxisMode
       normalize_diagonal_movement: bool
       hide_gumball_while_flying: bool
-      flight_pivot_uses_gumball: bool
+      use_gumball_as_target: bool
       save_speed_to_document: bool
       load_speed_from_document: bool
       wheel_speed_mode: MouseWheelSpeedMode

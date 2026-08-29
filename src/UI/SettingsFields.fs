@@ -26,6 +26,7 @@ type BindingFields =
       speed_decrease: TextBox
       retarget_all_views: TextBox
       retarget_other_views: TextBox
+      untilt_view: TextBox
       exit_key: TextBox
       cancel_flight_and_restore: TextBox
       toggle_projection: TextBox }
@@ -89,7 +90,7 @@ type OptionFields =
     { enabled: CheckBox
       normalize_diagonal_movement: CheckBox
       hide_gumball_while_flying: CheckBox
-      flight_pivot_uses_gumball: CheckBox
+      use_gumball_as_target: CheckBox
       save_speed_to_document: CheckBox
       load_speed_from_document: CheckBox
       wheel_changes_speed_during_flight_navigation: CheckBox
@@ -235,6 +236,7 @@ let create () =
               speed_decrease = text_box ()
               retarget_all_views = text_box ()
               retarget_other_views = text_box ()
+              untilt_view = text_box ()
               exit_key = text_box ()
               cancel_flight_and_restore = text_box ()
               toggle_projection = text_box () }
@@ -295,7 +297,7 @@ let create () =
             { enabled = new CheckBox(Text = "Enable Rhinos Can Fly")
               normalize_diagonal_movement = new CheckBox(Text = "Normalize diagonal movement")
               hide_gumball_while_flying = new CheckBox(Text = "Hide gumball while flying")
-              flight_pivot_uses_gumball = new CheckBox(Text = "Use gumball as flight pivot target")
+              use_gumball_as_target = new CheckBox(Text = "Use gumball as target")
               save_speed_to_document = new CheckBox(Text = "Save current speed to document")
               load_speed_from_document = new CheckBox(Text = "Load speed from document")
               wheel_changes_speed_during_flight_navigation =

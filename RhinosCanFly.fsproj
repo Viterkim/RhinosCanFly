@@ -40,7 +40,6 @@
     <Compile Include="src/Configuration/ConfigSchema.fs" />
     <Compile Include="src/Core/CameraInputTypes.fs" />
     <Compile Include="src/Core/FlightInput.fs" />
-    <Compile Include="src/Core/RhinoSettings.fs" />
     <Compile Include="src/Core/Speed.fs" />
     <Compile Include="src/Core/MouseSensitivity.fs" />
     <Compile Include="src/Core/ViewNavigationTypes.fs" />
@@ -63,6 +62,7 @@
     <Compile Include="src/Configuration/ConfigStorage.fs" />
     <Compile Include="src/Core/RepeatBehavior.fs" />
     <Compile Include="src/Fly/Movement.fs" />
+    <Compile Include="src/Fly/PivotOrbit.fs" />
     <Compile Include="src/Fly/ViewportNavigation.fs" />
     <Compile Include="src/Fly/FlightSpeed.fs" />
     <Compile Include="src/Platform/Win/RawInputSession.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
@@ -115,6 +115,7 @@
     <Compile Include="src/Commands/RhinosCanFlyPan.fs" />
     <Compile Include="src/Commands/RhinosCanFlyInputRecover.fs" />
     <Compile Include="src/Commands/RhinosCanFlyToggleEnable.fs" />
+    <Compile Include="src/Commands/RhinosCanFlyUntiltView.fs" />
     <Compile Include="src/Commands/Commands.fs" />
   </ItemGroup>
 </Project>

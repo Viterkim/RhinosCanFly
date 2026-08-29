@@ -25,7 +25,7 @@ type ActiveNavigation =
       mouse_config: ViewportNavigation.MouseConfig
       timeline: InputAccumulator.TimelineEvent array
       mutable pointer_input_valid: bool
-      mutable pivot_center: Point3d
+      pivot_drag: PivotDragState voption
       mutable wheel_remainder: int64
       mutable parallel_zoom_exponent_remainder: float
       mutable next_host_validation_at: int64 }
@@ -201,15 +201,25 @@ let handle_side_up (state: State) (button: SideButton) =
     MouseOverrideState.set_hook_button_ownership state.navigation button NotOwned
     GestureNavigationTransitions.release state.navigation (SideButtonTransitions.owner button)
 
+let reset_active_pivot (active: ActiveNavigation) (center: Point3d) =
+    match active.pivot_drag with
+    | ValueSome drag -> ViewportNavigation.reset_pivot_drag active.transport.Viewport active.mouse_config center drag
+    | ValueNone -> ()
+
 let disposition_after_button (state: State) (active: ActiveNavigation) (pointerRebaseRequired: bool) =
     match desired state with
     | ValueSome requested when same_navigation requested active.requested ->
-        match requested.pivot_center with
-        | ValueSome center when center.IsValid -> active.pivot_center <- center
-        | ValueSome _
-        | ValueNone -> ()
+        let centerChanged =
+            match requested.pivot_center, active.pivot_drag with
+            | ValueSome center, ValueSome drag when center.IsValid && center <> drag.center ->
+                drag.center <- center
+                true
+            | ValueSome _, ValueSome _
+            | ValueSome _, ValueNone
+            | ValueNone, ValueSome _
+            | ValueNone, ValueNone -> false
 
-        if pointerRebaseRequired then
+        if pointerRebaseRequired || centerChanged then
             PointerInputDisposition.Rebase
         else
             PointerInputDisposition.Continue
@@ -279,7 +289,9 @@ let apply_motion (state: State) (active: ActiveNavigation) (dx: int64) (dy: int6
     else
         match active.requested.mode with
         | ViewportNavigation.Operation.Pivot ->
-            ViewportNavigation.apply_pivot active.transport.Viewport active.mouse_config active.pivot_center dx dy
+            match active.pivot_drag with
+            | ValueSome drag -> ViewportNavigation.apply_pivot active.transport.Viewport drag dx dy
+            | ValueNone -> invalidOp "The active pivot has no drag state."
         | ViewportNavigation.Operation.Pan
         | ViewportNavigation.Operation.ParallelPan ->
             ViewportNavigation.apply_pan active.transport.Viewport active.mouse_config dx dy
@@ -316,8 +328,16 @@ let apply_wheel (state: State) (active: ActiveNavigation) (delta: int64) =
     else
         let magnification = ViewportNavigation.wheel_magnification wheelSteps
 
-        magnification <> 1.
-        && active.transport.Viewport.Magnify(magnification, active.transport.Viewport.IsParallelProjection)
+        let changed =
+            magnification <> 1.
+            && active.transport.Viewport.Magnify(magnification, active.transport.Viewport.IsParallelProjection)
+
+        if changed then
+            match active.pivot_drag with
+            | ValueSome drag -> reset_active_pivot active drag.center
+            | ValueNone -> ()
+
+        changed
 
 let observe_release (state: State) (event: RawMouseButtonEvent) =
     match event with
@@ -335,6 +355,10 @@ let observe_release (state: State) (event: RawMouseButtonEvent) =
     | _ -> ()
 
 let discard_pointer_input (active: ActiveNavigation) =
+    match active.pivot_drag with
+    | ValueSome drag -> reset_active_pivot active drag.center
+    | ValueNone -> ()
+
     active.wheel_remainder <- 0L
     active.parallel_zoom_exponent_remainder <- 0.
     active.transport.DiscardPointerInput()
@@ -407,16 +431,24 @@ let start (state: State) (requested: DesiredNavigation) =
             | ValueSome _
             | ValueNone -> transport.Viewport.CameraTarget
 
+        let mouseConfig =
+            ViewportNavigation.mouse_config
+                state.navigation.routing.actions.view_navigation_mouse
+                transport.Viewport.IsParallelProjection
+
+        let pivotDrag =
+            if requested.mode = ViewportNavigation.Operation.Pivot then
+                ValueSome(ViewportNavigation.create_pivot_drag transport.Viewport mouseConfig pivotCenter)
+            else
+                ValueNone
+
         let active =
             { transport = transport
               requested = requested
-              mouse_config =
-                ViewportNavigation.mouse_config
-                    state.navigation.routing.actions.view_navigation_mouse
-                    transport.Viewport.IsParallelProjection
+              mouse_config = mouseConfig
               timeline = InputAccumulator.timeline_buffer ()
               pointer_input_valid = true
-              pivot_center = pivotCenter
+              pivot_drag = pivotDrag
               wheel_remainder = 0L
               parallel_zoom_exponent_remainder = 0.
               next_host_validation_at = Stopwatch.GetTimestamp() + hostValidationIntervalTicks }
@@ -448,10 +480,14 @@ let reconcile (state: State) =
             current.pointer_input_valid
             && current.transport.Matches(requested.host, requested.mode)
             ->
-            match requested.pivot_center with
-            | ValueSome center when center.IsValid -> current.pivot_center <- center
-            | ValueSome _
-            | ValueNone -> ()
+            match requested.pivot_center, current.pivot_drag with
+            | ValueSome center, ValueSome drag when center.IsValid && center <> drag.center ->
+                drag.center <- center
+                discard_pointer_input current
+            | ValueSome _, ValueSome _
+            | ValueSome _, ValueNone
+            | ValueNone, ValueSome _
+            | ValueNone, ValueNone -> ()
 
             Ok()
         | Some _ ->

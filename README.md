@@ -44,6 +44,8 @@ Walking is not the point of the project, and it won't have collision, the idea i
 
 `RhinosCanFlyPivot` pivots around via a toggle (extra, same).
 
+`RhinosCanFlyUntiltView` untilts the active view without moving it.
+
 `RhinosCanFlyToggleEnable` enables or disables Rhinos Can Fly until Rhino is restarted.
 
 ## Options

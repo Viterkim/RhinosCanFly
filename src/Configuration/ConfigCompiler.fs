@@ -594,6 +594,10 @@ let compile_detailed (source: FlyConfigFile) =
                 optional "retarget_other_views" source.retarget_other_views (fun (config: FlyConfigFile) ->
                     { config with
                         retarget_other_views = defaults.retarget_other_views })
+              untilt_view =
+                optional "untilt_view" source.untilt_view (fun (config: FlyConfigFile) ->
+                    { config with
+                        untilt_view = defaults.untilt_view })
               exit_key =
                 required "exit_key" source.exit_key (fun (config: FlyConfigFile) ->
                     { config with
@@ -653,7 +657,7 @@ let compile_detailed (source: FlyConfigFile) =
               mouse5 = while_flying source.mouse5_action_while_flying source.mouse5_action source.mouse5_retarget }
           behavior =
             { hide_gumball = source.hide_gumball_while_flying
-              flight_pivot_uses_gumball = source.flight_pivot_uses_gumball
+              use_gumball_as_target = source.use_gumball_as_target
               retarget =
                 { keyboard_all_views = source.retarget_all_views_mode
                   keyboard_other_views = source.retarget_other_views_mode

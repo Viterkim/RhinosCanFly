@@ -113,6 +113,18 @@ let dolly_towards (target: Point3d) (magnification: float) (camera: CameraState)
 type MouseAngleDeltas =
     { yaw_delta: float; pitch_delta: float }
 
+let mouse_angle_scales
+    (xMode: MouseAxisMode)
+    (yMode: MouseAxisMode)
+    (mouseSensitivity: MouseRadiansPerCount)
+    (multiplier: float)
+    =
+    let horizontalSign = if xMode = MouseAxisMode.Inverted then 1. else -1.
+    let verticalSign = if yMode = MouseAxisMode.Inverted then 1. else -1.
+    let sensitivity = MouseSensitivity.radians_per_count mouseSensitivity
+
+    struct (sensitivity * horizontalSign * multiplier, sensitivity * verticalSign * multiplier)
+
 let mouse_angle_deltas
     (xMode: MouseAxisMode)
     (yMode: MouseAxisMode)
@@ -121,16 +133,11 @@ let mouse_angle_deltas
     (mouseDx: int64)
     (mouseDy: int64)
     =
-    let horizontal_sign = if xMode = MouseAxisMode.Inverted then 1. else -1.
+    let struct (horizontalScale, verticalScale) =
+        mouse_angle_scales xMode yMode mouseSensitivity multiplier
 
-    let vertical_sign = if yMode = MouseAxisMode.Inverted then 1. else -1.
-
-    let sensitivity = MouseSensitivity.radians_per_count mouseSensitivity
-    let yawDelta = float mouseDx * sensitivity * horizontal_sign * multiplier
-    let pitchDelta = float mouseDy * sensitivity * vertical_sign * multiplier
-
-    { yaw_delta = yawDelta
-      pitch_delta = pitchDelta }
+    { yaw_delta = float mouseDx * horizontalScale
+      pitch_delta = float mouseDy * verticalScale }
 
 let scaled_mouse_angle_deltas
     (config: FlyingMouseConfig)
@@ -211,64 +218,6 @@ let mouse_look
         target = camera.position + direction * target_distance camera
         direction = direction
         up = up }
-
-let mouse_orbit
-    (config: FlyingMouseConfig)
-    (mouseSensitivity: MouseRadiansPerCount)
-    (multiplier: float)
-    (pivotCenter: Point3d)
-    (mouseDx: int64)
-    (mouseDy: int64)
-    (camera: CameraState)
-    =
-    let positionOffset = camera.position - pivotCenter
-    let targetOffset = camera.target - pivotCenter
-
-    let rotation =
-        scaled_mouse_angle_deltas config mouseSensitivity multiplier mouseDx mouseDy
-
-    let yawDelta = screen_yaw_delta camera rotation.yaw_delta
-
-    let yawPositionOffset = rotate_vector Vector3d.ZAxis yawDelta positionOffset
-
-    let yawTargetOffset = rotate_vector Vector3d.ZAxis yawDelta targetOffset
-    let yawDirection = rotate_vector Vector3d.ZAxis yawDelta camera.direction
-    let yawUp = rotate_vector Vector3d.ZAxis yawDelta camera.up
-
-    let yawedCamera =
-        { camera with
-            direction = yawDirection
-            up = yawUp }
-
-    let right = camera_right yawedCamera
-
-    let rotatedPositionOffset =
-        rotate_vector right rotation.pitch_delta yawPositionOffset
-
-    let rotatedTargetOffset = rotate_vector right rotation.pitch_delta yawTargetOffset
-
-    let requestedDirection = rotate_vector right rotation.pitch_delta yawDirection
-    let requestedUp = rotate_vector right rotation.pitch_delta yawUp
-    let struct (direction, up) = camera_basis requestedDirection requestedUp
-
-    let position = pivotCenter + rotatedPositionOffset
-    let target = pivotCenter + rotatedTargetOffset
-
-    { position = position
-      target = target
-      direction = direction
-      up = up }
-
-let mouse_pivot
-    (config: FlyingMouseConfig)
-    (mouseSensitivity: MouseRadiansPerCount)
-    (MousePivotMultiplier multiplier: MousePivotMultiplier)
-    (pivotCenter: Point3d)
-    (mouseDx: int64)
-    (mouseDy: int64)
-    (camera: CameraState)
-    =
-    mouse_orbit config mouseSensitivity multiplier pivotCenter mouseDx mouseDy camera
 
 let mouse_pan
     (config: FlyingMouseConfig)

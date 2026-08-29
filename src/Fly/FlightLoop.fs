@@ -15,6 +15,7 @@ let run (inputWake: PlatformInputWake.State) (rawInput: InputAccumulator.State) 
     let timeline = InputAccumulator.timeline_buffer ()
 
     let discard_pointer_input () =
+        FlightCamera.rebase_active_pivot state
         state.wheel_remainder <- 0L
         InputAccumulator.discard_pointer_input rawInput
 
@@ -120,8 +121,7 @@ let run (inputWake: PlatformInputWake.State) (rawInput: InputAccumulator.State) 
                 pivotDirectionActive && state.key_pivot_input_state = KeyPivotInputArmed
 
             if pivotTargetStarting then
-                state.key_pivot_target <-
-                    FlightCamera.navigation_target state ViewNavigationMode.Pivot state.gumball_pivot_target
+                state.key_pivot_target <- FlightCamera.navigation_target state ViewNavigationMode.Pivot
 
                 discard_pointer_input ()
 
@@ -167,13 +167,12 @@ let run (inputWake: PlatformInputWake.State) (rawInput: InputAccumulator.State) 
                     failwith "Movement produced an invalid camera state."
 
                 match state.active_mouse_navigation with
-                | MousePivot pivotCenter ->
-                    let translatedCenter = pivotCenter + movementStep.translation
-
-                    state.active_mouse_navigation <-
-                        MousePivot(
-                            Movement.orbit_point state.key_pivot_target movementStep.key_pivot_angle translatedCenter
-                        )
+                | MousePivot drag ->
+                    PivotOrbit.transform_for_flight_movement
+                        movementStep.translation
+                        state.key_pivot_target
+                        movementStep.key_pivot_angle
+                        drag
                 | MousePan(panTarget, unitsPerRadian) ->
                     let translatedTarget = panTarget + movementStep.translation
 
