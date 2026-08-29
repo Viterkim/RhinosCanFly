@@ -168,6 +168,7 @@ type FlyConfigFile =
       speed_decrease: string
       retarget_all_views: string
       retarget_other_views: string
+      untilt_view: string
       exit_key: string
       cancel_flight_and_restore: string
       toggle_projection: string

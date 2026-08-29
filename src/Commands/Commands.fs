@@ -73,3 +73,8 @@ type RhinosCanFlyInputRecoverCommand() =
 [<CommandStyle(Style.Transparent)>]
 type RhinosCanFlyToggleEnableCommand() =
     inherit PluginCommand(Commands.RhinosCanFlyToggleEnable.run)
+
+[<Guid("A347FAA9-A492-4B26-9829-CACC1DD7278F")>]
+[<CommandStyle(Style.Transparent)>]
+type RhinosCanFlyUntiltViewCommand() =
+    inherit PluginCommand(Commands.RhinosCanFlyUntiltView.run)

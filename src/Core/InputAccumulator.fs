@@ -24,6 +24,7 @@ type KeyboardAction =
     | RetargetOtherViews = 4096
     | Exit = 8192
     | CancelAndRestore = 16384
+    | UntiltView = 32768
 
 [<RequireQualifiedAccess>]
 type TimelineEventKind =

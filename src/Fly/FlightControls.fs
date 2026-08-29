@@ -127,6 +127,13 @@ let apply_keyboard_actions (actions: InputAccumulator.KeyboardAction) (state: Fl
             FlightCamera.toggle_projection state
             pointerRebaseRequired <- true
 
+        if
+            FlyState.is_running state
+            && has_keyboard_action actions InputAccumulator.KeyboardAction.UntiltView
+        then
+            retargetChange <- ViewChange.combine retargetChange (FlightCamera.untilt state)
+            pointerRebaseRequired <- true
+
         { view_change = retargetChange
           pointer_rebase_required = pointerRebaseRequired }
 

@@ -26,6 +26,7 @@ type BindingFields =
       speed_decrease: TextBox
       retarget_all_views: TextBox
       retarget_other_views: TextBox
+      untilt_view: TextBox
       exit_key: TextBox
       cancel_flight_and_restore: TextBox
       toggle_projection: TextBox }
@@ -235,6 +236,7 @@ let create () =
               speed_decrease = text_box ()
               retarget_all_views = text_box ()
               retarget_other_views = text_box ()
+              untilt_view = text_box ()
               exit_key = text_box ()
               cancel_flight_and_restore = text_box ()
               toggle_projection = text_box () }

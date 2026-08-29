@@ -594,6 +594,10 @@ let compile_detailed (source: FlyConfigFile) =
                 optional "retarget_other_views" source.retarget_other_views (fun (config: FlyConfigFile) ->
                     { config with
                         retarget_other_views = defaults.retarget_other_views })
+              untilt_view =
+                optional "untilt_view" source.untilt_view (fun (config: FlyConfigFile) ->
+                    { config with
+                        untilt_view = defaults.untilt_view })
               exit_key =
                 required "exit_key" source.exit_key (fun (config: FlyConfigFile) ->
                     { config with

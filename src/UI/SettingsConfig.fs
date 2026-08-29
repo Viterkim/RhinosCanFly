@@ -128,6 +128,7 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     bindings.speed_decrease.Text <- config.speed_decrease
     bindings.retarget_all_views.Text <- config.retarget_all_views
     bindings.retarget_other_views.Text <- config.retarget_other_views
+    bindings.untilt_view.Text <- config.untilt_view
     bindings.exit_key.Text <- config.exit_key
     bindings.cancel_flight_and_restore.Text <- config.cancel_flight_and_restore
     bindings.toggle_projection.Text <- config.toggle_projection
@@ -260,6 +261,7 @@ let read (fields: SettingsFields.ConfigFields) =
               speed_decrease = bindings.speed_decrease.Text
               retarget_all_views = bindings.retarget_all_views.Text
               retarget_other_views = bindings.retarget_other_views.Text
+              untilt_view = bindings.untilt_view.Text
               exit_key = bindings.exit_key.Text
               cancel_flight_and_restore = bindings.cancel_flight_and_restore.Text
               toggle_projection = bindings.toggle_projection.Text

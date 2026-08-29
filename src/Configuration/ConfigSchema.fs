@@ -35,6 +35,7 @@ let defaults: FlyConfigFile =
       speed_decrease = "Minus"
       retarget_all_views = "B"
       retarget_other_views = "N"
+      untilt_view = "J"
       exit_key = "Escape"
       cancel_flight_and_restore = "T"
       toggle_projection = "H"

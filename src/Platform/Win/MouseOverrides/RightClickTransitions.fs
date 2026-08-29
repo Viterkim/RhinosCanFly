@@ -424,6 +424,8 @@ let update (navigation: State) (state: RightClickState) (commandActive: bool) =
         navigation.navigation_exit_requested <- true
         MouseOverrideState.keep_timer_running navigation
         state.gesture <- ButtonDownHandled StopNavigation
+    | ButtonDown(PanParallel _)
+    | ButtonDown(ZoomParallel _) when state.button_ownership = ReleaseObserved -> clear_action state
     | ButtonDown(PanParallel host) ->
         match GestureNavigationTransitions.prepare_action_view host with
         | GestureNavigationTransitions.ActionViewReady(_, activeHost) ->

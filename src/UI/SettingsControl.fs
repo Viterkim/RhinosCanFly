@@ -330,6 +330,7 @@ type SettingsControl() as self =
               SettingsLayout.item
                   "Retarget others"
                   (binding_editor bindings.retarget_other_views defaults.retarget_other_views)
+              SettingsLayout.item "Untilt view" (binding_editor bindings.untilt_view defaults.untilt_view)
               SettingsLayout.item "Exit" (binding_editor bindings.exit_key defaults.exit_key)
               SettingsLayout.item
                   "Cancel flight and go back"
