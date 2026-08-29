@@ -90,10 +90,6 @@ let untilt (state: FlyState) =
     let struct (_, up) = Movement.camera_basis previous.direction Vector3d.ZAxis
 
     state.camera <- { previous with up = up }
-
-    if state.camera <> previous then
-        rebase_active_pivot state
-
     ViewChange.camera previous state.camera
 
 let sync_camera_from_viewport (state: FlyState) =

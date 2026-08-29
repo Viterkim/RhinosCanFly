@@ -212,7 +212,7 @@ let disposition_after_button (state: State) (active: ActiveNavigation) (pointerR
         let centerChanged =
             match requested.pivot_center, active.pivot_drag with
             | ValueSome center, ValueSome drag when center.IsValid && center <> drag.center ->
-                reset_active_pivot active center
+                drag.center <- center
                 true
             | ValueSome _, ValueSome _
             | ValueSome _, ValueNone
@@ -482,7 +482,7 @@ let reconcile (state: State) =
             ->
             match requested.pivot_center, current.pivot_drag with
             | ValueSome center, ValueSome drag when center.IsValid && center <> drag.center ->
-                reset_active_pivot current center
+                drag.center <- center
                 discard_pointer_input current
             | ValueSome _, ValueSome _
             | ValueSome _, ValueNone

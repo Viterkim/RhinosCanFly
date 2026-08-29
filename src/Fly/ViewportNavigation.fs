@@ -54,13 +54,6 @@ let capture_camera (viewport: RhinoViewport) =
     else
         failwith "The viewport has an invalid camera."
 
-let apply_camera (viewport: RhinoViewport) (camera: CameraState) =
-    if not (CameraState.valid camera) then
-        invalidArg (nameof camera) "The viewport camera is invalid."
-
-    viewport.SetCameraLocations(camera.target, camera.position)
-    viewport.CameraUp <- camera.up
-
 let pivot_angle_scales (config: MouseConfig) =
     let (MousePivotMultiplier multiplier) = config.pivot_multiplier
 
@@ -77,14 +70,10 @@ let reset_pivot_drag (viewport: RhinoViewport) (config: MouseConfig) (center: Po
     PivotOrbit.reset center (capture_camera viewport) horizontalScale verticalScale drag
 
 let apply_pivot (viewport: RhinoViewport) (drag: PivotDragState) (dx: int64) (dy: int64) =
-    let previous = capture_camera viewport
     let camera = PivotOrbit.apply_delta dx dy drag
-
-    if camera = previous then
-        false
-    else
-        apply_camera viewport camera
-        true
+    viewport.SetCameraLocations(camera.target, camera.position)
+    viewport.CameraUp <- camera.up
+    true
 
 let apply_pan (viewport: RhinoViewport) (config: MouseConfig) (dx: int64) (dy: int64) =
     let (MousePanMultiplier multiplier) = config.pan_multiplier
