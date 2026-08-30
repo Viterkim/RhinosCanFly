@@ -12,7 +12,7 @@ type FlyState =
       walking_plane: Plane voption
       original_cursor: CursorPosition
       original_camera: CameraSnapshot
-      gumball_target: Point3d option
+      prioritized_target: Point3d option
       mutable key_pivot_target: Point3d
       mutable key_pivot_input_state: KeyPivotInputState
       mutable active_mouse_navigation: ActiveMouseNavigation

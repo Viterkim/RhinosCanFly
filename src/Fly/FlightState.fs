@@ -9,7 +9,8 @@ let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyCo
     let movement = config.movement
     let behavior = config.behavior
 
-    let gumballTarget = ViewTarget.gumball_target behavior.use_gumball_as_target view
+    let prioritizedTarget =
+        ViewTarget.prioritized_target behavior.prioritized_target view viewport
 
     let originalCursor =
         match PlatformInput.get_cursor_position () with
@@ -81,7 +82,7 @@ let create (view: RhinoView) (hostIdentity: ViewportHostIdentity) (config: FlyCo
       walking_plane = walkingPlane
       original_cursor = originalCursor
       original_camera = originalCamera
-      gumball_target = gumballTarget
+      prioritized_target = prioritizedTarget
       key_pivot_target = camera.target
       key_pivot_input_state = KeyPivotInputArmed
       active_mouse_navigation = MouseLook

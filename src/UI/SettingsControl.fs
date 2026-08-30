@@ -381,9 +381,9 @@ type SettingsControl() as self =
 
         mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Retarget"))
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Automatic retarget"))
-
-        mainTable.Rows.Add(SettingsLayout.full_width options.use_gumball_as_target)
+        SettingsLayout.grid 2 [ SettingsLayout.item "Prioritized target" modes.prioritized_target.control ]
+        |> SettingsLayout.full_width
+        |> mainTable.Rows.Add
 
         SettingsLayout.grid
             2
@@ -393,6 +393,8 @@ type SettingsControl() as self =
               SettingsLayout.item "On restored flight exit" modes.retarget_on_restored_flight_exit.control ]
         |> SettingsLayout.full_width
         |> mainTable.Rows.Add
+
+        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Retarget as action"))
 
         mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Keyboard binds"))
 

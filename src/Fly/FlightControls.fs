@@ -210,14 +210,9 @@ let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) (st
             pointer_rebase_required = true }
 
 let apply_wheel_delta (wheelDelta: int64) (state: FlyState) =
-    let wheel = state.wheel_remainder + wheelDelta
-
-    if wheel = 0L then
+    if wheelDelta = 0L then
         ViewChange.none
     else
-        let wheelSteps = wheel / PlatformInput.wheel_delta
-        state.wheel_remainder <- wheel - wheelSteps * PlatformInput.wheel_delta
-
         let direction =
             match state.config.movement.wheel_speed_mode with
             | MouseWheelSpeedMode.Off -> 0L
@@ -235,12 +230,17 @@ let apply_wheel_delta (wheelDelta: int64) (state: FlyState) =
                 | MousePan _ -> state.config.movement.wheel_changes_speed_during_flight_navigation
 
         if changeSpeed then
+            let wheel = state.wheel_remainder + wheelDelta
+            let wheelSteps = wheel / PlatformInput.wheel_delta
+            state.wheel_remainder <- wheel - wheelSteps * PlatformInput.wheel_delta
+
             if wheelSteps <> 0L then
                 speed_steps state (direction * wheelSteps)
 
             ViewChange.none
         else
-            FlightCamera.apply_navigation_wheel wheelSteps state
+            state.wheel_remainder <- 0L
+            FlightCamera.apply_navigation_wheel (PlatformInput.wheel_zoom_steps wheelDelta) state
 
 let update_state (now: float) (input: InputAccumulator.State) (state: FlyState) =
     let periodicValidationDue = now >= state.next_host_validation_at

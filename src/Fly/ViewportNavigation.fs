@@ -125,16 +125,16 @@ let parallel_zoom_exponent (dy: int64) =
     else
         0.
 
-let wheel_magnification (steps: int64) =
+let wheel_magnification (steps: float) =
     let zoomScale = ViewSettings.ZoomScale
 
     if
-        steps <> 0L
+        steps <> 0.
         && not (Double.IsNaN zoomScale)
         && not (Double.IsInfinity zoomScale)
         && zoomScale > 0.
     then
-        let magnification = Math.Pow(1. / zoomScale, float steps)
+        let magnification = Math.Pow(1. / zoomScale, steps)
 
         if
             Double.IsNaN magnification

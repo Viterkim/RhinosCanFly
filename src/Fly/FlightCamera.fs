@@ -34,12 +34,12 @@ let navigation_target (state: FlyState) (mode: ViewNavigationMode) =
         | ViewNavigationMode.Pivot -> state.config.behavior.retarget.on_pivot
         | ViewNavigationMode.Pan -> state.config.behavior.retarget.on_pan
 
-    let gumballTarget =
+    let prioritizedTarget =
         match mode with
-        | ViewNavigationMode.Pivot -> state.gumball_target
+        | ViewNavigationMode.Pivot -> state.prioritized_target
         | ViewNavigationMode.Pan -> None
 
-    match gumballTarget with
+    match prioritizedTarget with
     | Some target when ViewTarget.target_is_in_front viewport target -> target
     | Some _
     | None ->
@@ -223,8 +223,8 @@ let update_navigation_mode (state: FlyState) =
 
     previousNavigation <> requestedNavigation
 
-let apply_navigation_wheel (steps: int64) (state: FlyState) =
-    if steps = 0L then
+let apply_navigation_wheel (steps: float) (state: FlyState) =
+    if steps = 0. then
         ViewChange.none
     else
         let target =
@@ -238,7 +238,7 @@ let apply_navigation_wheel (steps: int64) (state: FlyState) =
         if not (RhinoMath.IsValidDouble zoomScale) || zoomScale <= RhinoMath.ZeroTolerance then
             ViewChange.none
         else
-            let magnification = System.Math.Pow(1. / zoomScale, float steps)
+            let magnification = System.Math.Pow(1. / zoomScale, steps)
 
             if
                 not (RhinoMath.IsValidDouble magnification)

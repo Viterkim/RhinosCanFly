@@ -26,7 +26,6 @@ type ActiveNavigation =
       timeline: InputAccumulator.TimelineEvent array
       mutable pointer_input_valid: bool
       pivot_drag: PivotDragState voption
-      mutable wheel_remainder: int64
       mutable parallel_zoom_exponent_remainder: float
       mutable next_host_validation_at: int64 }
 
@@ -319,11 +318,9 @@ let apply_motion (state: State) (active: ActiveNavigation) (dx: int64) (dy: int6
                     false
 
 let apply_wheel (state: State) (active: ActiveNavigation) (delta: int64) =
-    let wheel = active.wheel_remainder + delta
-    let wheelSteps = wheel / int64 Win32Native.WHEEL_DELTA
-    active.wheel_remainder <- wheel - wheelSteps * int64 Win32Native.WHEEL_DELTA
+    let wheelSteps = PlatformInput.wheel_zoom_steps delta
 
-    if wheelSteps = 0L || not (validate_host state active) then
+    if wheelSteps = 0. || not (validate_host state active) then
         false
     else
         let magnification = ViewportNavigation.wheel_magnification wheelSteps
@@ -359,7 +356,6 @@ let discard_pointer_input (active: ActiveNavigation) =
     | ValueSome drag -> reset_active_pivot active drag.center
     | ValueNone -> ()
 
-    active.wheel_remainder <- 0L
     active.parallel_zoom_exponent_remainder <- 0.
     active.transport.DiscardPointerInput()
 
@@ -449,7 +445,6 @@ let start (state: State) (requested: DesiredNavigation) =
               timeline = InputAccumulator.timeline_buffer ()
               pointer_input_valid = true
               pivot_drag = pivotDrag
-              wheel_remainder = 0L
               parallel_zoom_exponent_remainder = 0.
               next_host_validation_at = Stopwatch.GetTimestamp() + hostValidationIntervalTicks }
 
