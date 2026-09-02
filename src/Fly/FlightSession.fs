@@ -264,11 +264,10 @@ let finish_active_core (session: ActiveSession) (activeResult: Result<unit, stri
         && not skipBackgroundDisplay
         && PlatformInput.viewport_host_is_foreground state.host_identity state.view
 
-    if retargetRequested then
-        if display_is_safe () then
-            attempt_cleanup cleanupErrors "retarget" (fun () ->
-                ViewTarget.apply state.config.behavior.retarget retargetMode state.speed state.view state.viewport)
-            |> ignore
+    if retargetRequested && display_is_safe () then
+        attempt_cleanup cleanupErrors "retarget" (fun () ->
+            ViewTarget.apply state.config.behavior.retarget retargetMode state.speed state.view state.viewport)
+        |> ignore
 
     if session.gumball_changed then
         attempt_cleanup cleanupErrors "gumball" (fun () ->

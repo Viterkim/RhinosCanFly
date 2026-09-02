@@ -128,9 +128,6 @@ let action_button_up (button: SideButton) (message: int) =
     | Mouse4
     | Mouse5 -> message = Win32Native.WM_XBUTTONUP
 
-let raw_navigation_captures_button_messages () =
-    RawNavigationCoordinator.captures_button_messages raw_navigation
-
 let handle_mouse_event (event: Win32.MouseHookEvent) =
     let mutable swallow = false
     let mutable rightClickEvent = false
@@ -145,7 +142,7 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
             rightClickEvent <- true
             rightClickWasOwned <- RightClickTransitions.owns_button right_click
 
-            if raw_navigation_captures_button_messages () then
+            if RawNavigationCoordinator.captures_button_messages raw_navigation then
                 let isDown =
                     event.message = Win32Native.WM_RBUTTONDOWN
                     || event.message = Win32Native.WM_RBUTTONDBLCLK
@@ -194,7 +191,7 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
 
                 let hookOwnsButton = MouseOverrideState.hook_owns_button state button
 
-                if raw_navigation_captures_button_messages () then
+                if RawNavigationCoordinator.captures_button_messages raw_navigation then
                     if isDown then
                         swallow <- true
                         MouseOverrideState.set_hook_button_ownership state button Owned
@@ -347,10 +344,6 @@ let release_after_timer_error (error: exn) =
     | Ok() -> ()
     | Error cleanupError -> Debug.WriteLine $"RhinosCanFly mouse override timer cleanup: {cleanupError}"
 
-let hook_removal_pending () = MouseHook.removal_pending mouse_hook
-
-let hook_removal_abandoned () = MouseHook.removal_abandoned mouse_hook
-
 let poll_requirement () =
     let rightClickWorkPending =
         RightClickTransitions.action_pending right_click
@@ -366,14 +359,14 @@ let poll_requirement () =
         PollFast
     elif
         (match state.lifecycle with
-         | Degraded _ -> not (hook_removal_abandoned ())
+         | Degraded _ -> not (MouseHook.removal_abandoned mouse_hook)
          | Available
          | Suspended
          | Resuming
          | ShutDown -> false)
         || buttonReleasePollRequired
         || RawNavigationCoordinator.is_present raw_navigation
-        || hook_removal_pending ()
+        || MouseHook.removal_pending mouse_hook
         || mouse_hook_needs_reconciliation ()
     then
         PollWatchdog
@@ -473,10 +466,10 @@ let poll_timer_elapsed () =
             release_after_timer_error error
 
         let recoverHooks =
-            hook_removal_pending ()
+            MouseHook.removal_pending mouse_hook
             || mouse_hook_needs_reconciliation ()
             || match state.lifecycle with
-               | Degraded _ -> not (hook_removal_abandoned ())
+               | Degraded _ -> not (MouseHook.removal_abandoned mouse_hook)
                | Available
                | Suspended
                | Resuming
