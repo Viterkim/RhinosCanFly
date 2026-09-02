@@ -29,12 +29,16 @@ type ActiveNavigation =
       mutable parallel_zoom_exponent_remainder: float
       mutable next_host_validation_at: int64 }
 
+type NavigationSession =
+    | StartingTransport of RawViewNavigationSession.Session
+    | ActiveTransport of ActiveNavigation
+
 type State =
     { navigation: MouseOverrideTypes.State
       right_click: RightClickTransitions.RightClickState
       request_exit: unit -> unit
       log_exception: string -> exn -> unit
-      mutable session: ActiveNavigation option }
+      mutable session: NavigationSession option }
 
 let hostValidationIntervalTicks = max 1L (Stopwatch.Frequency / 10L)
 
@@ -52,7 +56,8 @@ let create
 
 let active_host (state: State) =
     match state.session with
-    | Some active when active.transport.IsActive -> ValueSome active.requested.host
+    | Some(ActiveTransport active) when active.transport.IsActive -> ValueSome active.requested.host
+    | Some(StartingTransport transport) when transport.IsActive -> ValueSome transport.Host
     | Some _
     | None ->
         match RightClickTransitions.direct_navigation_host state.right_click with
@@ -116,11 +121,17 @@ let same_navigation (left: DesiredNavigation) (right: DesiredNavigation) =
 let stop (state: State) =
     match state.session with
     | None -> Ok()
-    | Some active ->
-        active.pointer_input_valid <- false
-        let result = active.transport.Stop()
+    | Some session ->
+        let transport =
+            match session with
+            | StartingTransport transport -> transport
+            | ActiveTransport active ->
+                active.pointer_input_valid <- false
+                active.transport
 
-        if active.transport.CleanupComplete then
+        let result = transport.Stop()
+
+        if transport.CleanupComplete then
             state.session <- None
 
         result
@@ -136,7 +147,7 @@ let press_requires_pointer_rebase
         match action with
         | RoutedMouseAction.Retarget _ ->
             match state.session with
-            | Some active when active.requested.host = host ->
+            | Some(ActiveTransport active) when active.requested.host = host ->
                 GestureNavigationTransitions.update_active_pivot_center
                     state.navigation
                     host
@@ -361,8 +372,7 @@ let discard_pointer_input (active: ActiveNavigation) =
 
 let drain (state: State) =
     match state.session with
-    | None -> ()
-    | Some active ->
+    | Some(ActiveTransport active) ->
         match active.transport.Drain active.timeline with
         | ValueNone -> ()
         | ValueSome result ->
@@ -411,6 +421,8 @@ let drain (state: State) =
 
                 if active.pointer_input_valid && active.parallel_zoom_exponent_remainder <> 0. then
                     active.transport.RequestDrain()
+    | Some(StartingTransport _)
+    | None -> ()
 
 let start (state: State) (requested: DesiredNavigation) =
     let failed = Action state.request_exit
@@ -421,57 +433,71 @@ let start (state: State) (requested: DesiredNavigation) =
         | Ok() -> Error error
         | Error rollbackError -> Error $"{error}; {rollbackError}"
     | Ok transport ->
-        let pivotCenter =
-            match requested.pivot_center with
-            | ValueSome center when center.IsValid -> center
-            | ValueSome _
-            | ValueNone -> transport.Viewport.CameraTarget
-
-        let mouseConfig =
-            ViewportNavigation.mouse_config
-                state.navigation.routing.actions.view_navigation_mouse
-                transport.Viewport.IsParallelProjection
-
-        let pivotDrag =
-            if requested.mode = ViewportNavigation.Operation.Pivot then
-                ValueSome(ViewportNavigation.create_pivot_drag transport.Viewport mouseConfig pivotCenter)
-            else
-                ValueNone
-
-        let active =
-            { transport = transport
-              requested = requested
-              mouse_config = mouseConfig
-              timeline = InputAccumulator.timeline_buffer ()
-              pointer_input_valid = true
-              pivot_drag = pivotDrag
-              parallel_zoom_exponent_remainder = 0.
-              next_host_validation_at = Stopwatch.GetTimestamp() + hostValidationIntervalTicks }
-
-        state.session <- Some active
+        state.session <- Some(StartingTransport transport)
 
         try
+            let pivotCenter =
+                match requested.pivot_center with
+                | ValueSome center when center.IsValid -> center
+                | ValueSome _
+                | ValueNone -> transport.Viewport.CameraTarget
+
+            let mouseConfig =
+                ViewportNavigation.mouse_config
+                    state.navigation.routing.actions.view_navigation_mouse
+                    transport.Viewport.IsParallelProjection
+
+            let pivotDrag =
+                if requested.mode = ViewportNavigation.Operation.Pivot then
+                    ValueSome(ViewportNavigation.create_pivot_drag transport.Viewport mouseConfig pivotCenter)
+                else
+                    ValueNone
+
+            let active =
+                { transport = transport
+                  requested = requested
+                  mouse_config = mouseConfig
+                  timeline = InputAccumulator.timeline_buffer ()
+                  pointer_input_valid = true
+                  pivot_drag = pivotDrag
+                  parallel_zoom_exponent_remainder = 0.
+                  next_host_validation_at = Stopwatch.GetTimestamp() + hostValidationIntervalTicks }
+
+            state.session <- Some(ActiveTransport active)
             transport.Attach(Action(fun () -> drain state))
             transport.RequestDrain()
             Ok()
         with error ->
-            active.pointer_input_valid <- false
+            match state.session with
+            | Some(ActiveTransport active) -> active.pointer_input_valid <- false
+            | Some(StartingTransport _)
+            | None -> ()
+
             let cleanup = transport.Stop()
 
             if transport.CleanupComplete then
                 state.session <- None
 
+            let rollback = GestureNavigationTransitions.rollback_start state.navigation
+            let errors = ResizeArray<string>()
+            errors.Add $"Could not start raw view navigation: {error.Message}"
+
             match cleanup with
-            | Ok() -> Error $"Could not attach raw view navigation: {error.Message}"
-            | Error cleanupError ->
-                Error $"Could not attach raw view navigation: {error.Message}; cleanup failed: {cleanupError}"
+            | Ok() -> ()
+            | Error cleanupError -> errors.Add $"cleanup failed: {cleanupError}"
+
+            match rollback with
+            | Ok() -> ()
+            | Error rollbackError -> errors.Add $"rollback failed: {rollbackError}"
+
+            Error(String.concat "; " errors)
 
 let reconcile (state: State) =
     match desired state with
     | ValueNone -> stop state
     | ValueSome requested ->
         match state.session with
-        | Some current when
+        | Some(ActiveTransport current) when
             current.pointer_input_valid
             && current.transport.Matches(requested.host, requested.mode)
             ->
@@ -509,16 +535,30 @@ let release (state: State) =
 let is_present (state: State) = Option.isSome state.session
 
 let captures_button_messages (state: State) =
-    match state.session with
-    | Some active when active.transport.IsActive ->
-        match active.transport.RawInputRegistrationIsCurrent() with
+    let transport =
+        match state.session with
+        | Some(StartingTransport transport) -> Some transport
+        | Some(ActiveTransport active) -> Some active.transport
+        | None -> None
+
+    match transport with
+    | Some current when current.IsActive ->
+        match current.RawInputRegistrationIsCurrent() with
         | Ok true -> true
         | Ok false ->
-            active.pointer_input_valid <- false
+            match state.session with
+            | Some(ActiveTransport active) -> active.pointer_input_valid <- false
+            | Some(StartingTransport _)
+            | None -> ()
+
             state.request_exit ()
             true
         | Error error ->
-            active.pointer_input_valid <- false
+            match state.session with
+            | Some(ActiveTransport active) -> active.pointer_input_valid <- false
+            | Some(StartingTransport _)
+            | None -> ()
+
             Debug.WriteLine $"RhinosCanFly could not verify raw-input ownership: {error}"
             state.request_exit ()
             true

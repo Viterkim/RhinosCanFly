@@ -98,8 +98,10 @@ let prune_automatic_backups (configPath: string) =
             byCreation
         else
             StringComparer.Ordinal.Compare(right, left))
-    |> Seq.skip AUTOMATIC_BACKUP_LIMIT
-    |> Seq.iter File.Delete
+    |> Seq.indexed
+    |> Seq.iter (fun (index: int, path: string) ->
+        if index >= AUTOMATIC_BACKUP_LIMIT then
+            File.Delete path)
 
 let backup_requirement (configPath: string) =
     if not (File.Exists configPath) then

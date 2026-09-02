@@ -165,14 +165,13 @@ let set_view_target (target: Point3d) (view: RhinoView) =
 let apply_selection
     (retarget: RetargetConfig)
     (scope: RetargetScope)
-    (mode: RetargetMode)
     (speed: float)
     (selection: ViewTarget.RetargetSelection)
     (view: RhinoView)
     =
     match selection.bounds with
     | ValueSome bounds -> zoom_views_to_selection retarget scope selection.target bounds view
-    | ValueNone when RetargetMode.uses_distance mode ->
+    | ValueNone when selection.used_distance_fallback ->
         apply_to_views scope view (move_view_to_target retarget speed selection.target)
     | ValueNone -> apply_to_views scope view (set_view_target selection.target)
 
@@ -221,7 +220,7 @@ let retarget
                     match ViewTarget.selected_selection_at behavior.retarget mode speed view viewport clientPoint with
                     | None -> Ok()
                     | Some selection ->
-                        apply_selection behavior.retarget RetargetScope.AllViews mode speed selection view
+                        apply_selection behavior.retarget RetargetScope.AllViews speed selection view
                         Ok()
     with error ->
         Error $"Could not retarget the viewports: {error.Message}"

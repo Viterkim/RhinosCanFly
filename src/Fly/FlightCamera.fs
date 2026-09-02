@@ -171,7 +171,7 @@ let apply_retarget_request (scope: RetargetScope) (mode: RetargetMode) (state: F
         with
         | None -> ViewChange.none
         | Some selection ->
-            NavigationTarget.apply_selection state.config.behavior.retarget scope mode state.speed selection state.view
+            NavigationTarget.apply_selection state.config.behavior.retarget scope state.speed selection state.view
 
             if scope = RetargetScope.AllViews then
                 sync_camera_from_viewport state

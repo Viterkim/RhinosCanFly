@@ -12,7 +12,8 @@ open Rhino.Input.Custom
 [<Struct>]
 type RetargetSelection =
     { target: Point3d
-      bounds: BoundingBox voption }
+      bounds: BoundingBox voption
+      used_distance_fallback: bool }
 
 [<Struct>]
 type SelectedObjectPickMode =
@@ -95,7 +96,8 @@ let object_selection (viewport: RhinoViewport) (rhinoObject: RhinoObject) =
         if target_is_in_front viewport target then
             Some
                 { target = target
-                  bounds = ValueSome bounds }
+                  bounds = ValueSome bounds
+                  used_distance_fallback = false }
         else
             None
     | ValueNone -> None
@@ -138,7 +140,8 @@ let selection_center_selection (view: RhinoView) (viewport: RhinoViewport) =
             | ValueSome bounds when target_is_in_front viewport bounds.Center ->
                 Some
                     { target = bounds.Center
-                      bounds = ValueSome bounds }
+                      bounds = ValueSome bounds
+                      used_distance_fallback = false }
             | ValueSome _
             | ValueNone -> None
         with error ->
@@ -477,7 +480,11 @@ let distance_selection_at
     (point: ViewportClientPoint)
     =
     match distance_target_at config speed viewport point with
-    | Some target -> Some { target = target; bounds = ValueNone }
+    | Some target ->
+        Some
+            { target = target
+              bounds = ValueNone
+              used_distance_fallback = true }
     | None -> None
 
 let selected_target_at
@@ -491,10 +498,10 @@ let selected_target_at
     let picked_or_distance (target: Point3d option) =
         match target with
         | Some _ -> target
-        | None -> distance_target config speed viewport
+        | None -> distance_target_at config speed viewport point
 
     match mode with
-    | RetargetMode.Distance -> distance_target config speed viewport
+    | RetargetMode.Distance -> distance_target_at config speed viewport point
     | RetargetMode.SelectionCenter -> selection_center_target view viewport
     | RetargetMode.SelectionCenterThenDistance -> selection_center_target view viewport |> picked_or_distance
     | RetargetMode.Geometry -> try_geometry_target_at viewport point
@@ -515,7 +522,10 @@ let try_geometry_selection_at (view: RhinoView) (viewport: RhinoViewport) (point
             | Some selection -> selection.bounds
             | None -> ValueNone
 
-        Some { target = target; bounds = bounds }
+        Some
+            { target = target
+              bounds = bounds
+              used_distance_fallback = false }
 
 let selected_target
     (config: RetargetConfig)
