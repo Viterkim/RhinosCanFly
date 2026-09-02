@@ -413,6 +413,14 @@ let compile_detailed (source: FlyConfigFile) =
             { config with
                 default_flight_mode = defaults.default_flight_mode })
 
+    enum_value
+        "prioritized_target"
+        typeof<PrioritizedTarget>
+        (box source.prioritized_target)
+        (fun (config: FlyConfigFile) ->
+            { config with
+                prioritized_target = defaults.prioritized_target })
+
     let retargetChecks: EnumCheck<RetargetMode> list =
         [ "shift_right_click_retarget",
           source.shift_right_click_retarget,
@@ -657,7 +665,7 @@ let compile_detailed (source: FlyConfigFile) =
               mouse5 = while_flying source.mouse5_action_while_flying source.mouse5_action source.mouse5_retarget }
           behavior =
             { hide_gumball = source.hide_gumball_while_flying
-              use_gumball_as_target = source.use_gumball_as_target
+              prioritized_target = source.prioritized_target
               retarget =
                 { keyboard_all_views = source.retarget_all_views_mode
                   keyboard_other_views = source.retarget_other_views_mode

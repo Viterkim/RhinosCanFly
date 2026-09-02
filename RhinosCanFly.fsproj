@@ -49,6 +49,7 @@
     <Compile Include="src/Platform/Win/PlatformTypes.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/Win32Native.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/Win32.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
+    <Compile Include="src/Platform/Win/PlatformInput.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/PlatformCursorClip.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/RawInputNative.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/PlatformBindings.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
@@ -81,7 +82,6 @@
     <Compile Include="src/Platform/Win/MouseOverrides/MouseHook.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/MouseOverrides/MouseButtonOverrides.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Fly/ViewTarget.fs" />
-    <Compile Include="src/Platform/Win/PlatformInput.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Fly/NavigationTarget.fs" />
     <Compile Include="src/Fly/FlightCamera.fs" />
     <Compile Include="src/Fly/FlightControls.fs" />

@@ -24,8 +24,8 @@ type SelectedObjectCandidate =
     { rhino_object: RhinoObject
       estimated_target: Point3d }
 
-let gumball_target (enabled: bool) (view: RhinoView) =
-    if not enabled || isNull view || isNull view.Document then
+let gumball_target (view: RhinoView) =
+    if isNull view || isNull view.Document then
         None
     else
         let mutable plane = Plane.Unset
@@ -99,6 +99,69 @@ let object_selection (viewport: RhinoViewport) (rhinoObject: RhinoObject) =
         else
             None
     | ValueNone -> None
+
+let selection_center_selection (view: RhinoView) (viewport: RhinoViewport) =
+    if isNull view || isNull view.Document || isNull viewport then
+        None
+    else
+        try
+            let settings = ObjectEnumeratorSettings()
+            settings.SelectedObjectsFilter <- true
+            settings.SubObjectSelected <- true
+
+            let mutable selectionBounds = ValueNone
+
+            let include_bounds (bounds: BoundingBox) =
+                if bounds.IsValid then
+                    selectionBounds <-
+                        match selectionBounds with
+                        | ValueSome current -> ValueSome(BoundingBox.Union(current, bounds))
+                        | ValueNone -> ValueSome bounds
+
+            for rhinoObject in view.Document.Objects.GetObjectList settings do
+                if not (isNull rhinoObject) then
+                    let selectedSubObjects = rhinoObject.GetSelectedSubObjects()
+
+                    if isNull selectedSubObjects || selectedSubObjects.Length = 0 then
+                        match object_bounds true rhinoObject with
+                        | ValueSome bounds -> include_bounds bounds
+                        | ValueNone -> ()
+                    else
+                        for componentIndex in selectedSubObjects do
+                            use reference = new ObjRef(view.Document, rhinoObject.Id, componentIndex)
+                            let geometry = reference.Geometry()
+
+                            if not (isNull geometry) then
+                                include_bounds (geometry.GetBoundingBox true)
+
+            match selectionBounds with
+            | ValueSome bounds when target_is_in_front viewport bounds.Center ->
+                Some
+                    { target = bounds.Center
+                      bounds = ValueSome bounds }
+            | ValueSome _
+            | ValueNone -> None
+        with error ->
+            Debug.WriteLine $"RhinosCanFly selection center: {error}"
+            None
+
+let selection_center_target (view: RhinoView) (viewport: RhinoViewport) =
+    match selection_center_selection view viewport with
+    | Some selection -> Some selection.target
+    | None -> None
+
+let prioritized_target (mode: PrioritizedTarget) (view: RhinoView) (viewport: RhinoViewport) =
+    let target =
+        match mode with
+        | PrioritizedTarget.Gumball -> gumball_target view
+        | PrioritizedTarget.SelectionCenter -> selection_center_target view viewport
+        | PrioritizedTarget.Off
+        | _ -> None
+
+    match target with
+    | Some point when target_is_in_front viewport point -> Some point
+    | Some _
+    | None -> None
 
 let selection_filter_allows (enabled: bool) (filter: ObjectType) (rhinoObject: RhinoObject) =
     if not enabled then
@@ -432,6 +495,8 @@ let selected_target_at
 
     match mode with
     | RetargetMode.Distance -> distance_target config speed viewport
+    | RetargetMode.SelectionCenter -> selection_center_target view viewport
+    | RetargetMode.SelectionCenterThenDistance -> selection_center_target view viewport |> picked_or_distance
     | RetargetMode.Geometry -> try_geometry_target_at viewport point
     | RetargetMode.GeometryThenDistance -> try_geometry_target_at viewport point |> picked_or_distance
     | RetargetMode.Target -> try_filtered_target_at view viewport point
@@ -461,6 +526,11 @@ let selected_target
     =
     match mode with
     | RetargetMode.Distance -> distance_target config speed viewport
+    | RetargetMode.SelectionCenter -> selection_center_target view viewport
+    | RetargetMode.SelectionCenterThenDistance ->
+        match selection_center_target view viewport with
+        | Some target -> Some target
+        | None -> distance_target config speed viewport
     | RetargetMode.Geometry -> try_geometry_target viewport
     | RetargetMode.GeometryThenDistance ->
         match try_geometry_target viewport with
@@ -520,6 +590,11 @@ let selected_selection_at
     =
     match mode with
     | RetargetMode.Distance -> distance_selection_at config speed viewport point
+    | RetargetMode.SelectionCenter -> selection_center_selection view viewport
+    | RetargetMode.SelectionCenterThenDistance ->
+        match selection_center_selection view viewport with
+        | Some selection -> Some selection
+        | None -> distance_selection_at config speed viewport point
     | RetargetMode.Geometry -> try_geometry_selection_at view viewport point
     | RetargetMode.GeometryThenDistance ->
         match try_geometry_selection_at view viewport point with

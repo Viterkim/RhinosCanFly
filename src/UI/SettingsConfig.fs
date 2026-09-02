@@ -177,6 +177,7 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     SettingsFields.set_mode modes.wheel_speed_mode config.wheel_speed_mode
     SettingsFields.set_mode modes.right_click_entry_mode config.right_click_entry_mode
     SettingsFields.set_mode modes.default_flight_mode config.default_flight_mode
+    SettingsFields.set_mode modes.prioritized_target config.prioritized_target
     SettingsFields.set_mode modes.shift_right_click_retarget config.shift_right_click_retarget
     SettingsFields.set_mode modes.alt_right_click_retarget config.alt_right_click_retarget
     SettingsFields.set_mode modes.ctrl_right_click_retarget config.ctrl_right_click_retarget
@@ -203,7 +204,6 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     fields.right_click_flight_entry_names.Text <- String.Join(", ", config.right_click_flight_entry.viewports)
     set_checked options.normalize_diagonal_movement config.normalize_diagonal_movement
     set_checked options.hide_gumball_while_flying config.hide_gumball_while_flying
-    set_checked options.use_gumball_as_target config.use_gumball_as_target
     set_checked options.save_speed_to_document config.save_speed_to_document
     set_checked options.load_speed_from_document config.load_speed_from_document
     set_checked options.wheel_changes_speed_during_flight_navigation config.wheel_changes_speed_during_flight_navigation
@@ -288,7 +288,7 @@ let read (fields: SettingsFields.ConfigFields) =
               mouse_y_mode = SettingsFields.selected_mode modes.mouse_y_mode
               normalize_diagonal_movement = is_checked options.normalize_diagonal_movement
               hide_gumball_while_flying = is_checked options.hide_gumball_while_flying
-              use_gumball_as_target = is_checked options.use_gumball_as_target
+              prioritized_target = SettingsFields.selected_mode modes.prioritized_target
               save_speed_to_document = is_checked options.save_speed_to_document
               load_speed_from_document = is_checked options.load_speed_from_document
               wheel_speed_mode = SettingsFields.selected_mode modes.wheel_speed_mode

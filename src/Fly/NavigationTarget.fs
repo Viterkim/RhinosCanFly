@@ -20,16 +20,13 @@ let apply (loaded: ConfigLoadResult) (targetPoint: NavigationTargetPoint) (mode:
                 | ViewNavigationMode.Pivot -> behavior.retarget.on_pivot
                 | ViewNavigationMode.Pan -> behavior.retarget.on_pan
 
-            let gumballTarget =
+            let prioritizedTarget =
                 match mode with
                 | ViewNavigationMode.Pivot ->
-                    match ViewTarget.gumball_target behavior.use_gumball_as_target view with
-                    | Some target when ViewTarget.target_is_in_front view.ActiveViewport target -> Some target
-                    | Some _
-                    | None -> None
+                    ViewTarget.prioritized_target behavior.prioritized_target view view.ActiveViewport
                 | ViewNavigationMode.Pan -> None
 
-            match gumballTarget with
+            match prioritizedTarget with
             | Some target -> view.ActiveViewport.SetCameraTarget(target, false)
             | None when retargetMode <> RetargetMode.Off ->
                 let movement = loaded.config.movement

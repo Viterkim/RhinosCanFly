@@ -6,6 +6,14 @@ open RhinosCanFly.Platform.Win
 
 let wheel_delta = int64 Win32Native.WHEEL_DELTA
 
+let wheel_zoom_steps_per_delta =
+    let scrollLines = System.Windows.Forms.SystemInformation.MouseWheelScrollLines
+    let lineCount = if scrollLines > 0 then scrollLines else 1
+    float lineCount / float Win32Native.WHEEL_DELTA
+
+let wheel_zoom_steps (delta: int64) =
+    float delta * wheel_zoom_steps_per_delta
+
 let foreground_root_window () =
     RootWindow(Win32Native.GetForegroundWindow())
 

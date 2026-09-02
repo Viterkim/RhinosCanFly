@@ -66,6 +66,7 @@ type ModeFields =
       right_click_flight_entry: ModeField<ViewportNameListMode>
       right_click_entry_mode: ModeField<RightClickEntryMode>
       default_flight_mode: ModeField<DefaultFlightMode>
+      prioritized_target: ModeField<PrioritizedTarget>
       shift_right_click_retarget: ModeField<RetargetMode>
       alt_right_click_retarget: ModeField<RetargetMode>
       ctrl_right_click_retarget: ModeField<RetargetMode>
@@ -90,7 +91,6 @@ type OptionFields =
     { enabled: CheckBox
       normalize_diagonal_movement: CheckBox
       hide_gumball_while_flying: CheckBox
-      use_gumball_as_target: CheckBox
       save_speed_to_document: CheckBox
       load_speed_from_document: CheckBox
       wheel_changes_speed_during_flight_navigation: CheckBox
@@ -205,12 +205,19 @@ let create () =
     let retargetModes =
         [| RetargetMode.Off, "Off"
            RetargetMode.Distance, "Distance"
+           RetargetMode.SelectionCenterThenDistance, "Selection center, then distance"
+           RetargetMode.SelectionCenter, "Selection center, no fallback"
            RetargetMode.GeometryThenDistance, "Geometry, then distance"
            RetargetMode.Geometry, "Geometry, no fallback"
            RetargetMode.TargetThenDistance, "Target, then distance"
            RetargetMode.Target, "Target, no fallback"
            RetargetMode.ObjectCenterThenDistance, "Object center, then distance"
            RetargetMode.ObjectCenter, "Object center, no fallback" |]
+
+    let prioritizedTargets =
+        [| PrioritizedTarget.Off, "Off"
+           PrioritizedTarget.SelectionCenter, "Selection center"
+           PrioritizedTarget.Gumball, "Gumball" |]
 
     let paintModes =
         [| ViewportPaintMode.Queued, "Normal Rhino redraw (default)"
@@ -274,6 +281,7 @@ let create () =
               right_click_flight_entry = mode_field viewportNameListModes ViewportNameListMode.DisabledAll
               right_click_entry_mode = mode_field rightClickEntryModes RightClickEntryMode.ClickToFlyDuringCommands
               default_flight_mode = mode_field flightModes DefaultFlightMode.Normal
+              prioritized_target = mode_field prioritizedTargets PrioritizedTarget.SelectionCenter
               shift_right_click_retarget = mode_field retargetModes RetargetMode.ObjectCenter
               alt_right_click_retarget = mode_field retargetModes RetargetMode.ObjectCenter
               ctrl_right_click_retarget = mode_field retargetModes RetargetMode.ObjectCenter
@@ -297,7 +305,6 @@ let create () =
             { enabled = new CheckBox(Text = "Enable Rhinos Can Fly")
               normalize_diagonal_movement = new CheckBox(Text = "Normalize diagonal movement")
               hide_gumball_while_flying = new CheckBox(Text = "Hide gumball while flying")
-              use_gumball_as_target = new CheckBox(Text = "Use gumball as target")
               save_speed_to_document = new CheckBox(Text = "Save current speed to document")
               load_speed_from_document = new CheckBox(Text = "Load speed from document")
               wheel_changes_speed_during_flight_navigation =

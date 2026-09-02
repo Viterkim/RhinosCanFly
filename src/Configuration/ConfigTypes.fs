@@ -83,6 +83,8 @@ type RetargetMode =
     | Geometry = 5
     | ObjectCenter = 6
     | Target = 7
+    | SelectionCenterThenDistance = 8
+    | SelectionCenter = 9
 
 module RetargetMode =
     let uses_distance (mode: RetargetMode) =
@@ -90,12 +92,19 @@ module RetargetMode =
         | RetargetMode.Distance
         | RetargetMode.GeometryThenDistance
         | RetargetMode.ObjectCenterThenDistance
-        | RetargetMode.TargetThenDistance -> true
+        | RetargetMode.TargetThenDistance
+        | RetargetMode.SelectionCenterThenDistance -> true
         | RetargetMode.Off
         | RetargetMode.Geometry
         | RetargetMode.ObjectCenter
         | RetargetMode.Target
+        | RetargetMode.SelectionCenter
         | _ -> false
+
+type PrioritizedTarget =
+    | Off = 0
+    | Gumball = 1
+    | SelectionCenter = 2
 
 [<Struct>]
 type RetargetFallbackMultiplier = RetargetFallbackMultiplier of float
@@ -186,7 +195,7 @@ type FlyConfigFile =
       mouse_y_mode: MouseAxisMode
       normalize_diagonal_movement: bool
       hide_gumball_while_flying: bool
-      use_gumball_as_target: bool
+      prioritized_target: PrioritizedTarget
       save_speed_to_document: bool
       load_speed_from_document: bool
       wheel_speed_mode: MouseWheelSpeedMode
