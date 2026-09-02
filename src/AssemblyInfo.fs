@@ -12,7 +12,7 @@ open Rhino.PlugIns
 [<assembly: ComVisible(false)>]
 [<assembly: Guid("8E6E7D56-5434-4EF6-884F-6C5130291935")>]
 [<assembly: PlugInDescription(DescriptionType.Icon, "RhinosCanFly.Resources.PluginIcon.ico")>]
-[<assembly: AssemblyVersion("0.4.4.0")>]
-[<assembly: AssemblyFileVersion("0.4.4.0")>]
-[<assembly: AssemblyInformationalVersion("0.4.4")>]
+[<assembly: AssemblyVersion("0.4.5.0")>]
+[<assembly: AssemblyFileVersion("0.4.5.0")>]
+[<assembly: AssemblyInformationalVersion("0.4.5")>]
 do ()
