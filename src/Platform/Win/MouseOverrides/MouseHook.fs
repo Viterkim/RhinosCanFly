@@ -117,17 +117,17 @@ let remove (state: State) (environment: Environment) =
             with error ->
                 Error $"Could not stop tracking Rhino viewport windows: {error.Message}"
         | Error error ->
-            let nextAttempt =
+            let next_attempt =
                 match state.status with
-                | RemovalPending(_, _, previousAttempts) -> previousAttempts + 1
+                | RemovalPending(_, _, previous_attempts) -> previous_attempts + 1
                 | RemovalAbandoned _ -> MAXIMUM_REMOVAL_ATTEMPTS
                 | Absent
                 | Installed _ -> 1
 
-            if nextAttempt >= MAXIMUM_REMOVAL_ATTEMPTS then
+            if next_attempt >= MAXIMUM_REMOVAL_ATTEMPTS then
                 state.status <- RemovalAbandoned(hook, error)
             else
-                state.status <- RemovalPending(hook, error, nextAttempt)
+                state.status <- RemovalPending(hook, error, next_attempt)
                 environment.keep_watchdog_running ()
 
             Error error

@@ -3,14 +3,14 @@ module RhinosCanFly.FlightStart
 open Rhino
 open Rhino.Commands
 
-let run (sessionMode: FlightSessionMode) (document: RhinoDoc) =
+let run (session_mode: FlightSessionMode) (document: RhinoDoc) =
     let view = document.Views.ActiveView
 
     if RuntimeSettings.input_suspended () then
         RhinoApp.WriteLine "RhinosCanFly is unavailable while an Options dialog is open."
         Result.Cancel
     elif
-        sessionMode.lifetime = FlightLifetime.WhileRightMouseHeld
+        session_mode.lifetime = FlightLifetime.WhileRightMouseHeld
         && not (PlatformInput.right_mouse_button_down ())
     then
         Result.Cancel
@@ -26,7 +26,7 @@ let run (sessionMode: FlightSessionMode) (document: RhinoDoc) =
                 RhinoApp.WriteLine "RhinosCanFly is disabled for this viewport."
                 Result.Cancel
             else
-                match FlightSession.run view loaded.config sessionMode with
+                match FlightSession.run view loaded.config session_mode with
                 | Ok() -> Result.Success
                 | Error error ->
                     RhinoApp.WriteLine $"RhinosCanFly failed: {error}"

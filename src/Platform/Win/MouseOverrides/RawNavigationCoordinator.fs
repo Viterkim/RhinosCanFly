@@ -40,18 +40,18 @@ type State =
       log_exception: string -> exn -> unit
       mutable session: NavigationSession option }
 
-let hostValidationIntervalTicks = max 1L (Stopwatch.Frequency / 10L)
+let host_validation_interval_ticks = max 1L (Stopwatch.Frequency / 10L)
 
 let create
     (navigation: MouseOverrideTypes.State)
-    (rightClick: RightClickTransitions.RightClickState)
-    (requestExit: unit -> unit)
-    (logException: string -> exn -> unit)
+    (right_click: RightClickTransitions.RightClickState)
+    (request_exit: unit -> unit)
+    (log_exception: string -> exn -> unit)
     =
     { navigation = navigation
-      right_click = rightClick
-      request_exit = requestExit
-      log_exception = logException
+      right_click = right_click
+      request_exit = request_exit
+      log_exception = log_exception
       session = None }
 
 let active_host (state: State) =
@@ -66,19 +66,19 @@ let active_host (state: State) =
 
 let desired (state: State) =
     let navigation = state.navigation
-    let rightClick = state.right_click
+    let right_click = state.right_click
 
     if navigation.lifecycle <> Available || navigation.navigation_exit_requested then
         ValueNone
     else
-        match RightClickTransitions.parallel_zoom_host rightClick with
+        match RightClickTransitions.parallel_zoom_host right_click with
         | ValueSome host ->
             ValueSome
                 { host = host
                   mode = ViewportNavigation.Operation.ParallelZoom
                   pivot_center = ValueNone }
         | ValueNone ->
-            match RightClickTransitions.parallel_pan_host rightClick with
+            match RightClickTransitions.parallel_pan_host right_click with
             | ValueSome host ->
                 ValueSome
                     { host = host
@@ -143,7 +143,7 @@ let press_requires_pointer_rebase
     (result: GestureNavigationTransitions.PressResult)
     =
     match result with
-    | GestureNavigationTransitions.Applied pointerRebaseRequired ->
+    | GestureNavigationTransitions.Applied pointer_rebase_required ->
         match action with
         | RoutedMouseAction.Retarget _ ->
             match state.session with
@@ -160,7 +160,7 @@ let press_requires_pointer_rebase
         | RoutedMouseAction.TogglePan
         | RoutedMouseAction.HoldPan -> ()
 
-        pointerRebaseRequired
+        pointer_rebase_required
     | GestureNavigationTransitions.Deferred -> true
     | GestureNavigationTransitions.Failed error ->
         Debug.WriteLine $"RhinosCanFly mouse action: {error}"
@@ -169,17 +169,17 @@ let press_requires_pointer_rebase
 let handle_right_down
     (state: State)
     (host: ViewportHostIdentity)
-    (screenPoint: System.Drawing.Point)
+    (screen_point: System.Drawing.Point)
     (modifiers: MouseModifiers)
     =
     let navigation = state.navigation
-    let rightClick = state.right_click
-    rightClick.button_ownership <- Owned
+    let right_click = state.right_click
+    right_click.button_ownership <- Owned
 
     match RightClickTransitions.requested_gesture_action navigation modifiers with
     | ValueSome action ->
         let result =
-            GestureNavigationTransitions.press navigation GestureOwner.ModifiedRightClick action host screenPoint
+            GestureNavigationTransitions.press navigation GestureOwner.ModifiedRightClick action host screen_point
 
         press_requires_pointer_rebase state host action result
     | ValueNone when navigation.routing.actions.exit_on_mouse_right ->
@@ -196,14 +196,14 @@ let handle_side_down
     (state: State)
     (button: SideButton)
     (host: ViewportHostIdentity)
-    (screenPoint: System.Drawing.Point)
+    (screen_point: System.Drawing.Point)
     =
     let navigation = state.navigation
     let action = MouseOverrideState.action_for navigation button
     MouseOverrideState.set_hook_button_ownership navigation button Owned
 
     let result =
-        GestureNavigationTransitions.press navigation (SideButtonTransitions.owner button) action host screenPoint
+        GestureNavigationTransitions.press navigation (SideButtonTransitions.owner button) action host screen_point
 
     press_requires_pointer_rebase state host action result
 
@@ -216,10 +216,10 @@ let reset_active_pivot (active: ActiveNavigation) (center: Point3d) =
     | ValueSome drag -> ViewportNavigation.reset_pivot_drag active.transport.Viewport active.mouse_config center drag
     | ValueNone -> ()
 
-let disposition_after_button (state: State) (active: ActiveNavigation) (pointerRebaseRequired: bool) =
+let disposition_after_button (state: State) (active: ActiveNavigation) (pointer_rebase_required: bool) =
     match desired state with
     | ValueSome requested when same_navigation requested active.requested ->
-        let centerChanged =
+        let center_changed =
             match requested.pivot_center, active.pivot_drag with
             | ValueSome center, ValueSome drag when center.IsValid && center <> drag.center ->
                 drag.center <- center
@@ -229,7 +229,7 @@ let disposition_after_button (state: State) (active: ActiveNavigation) (pointerR
             | ValueNone, ValueSome _
             | ValueNone, ValueNone -> false
 
-        if pointerRebaseRequired || centerChanged then
+        if pointer_rebase_required || center_changed then
             PointerInputDisposition.Rebase
         else
             PointerInputDisposition.Continue
@@ -240,24 +240,24 @@ let handle_button
     (state: State)
     (active: ActiveNavigation)
     (transition: RawMouseButtonTransition)
-    (screenPoint: System.Drawing.Point)
+    (screen_point: System.Drawing.Point)
     =
     try
-        let mutable pointerRebaseRequired = false
+        let mutable pointer_rebase_required = false
 
         match transition.event with
         | RawMouseButtonEvent.LeftUp when state.navigation.routing.actions.exit_on_mouse_left -> state.request_exit ()
         | RawMouseButtonEvent.RightDown ->
-            pointerRebaseRequired <- handle_right_down state active.requested.host screenPoint transition.modifiers
+            pointer_rebase_required <- handle_right_down state active.requested.host screen_point transition.modifiers
         | RawMouseButtonEvent.RightUp -> handle_right_up state
         | RawMouseButtonEvent.MiddleDown ->
-            pointerRebaseRequired <- handle_side_down state Middle active.requested.host screenPoint
+            pointer_rebase_required <- handle_side_down state Middle active.requested.host screen_point
         | RawMouseButtonEvent.MiddleUp -> handle_side_up state Middle
         | RawMouseButtonEvent.Mouse4Down ->
-            pointerRebaseRequired <- handle_side_down state Mouse4 active.requested.host screenPoint
+            pointer_rebase_required <- handle_side_down state Mouse4 active.requested.host screen_point
         | RawMouseButtonEvent.Mouse4Up -> handle_side_up state Mouse4
         | RawMouseButtonEvent.Mouse5Down ->
-            pointerRebaseRequired <- handle_side_down state Mouse5 active.requested.host screenPoint
+            pointer_rebase_required <- handle_side_down state Mouse5 active.requested.host screen_point
         | RawMouseButtonEvent.Mouse5Up -> handle_side_up state Mouse5
         | RawMouseButtonEvent.None
         | RawMouseButtonEvent.LeftDown
@@ -265,7 +265,7 @@ let handle_button
         | _ -> invalidOp "Raw mouse button events must be delivered one at a time."
 
         MouseOverrideState.keep_timer_running state.navigation
-        disposition_after_button state active pointerRebaseRequired
+        disposition_after_button state active pointer_rebase_required
     with error ->
         state.log_exception "raw navigation buttons" error
         state.request_exit ()
@@ -277,7 +277,7 @@ let validate_host (state: State) (active: ActiveNavigation) =
     if now < active.next_host_validation_at then
         true
     else
-        active.next_host_validation_at <- now + hostValidationIntervalTicks
+        active.next_host_validation_at <- now + host_validation_interval_ticks
 
         if RawViewNavigationSession.view_matches_host active.requested.host active.transport.View then
             true
@@ -287,12 +287,12 @@ let validate_host (state: State) (active: ActiveNavigation) =
             false
 
 let apply_motion (state: State) (active: ActiveNavigation) (dx: int64) (dy: int64) =
-    let parallelZoomPending =
+    let parallel_zoom_pending =
         active.requested.mode = ViewportNavigation.Operation.ParallelZoom
         && active.parallel_zoom_exponent_remainder <> 0.
 
     if
-        (dx = 0L && dy = 0L && not parallelZoomPending)
+        (dx = 0L && dy = 0L && not parallel_zoom_pending)
         || not (validate_host state active)
     then
         false
@@ -306,17 +306,17 @@ let apply_motion (state: State) (active: ActiveNavigation) (dx: int64) (dy: int6
         | ViewportNavigation.Operation.ParallelPan ->
             ViewportNavigation.apply_pan active.transport.Viewport active.mouse_config dx dy
         | ViewportNavigation.Operation.ParallelZoom ->
-            let requestedExponent =
+            let requested_exponent =
                 active.parallel_zoom_exponent_remainder
                 + ViewportNavigation.parallel_zoom_exponent dy
 
-            if requestedExponent = 0. then
+            if requested_exponent = 0. then
                 false
             else
-                let appliedExponent = max -0.25 (min 0.25 requestedExponent)
+                let applied_exponent = max -0.25 (min 0.25 requested_exponent)
 
-                if active.transport.Viewport.Magnify(Math.Exp appliedExponent, true) then
-                    let remaining = requestedExponent - appliedExponent
+                if active.transport.Viewport.Magnify(Math.Exp applied_exponent, true) then
+                    let remaining = requested_exponent - applied_exponent
 
                     active.parallel_zoom_exponent_remainder <- if abs remaining < 0.000000000001 then 0. else remaining
 
@@ -329,12 +329,12 @@ let apply_motion (state: State) (active: ActiveNavigation) (dx: int64) (dy: int6
                     false
 
 let apply_wheel (state: State) (active: ActiveNavigation) (delta: int64) =
-    let wheelSteps = PlatformInput.wheel_zoom_steps delta
+    let wheel_steps = PlatformInput.wheel_zoom_steps delta
 
-    if wheelSteps = 0. || not (validate_host state active) then
+    if wheel_steps = 0. || not (validate_host state active) then
         false
     else
-        let magnification = ViewportNavigation.wheel_magnification wheelSteps
+        let magnification = ViewportNavigation.wheel_magnification wheel_steps
 
         let changed =
             magnification <> 1.
@@ -381,24 +381,26 @@ let drain (state: State) =
                 Debug.WriteLine "RhinosCanFly raw view navigation timeline overflowed."
                 state.request_exit ()
             else
-                let mutable acceptPointerInput = true
-                let mutable viewChanged = false
+                let mutable accept_pointer_input = true
+                let mutable view_changed = false
                 let mutable index = 0
 
                 while index < result.count do
                     let event = active.timeline[index]
 
                     match event.kind with
-                    | InputAccumulator.TimelineEventKind.Movement when active.pointer_input_valid && acceptPointerInput ->
-                        viewChanged <- apply_motion state active event.dx event.dy || viewChanged
-                    | InputAccumulator.TimelineEventKind.Wheel when active.pointer_input_valid && acceptPointerInput ->
-                        viewChanged <- apply_wheel state active event.wheel || viewChanged
+                    | InputAccumulator.TimelineEventKind.Movement when
+                        active.pointer_input_valid && accept_pointer_input
+                        ->
+                        view_changed <- apply_motion state active event.dx event.dy || view_changed
+                    | InputAccumulator.TimelineEventKind.Wheel when active.pointer_input_valid && accept_pointer_input ->
+                        view_changed <- apply_wheel state active event.wheel || view_changed
                     | InputAccumulator.TimelineEventKind.RawMouseButton when active.pointer_input_valid ->
                         match handle_button state active event.button active.transport.OriginalCursor with
                         | PointerInputDisposition.Continue -> ()
                         | PointerInputDisposition.Rebase -> discard_pointer_input active
                         | PointerInputDisposition.Invalidate ->
-                            acceptPointerInput <- false
+                            accept_pointer_input <- false
                             active.pointer_input_valid <- false
                             discard_pointer_input active
                     | InputAccumulator.TimelineEventKind.RawMouseButton -> observe_release state event.button.event
@@ -411,12 +413,12 @@ let drain (state: State) =
 
                 if
                     active.pointer_input_valid
-                    && acceptPointerInput
+                    && accept_pointer_input
                     && active.parallel_zoom_exponent_remainder <> 0.
                 then
-                    viewChanged <- apply_motion state active 0L 0L || viewChanged
+                    view_changed <- apply_motion state active 0L 0L || view_changed
 
-                if viewChanged then
+                if view_changed then
                     active.transport.View.Redraw()
 
                 if active.pointer_input_valid && active.parallel_zoom_exponent_remainder <> 0. then
@@ -431,37 +433,37 @@ let start (state: State) (requested: DesiredNavigation) =
     | Error error ->
         match GestureNavigationTransitions.rollback_start state.navigation with
         | Ok() -> Error error
-        | Error rollbackError -> Error $"{error}; {rollbackError}"
+        | Error rollback_error -> Error $"{error}; {rollback_error}"
     | Ok transport ->
         state.session <- Some(StartingTransport transport)
 
         try
-            let pivotCenter =
+            let pivot_center =
                 match requested.pivot_center with
                 | ValueSome center when center.IsValid -> center
                 | ValueSome _
                 | ValueNone -> transport.Viewport.CameraTarget
 
-            let mouseConfig =
+            let mouse_config =
                 ViewportNavigation.mouse_config
                     state.navigation.routing.actions.view_navigation_mouse
                     transport.Viewport.IsParallelProjection
 
-            let pivotDrag =
+            let pivot_drag =
                 if requested.mode = ViewportNavigation.Operation.Pivot then
-                    ValueSome(ViewportNavigation.create_pivot_drag transport.Viewport mouseConfig pivotCenter)
+                    ValueSome(ViewportNavigation.create_pivot_drag transport.Viewport mouse_config pivot_center)
                 else
                     ValueNone
 
             let active =
                 { transport = transport
                   requested = requested
-                  mouse_config = mouseConfig
+                  mouse_config = mouse_config
                   timeline = InputAccumulator.timeline_buffer ()
                   pointer_input_valid = true
-                  pivot_drag = pivotDrag
+                  pivot_drag = pivot_drag
                   parallel_zoom_exponent_remainder = 0.
-                  next_host_validation_at = Stopwatch.GetTimestamp() + hostValidationIntervalTicks }
+                  next_host_validation_at = Stopwatch.GetTimestamp() + host_validation_interval_ticks }
 
             state.session <- Some(ActiveTransport active)
             transport.Attach(Action(fun () -> drain state))
@@ -484,11 +486,11 @@ let start (state: State) (requested: DesiredNavigation) =
 
             match cleanup with
             | Ok() -> ()
-            | Error cleanupError -> errors.Add $"cleanup failed: {cleanupError}"
+            | Error cleanup_error -> errors.Add $"cleanup failed: {cleanup_error}"
 
             match rollback with
             | Ok() -> ()
-            | Error rollbackError -> errors.Add $"rollback failed: {rollbackError}"
+            | Error rollback_error -> errors.Add $"rollback failed: {rollback_error}"
 
             Error(String.concat "; " errors)
 
@@ -516,21 +518,21 @@ let reconcile (state: State) =
             | Error error ->
                 match GestureNavigationTransitions.rollback_start state.navigation with
                 | Ok() -> Error error
-                | Error rollbackError -> Error $"{error}; {rollbackError}"
+                | Error rollback_error -> Error $"{error}; {rollback_error}"
             | Ok() -> start state requested
         | None -> start state requested
 
 let release (state: State) =
     RightClickTransitions.clear_direct_navigation state.right_click
-    let rawResult = stop state
-    let viewResult = MouseOverrideState.release_all state.navigation
+    let raw_result = stop state
+    let view_result = MouseOverrideState.release_all state.navigation
 
-    match viewResult with
+    match view_result with
     | Error error ->
-        match rawResult with
-        | Error rawError -> Error $"{error}; raw navigation: {rawError}"
+        match raw_result with
+        | Error raw_error -> Error $"{error}; raw navigation: {raw_error}"
         | Ok() -> Error error
-    | Ok() -> rawResult
+    | Ok() -> raw_result
 
 let is_present (state: State) = Option.isSome state.session
 

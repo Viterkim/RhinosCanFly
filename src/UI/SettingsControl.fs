@@ -16,56 +16,56 @@ type SettingsControl() as self =
     let numbers = fields.config.numbers
     let modes = fields.config.modes
     let options = fields.config.options
-    let viewportCapabilityNames = fields.config.viewport_capability_names
-    let rightClickFlightEntryNames = fields.config.right_click_flight_entry_names
+    let viewport_capability_names = fields.config.viewport_capability_names
+    let right_click_flight_entry_names = fields.config.right_click_flight_entry_names
     let status = fields.status
-    let rawJson = fields.raw_json
+    let raw_json = fields.raw_json
     let actions = fields.actions
     let version = Assembly.GetExecutingAssembly().GetName().Version
-    let versionText = $"{version.Major}.{version.Minor}.{version.Build}"
-    let mutable configurationError: string option = None
-    let mutable speedText = "Unavailable"
-    let mutable lensText = "Unavailable"
-    let optionsIcon = SettingsUi.load_icon ()
-    let bindingCapture = BindingCapture.create ()
-    let mutable resourcesDisposed = false
+    let version_text = $"{version.Major}.{version.Minor}.{version.Build}"
+    let mutable configuration_error: string option = None
+    let mutable speed_text = "Unavailable"
+    let mutable lens_text = "Unavailable"
+    let options_icon = SettingsUi.load_icon ()
+    let binding_capture = BindingCapture.create ()
+    let mutable resources_disposed = false
 
     let format_runtime_number (value: float) =
         value.ToString("0.######", CultureInfo.InvariantCulture)
 
     let refresh_status () =
         status.status_line.Text <-
-            match configurationError with
-            | Some error -> $"Version: {versionText}  |  Configuration error: {error}"
-            | None -> $"Version: {versionText}"
+            match configuration_error with
+            | Some error -> $"Version: {version_text}  |  Configuration error: {error}"
+            | None -> $"Version: {version_text}"
 
-        status.runtime_line.Text <- $"Current Speed: {speedText}  |  Current Lens: {lensText}"
+        status.runtime_line.Text <- $"Current Speed: {speed_text}  |  Current Lens: {lens_text}"
 
     let refresh_retarget_controls () =
-        let shiftEnabled =
+        let shift_enabled =
             SettingsFields.selected_mode modes.shift_right_click_action = MouseGestureAction.Retarget
 
-        let altEnabled =
+        let alt_enabled =
             SettingsFields.selected_mode modes.alt_right_click_action = MouseGestureAction.Retarget
 
-        let ctrlEnabled =
+        let ctrl_enabled =
             SettingsFields.selected_mode modes.ctrl_right_click_action = MouseGestureAction.Retarget
 
-        let middleEnabled =
+        let middle_enabled =
             SettingsFields.selected_mode modes.middle_mouse_action = MouseGestureAction.Retarget
 
-        let mouse4Enabled =
+        let mouse4_enabled =
             SettingsFields.selected_mode modes.mouse4_action = MouseGestureAction.Retarget
 
-        let mouse5Enabled =
+        let mouse5_enabled =
             SettingsFields.selected_mode modes.mouse5_action = MouseGestureAction.Retarget
 
-        modes.shift_right_click_retarget.control.Enabled <- shiftEnabled
-        modes.alt_right_click_retarget.control.Enabled <- altEnabled
-        modes.ctrl_right_click_retarget.control.Enabled <- ctrlEnabled
-        modes.middle_mouse_retarget.control.Enabled <- middleEnabled
-        modes.mouse4_retarget.control.Enabled <- mouse4Enabled
-        modes.mouse5_retarget.control.Enabled <- mouse5Enabled
+        modes.shift_right_click_retarget.control.Enabled <- shift_enabled
+        modes.alt_right_click_retarget.control.Enabled <- alt_enabled
+        modes.ctrl_right_click_retarget.control.Enabled <- ctrl_enabled
+        modes.middle_mouse_retarget.control.Enabled <- middle_enabled
+        modes.mouse4_retarget.control.Enabled <- mouse4_enabled
+        modes.mouse5_retarget.control.Enabled <- mouse5_enabled
 
         options.middle_mouse_action_while_flying.Enabled <-
             SettingsFields.selected_mode modes.middle_mouse_action <> MouseGestureAction.Off
@@ -85,18 +85,18 @@ type SettingsControl() as self =
         options.mouse5_uses_cursor_outside_flight.Enabled <-
             SettingsFields.selected_mode modes.mouse5_action <> MouseGestureAction.Off
 
-        let fallbackEnabled =
-            (shiftEnabled
+        let fallback_enabled =
+            (shift_enabled
              && RetargetMode.uses_distance (SettingsFields.selected_mode modes.shift_right_click_retarget))
-            || (altEnabled
+            || (alt_enabled
                 && RetargetMode.uses_distance (SettingsFields.selected_mode modes.alt_right_click_retarget))
-            || (ctrlEnabled
+            || (ctrl_enabled
                 && RetargetMode.uses_distance (SettingsFields.selected_mode modes.ctrl_right_click_retarget))
-            || (middleEnabled
+            || (middle_enabled
                 && RetargetMode.uses_distance (SettingsFields.selected_mode modes.middle_mouse_retarget))
-            || (mouse4Enabled
+            || (mouse4_enabled
                 && RetargetMode.uses_distance (SettingsFields.selected_mode modes.mouse4_retarget))
-            || (mouse5Enabled
+            || (mouse5_enabled
                 && RetargetMode.uses_distance (SettingsFields.selected_mode modes.mouse5_retarget))
             || RetargetMode.uses_distance (SettingsFields.selected_mode modes.retarget_all_views_mode)
             || RetargetMode.uses_distance (SettingsFields.selected_mode modes.retarget_other_views_mode)
@@ -105,8 +105,8 @@ type SettingsControl() as self =
             || RetargetMode.uses_distance (SettingsFields.selected_mode modes.retarget_on_flight_exit)
             || RetargetMode.uses_distance (SettingsFields.selected_mode modes.retarget_on_restored_flight_exit)
 
-        numbers.perspective_retarget_fallback_multiplier.Enabled <- fallbackEnabled
-        numbers.parallel_retarget_fallback_multiplier.Enabled <- fallbackEnabled
+        numbers.perspective_retarget_fallback_multiplier.Enabled <- fallback_enabled
+        numbers.parallel_retarget_fallback_multiplier.Enabled <- fallback_enabled
 
     let refresh_wheel_speed_controls () =
         options.wheel_changes_speed_during_flight_navigation.Enabled <-
@@ -117,17 +117,18 @@ type SettingsControl() as self =
             mode = ViewportNameListMode.EnabledSome
             || mode = ViewportNameListMode.DisabledSome
 
-        viewportCapabilityNames.Enabled <- uses_list (SettingsFields.selected_mode modes.viewport_capabilities)
+        viewport_capability_names.Enabled <- uses_list (SettingsFields.selected_mode modes.viewport_capabilities)
 
-        rightClickFlightEntryNames.Enabled <- uses_list (SettingsFields.selected_mode modes.right_click_flight_entry)
+        right_click_flight_entry_names.Enabled <-
+            uses_list (SettingsFields.selected_mode modes.right_click_flight_entry)
 
-    let binding_editor (field: TextBox) (defaultValue: string) =
-        BindingCapture.editor bindingCapture field defaultValue
+    let binding_editor (field: TextBox) (default_value: string) =
+        BindingCapture.editor binding_capture field default_value
 
     let title_row () =
         let image = new ImageView(Size = Size(32, 32))
 
-        optionsIcon |> Option.iter (fun (icon: Icon) -> image.Image <- icon)
+        options_icon |> Option.iter (fun (icon: Icon) -> image.Image <- icon)
 
         let title =
             new Label(Text = "Rhinos Can Fly Options", Font = SystemFonts.Bold(Nullable 15.f, FontDecoration.None))
@@ -138,22 +139,22 @@ type SettingsControl() as self =
 
         row :> Control
 
-    let rawJsonLayout =
+    let raw_json_layout =
         let layout = new TableLayout(Spacing = Size(8, 6))
-        let pathLabel = new Label(Text = "File", Width = 64)
-        let contentsLabel = new Label(Text = "Contents", Width = 64)
+        let path_label = new Label(Text = "File", Width = 64)
+        let contents_label = new Label(Text = "Contents", Width = 64)
 
-        layout.Rows.Add(SettingsLayout.row [ new TableCell(pathLabel, false); new TableCell(rawJson.path, true) ])
+        layout.Rows.Add(SettingsLayout.row [ new TableCell(path_label, false); new TableCell(raw_json.path, true) ])
 
         layout.Rows.Add(
-            SettingsLayout.row [ new TableCell(contentsLabel, false); new TableCell(rawJson.contents, true) ]
+            SettingsLayout.row [ new TableCell(contents_label, false); new TableCell(raw_json.contents, true) ]
         )
 
         layout
 
-    let rawJsonPanel = new Panel(Content = rawJsonLayout, Visible = false)
+    let raw_json_panel = new Panel(Content = raw_json_layout, Visible = false)
 
-    let parallelLensLayout =
+    let parallel_lens_layout =
         let layout = new TableLayout(Spacing = Size(16, 0))
 
         let description =
@@ -173,24 +174,24 @@ type SettingsControl() as self =
     let refresh_raw () =
         match ConfigStorage.read_raw () with
         | Ok(path, content) ->
-            rawJson.path.Text <- path
-            rawJson.contents.Text <- content
+            raw_json.path.Text <- path
+            raw_json.contents.Text <- content
         | Error error ->
-            rawJson.path.Text <- ConfigStorage.path ()
-            rawJson.contents.Text <- $"Could not read config: {error}"
+            raw_json.path.Text <- ConfigStorage.path ()
+            raw_json.contents.Text <- $"Could not read config: {error}"
 
     let refresh_raw_if_visible () =
-        if rawJsonPanel.Visible then
+        if raw_json_panel.Visible then
             refresh_raw ()
 
-    let mainTable = new TableLayout(Padding = Padding 12, Spacing = Size(0, 4))
+    let main_table = new TableLayout(Padding = Padding 12, Spacing = Size(0, 4))
 
     let scrollable =
-        new Scrollable(Border = BorderType.None, ExpandContentWidth = true, Content = mainTable)
+        new Scrollable(Border = BorderType.None, ExpandContentWidth = true, Content = main_table)
 
     do
-        mainTable.Rows.Add(SettingsLayout.full_width (title_row ()))
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "General behaviour"))
+        main_table.Rows.Add(SettingsLayout.full_width (title_row ()))
+        main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "General behaviour"))
 
         SettingsLayout.grid
             2
@@ -201,9 +202,9 @@ type SettingsControl() as self =
               options.save_speed_to_document
               options.load_speed_from_document ]
         |> SettingsLayout.full_width
-        |> mainTable.Rows.Add
+        |> main_table.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Mouse actions"))
+        main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Mouse actions"))
 
         SettingsLayout.grid
             2
@@ -213,23 +214,23 @@ type SettingsControl() as self =
               SettingsLayout.item "Alt + right click" modes.alt_right_click_action.control
               SettingsLayout.item "Ctrl + right click" modes.ctrl_right_click_action.control ]
         |> SettingsLayout.full_width
-        |> mainTable.Rows.Add
+        |> main_table.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Mouse buttons"))
+        main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Mouse buttons"))
 
-        let mouseButtonLayout = new TableLayout(Spacing = Size(16, 4))
+        let mouse_button_layout = new TableLayout(Spacing = Size(16, 4))
 
-        let mouse_button_row (label: string) (action: Control) (whileFlying: Control) (useCursor: Control) =
+        let mouse_button_row (label: string) (action: Control) (while_flying: Control) (use_cursor: Control) =
             action.Width <- 220
 
             SettingsLayout.row
                 [ new TableCell(new Label(Text = label, Width = SettingsLayout.ITEM_LABEL_WIDTH), false)
                   new TableCell(action, false)
-                  new TableCell(whileFlying, false)
-                  new TableCell(useCursor, false)
+                  new TableCell(while_flying, false)
+                  new TableCell(use_cursor, false)
                   new TableCell(new Panel(), true) ]
 
-        mouseButtonLayout.Rows.Add(
+        mouse_button_layout.Rows.Add(
             mouse_button_row
                 "Middle mouse"
                 modes.middle_mouse_action.control
@@ -237,7 +238,7 @@ type SettingsControl() as self =
                 options.middle_mouse_uses_cursor_outside_flight
         )
 
-        mouseButtonLayout.Rows.Add(
+        mouse_button_layout.Rows.Add(
             mouse_button_row
                 "Mouse 4"
                 modes.mouse4_action.control
@@ -245,7 +246,7 @@ type SettingsControl() as self =
                 options.mouse4_uses_cursor_outside_flight
         )
 
-        mouseButtonLayout.Rows.Add(
+        mouse_button_layout.Rows.Add(
             mouse_button_row
                 "Mouse 5"
                 modes.mouse5_action.control
@@ -253,9 +254,9 @@ type SettingsControl() as self =
                 options.mouse5_uses_cursor_outside_flight
         )
 
-        mainTable.Rows.Add(SettingsLayout.full_width mouseButtonLayout)
+        main_table.Rows.Add(SettingsLayout.full_width mouse_button_layout)
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Mouse sensitivity"))
+        main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Mouse sensitivity"))
 
         SettingsLayout.grid
             2
@@ -266,9 +267,9 @@ type SettingsControl() as self =
                   "Parallel sens"
                   numbers.parallel_mouse_sensitivity ]
         |> SettingsLayout.full_width
-        |> mainTable.Rows.Add
+        |> main_table.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Viewports"))
+        main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Viewports"))
 
         let viewport_policy_row (label: string) (control: Control) =
             let layout = new TableLayout(Spacing = Size(8, 0))
@@ -282,12 +283,12 @@ type SettingsControl() as self =
             layout :> Control
 
         [ viewport_policy_row "Right click to fly list mode" modes.right_click_flight_entry.control
-          viewport_policy_row "Right click to fly viewports (comma list)" rightClickFlightEntryNames
+          viewport_policy_row "Right click to fly viewports (comma list)" right_click_flight_entry_names
           viewport_policy_row "Capabilities list mode" modes.viewport_capabilities.control
-          viewport_policy_row "Capabilities viewports (comma list)" viewportCapabilityNames ]
-        |> List.iter (SettingsLayout.full_width >> mainTable.Rows.Add)
+          viewport_policy_row "Capabilities viewports (comma list)" viewport_capability_names ]
+        |> List.iter (SettingsLayout.full_width >> main_table.Rows.Add)
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "While flying"))
+        main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "While flying"))
 
         SettingsLayout.grid
             2
@@ -295,9 +296,9 @@ type SettingsControl() as self =
               options.exit_on_mouse_left
               options.hide_gumball_while_flying ]
         |> SettingsLayout.full_width
-        |> mainTable.Rows.Add
+        |> main_table.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.spacer 2))
+        main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.spacer 2))
 
         SettingsLayout.grid
             2
@@ -306,9 +307,9 @@ type SettingsControl() as self =
               SettingsLayout.item "MWheel changes speed" modes.wheel_speed_mode.control
               options.wheel_changes_speed_during_flight_navigation ]
         |> SettingsLayout.full_width
-        |> mainTable.Rows.Add
+        |> main_table.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Controls"))
+        main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Controls"))
 
         SettingsLayout.grid
             2
@@ -339,19 +340,19 @@ type SettingsControl() as self =
                   "Toggle projection"
                   (binding_editor bindings.toggle_projection defaults.toggle_projection) ]
         |> SettingsLayout.full_width
-        |> mainTable.Rows.Add
+        |> main_table.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Movement speed and controls"))
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Options"))
+        main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Movement speed and controls"))
+        main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Options"))
 
         SettingsLayout.grid
             2
             [ SettingsLayout.item "Boost behaviour" modes.boost_mode.control
               SettingsLayout.item "Slow behaviour" modes.slow_mode.control ]
         |> SettingsLayout.full_width
-        |> mainTable.Rows.Add
+        |> main_table.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Binds"))
+        main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Binds"))
 
         SettingsLayout.grid
             2
@@ -360,9 +361,9 @@ type SettingsControl() as self =
               SettingsLayout.item "Increase speed" (binding_editor bindings.speed_increase defaults.speed_increase)
               SettingsLayout.item "Decrease speed" (binding_editor bindings.speed_decrease defaults.speed_decrease) ]
         |> SettingsLayout.full_width
-        |> mainTable.Rows.Add
+        |> main_table.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Values"))
+        main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Values"))
 
         SettingsLayout.grid
             2
@@ -377,13 +378,13 @@ type SettingsControl() as self =
               SettingsLayout.item "Pivot multiplier" numbers.mouse_pivot_multiplier
               SettingsLayout.item "Pan multiplier" numbers.mouse_pan_multiplier ]
         |> SettingsLayout.full_width
-        |> mainTable.Rows.Add
+        |> main_table.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Retarget"))
+        main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Retarget"))
 
         SettingsLayout.grid 2 [ SettingsLayout.item "Prioritized target" modes.prioritized_target.control ]
         |> SettingsLayout.full_width
-        |> mainTable.Rows.Add
+        |> main_table.Rows.Add
 
         SettingsLayout.grid
             2
@@ -392,20 +393,20 @@ type SettingsControl() as self =
               SettingsLayout.item "On flight exit" modes.retarget_on_flight_exit.control
               SettingsLayout.item "On restored flight exit" modes.retarget_on_restored_flight_exit.control ]
         |> SettingsLayout.full_width
-        |> mainTable.Rows.Add
+        |> main_table.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Retarget as action"))
+        main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Retarget as action"))
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Keyboard binds"))
+        main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Keyboard binds"))
 
         SettingsLayout.grid
             2
             [ SettingsLayout.item "Retarget all" modes.retarget_all_views_mode.control
               SettingsLayout.item "Retarget others" modes.retarget_other_views_mode.control ]
         |> SettingsLayout.full_width
-        |> mainTable.Rows.Add
+        |> main_table.Rows.Add
 
-        mainTable.Rows.Add(
+        main_table.Rows.Add(
             SettingsLayout.full_width (SettingsLayout.subheading "Mouse inputs (if mouse action set to 'Retarget')")
         )
 
@@ -418,27 +419,27 @@ type SettingsControl() as self =
               SettingsLayout.item "Ctrl + right click" modes.ctrl_right_click_retarget.control
               SettingsLayout.item "Middle mouse" modes.middle_mouse_retarget.control ]
         |> SettingsLayout.full_width
-        |> mainTable.Rows.Add
+        |> main_table.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Direct retarget zoom"))
+        main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Direct retarget zoom"))
 
         SettingsLayout.grid
             2
             [ SettingsLayout.item "Perspective border" numbers.perspective_retarget_zoom_border
               SettingsLayout.item "Parallel border" numbers.parallel_retarget_zoom_border ]
         |> SettingsLayout.full_width
-        |> mainTable.Rows.Add
+        |> main_table.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Fallback distance"))
+        main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Fallback distance"))
 
         SettingsLayout.grid
             2
             [ SettingsLayout.item "Perspective multiplier" numbers.perspective_retarget_fallback_multiplier
               SettingsLayout.item "Parallel multiplier" numbers.parallel_retarget_fallback_multiplier ]
         |> SettingsLayout.full_width
-        |> mainTable.Rows.Add
+        |> main_table.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Parallel projection"))
+        main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Parallel projection"))
 
         SettingsLayout.grid
             2
@@ -447,11 +448,11 @@ type SettingsControl() as self =
               SettingsLayout.item "Parallel pivot multi" numbers.parallel_mouse_pivot_multiplier
               SettingsLayout.item "Parallel pan multi" numbers.parallel_mouse_pan_multiplier ]
         |> SettingsLayout.full_width
-        |> mainTable.Rows.Add
+        |> main_table.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width parallelLensLayout)
+        main_table.Rows.Add(SettingsLayout.full_width parallel_lens_layout)
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Perspective lens length"))
+        main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Perspective lens length"))
 
         SettingsLayout.grid
             2
@@ -466,33 +467,33 @@ type SettingsControl() as self =
                   "Perspective lens diff during flight"
                   numbers.perspective_lens_length_delta_during_flight_mm ]
         |> SettingsLayout.full_width
-        |> mainTable.Rows.Add
+        |> main_table.Rows.Add
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Other"))
+        main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Other"))
 
-        mainTable.Rows.Add(
+        main_table.Rows.Add(
             SettingsLayout.full_width (SettingsLayout.item "Redraw mode" modes.viewport_paint_mode.control)
         )
 
-        mainTable.Rows.Add(
+        main_table.Rows.Add(
             SettingsLayout.full_width (SettingsLayout.note "Try an alternative mode only if fly mode is not smooth.")
         )
 
-        mainTable.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Status"))
+        main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Status"))
         refresh_status ()
-        mainTable.Rows.Add(SettingsLayout.full_width status.status_line)
-        mainTable.Rows.Add(SettingsLayout.full_width status.runtime_line)
-        mainTable.Rows.Add(SettingsLayout.full_width actions.github)
-        mainTable.Rows.Add(SettingsLayout.full_width actions.reset_all)
-        mainTable.Rows.Add(SettingsLayout.full_width actions.raw_json_toggle)
-        mainTable.Rows.Add(SettingsLayout.full_width rawJsonPanel)
+        main_table.Rows.Add(SettingsLayout.full_width status.status_line)
+        main_table.Rows.Add(SettingsLayout.full_width status.runtime_line)
+        main_table.Rows.Add(SettingsLayout.full_width actions.github)
+        main_table.Rows.Add(SettingsLayout.full_width actions.reset_all)
+        main_table.Rows.Add(SettingsLayout.full_width actions.raw_json_toggle)
+        main_table.Rows.Add(SettingsLayout.full_width raw_json_panel)
 
         let host = new TableLayout(Spacing = Size.Empty)
-        host.Rows.Add(SettingsLayout.row [ new TableCell(bindingCapture.focus_sink, false) ])
+        host.Rows.Add(SettingsLayout.row [ new TableCell(binding_capture.focus_sink, false) ])
 
-        let contentRow = SettingsLayout.row [ new TableCell(scrollable, true) ]
-        contentRow.ScaleHeight <- true
-        host.Rows.Add contentRow
+        let content_row = SettingsLayout.row [ new TableCell(scrollable, true) ]
+        content_row.ScaleHeight <- true
+        host.Rows.Add content_row
 
         self.Content <- host
 
@@ -529,23 +530,23 @@ type SettingsControl() as self =
         refresh_viewport_controls ()
 
         actions.raw_json_toggle.Click.Add(fun (_: EventArgs) ->
-            rawJsonPanel.Visible <- not rawJsonPanel.Visible
+            raw_json_panel.Visible <- not raw_json_panel.Visible
 
             refresh_raw_if_visible ()
 
             actions.raw_json_toggle.Text <-
-                if rawJsonPanel.Visible then
+                if raw_json_panel.Visible then
                     "Hide raw JSON configuration"
                 else
                     "Show raw JSON configuration")
 
         actions.github.Click.Add(fun (_: EventArgs) ->
             try
-                let launchedProcess =
+                let launched_process =
                     Process.Start(ProcessStartInfo("https://github.com/Viterkim/RhinosCanFly", UseShellExecute = true))
 
-                if not (isNull launchedProcess) then
-                    launchedProcess.Dispose()
+                if not (isNull launched_process) then
+                    launched_process.Dispose()
             with error ->
                 self.ShowError $"Could not open GitHub: {error.Message}")
 
@@ -553,30 +554,30 @@ type SettingsControl() as self =
             self.LoadConfig defaults
             self.ClearError())
 
-        BindingCapture.attach_mouse_behavior bindingCapture self
+        BindingCapture.attach_mouse_behavior binding_capture self
         SettingsUi.use_rhino_style self
-        self.UnLoad.Add(fun (_: EventArgs) -> BindingCapture.cancel bindingCapture)
+        self.UnLoad.Add(fun (_: EventArgs) -> BindingCapture.cancel binding_capture)
 
     override _.Dispose(disposing: bool) =
-        if disposing && not resourcesDisposed then
-            resourcesDisposed <- true
-            BindingCapture.dispose bindingCapture
-            optionsIcon |> Option.iter (fun (icon: Icon) -> icon.Dispose())
+        if disposing && not resources_disposed then
+            resources_disposed <- true
+            BindingCapture.dispose binding_capture
+            options_icon |> Option.iter (fun (icon: Icon) -> icon.Dispose())
 
         base.Dispose disposing
 
     member _.ShowError(message: string) =
-        configurationError <- Some message
+        configuration_error <- Some message
         refresh_status ()
 
     member _.ClearError() =
-        configurationError <- None
+        configuration_error <- None
         refresh_status ()
 
     member _.ShowRuntimeState(speed: float, lens: float option) =
-        speedText <- format_runtime_number speed
+        speed_text <- format_runtime_number speed
 
-        lensText <-
+        lens_text <-
             match lens with
             | Some value -> $"{format_runtime_number value} mm"
             | None -> "Unavailable"
@@ -588,7 +589,7 @@ type SettingsControl() as self =
 
     member _.RefreshRawIfVisible() = refresh_raw_if_visible ()
 
-    member _.CancelBindingCapture() = BindingCapture.cancel bindingCapture
+    member _.CancelBindingCapture() = BindingCapture.cancel binding_capture
 
     member _.ReadScrollPosition() = scrollable.ScrollPosition
 

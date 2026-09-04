@@ -10,13 +10,13 @@ type PluginCommand(run: RhinoDoc -> Result) =
     inherit Command()
 
     override self.EnglishName =
-        let className = self.GetType().Name
+        let class_name = self.GetType().Name
         let suffix = "Command"
 
-        if not (className.EndsWith(suffix, StringComparison.Ordinal)) then
-            invalidOp $"Rhino command class '{className}' must end with '{suffix}'."
+        if not (class_name.EndsWith(suffix, StringComparison.Ordinal)) then
+            invalidOp $"Rhino command class '{class_name}' must end with '{suffix}'."
 
-        className.Substring(0, className.Length - suffix.Length)
+        class_name.Substring(0, class_name.Length - suffix.Length)
 
     override _.CommandContextHelpUrl = "about:blank"
     override _.RunCommand(document: RhinoDoc, _mode: RunMode) = run document

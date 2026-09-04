@@ -18,24 +18,24 @@ module SettingsDialogPlacement =
 
     let mutable last_location: Point option = None
 
-    let fit_size (minimum: Size) (workingArea: RectangleF) =
-        let availableWidth = max minimum.Width (int workingArea.Width - SCREEN_MARGIN * 2)
+    let fit_size (minimum: Size) (working_area: RectangleF) =
+        let available_width = max minimum.Width (int working_area.Width - SCREEN_MARGIN * 2)
 
-        let availableHeight =
-            max minimum.Height (int workingArea.Height - SCREEN_MARGIN * 2)
+        let available_height =
+            max minimum.Height (int working_area.Height - SCREEN_MARGIN * 2)
 
-        Size(min PREFERRED_WIDTH availableWidth, min PREFERRED_HEIGHT availableHeight)
+        Size(min PREFERRED_WIDTH available_width, min PREFERRED_HEIGHT available_height)
 
     let centered_location (bounds: RectangleF) (size: Size) =
         Point(int bounds.X + (int bounds.Width - size.Width) / 2, int bounds.Y + (int bounds.Height - size.Height) / 2)
 
-    let clamped_location (workingArea: RectangleF) (size: Size) (location: Point) =
-        let minimumX = int workingArea.X
-        let minimumY = int workingArea.Y
-        let maximumX = max minimumX (int workingArea.Right - size.Width)
-        let maximumY = max minimumY (int workingArea.Bottom - size.Height)
+    let clamped_location (working_area: RectangleF) (size: Size) (location: Point) =
+        let minimum_x = int working_area.X
+        let minimum_y = int working_area.Y
+        let maximum_x = max minimum_x (int working_area.Right - size.Width)
+        let maximum_y = max minimum_y (int working_area.Bottom - size.Height)
 
-        Point(min maximumX (max minimumX location.X), min maximumY (max minimumY location.Y))
+        Point(min maximum_x (max minimum_x location.X), min maximum_y (max minimum_y location.Y))
 
 module SettingsScrollPosition =
     let mutable command_dialog = Point.Empty
@@ -51,38 +51,38 @@ type RhinosCanFlySettingsDialog() as self =
         )
 
     let control = new SettingsControl()
-    let saveButton = new Button(Text = "Save")
-    let cancelButton = new Button(Text = "Cancel")
-    let windowIcon = SettingsUi.load_icon ()
-    let mutable resourcesDisposed = false
+    let save_button = new Button(Text = "Save")
+    let cancel_button = new Button(Text = "Cancel")
+    let window_icon = SettingsUi.load_icon ()
+    let mutable resources_disposed = false
 
     do
-        windowIcon |> Option.iter (fun (icon: Icon) -> self.Icon <- icon)
+        window_icon |> Option.iter (fun (icon: Icon) -> self.Icon <- icon)
 
         let buttons = new TableLayout(Spacing = Size(8, 0))
-        let buttonRow = new TableRow()
-        buttonRow.Cells.Add(new TableCell(new Panel(), true))
-        buttonRow.Cells.Add(new TableCell(saveButton, false))
-        buttonRow.Cells.Add(new TableCell(cancelButton, false))
-        buttons.Rows.Add buttonRow
+        let button_row = new TableRow()
+        button_row.Cells.Add(new TableCell(new Panel(), true))
+        button_row.Cells.Add(new TableCell(save_button, false))
+        button_row.Cells.Add(new TableCell(cancel_button, false))
+        buttons.Rows.Add button_row
 
         let layout = new TableLayout(Padding = Padding 8, Spacing = Size(0, 8))
-        let controlRow = new TableRow()
-        controlRow.Cells.Add(new TableCell(control, true))
-        controlRow.ScaleHeight <- true
-        layout.Rows.Add controlRow
+        let control_row = new TableRow()
+        control_row.Cells.Add(new TableCell(control, true))
+        control_row.ScaleHeight <- true
+        layout.Rows.Add control_row
         layout.Rows.Add(new TableRow(new TableCell(buttons, true)))
 
         self.Content <- layout
-        self.DefaultButton <- saveButton
-        self.AbortButton <- cancelButton
+        self.DefaultButton <- save_button
+        self.AbortButton <- cancel_button
         SettingsUi.use_rhino_style self
 
-        saveButton.Click.Add(fun (_: EventArgs) ->
+        save_button.Click.Add(fun (_: EventArgs) ->
             if Settings.save control then
                 self.Close())
 
-        cancelButton.Click.Add(fun (_: EventArgs) -> self.Close())
+        cancel_button.Click.Add(fun (_: EventArgs) -> self.Close())
 
         self.LoadComplete.Add(fun (_: EventArgs) -> control.SetScrollPosition SettingsScrollPosition.command_dialog)
 
@@ -93,10 +93,10 @@ type RhinosCanFlySettingsDialog() as self =
         Settings.load control
 
     override _.Dispose(disposing: bool) =
-        if disposing && not resourcesDisposed then
-            resourcesDisposed <- true
+        if disposing && not resources_disposed then
+            resources_disposed <- true
             control.Dispose()
-            windowIcon |> Option.iter (fun (icon: Icon) -> icon.Dispose())
+            window_icon |> Option.iter (fun (icon: Icon) -> icon.Dispose())
 
         base.Dispose disposing
 
@@ -107,7 +107,7 @@ type RhinosCanFlySettingsDialog() as self =
             else
                 RhinoEtoApp.MainWindowForDocument document
 
-        let parentScreen =
+        let parent_screen =
             if isNull parent || isNull parent.Screen then
                 Screen.PrimaryScreen
             else
@@ -116,20 +116,20 @@ type RhinosCanFlySettingsDialog() as self =
         let screen =
             match SettingsDialogPlacement.last_location with
             | Some saved ->
-                let savedScreen = Screen.FromPoint(PointF saved)
+                let saved_screen = Screen.FromPoint(PointF saved)
 
-                if isNull savedScreen then parentScreen else savedScreen
-            | None -> parentScreen
+                if isNull saved_screen then parent_screen else saved_screen
+            | None -> parent_screen
 
-        let workingArea = screen.WorkingArea
-        self.Size <- SettingsDialogPlacement.fit_size self.MinimumSize workingArea
+        let working_area = screen.WorkingArea
+        self.Size <- SettingsDialogPlacement.fit_size self.MinimumSize working_area
 
         let location =
             match SettingsDialogPlacement.last_location with
             | Some saved -> saved
-            | None -> SettingsDialogPlacement.centered_location workingArea self.Size
+            | None -> SettingsDialogPlacement.centered_location working_area self.Size
 
-        self.Location <- SettingsDialogPlacement.clamped_location workingArea self.Size location
+        self.Location <- SettingsDialogPlacement.clamped_location working_area self.Size location
 
         self.ShowSemiModal(document, parent)
 
@@ -137,34 +137,34 @@ type RhinosCanFlyOptionsPage() =
     inherit OptionsDialogPage "RhinosCanFly"
 
     let control = lazy (new SettingsControl())
-    let mutable inputSuspension: InputSuspensionLease option = None
+    let mutable input_suspension: InputSuspensionLease option = None
 
     let save_scroll_position () =
         if control.IsValueCreated then
             SettingsScrollPosition.rhino_options <- control.Value.ReadScrollPosition()
 
     let suspend_input () =
-        match inputSuspension with
+        match input_suspension with
         | Some _ -> Ok()
         | None ->
             match RuntimeSettings.suspend_input () with
             | Ok lease ->
-                inputSuspension <- Some lease
+                input_suspension <- Some lease
 
                 match lease.cleanup_error with
                 | None -> Ok()
-                | Some cleanupError ->
-                    inputSuspension <- None
+                | Some cleanup_error ->
+                    input_suspension <- None
 
                     match RuntimeSettings.resume_input lease with
-                    | Ok() -> Error $"Input cleanup is incomplete: {cleanupError}"
-                    | Error resumeError ->
-                        Error $"Input cleanup is incomplete: {cleanupError}; resume failed: {resumeError}"
+                    | Ok() -> Error $"Input cleanup is incomplete: {cleanup_error}"
+                    | Error resume_error ->
+                        Error $"Input cleanup is incomplete: {cleanup_error}; resume failed: {resume_error}"
             | Error error -> Error error
 
     let resume_input () =
-        let suspension = inputSuspension
-        inputSuspension <- None
+        let suspension = input_suspension
+        input_suspension <- None
 
         match suspension with
         | Some lease -> RuntimeSettings.resume_input lease

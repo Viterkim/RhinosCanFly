@@ -232,9 +232,9 @@ let read (fields: SettingsFields.ConfigFields) =
         field.Text <- String.Join(", ", names)
         names
 
-    let viewportCapabilityNames = viewport_names fields.viewport_capability_names
+    let viewport_capability_names = viewport_names fields.viewport_capability_names
 
-    let rightClickFlightEntryNames =
+    let right_click_flight_entry_names =
         viewport_names fields.right_click_flight_entry_names
 
     match parse_numbers fields.numbers with
@@ -318,10 +318,10 @@ let read (fields: SettingsFields.ConfigFields) =
               retarget_on_restored_flight_exit = SettingsFields.selected_mode modes.retarget_on_restored_flight_exit
               viewport_capabilities =
                 { mode = SettingsFields.selected_mode modes.viewport_capabilities
-                  viewports = viewportCapabilityNames }
+                  viewports = viewport_capability_names }
               right_click_flight_entry =
                 { mode = SettingsFields.selected_mode modes.right_click_flight_entry
-                  viewports = rightClickFlightEntryNames }
+                  viewports = right_click_flight_entry_names }
               commands_do_not_repeat = is_checked options.commands_do_not_repeat
               mouse4_action = SettingsFields.selected_mode modes.mouse4_action
               mouse5_action = SettingsFields.selected_mode modes.mouse5_action

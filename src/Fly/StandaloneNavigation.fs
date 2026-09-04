@@ -62,11 +62,11 @@ let restored_view_completion (loaded: ConfigLoadResult) (view: RhinoView) =
         struct (None, None)
 
 let start_navigation (mode: Mode) (loaded: ConfigLoadResult) (view: RhinoView) =
-    let commandName = name mode
+    let command_name = name mode
 
     match stop_conflict mode with
     | Error error ->
-        RhinoApp.WriteLine $"{commandName} failed: {error}"
+        RhinoApp.WriteLine $"{command_name} failed: {error}"
         Result.Failure
     | Ok() ->
         let struct (completion, snapshot) = restored_view_completion loaded view
@@ -76,30 +76,30 @@ let start_navigation (mode: Mode) (loaded: ConfigLoadResult) (view: RhinoView) =
             | Ok() -> Result.Success
             | Error error ->
                 snapshot |> Option.iter CameraSnapshot.dispose
-                RhinoApp.WriteLine $"{commandName} failed: {error}"
+                RhinoApp.WriteLine $"{command_name} failed: {error}"
                 Result.Failure
         with error ->
             snapshot |> Option.iter CameraSnapshot.dispose
-            RhinoApp.WriteLine $"{commandName} failed: {error.Message}"
+            RhinoApp.WriteLine $"{command_name} failed: {error.Message}"
             Result.Failure
 
 let start_if_ready (mode: Mode) (loaded: ConfigLoadResult) (document: RhinoDoc) =
-    let commandName = name mode
+    let command_name = name mode
     let view = document.Views.ActiveView
 
     if not (RuntimeSettings.runtime_enabled ()) then
         RhinoApp.WriteLine "RhinosCanFly is disabled."
         Result.Cancel
     elif isNull view then
-        RhinoApp.WriteLine $"{commandName}: no active view."
+        RhinoApp.WriteLine $"{command_name}: no active view."
         Result.Failure
     else
         match PlatformInput.cursor_is_over_view view with
         | Error error ->
-            RhinoApp.WriteLine $"{commandName} failed: {error}"
+            RhinoApp.WriteLine $"{command_name} failed: {error}"
             Result.Failure
         | Ok false ->
-            RhinoApp.WriteLine $"{commandName}: move the cursor over the active viewport."
+            RhinoApp.WriteLine $"{command_name}: move the cursor over the active viewport."
             Result.Cancel
         | Ok true -> start_navigation mode loaded view
 

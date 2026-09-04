@@ -34,8 +34,8 @@ let repair_malformed_values (json: JsonObject) (defaults: JsonObject) =
 
         for property: KeyValuePair<string, JsonNode> in defaults do
             let candidate = defaults.DeepClone().AsObject()
-            let sourceValue = json[property.Key]
-            candidate[property.Key] <- ConfigDocument.clone sourceValue
+            let source_value = json[property.Key]
+            candidate[property.Key] <- ConfigDocument.clone source_value
 
             match ConfigDocument.deserialize candidate with
             | Ok _ -> ()
@@ -46,12 +46,12 @@ let repair_malformed_values (json: JsonObject) (defaults: JsonObject) =
         List.ofSeq repaired
 
 let canonicalize_properties (json: JsonObject) (defaults: JsonObject) =
-    let knownNames = Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    let known_names = Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 
     for property in defaults do
-        knownNames[property.Key] <- property.Key
+        known_names[property.Key] <- property.Key
 
-    let sourceNames =
+    let source_names =
         json
         |> Seq.map (fun (property: KeyValuePair<string, JsonNode>) -> property.Key)
         |> List.ofSeq
@@ -59,15 +59,15 @@ let canonicalize_properties (json: JsonObject) (defaults: JsonObject) =
     let mutable removed = 0
     let mutable renamed = 0
 
-    for name in sourceNames do
-        let mutable canonicalName = ""
+    for name in source_names do
+        let mutable canonical_name = ""
 
-        if not (knownNames.TryGetValue(name, &canonicalName)) then
+        if not (known_names.TryGetValue(name, &canonical_name)) then
             json.Remove name |> ignore
             removed <- removed + 1
-        elif not (String.Equals(name, canonicalName, StringComparison.Ordinal)) then
-            if not (json.ContainsKey canonicalName) then
-                json[canonicalName] <- ConfigDocument.clone json[name]
+        elif not (String.Equals(name, canonical_name, StringComparison.Ordinal)) then
+            if not (json.ContainsKey canonical_name) then
+                json[canonical_name] <- ConfigDocument.clone json[name]
 
             json.Remove name |> ignore
             renamed <- renamed + 1
@@ -114,11 +114,11 @@ let compile_with_repairs (source: FlyConfigFile) (messages: ResizeArray<string>)
 
     repair MAXIMUM_FIELD_REPAIR_PASSES source
 
-let repair_document (sourceJson: JsonObject) =
-    match ConfigMigration.route sourceJson with
+let repair_document (source_json: JsonObject) =
+    match ConfigMigration.route source_json with
     | Error error -> Error error
     | Ok routed ->
-        let json = sourceJson
+        let json = source_json
         let before = json.ToJsonString()
         let messages = ResizeArray<string>(routed.messages)
         let defaults = ConfigDocument.to_object ConfigSchema.defaults
@@ -149,11 +149,11 @@ let repair_document (sourceJson: JsonObject) =
                 ConfigSchema.defaults, compile_defaults ()
             | Ok value -> compile_with_repairs (ConfigSchema.normalize value) messages
 
-        let currentSource =
+        let current_source =
             { source with
                 config_version = ConfigSchema.CURRENT_VERSION }
 
-        ConfigDocument.merge_known_values json currentSource
+        ConfigDocument.merge_known_values json current_source
 
         let changed =
             routed.version_changed
@@ -164,7 +164,7 @@ let repair_document (sourceJson: JsonObject) =
             || json.ToJsonString() <> before
 
         Ok
-            { config_file = currentSource
+            { config_file = current_source
               config = config
               document = json
               changed = changed

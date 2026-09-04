@@ -40,11 +40,11 @@ let load (control: SettingsControl) =
 
         control.RefreshRawIfVisible()
 
-        let repairMessages =
+        let repair_messages =
             result.messages
             |> List.filter (fun (message: string) -> message.StartsWith("reset ", StringComparison.Ordinal))
 
-        match repairMessages with
+        match repair_messages with
         | [] -> control.ClearError()
         | messages -> control.ShowError(String.concat "; " messages)
 

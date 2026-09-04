@@ -48,45 +48,45 @@ let start (state: State) (field: TextBox) (button: Button) =
         button.Focus()
         state.side_button_timer.Start()
 
-let editor (state: State) (field: TextBox) (defaultValue: string) =
-    let setButton = new Button(Text = "Set...", Width = 62, Height = 24)
-    let defaultButton = new Button(Text = "Default", Width = 66, Height = 24)
+let editor (state: State) (field: TextBox) (default_value: string) =
+    let set_button = new Button(Text = "Set...", Width = 62, Height = 24)
+    let default_button = new Button(Text = "Default", Width = 66, Height = 24)
     let panel = new TableLayout(Spacing = Size(6, 0))
 
     panel.Rows.Add(
         SettingsLayout.row
             [ new TableCell(field, true)
-              new TableCell(setButton, false)
-              new TableCell(defaultButton, false) ]
+              new TableCell(set_button, false)
+              new TableCell(default_button, false) ]
     )
 
-    setButton.Click.Add(fun (_: EventArgs) ->
+    set_button.Click.Add(fun (_: EventArgs) ->
         match state.suppress_next_set_click with
-        | Some suppressed when same_button suppressed setButton -> state.suppress_next_set_click <- None
+        | Some suppressed when same_button suppressed set_button -> state.suppress_next_set_click <- None
         | Some _ ->
             state.suppress_next_set_click <- None
-            start state field setButton
-        | None -> start state field setButton)
+            start state field set_button
+        | None -> start state field set_button)
 
-    setButton.KeyDown.Add(fun (event: KeyEventArgs) ->
+    set_button.KeyDown.Add(fun (event: KeyEventArgs) ->
         match state.active with
-        | Some active when same_button active.button setButton ->
+        | Some active when same_button active.button set_button ->
             event.Handled <- true
 
             if not (PlatformBindings.is_modifier_key event.Key) then
                 PlatformBindings.binding_from_key event.Key event.Modifiers |> complete state
         | _ -> ())
 
-    setButton.KeyUp.Add(fun (event: KeyEventArgs) ->
+    set_button.KeyUp.Add(fun (event: KeyEventArgs) ->
         match state.active with
-        | Some active when same_button active.button setButton ->
+        | Some active when same_button active.button set_button ->
             event.Handled <- true
 
             if PlatformBindings.is_modifier_key event.Key then
                 PlatformBindings.key_name event.Key |> complete state
         | _ -> ())
 
-    defaultButton.Click.Add(fun (_: EventArgs) -> field.Text <- defaultValue)
+    default_button.Click.Add(fun (_: EventArgs) -> field.Text <- default_value)
     panel :> Control
 
 let is_editor_control (control: Control) =

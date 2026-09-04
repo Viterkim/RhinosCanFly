@@ -21,8 +21,8 @@ type MouseConfig =
       pivot_multiplier: MousePivotMultiplier
       pan_multiplier: MousePanMultiplier }
 
-let mouse_config (config: ViewNavigationMouseConfig) (isParallel: bool) =
-    if isParallel then
+let mouse_config (config: ViewNavigationMouseConfig) (is_parallel: bool) =
+    if is_parallel then
         { x_mode = config.x_mode
           y_mode = config.y_mode
           sensitivity = config.parallel_sensitivity
@@ -60,14 +60,14 @@ let pivot_angle_scales (config: MouseConfig) =
     Movement.mouse_angle_scales config.x_mode config.y_mode config.sensitivity multiplier
 
 let create_pivot_drag (viewport: RhinoViewport) (config: MouseConfig) (center: Point3d) =
-    let struct (horizontalScale, verticalScale) = pivot_angle_scales config
+    let struct (horizontal_scale, vertical_scale) = pivot_angle_scales config
 
-    PivotOrbit.create center (capture_camera viewport) horizontalScale verticalScale
+    PivotOrbit.create center (capture_camera viewport) horizontal_scale vertical_scale
 
 let reset_pivot_drag (viewport: RhinoViewport) (config: MouseConfig) (center: Point3d) (drag: PivotDragState) =
-    let struct (horizontalScale, verticalScale) = pivot_angle_scales config
+    let struct (horizontal_scale, vertical_scale) = pivot_angle_scales config
 
-    PivotOrbit.reset center (capture_camera viewport) horizontalScale verticalScale drag
+    PivotOrbit.reset center (capture_camera viewport) horizontal_scale vertical_scale drag
 
 let apply_pivot (viewport: RhinoViewport) (drag: PivotDragState) (dx: int64) (dy: int64) =
     let camera = PivotOrbit.apply_delta dx dy drag
@@ -88,14 +88,14 @@ let apply_pan (viewport: RhinoViewport) (config: MouseConfig) (dx: int64) (dy: i
     let mutable up = viewport.CameraY
 
     if direction.Unitize() && right.Unitize() && up.Unitize() then
-        let requestedDepth = Vector3d.Multiply(target - location, direction)
+        let requested_depth = Vector3d.Multiply(target - location, direction)
 
         let depth =
             if
-                RhinoMath.IsValidDouble requestedDepth
-                && requestedDepth > RhinoMath.ZeroTolerance
+                RhinoMath.IsValidDouble requested_depth
+                && requested_depth > RhinoMath.ZeroTolerance
             then
-                requestedDepth
+                requested_depth
             else
                 1.
 
@@ -111,30 +111,30 @@ let apply_pan (viewport: RhinoViewport) (config: MouseConfig) (dx: int64) (dy: i
         false
 
 let parallel_zoom_exponent (dy: int64) =
-    let zoomScale = ViewSettings.ZoomScale
+    let zoom_scale = ViewSettings.ZoomScale
 
     if
         dy <> 0L
-        && not (Double.IsNaN zoomScale)
-        && not (Double.IsInfinity zoomScale)
-        && zoomScale > 0.
-        && zoomScale <> 1.
+        && not (Double.IsNaN zoom_scale)
+        && not (Double.IsInfinity zoom_scale)
+        && zoom_scale > 0.
+        && zoom_scale <> 1.
     then
         let steps = float -dy / 12.
-        steps * Math.Log(1. / zoomScale)
+        steps * Math.Log(1. / zoom_scale)
     else
         0.
 
 let wheel_magnification (steps: float) =
-    let zoomScale = ViewSettings.ZoomScale
+    let zoom_scale = ViewSettings.ZoomScale
 
     if
         steps <> 0.
-        && not (Double.IsNaN zoomScale)
-        && not (Double.IsInfinity zoomScale)
-        && zoomScale > 0.
+        && not (Double.IsNaN zoom_scale)
+        && not (Double.IsInfinity zoom_scale)
+        && zoom_scale > 0.
     then
-        let magnification = Math.Pow(1. / zoomScale, steps)
+        let magnification = Math.Pow(1. / zoom_scale, steps)
 
         if
             Double.IsNaN magnification

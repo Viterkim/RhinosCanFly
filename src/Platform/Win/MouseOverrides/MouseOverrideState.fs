@@ -38,8 +38,8 @@ let action_for (state: State) (button: SideButton) =
     | Mouse4 -> state.routing.actions.mouse4
     | Mouse5 -> state.routing.actions.mouse5
 
-let capabilities_allowed (state: State) (viewportName: string) =
-    ViewportNameList.allows viewportName state.routing.actions.viewport_capabilities
+let capabilities_allowed (state: State) (viewport_name: string) =
+    ViewportNameList.allows viewport_name state.routing.actions.viewport_capabilities
 
 let side_button_routing_enabled (state: State) =
     ViewportNameList.has_allowed_viewports state.routing.actions.viewport_capabilities
@@ -58,14 +58,14 @@ let view_latch_engaged (state: State) =
     | WaitingForRelease _
     | ViewLatchActive _ -> true
 
-let exit_key_is_down (state: State) (virtualKey: int) =
-    if virtualKey = Win32Native.VK_RBUTTON then
+let exit_key_is_down (state: State) (virtual_key: int) =
+    if virtual_key = Win32Native.VK_RBUTTON then
         match state.view_latch with
         | WaitingForRelease _ -> false
         | NoViewLatch
-        | ViewLatchActive _ -> Win32Native.GetAsyncKeyState virtualKey < 0s
+        | ViewLatchActive _ -> Win32Native.GetAsyncKeyState virtual_key < 0s
     else
-        Win32Native.GetAsyncKeyState virtualKey < 0s
+        Win32Native.GetAsyncKeyState virtual_key < 0s
 
 let exit_keys_down (state: State) (keys: VirtualKey array) =
     let mutable index = 0
@@ -83,20 +83,20 @@ let exit_key_down (state: State) =
     | Some binding -> exit_keys_down state binding.virtual_keys
     | None -> false
 
-let binding_contains_key (virtualKey: int) (keys: VirtualKey array) =
+let binding_contains_key (virtual_key: int) (keys: VirtualKey array) =
     let mutable index = 0
     let mutable found = false
 
     while not found && index < keys.Length do
         let (VirtualKey key) = keys[index]
-        found <- key = virtualKey
+        found <- key = virtual_key
         index <- index + 1
 
     found
 
-let exit_binding_contains (state: State) (virtualKey: int) =
+let exit_binding_contains (state: State) (virtual_key: int) =
     match state.routing.exit_binding with
-    | Some binding -> binding_contains_key virtualKey binding.virtual_keys
+    | Some binding -> binding_contains_key virtual_key binding.virtual_keys
     | None -> false
 
 let right_mouse_exit_capture_needed (state: State) =
@@ -197,15 +197,15 @@ let complete_view_latch (latch: ViewLatch) =
             Error $"Could not restore the original view: {error.Message}"
 
 let clear_navigation (state: State) =
-    let previousViewLatch = state.view_latch
+    let previous_view_latch = state.view_latch
 
     state.gesture_navigation <- NoGestureNavigation
     state.view_latch <- NoViewLatch
     state.navigation_exit_requested <- false
     state.pending_side_button_events.Clear()
-    previousViewLatch
+    previous_view_latch
 
 let release_all (state: State) =
-    let previousViewLatch = clear_navigation state
+    let previous_view_latch = clear_navigation state
     state.poll_timer.Stop()
-    complete_view_latch previousViewLatch
+    complete_view_latch previous_view_latch

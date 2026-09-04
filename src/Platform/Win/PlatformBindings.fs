@@ -114,20 +114,20 @@ let aliases =
       "Subtract", 0x6D
       "Decimal", 0x6E
       "Divide", 0x6F ]
-    |> List.iter (fun (name: string, virtualKey: int) -> result[name] <- VirtualKey virtualKey)
+    |> List.iter (fun (name: string, virtual_key: int) -> result[name] <- VirtualKey virtual_key)
 
     for code in int 'A' .. int 'Z' do
         result[string (char code)] <- VirtualKey code
 
     for digit in 0..9 do
-        let topRow = 0x30 + digit
-        let numberPad = 0x60 + digit
-        result[string digit] <- VirtualKey topRow
-        result[$"D{digit}"] <- VirtualKey topRow
-        result[$"Number{digit}"] <- VirtualKey topRow
-        result[$"NumPad{digit}"] <- VirtualKey numberPad
-        result[$"NumberPad{digit}"] <- VirtualKey numberPad
-        result[$"Keypad{digit}"] <- VirtualKey numberPad
+        let top_row = 0x30 + digit
+        let number_pad = 0x60 + digit
+        result[string digit] <- VirtualKey top_row
+        result[$"D{digit}"] <- VirtualKey top_row
+        result[$"Number{digit}"] <- VirtualKey top_row
+        result[$"NumPad{digit}"] <- VirtualKey number_pad
+        result[$"NumberPad{digit}"] <- VirtualKey number_pad
+        result[$"Keypad{digit}"] <- VirtualKey number_pad
 
     for number in 1..24 do
         result[$"F{number}"] <- VirtualKey(0x6F + number)
@@ -259,8 +259,8 @@ let binding_from_mouse (button: MouseButtons) (modifiers: Keys) =
 
     name |> Option.map (chord_name (modifier_names modifiers))
 
-let win_key_down (virtualKey: int) =
-    Win32Native.GetAsyncKeyState virtualKey < 0s
+let win_key_down (virtual_key: int) =
+    Win32Native.GetAsyncKeyState virtual_key < 0s
 
 let win_modifier_names () =
     [ if win_key_down Win32Native.VK_LCONTROL || win_key_down Win32Native.VK_RCONTROL then

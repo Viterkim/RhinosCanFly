@@ -141,9 +141,9 @@ extern uint32 GetRawInputData(nativeint raw_input, uint32 command, nativeint dat
 [<DllImport("user32.dll", SetLastError = true)>]
 extern uint32 GetRawInputBuffer(nativeint data, uint32& size, uint32 header_size)
 
-let deviceSize = uint32 (Marshal.SizeOf<Device>())
-let headerSize = uint32 (Marshal.SizeOf<Header>())
-let mouseInputSize = headerSize + uint32 (Marshal.SizeOf<Mouse>())
+let device_size = uint32 (Marshal.SizeOf<Device>())
+let header_size = uint32 (Marshal.SizeOf<Header>())
+let mouse_input_size = header_size + uint32 (Marshal.SizeOf<Mouse>())
 
 [<Literal>]
 let RAW_INPUT_ALIGNMENT = 8
@@ -160,15 +160,15 @@ type HGlobalHandle(pointer: nativeint) =
         Marshal.FreeHGlobal pointer
         true
 
-type InputBuffer(initialCapacity: int) =
+type InputBuffer(initial_capacity: int) =
     let aligned_pointer (allocation: HGlobalHandle) =
         let address = allocation.DangerousGetHandle().ToInt64()
 
-        let alignedAddress =
+        let aligned_address =
             (address + int64 (RAW_INPUT_ALIGNMENT - 1))
             &&& int64 (~~~(RAW_INPUT_ALIGNMENT - 1))
 
-        nativeint alignedAddress
+        nativeint aligned_address
 
     let allocate (capacity: int) =
         if capacity <= 0 || capacity > Int32.MaxValue - (RAW_INPUT_ALIGNMENT - 1) then
@@ -176,8 +176,8 @@ type InputBuffer(initialCapacity: int) =
 
         new HGlobalHandle(Marshal.AllocHGlobal(capacity + RAW_INPUT_ALIGNMENT - 1))
 
-    let mutable capacity = initialCapacity
-    let mutable allocation = allocate initialCapacity
+    let mutable capacity = initial_capacity
+    let mutable allocation = allocate initial_capacity
     let mutable pointer = aligned_pointer allocation
     let mutable disposed = false
 
@@ -188,22 +188,22 @@ type InputBuffer(initialCapacity: int) =
     member _.Capacity = capacity
     member _.Pointer = pointer
 
-    member _.EnsureCapacity(requiredCapacity: int) =
+    member _.EnsureCapacity(required_capacity: int) =
         if disposed then
             ObjectDisposedException(nameof InputBuffer) |> raise
 
-        if requiredCapacity > capacity then
-            let replacement = allocate requiredCapacity
-            let replacementPointer = aligned_pointer replacement
+        if required_capacity > capacity then
+            let replacement = allocate required_capacity
+            let replacement_pointer = aligned_pointer replacement
 
-            if replacementPointer.ToInt64() &&& int64 (RAW_INPUT_ALIGNMENT - 1) <> 0L then
+            if replacement_pointer.ToInt64() &&& int64 (RAW_INPUT_ALIGNMENT - 1) <> 0L then
                 replacement.Dispose()
                 invalidOp "The replacement raw-input buffer is not correctly aligned."
 
             allocation.Dispose()
             allocation <- replacement
-            pointer <- replacementPointer
-            capacity <- requiredCapacity
+            pointer <- replacement_pointer
+            capacity <- required_capacity
 
     member _.Dispose() =
         if not disposed then
@@ -224,7 +224,7 @@ type MouseReadResult =
     | Mouse = 1
 
 let initial_input_buffer_capacity =
-    int mouseInputSize * INITIAL_BUFFER_PACKET_CAPACITY
+    int mouse_input_size * INITIAL_BUFFER_PACKET_CAPACITY
 
 let same_device (left: Device) (right: Device) =
     left.usage_page = right.usage_page
@@ -235,32 +235,32 @@ let same_device (left: Device) (right: Device) =
 let same_registration (left: Device option) (right: Device option) =
     match left with
     | None -> Option.isNone right
-    | Some leftDevice ->
+    | Some left_device ->
         match right with
-        | Some rightDevice -> same_device leftDevice rightDevice
+        | Some right_device -> same_device left_device right_device
         | None -> false
 
 [<Literal>]
 let REGISTRATION_QUERY_ATTEMPTS = 3
 
 let rec get_registered_mouse_attempt (attempt: int) =
-    let mutable deviceCount = 0u
+    let mutable device_count = 0u
 
-    let sizingResult =
-        GetRegisteredRawInputDevices(nativeint 0, &deviceCount, deviceSize)
+    let sizing_result =
+        GetRegisteredRawInputDevices(nativeint 0, &device_count, device_size)
 
-    let sizingError = Marshal.GetLastWin32Error()
+    let sizing_error = Marshal.GetLastWin32Error()
 
-    if sizingResult = UInt32.MaxValue && sizingError <> ERROR_INSUFFICIENT_BUFFER then
-        Error(Win32.win32_error "GetRegisteredRawInputDevices" sizingError)
-    elif deviceCount = 0u then
+    if sizing_result = UInt32.MaxValue && sizing_error <> ERROR_INSUFFICIENT_BUFFER then
+        Error(Win32.win32_error "GetRegisteredRawInputDevices" sizing_error)
+    elif device_count = 0u then
         Ok None
     else
-        let buffer = Marshal.AllocHGlobal(int (deviceCount * deviceSize))
+        let buffer = Marshal.AllocHGlobal(int (device_count * device_size))
 
         try
-            let mutable capacity = deviceCount
-            let read = GetRegisteredRawInputDevices(buffer, &capacity, deviceSize)
+            let mutable capacity = device_count
+            let read = GetRegisteredRawInputDevices(buffer, &capacity, device_size)
 
             if read = UInt32.MaxValue then
                 let error = Marshal.GetLastWin32Error()
@@ -270,21 +270,21 @@ let rec get_registered_mouse_attempt (attempt: int) =
                 else
                     Error(Win32.win32_error "GetRegisteredRawInputDevices" error)
             else
-                let count = min read deviceCount
+                let count = min read device_count
 
                 let mutable index = 0u
-                let mutable registeredMouse = None
+                let mutable registered_mouse = None
 
-                while index < count && Option.isNone registeredMouse do
-                    let address = IntPtr.Add(buffer, int (index * deviceSize))
+                while index < count && Option.isNone registered_mouse do
+                    let address = IntPtr.Add(buffer, int (index * device_size))
                     let device = NativePtr.read (NativePtr.ofNativeInt<Device> address)
 
                     if device.usage_page = GENERIC_DESKTOP_USAGE_PAGE && device.usage = MOUSE_USAGE then
-                        registeredMouse <- Some device
+                        registered_mouse <- Some device
 
                     index <- index + 1u
 
-                Ok registeredMouse
+                Ok registered_mouse
         finally
             Marshal.FreeHGlobal buffer
 
@@ -310,7 +310,7 @@ let mouse_device (target: nativeint) =
 let register_mouse (target: nativeint) =
     let mutable device = mouse_device target
 
-    if RegisterRawInputDevices(&device, 1u, deviceSize) then
+    if RegisterRawInputDevices(&device, 1u, device_size) then
         Ok()
     else
         Error(Win32.last_error "RegisterRawInputDevices")
@@ -322,7 +322,7 @@ let unregister_mouse () =
     device.flags <- RIDEV_REMOVE
     device.target <- nativeint 0
 
-    if RegisterRawInputDevices(&device, 1u, deviceSize) then
+    if RegisterRawInputDevices(&device, 1u, device_size) then
         Ok()
     else
         Error(Win32.last_error "RegisterRawInputDevices(remove)")
@@ -332,7 +332,7 @@ let restore_mouse (previous: Device option) =
     | Some previous ->
         let mutable device = previous
 
-        if RegisterRawInputDevices(&device, 1u, deviceSize) then
+        if RegisterRawInputDevices(&device, 1u, device_size) then
             Ok()
         else
             Error(Win32.last_error "RegisterRawInputDevices(restore)")
@@ -358,7 +358,7 @@ let rec acquire_mouse_registration (target: nativeint) =
             match verification with
             | Ok current when same_registration current (Some installed) -> Acquired lease
             | _ ->
-                let verificationError =
+                let verification_error =
                     match verification with
                     | Ok _ -> "The raw-mouse registration changed before it could be verified."
                     | Error error -> $"The raw-mouse registration could not be verified: {error}"
@@ -366,11 +366,11 @@ let rec acquire_mouse_registration (target: nativeint) =
                 match release_mouse_registration lease with
                 | Ok OwnRegistrationRemovedButPreviousRegistrationLost ->
                     CleanupPending(
-                        $"{verificationError}; RhinosCanFly removed its registration but could not restore the previous raw-mouse owner.",
+                        $"{verification_error}; RhinosCanFly removed its registration but could not restore the previous raw-mouse owner.",
                         lease
                     )
-                | Ok _ -> Failed verificationError
-                | Error releaseError -> CleanupPending($"{verificationError}; cleanup failed: {releaseError}", lease)
+                | Ok _ -> Failed verification_error
+                | Error release_error -> CleanupPending($"{verification_error}; cleanup failed: {release_error}", lease)
 
 and release_mouse_registration (lease: MouseRegistrationLease) =
     if lease.relinquished then
@@ -399,7 +399,7 @@ and release_mouse_registration (lease: MouseRegistrationLease) =
                 Ok ReplacedByAnotherOwner
         | Ok _ ->
             let mutable attempt = 1
-            let mutable releaseError = None
+            let mutable release_error = None
             let mutable release = RestoredPrevious
 
             while attempt <= REGISTRATION_QUERY_ATTEMPTS && not lease.relinquished do
@@ -412,10 +412,10 @@ and release_mouse_registration (lease: MouseRegistrationLease) =
                     | Ok current when not (same_registration current (Some lease.installed)) ->
                         lease.relinquished <- true
                         release <- ReplacedByAnotherOwner
-                    | Ok _ -> releaseError <- Some "The raw-mouse registration still belongs to RhinosCanFly."
-                    | Error error -> releaseError <- Some error
+                    | Ok _ -> release_error <- Some "The raw-mouse registration still belongs to RhinosCanFly."
+                    | Error error -> release_error <- Some error
                 | Error error ->
-                    releaseError <- Some error
+                    release_error <- Some error
 
                     match get_registered_mouse () with
                     | Ok current when not (same_registration current (Some lease.installed)) ->
@@ -427,7 +427,7 @@ and release_mouse_registration (lease: MouseRegistrationLease) =
                             else
                                 ReplacedByAnotherOwner
                     | Ok _ -> ()
-                    | Error queryError -> releaseError <- Some $"{error}; {queryError}"
+                    | Error query_error -> release_error <- Some $"{error}; {query_error}"
 
                 attempt <- attempt + 1
 
@@ -447,7 +447,7 @@ and release_mouse_registration (lease: MouseRegistrationLease) =
                             ReplacedByAnotherOwner
                 | Ok _ ->
                     match unregister_mouse () with
-                    | Error error -> releaseError <- Some $"{releaseError |> Option.defaultValue error}; {error}"
+                    | Error error -> release_error <- Some $"{release_error |> Option.defaultValue error}; {error}"
                     | Ok() ->
                         lease.relinquished <- true
                         lease.previous_registration_lost <- Option.isSome lease.previous
@@ -458,11 +458,11 @@ and release_mouse_registration (lease: MouseRegistrationLease) =
                             release <- RestoredPrevious
                         | Ok current when same_registration current (Some lease.installed) ->
                             lease.relinquished <- false
-                            releaseError <- Some "Emergency raw-mouse removal did not relinquish ownership."
+                            release_error <- Some "Emergency raw-mouse removal did not relinquish ownership."
                         | Ok _ when not lease.previous_registration_lost -> release <- ReplacedByAnotherOwner
                         | Ok _ -> ()
-                        | Error error -> releaseError <- Some error
-                | Error error -> releaseError <- Some error
+                        | Error error -> release_error <- Some error
+                | Error error -> release_error <- Some error
 
             if lease.relinquished then
                 if lease.previous_registration_lost then
@@ -471,7 +471,7 @@ and release_mouse_registration (lease: MouseRegistrationLease) =
                     Ok release
             else
                 Error(
-                    releaseError
+                    release_error
                     |> Option.defaultValue "The raw-mouse registration could not be relinquished."
                 )
 
@@ -489,63 +489,63 @@ let signed_button_data (mouse: Mouse) =
     else
         value
 
-let decode_mouse (buffer: nativeint) (availableBytes: int) (recordSize: byref<uint32>) (mouse: byref<Mouse>) =
-    if availableBytes < int headerSize then
+let decode_mouse (buffer: nativeint) (available_bytes: int) (record_size: byref<uint32>) (mouse: byref<Mouse>) =
+    if available_bytes < int header_size then
         MouseReadResult.Malformed
     else
         let header = NativePtr.read (NativePtr.ofNativeInt<Header> buffer)
-        recordSize <- header.size
+        record_size <- header.size
 
-        if header.size < headerSize || header.size > uint32 availableBytes then
+        if header.size < header_size || header.size > uint32 available_bytes then
             MouseReadResult.Malformed
         elif header.input_type <> RIM_TYPE_MOUSE then
             MouseReadResult.Ignored
-        elif header.size < mouseInputSize then
+        elif header.size < mouse_input_size then
             MouseReadResult.Malformed
         else
-            let mouseBuffer = IntPtr.Add(buffer, int headerSize)
-            mouse <- NativePtr.read (NativePtr.ofNativeInt<Mouse> mouseBuffer)
+            let mouse_buffer = IntPtr.Add(buffer, int header_size)
+            mouse <- NativePtr.read (NativePtr.ofNativeInt<Mouse> mouse_buffer)
             MouseReadResult.Mouse
 
 let read_current_mouse
-    (rawInput: nativeint)
+    (raw_input: nativeint)
     (buffer: InputBuffer)
-    (requiredBytes: byref<uint32>)
-    (errorCode: byref<int>)
+    (required_bytes: byref<uint32>)
+    (error_code: byref<int>)
     (mouse: byref<Mouse>)
     =
     let mutable bytes = uint32 buffer.Capacity
 
-    let bytesRead =
-        GetRawInputData(rawInput, RID_INPUT, buffer.Pointer, &bytes, headerSize)
+    let bytes_read =
+        GetRawInputData(raw_input, RID_INPUT, buffer.Pointer, &bytes, header_size)
 
-    requiredBytes <- bytes
+    required_bytes <- bytes
 
-    if bytesRead = UInt32.MaxValue then
-        errorCode <- Marshal.GetLastWin32Error()
+    if bytes_read = UInt32.MaxValue then
+        error_code <- Marshal.GetLastWin32Error()
 
-        if errorCode = ERROR_INSUFFICIENT_BUFFER then
+        if error_code = ERROR_INSUFFICIENT_BUFFER then
             MouseReadResult.BufferTooSmall
         else
             MouseReadResult.Failed
-    elif bytesRead > uint32 buffer.Capacity then
+    elif bytes_read > uint32 buffer.Capacity then
         MouseReadResult.Malformed
     else
-        let mutable recordSize = 0u
-        decode_mouse buffer.Pointer (int bytesRead) &recordSize &mouse
+        let mutable record_size = 0u
+        decode_mouse buffer.Pointer (int bytes_read) &record_size &mouse
 
-let read_buffered (buffer: InputBuffer) (bytes: byref<uint32>) (errorCode: byref<int>) =
+let read_buffered (buffer: InputBuffer) (bytes: byref<uint32>) (error_code: byref<int>) =
     bytes <- uint32 buffer.Capacity
-    let count = GetRawInputBuffer(buffer.Pointer, &bytes, headerSize)
+    let count = GetRawInputBuffer(buffer.Pointer, &bytes, header_size)
 
     if count = UInt32.MaxValue then
-        errorCode <- Marshal.GetLastWin32Error()
+        error_code <- Marshal.GetLastWin32Error()
 
     count
 
-let aligned_record_size (recordSize: uint32) =
+let aligned_record_size (record_size: uint32) =
     let mask = uint64 (RAW_INPUT_ALIGNMENT - 1)
-    let aligned = (uint64 recordSize + mask) &&& (~~~mask)
+    let aligned = (uint64 record_size + mask) &&& (~~~mask)
 
     if aligned > uint64 Int32.MaxValue then -1 else int aligned
 

@@ -100,21 +100,21 @@ let apply_keyboard_actions (actions: InputAccumulator.KeyboardAction) (state: Fl
         if has_keyboard_action actions InputAccumulator.KeyboardAction.SpeedDecrease then
             speed_step state (SpeedStepCount -1.)
 
-        let mutable viewChange = ViewChange.none
-        let mutable pointerRebaseRequired = false
+        let mutable view_change = ViewChange.none
+        let mutable pointer_rebase_required = false
 
         if has_keyboard_action actions InputAccumulator.KeyboardAction.RetargetAllViews then
-            pointerRebaseRequired <- state.config.behavior.retarget.keyboard_all_views <> RetargetMode.Off
+            pointer_rebase_required <- state.config.behavior.retarget.keyboard_all_views <> RetargetMode.Off
 
-            viewChange <-
+            view_change <-
                 FlightCamera.apply_retarget_request
                     RetargetScope.AllViews
                     state.config.behavior.retarget.keyboard_all_views
                     state
         elif has_keyboard_action actions InputAccumulator.KeyboardAction.RetargetOtherViews then
-            pointerRebaseRequired <- state.config.behavior.retarget.keyboard_other_views <> RetargetMode.Off
+            pointer_rebase_required <- state.config.behavior.retarget.keyboard_other_views <> RetargetMode.Off
 
-            viewChange <-
+            view_change <-
                 FlightCamera.apply_retarget_request
                     RetargetScope.OtherViews
                     state.config.behavior.retarget.keyboard_other_views
@@ -125,32 +125,32 @@ let apply_keyboard_actions (actions: InputAccumulator.KeyboardAction) (state: Fl
             && has_keyboard_action actions InputAccumulator.KeyboardAction.ProjectionToggle
         then
             FlightCamera.toggle_projection state
-            pointerRebaseRequired <- true
+            pointer_rebase_required <- true
 
         if
             FlyState.is_running state
             && has_keyboard_action actions InputAccumulator.KeyboardAction.UntiltView
         then
-            viewChange <- ViewChange.combine viewChange (FlightCamera.untilt state)
-            pointerRebaseRequired <- true
+            view_change <- ViewChange.combine view_change (FlightCamera.untilt state)
+            pointer_rebase_required <- true
 
-        { view_change = viewChange
-          pointer_rebase_required = pointerRebaseRequired }
+        { view_change = view_change
+          pointer_rebase_required = pointer_rebase_required }
 
-let set_mouse_hold (buttonBit: int) (down: bool) (action: RoutedMouseAction) (state: FlyState) =
+let set_mouse_hold (button_bit: int) (down: bool) (action: RoutedMouseAction) (state: FlyState) =
     if RoutedMouseAction.holds_pivot action then
         if down then
-            state.mouse_pivot_hold_buttons <- state.mouse_pivot_hold_buttons ||| buttonBit
+            state.mouse_pivot_hold_buttons <- state.mouse_pivot_hold_buttons ||| button_bit
         else
-            state.mouse_pivot_hold_buttons <- state.mouse_pivot_hold_buttons &&& (~~~buttonBit)
+            state.mouse_pivot_hold_buttons <- state.mouse_pivot_hold_buttons &&& (~~~button_bit)
 
     if RoutedMouseAction.holds_pan action then
         if down then
-            state.mouse_pan_hold_buttons <- state.mouse_pan_hold_buttons ||| buttonBit
+            state.mouse_pan_hold_buttons <- state.mouse_pan_hold_buttons ||| button_bit
         else
-            state.mouse_pan_hold_buttons <- state.mouse_pan_hold_buttons &&& (~~~buttonBit)
+            state.mouse_pan_hold_buttons <- state.mouse_pan_hold_buttons &&& (~~~button_bit)
 
-let apply_mouse_action_down (buttonBit: int) (action: RoutedMouseAction) (state: FlyState) =
+let apply_mouse_action_down (button_bit: int) (action: RoutedMouseAction) (state: FlyState) =
     match action with
     | RoutedMouseAction.TogglePivot ->
         state.latched_mouse_navigation <- MouseNavigationMode.toggle PivotNavigation state.latched_mouse_navigation
@@ -162,21 +162,21 @@ let apply_mouse_action_down (buttonBit: int) (action: RoutedMouseAction) (state:
         InputEffect.none
     | RoutedMouseAction.HoldPivot
     | RoutedMouseAction.HoldPan ->
-        set_mouse_hold buttonBit true action state
+        set_mouse_hold button_bit true action state
         InputEffect.none
     | RoutedMouseAction.Retarget mode ->
         FlightCamera.apply_retarget_request RetargetScope.AllViews mode state
         |> InputEffect.rebase_pointer
     | RoutedMouseAction.Off -> InputEffect.none
 
-let apply_mouse_action_up (buttonBit: int) (action: RoutedMouseAction) (state: FlyState) =
-    set_mouse_hold buttonBit false action state
+let apply_mouse_action_up (button_bit: int) (action: RoutedMouseAction) (state: FlyState) =
+    set_mouse_hold button_bit false action state
 
 let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) (state: FlyState) =
-    let keyboardActions =
+    let keyboard_actions =
         PlatformFlightKeyboard.apply_raw_mouse_button_transition transition
 
-    let mutable effect = apply_keyboard_actions keyboardActions state
+    let mutable effect = apply_keyboard_actions keyboard_actions state
 
     if FlyState.is_running state then
         let mouse = state.config.mouse
@@ -209,8 +209,8 @@ let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) (st
         { effect with
             pointer_rebase_required = true }
 
-let apply_wheel_delta (wheelDelta: int64) (state: FlyState) =
-    if wheelDelta = 0L then
+let apply_wheel_delta (wheel_delta: int64) (state: FlyState) =
+    if wheel_delta = 0L then
         ViewChange.none
     else
         let direction =
@@ -220,7 +220,7 @@ let apply_wheel_delta (wheelDelta: int64) (state: FlyState) =
             | MouseWheelSpeedMode.Reversed -> -1L
             | _ -> 0L
 
-        let changeSpeed =
+        let change_speed =
             if direction = 0L then
                 false
             else
@@ -229,27 +229,27 @@ let apply_wheel_delta (wheelDelta: int64) (state: FlyState) =
                 | MousePivot _
                 | MousePan _ -> state.config.movement.wheel_changes_speed_during_flight_navigation
 
-        if changeSpeed then
-            let wheel = state.wheel_remainder + wheelDelta
-            let wheelSteps = wheel / PlatformInput.wheel_delta
-            state.wheel_remainder <- wheel - wheelSteps * PlatformInput.wheel_delta
+        if change_speed then
+            let wheel = state.wheel_remainder + wheel_delta
+            let wheel_steps = wheel / PlatformInput.wheel_delta
+            state.wheel_remainder <- wheel - wheel_steps * PlatformInput.wheel_delta
 
-            if wheelSteps <> 0L then
-                speed_steps state (direction * wheelSteps)
+            if wheel_steps <> 0L then
+                speed_steps state (direction * wheel_steps)
 
             ViewChange.none
         else
             state.wheel_remainder <- 0L
-            FlightCamera.apply_navigation_wheel (PlatformInput.wheel_zoom_steps wheelDelta) state
+            FlightCamera.apply_navigation_wheel (PlatformInput.wheel_zoom_steps wheel_delta) state
 
 let update_state (now: float) (input: InputAccumulator.State) (state: FlyState) =
-    let periodicValidationDue = now >= state.next_host_validation_at
+    let periodic_validation_due = now >= state.next_host_validation_at
 
-    if periodicValidationDue then
+    if periodic_validation_due then
         state.next_host_validation_at <- now + HOST_VALIDATION_INTERVAL_SECONDS
         PlatformFlightKeyboard.reconcile_physical_keys ()
 
-    let exitReason =
+    let exit_reason =
         match InputAccumulator.exit_reason input with
         | Some reason ->
             match reason with
@@ -262,7 +262,7 @@ let update_state (now: float) (input: InputAccumulator.State) (state: FlyState) 
                 Some HostInvalid
             elif PlatformInput.foreground_root_window () <> state.host_identity.root_window then
                 Some FocusLost
-            else if periodicValidationDue then
+            else if periodic_validation_due then
                 if PlatformInput.viewport_host_is_active state.host_identity state.view then
                     None
                 else
@@ -270,7 +270,7 @@ let update_state (now: float) (input: InputAccumulator.State) (state: FlyState) 
             else
                 None
 
-    match exitReason with
+    match exit_reason with
     | Some reason -> FlyState.request_exit reason state
     | None -> ()
 
@@ -278,20 +278,20 @@ let read_movement (state: FlyState) =
     let bindings = state.config.bindings
     let movement = state.config.movement
 
-    let slowActive =
+    let slow_active =
         if movement.slow_mode = KeyActivationMode.Hold then
             PlatformFlightKeyboard.binding_is_down bindings.slow
         else
             state.slow_enabled
 
-    let boostActive =
+    let boost_active =
         if movement.boost_mode = KeyActivationMode.Hold then
             PlatformFlightKeyboard.binding_is_down bindings.boost
         else
             state.boost_enabled
 
-    let slow = if slowActive then movement.slow_multiplier else 1.
-    let boost = if boostActive then movement.boost_multiplier else 1.
+    let slow = if slow_active then movement.slow_multiplier else 1.
+    let boost = if boost_active then movement.boost_multiplier else 1.
 
     { forward = PlatformFlightKeyboard.binding_is_down bindings.forward
       backward = PlatformFlightKeyboard.binding_is_down bindings.backward

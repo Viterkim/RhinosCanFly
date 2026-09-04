@@ -37,23 +37,23 @@ let compile_detailed (source: FlyConfigFile) =
             boost_multiplier = defaults.boost_multiplier
             slow_multiplier = defaults.slow_multiplier }
 
-    let while_flying (enabled: bool) (action: MouseGestureAction) (retargetMode: RetargetMode) =
+    let while_flying (enabled: bool) (action: MouseGestureAction) (retarget_mode: RetargetMode) =
         if enabled then
-            RoutedMouseAction.create action retargetMode
+            RoutedMouseAction.create action retarget_mode
         else
             RoutedMouseAction.Off
 
     let viewport_name_list
         (setting: string)
-        (sourceValue: ViewportNameListFile)
-        (defaultValue: ViewportNameListFile)
+        (source_value: ViewportNameListFile)
+        (default_value: ViewportNameListFile)
         (repair: FlyConfigFile -> FlyConfigFile)
         =
         let viewports =
-            if isNull (box sourceValue) || isNull sourceValue.viewports then
+            if isNull (box source_value) || isNull source_value.viewports then
                 Array.empty
             else
-                sourceValue.viewports
+                source_value.viewports
                 |> Array.map (fun (value: string) -> if isNull value then "" else value.Trim())
                 |> Array.filter (String.IsNullOrWhiteSpace >> not)
                 |> Array.distinctBy (fun (value: string) -> value.ToUpperInvariant())
@@ -66,20 +66,20 @@ let compile_detailed (source: FlyConfigFile) =
             | ViewportNameListMode.DisabledAll -> ViewportNameList.DisabledAll
             | _ -> ViewportNameList.DisabledAll
 
-        if isNull (box sourceValue) then
+        if isNull (box source_value) then
             add_issue setting $"{setting} is missing" repair
-            compile_mode defaultValue.mode defaultValue.viewports
+            compile_mode default_value.mode default_value.viewports
         else
-            match sourceValue.mode with
+            match source_value.mode with
             | ViewportNameListMode.EnabledAll
             | ViewportNameListMode.EnabledSome
             | ViewportNameListMode.DisabledSome
-            | ViewportNameListMode.DisabledAll -> compile_mode sourceValue.mode viewports
+            | ViewportNameListMode.DisabledAll -> compile_mode source_value.mode viewports
             | _ ->
                 add_issue setting $"{setting}.mode is invalid" repair
-                compile_mode defaultValue.mode defaultValue.viewports
+                compile_mode default_value.mode default_value.viewports
 
-    let viewportCapabilities =
+    let viewport_capabilities =
         viewport_name_list
             "viewport_capabilities"
             source.viewport_capabilities
@@ -88,7 +88,7 @@ let compile_detailed (source: FlyConfigFile) =
                 { config with
                     viewport_capabilities = defaults.viewport_capabilities })
 
-    let rightClickFlightEntry =
+    let right_click_flight_entry =
         viewport_name_list
             "right_click_flight_entry"
             source.right_click_flight_entry
@@ -115,11 +115,11 @@ let compile_detailed (source: FlyConfigFile) =
         if Double.IsNaN value || Double.IsInfinity value || value <= 0. then
             add_issue name $"{name} must be a positive finite number" repair
 
-    let enum_value (name: string) (enumType: Type) (value: obj) (repair: FlyConfigFile -> FlyConfigFile) =
-        if not (Enum.IsDefined(enumType, value)) then
+    let enum_value (name: string) (enum_type: Type) (value: obj) (repair: FlyConfigFile -> FlyConfigFile) =
+        if not (Enum.IsDefined(enum_type, value)) then
             add_issue name $"{name} is invalid" repair
 
-    let positiveChecks: PositiveCheck list =
+    let positive_checks: PositiveCheck list =
         [ "base_speed",
           source.base_speed,
           (fun (config: FlyConfigFile) ->
@@ -226,7 +226,7 @@ let compile_detailed (source: FlyConfigFile) =
               { config with
                   perspective_lens_length_after_parallel_mm = defaults.perspective_lens_length_after_parallel_mm }) ]
 
-    positiveChecks
+    positive_checks
     |> List.iter (fun (check: PositiveCheck) ->
         let name, value, repair = check
         positive name value repair)
@@ -274,14 +274,14 @@ let compile_detailed (source: FlyConfigFile) =
                         defaults.perspective_lens_length_delta_during_flight_mm })
 
     if source.forced_perspective_lens_length_on_flight_start_mm > 0. then
-        let adjustedLens =
+        let adjusted_lens =
             source.forced_perspective_lens_length_on_flight_start_mm
             + source.perspective_lens_length_delta_during_flight_mm
 
         if
-            Double.IsNaN adjustedLens
-            || Double.IsInfinity adjustedLens
-            || adjustedLens <= 0.
+            Double.IsNaN adjusted_lens
+            || Double.IsInfinity adjusted_lens
+            || adjusted_lens <= 0.
         then
             add_issue
                 "perspective_lens_while_flying"
@@ -291,27 +291,27 @@ let compile_detailed (source: FlyConfigFile) =
                         perspective_lens_length_delta_during_flight_mm =
                             defaults.perspective_lens_length_delta_during_flight_mm })
 
-    let combinedMovementMultiplier = source.boost_multiplier * source.slow_multiplier
+    let combined_movement_multiplier = source.boost_multiplier * source.slow_multiplier
 
-    let maximumMovementMultiplier =
-        max 1. (max source.boost_multiplier (max source.slow_multiplier combinedMovementMultiplier))
+    let maximum_movement_multiplier =
+        max 1. (max source.boost_multiplier (max source.slow_multiplier combined_movement_multiplier))
 
-    let derivedChecks: DerivedCheck list =
+    let derived_checks: DerivedCheck list =
         [ "movement_speed_multipliers",
           "combined boost and slow multiplier",
-          combinedMovementMultiplier,
+          combined_movement_multiplier,
           (fun (config: FlyConfigFile) ->
               { config with
                   boost_multiplier = defaults.boost_multiplier
                   slow_multiplier = defaults.slow_multiplier })
           "movement_limits",
           "maximum movement speed",
-          source.maximum_speed * maximumMovementMultiplier,
+          source.maximum_speed * maximum_movement_multiplier,
           reset_movement_limits
           "vertical_speed_multiplier",
           "maximum vertical movement speed",
           source.maximum_speed
-          * maximumMovementMultiplier
+          * maximum_movement_multiplier
           * source.vertical_speed_multiplier,
           (fun (config: FlyConfigFile) ->
               { config with
@@ -319,7 +319,7 @@ let compile_detailed (source: FlyConfigFile) =
           "parallel_up_down_multiplier",
           "maximum parallel up/down speed",
           source.maximum_speed
-          * maximumMovementMultiplier
+          * maximum_movement_multiplier
           * source.parallel_up_down_multiplier,
           (fun (config: FlyConfigFile) ->
               { config with
@@ -327,7 +327,7 @@ let compile_detailed (source: FlyConfigFile) =
           "parallel_zoom_speed_multiplier",
           "maximum parallel zoom speed",
           source.maximum_speed
-          * maximumMovementMultiplier
+          * maximum_movement_multiplier
           * source.parallel_zoom_speed_multiplier,
           (fun (config: FlyConfigFile) ->
               { config with
@@ -374,7 +374,7 @@ let compile_detailed (source: FlyConfigFile) =
               { config with
                   parallel_retarget_fallback_multiplier = defaults.parallel_retarget_fallback_multiplier }) ]
 
-    derivedChecks
+    derived_checks
     |> List.iter (fun (check: DerivedCheck) ->
         let setting, description, value, repair = check
 
@@ -421,7 +421,7 @@ let compile_detailed (source: FlyConfigFile) =
             { config with
                 prioritized_target = defaults.prioritized_target })
 
-    let retargetChecks: EnumCheck<RetargetMode> list =
+    let retarget_checks: EnumCheck<RetargetMode> list =
         [ "shift_right_click_retarget",
           source.shift_right_click_retarget,
           (fun (config: FlyConfigFile) ->
@@ -483,12 +483,12 @@ let compile_detailed (source: FlyConfigFile) =
               { config with
                   retarget_on_restored_flight_exit = defaults.retarget_on_restored_flight_exit }) ]
 
-    retargetChecks
+    retarget_checks
     |> List.iter (fun (check: EnumCheck<RetargetMode>) ->
         let name, value, repair = check
         enum_value name typeof<RetargetMode> (box value) repair)
 
-    let actionChecks: EnumCheck<MouseGestureAction> list =
+    let action_checks: EnumCheck<MouseGestureAction> list =
         [ "mouse4_action",
           source.mouse4_action,
           (fun (config: FlyConfigFile) ->
@@ -520,7 +520,7 @@ let compile_detailed (source: FlyConfigFile) =
               { config with
                   ctrl_right_click_action = defaults.ctrl_right_click_action }) ]
 
-    actionChecks
+    action_checks
     |> List.iter (fun (check: EnumCheck<MouseGestureAction>) ->
         let name, value, repair = check
         enum_value name typeof<MouseGestureAction> (box value) repair)
@@ -619,8 +619,8 @@ let compile_detailed (source: FlyConfigFile) =
                     { config with
                         toggle_projection = defaults.toggle_projection }) }
           viewport_access =
-            { capabilities = viewportCapabilities
-              right_click_flight_entry = rightClickFlightEntry }
+            { capabilities = viewport_capabilities
+              right_click_flight_entry = right_click_flight_entry }
           movement =
             { base_speed = source.base_speed
               speed_range =

@@ -5,49 +5,49 @@ open System.Diagnostics
 open System.Windows.Forms
 open RhinosCanFly
 
-type RawInputReceiver(processControl: Action) as self =
+type RawInputReceiver(process_control: Action) as self =
     inherit NativeWindow()
 
-    let inputBuffer =
+    let input_buffer =
         new RawInputNative.InputBuffer(RawInputNative.initial_input_buffer_capacity)
 
-    let registrationRetryTimer =
+    let registration_retry_timer =
         new Timer(Interval = RawInputNative.REGISTRATION_RETRY_INTERVAL_MS)
 
-    let mutable handleCreated = false
-    let mutable inputBufferDisposed = false
-    let mutable registrationRetryTimerDisposed = false
-    let mutable activeSession: RawInputSession option = None
-    let mutable registrationLease: RawInputNative.MouseRegistrationLease option = None
-    let mutable registrationReleaseError: string option = None
-    let mutable sessionFinished: Action option = None
-    let mutable stopRequested = false
-    let mutable sessionFinishedNotified = false
+    let mutable handle_created = false
+    let mutable input_buffer_disposed = false
+    let mutable registration_retry_timer_disposed = false
+    let mutable active_session: RawInputSession option = None
+    let mutable registration_lease: RawInputNative.MouseRegistrationLease option = None
+    let mutable registration_release_error: string option = None
+    let mutable session_finished: Action option = None
+    let mutable stop_requested = false
+    let mutable session_finished_notified = false
 
     let registration_relinquished () =
-        match registrationLease with
+        match registration_lease with
         | None -> true
         | Some lease -> lease.relinquished
 
     let finish_session () =
-        registrationRetryTimer.Stop()
+        registration_retry_timer.Stop()
 
-        if not sessionFinishedNotified then
-            sessionFinishedNotified <- true
+        if not session_finished_notified then
+            session_finished_notified <- true
 
-            match sessionFinished with
+            match session_finished with
             | Some finished -> finished.Invoke()
             | None -> ()
 
     let try_release_registration () =
-        match registrationLease with
+        match registration_lease with
         | None ->
             finish_session ()
             Ok()
         | Some lease ->
             match RawInputNative.release_mouse_registration lease with
             | Ok RawInputNative.OwnRegistrationRemovedButPreviousRegistrationLost ->
-                registrationReleaseError <-
+                registration_release_error <-
                     Some
                         "RhinosCanFly removed its raw-mouse registration but could not restore the previous registration. Restart Rhino before flying again."
 
@@ -57,33 +57,33 @@ type RawInputReceiver(processControl: Action) as self =
                 finish_session ()
                 Ok()
             | Error error ->
-                if not registrationRetryTimer.Enabled then
-                    registrationRetryTimer.Start()
+                if not registration_retry_timer.Enabled then
+                    registration_retry_timer.Start()
 
                 Error error
 
     let request_stop () =
-        stopRequested <- true
+        stop_requested <- true
         try_release_registration () |> ignore
 
     let release_session () =
         if not (registration_relinquished ()) then
             invalidOp "The raw-input session cannot be released while mouse registration still belongs to it."
 
-        let releaseError = registrationReleaseError
-        activeSession <- None
-        registrationLease <- None
-        registrationReleaseError <- None
-        sessionFinished <- None
-        stopRequested <- false
-        sessionFinishedNotified <- false
+        let release_error = registration_release_error
+        active_session <- None
+        registration_lease <- None
+        registration_release_error <- None
+        session_finished <- None
+        stop_requested <- false
+        session_finished_notified <- false
 
-        match releaseError with
+        match release_error with
         | Some error -> raise (InvalidOperationException error)
         | None -> ()
 
     let release_resources () =
-        if Option.isSome activeSession || Option.isSome sessionFinished then
+        if Option.isSome active_session || Option.isSome session_finished then
             invalidOp "The raw-input worker cannot release its window while a session is active."
 
         if not (registration_relinquished ()) then
@@ -92,23 +92,23 @@ type RawInputReceiver(processControl: Action) as self =
         let errors = ResizeArray<exn>()
 
         try
-            if handleCreated then
+            if handle_created then
                 self.DestroyHandle()
-                handleCreated <- false
+                handle_created <- false
         with error ->
             errors.Add error
 
         try
-            if not inputBufferDisposed then
-                inputBuffer.Dispose()
-                inputBufferDisposed <- true
+            if not input_buffer_disposed then
+                input_buffer.Dispose()
+                input_buffer_disposed <- true
         with error ->
             errors.Add error
 
         try
-            if not registrationRetryTimerDisposed then
-                registrationRetryTimer.Dispose()
-                registrationRetryTimerDisposed <- true
+            if not registration_retry_timer_disposed then
+                registration_retry_timer.Dispose()
+                registration_retry_timer_disposed <- true
         with error ->
             errors.Add error
 
@@ -117,80 +117,80 @@ type RawInputReceiver(processControl: Action) as self =
         | 1 -> raise errors[0]
         | _ -> raise (AggregateException errors)
 
-    let grow_input_buffer (minimumCapacity: uint32) =
-        let currentCapacity = int64 inputBuffer.Capacity
+    let grow_input_buffer (minimum_capacity: uint32) =
+        let current_capacity = int64 input_buffer.Capacity
 
-        let maximumCapacity =
+        let maximum_capacity =
             int64 Int32.MaxValue - int64 (RawInputNative.RAW_INPUT_ALIGNMENT - 1)
 
-        let doubledCapacity = min maximumCapacity (currentCapacity * 2L)
-        let requiredCapacity = max (int64 minimumCapacity) doubledCapacity
+        let doubled_capacity = min maximum_capacity (current_capacity * 2L)
+        let required_capacity = max (int64 minimum_capacity) doubled_capacity
 
-        if requiredCapacity <= currentCapacity || requiredCapacity > maximumCapacity then
-            invalidOp $"The raw-input buffer cannot grow to {minimumCapacity} bytes."
+        if required_capacity <= current_capacity || required_capacity > maximum_capacity then
+            invalidOp $"The raw-input buffer cannot grow to {minimum_capacity} bytes."
 
-        inputBuffer.EnsureCapacity(int requiredCapacity)
+        input_buffer.EnsureCapacity(int required_capacity)
 
-    let process_current_input (session: RawInputSession) (rawInput: nativeint) =
+    let process_current_input (session: RawInputSession) (raw_input: nativeint) =
         let mutable reading = true
-        let mutable workAdded = false
+        let mutable work_added = false
 
         while reading do
-            let mutable requiredBytes = 0u
-            let mutable errorCode = 0
+            let mutable required_bytes = 0u
+            let mutable error_code = 0
             let mutable mouse = Unchecked.defaultof<RawInputNative.Mouse>
 
             let result =
-                RawInputNative.read_current_mouse rawInput inputBuffer &requiredBytes &errorCode &mouse
+                RawInputNative.read_current_mouse raw_input input_buffer &required_bytes &error_code &mouse
 
             match result with
             | RawInputNative.MouseReadResult.Mouse ->
-                workAdded <- session.ProcessMouse mouse
+                work_added <- session.ProcessMouse mouse
                 reading <- false
             | RawInputNative.MouseReadResult.Ignored -> reading <- false
-            | RawInputNative.MouseReadResult.BufferTooSmall -> grow_input_buffer requiredBytes
-            | RawInputNative.MouseReadResult.Failed -> Win32.win32_error "GetRawInputData" errorCode |> invalidOp
+            | RawInputNative.MouseReadResult.BufferTooSmall -> grow_input_buffer required_bytes
+            | RawInputNative.MouseReadResult.Failed -> Win32.win32_error "GetRawInputData" error_code |> invalidOp
             | RawInputNative.MouseReadResult.Malformed -> invalidOp "GetRawInputData returned malformed mouse input."
             | _ -> invalidOp "GetRawInputData returned an unknown result."
 
-        workAdded
+        work_added
 
     let process_buffered_input (session: RawInputSession) =
         let mutable draining = true
-        let mutable workAdded = false
+        let mutable work_added = false
 
         while draining do
-            let mutable bufferBytes = 0u
-            let mutable errorCode = 0
-            let count = RawInputNative.read_buffered inputBuffer &bufferBytes &errorCode
+            let mutable buffer_bytes = 0u
+            let mutable error_code = 0
+            let count = RawInputNative.read_buffered input_buffer &buffer_bytes &error_code
 
             if count = 0u then
                 draining <- false
             elif count = UInt32.MaxValue then
-                if errorCode = RawInputNative.ERROR_INSUFFICIENT_BUFFER then
-                    grow_input_buffer bufferBytes
+                if error_code = RawInputNative.ERROR_INSUFFICIENT_BUFFER then
+                    grow_input_buffer buffer_bytes
                 else
-                    Win32.win32_error "GetRawInputBuffer" errorCode |> invalidOp
+                    Win32.win32_error "GetRawInputBuffer" error_code |> invalidOp
             else
                 let mutable index = 0u
                 let mutable offset = 0
 
                 // Keep this path on structs, ints and the reused buffer.
                 while index < count do
-                    if offset < 0 || offset > inputBuffer.Capacity - int RawInputNative.headerSize then
+                    if offset < 0 || offset > input_buffer.Capacity - int RawInputNative.header_size then
                         invalidOp "GetRawInputBuffer returned a record outside its buffer."
 
-                    let record = IntPtr.Add(inputBuffer.Pointer, offset)
-                    let availableBytes = inputBuffer.Capacity - offset
-                    let mutable recordSize = 0u
+                    let record = IntPtr.Add(input_buffer.Pointer, offset)
+                    let available_bytes = input_buffer.Capacity - offset
+                    let mutable record_size = 0u
                     let mutable mouse = Unchecked.defaultof<RawInputNative.Mouse>
 
-                    let result = RawInputNative.decode_mouse record availableBytes &recordSize &mouse
+                    let result = RawInputNative.decode_mouse record available_bytes &record_size &mouse
 
                     match result with
                     | RawInputNative.MouseReadResult.Mouse ->
                         if session.ProcessMouse mouse then
-                            workAdded <- true
+                            work_added <- true
                     | RawInputNative.MouseReadResult.Ignored -> ()
                     | RawInputNative.MouseReadResult.Malformed ->
                         invalidOp "GetRawInputBuffer returned malformed input."
@@ -198,59 +198,59 @@ type RawInputReceiver(processControl: Action) as self =
                     | RawInputNative.MouseReadResult.BufferTooSmall
                     | _ -> invalidOp "GetRawInputBuffer returned an unknown decode result."
 
-                    let step = RawInputNative.aligned_record_size recordSize
+                    let step = RawInputNative.aligned_record_size record_size
 
-                    if step <= 0 || step > availableBytes then
+                    if step <= 0 || step > available_bytes then
                         invalidOp "GetRawInputBuffer returned an invalid record size."
 
                     offset <- offset + step
                     index <- index + 1u
 
-        workAdded
+        work_added
 
     let discard_buffered_input () =
         let mutable draining = true
 
         while draining do
-            let mutable bufferBytes = 0u
-            let mutable errorCode = 0
-            let count = RawInputNative.read_buffered inputBuffer &bufferBytes &errorCode
+            let mutable buffer_bytes = 0u
+            let mutable error_code = 0
+            let count = RawInputNative.read_buffered input_buffer &buffer_bytes &error_code
 
             if count = 0u then
                 draining <- false
             elif count = UInt32.MaxValue then
-                if errorCode = RawInputNative.ERROR_INSUFFICIENT_BUFFER then
-                    grow_input_buffer bufferBytes
+                if error_code = RawInputNative.ERROR_INSUFFICIENT_BUFFER then
+                    grow_input_buffer buffer_bytes
                 else
-                    Win32.win32_error "GetRawInputBuffer(discard)" errorCode |> invalidOp
+                    Win32.win32_error "GetRawInputBuffer(discard)" error_code |> invalidOp
 
-    let process_input_message (rawInput: nativeint) =
-        match activeSession with
+    let process_input_message (raw_input: nativeint) =
+        match active_session with
         | Some session ->
-            let currentAdded = process_current_input session rawInput
-            let bufferedAdded = process_buffered_input session
+            let current_added = process_current_input session raw_input
+            let buffered_added = process_buffered_input session
 
-            if currentAdded || bufferedAdded then
+            if current_added || buffered_added then
                 session.SignalInputAvailable()
         | None -> ()
 
     let fail_runtime (error: exn) =
-        match activeSession with
+        match active_session with
         | Some session -> session.FailRuntime error
         | None -> Debug.WriteLine $"RhinosCanFly idle raw-input receiver failed: {error.Message}"
 
         request_stop ()
 
     do
-        registrationRetryTimer.Tick.Add(fun (_event: EventArgs) ->
-            if stopRequested then
+        registration_retry_timer.Tick.Add(fun (_event: EventArgs) ->
+            if stop_requested then
                 try_release_registration () |> ignore)
 
         let parameters = CreateParams()
         parameters.Caption <- "RhinosCanFly raw input"
         parameters.Parent <- nativeint RawInputNative.MESSAGE_ONLY_WINDOW
         self.CreateHandle parameters
-        handleCreated <- true
+        handle_created <- true
 
     member _.WindowHandle = self.Handle
 
@@ -259,35 +259,35 @@ type RawInputReceiver(processControl: Action) as self =
     member _.StartSession
         (
             input: InputAccumulator.State,
-            inputAvailable: Action,
-            registrationReady: Action<RawInputNative.MouseRegistrationLease>,
-            runtimeFailed: Action<exn>,
+            input_available: Action,
+            registration_ready: Action<RawInputNative.MouseRegistrationLease>,
+            runtime_failed: Action<exn>,
             finished: Action
         ) : exn option =
-        if Option.isSome activeSession || Option.isSome sessionFinished then
+        if Option.isSome active_session || Option.isSome session_finished then
             invalidOp "Another raw-input session is already active."
 
-        stopRequested <- false
-        sessionFinishedNotified <- false
-        registrationReleaseError <- None
-        sessionFinished <- Some finished
+        stop_requested <- false
+        session_finished_notified <- false
+        registration_release_error <- None
+        session_finished <- Some finished
 
         try
             discard_buffered_input ()
 
-            let session = RawInputSession(input, inputAvailable, runtimeFailed)
+            let session = RawInputSession(input, input_available, runtime_failed)
 
-            activeSession <- Some session
+            active_session <- Some session
 
             match RawInputNative.acquire_mouse_registration self.Handle with
             | RawInputNative.Acquired lease ->
-                registrationLease <- Some lease
-                registrationReady.Invoke lease
+                registration_lease <- Some lease
+                registration_ready.Invoke lease
                 None
             | RawInputNative.Failed error -> Some(InvalidOperationException error)
             | RawInputNative.CleanupPending(error, lease) ->
-                registrationLease <- Some lease
-                registrationReady.Invoke lease
+                registration_lease <- Some lease
+                registration_ready.Invoke lease
                 Some(InvalidOperationException error)
         with error ->
             Some error
@@ -299,29 +299,29 @@ type RawInputReceiver(processControl: Action) as self =
     member _.ReleaseResources() = release_resources ()
 
     override _.WndProc(message: byref<Message>) =
-        let mutable baseAttempted = false
+        let mutable base_attempted = false
 
         try
             try
                 if message.Msg = RawInputNative.CONTROL_MESSAGE then
                     message.Result <- nativeint 0
-                    processControl.Invoke()
+                    process_control.Invoke()
                 elif message.Msg = RawInputNative.MESSAGE then
-                    if not stopRequested then
+                    if not stop_requested then
                         process_input_message message.LParam
 
-                    baseAttempted <- true
+                    base_attempted <- true
                     base.WndProc(&message)
                 else
-                    baseAttempted <- true
+                    base_attempted <- true
                     base.WndProc(&message)
             with error ->
                 fail_runtime error
                 message.Result <- nativeint 0
         finally
-            if message.Msg = RawInputNative.MESSAGE && not baseAttempted then
+            if message.Msg = RawInputNative.MESSAGE && not base_attempted then
                 try
-                    baseAttempted <- true
+                    base_attempted <- true
                     base.WndProc(&message)
-                with cleanupError ->
-                    Debug.WriteLine $"RhinosCanFly raw-input message cleanup failed: {cleanupError}"
+                with cleanup_error ->
+                    Debug.WriteLine $"RhinosCanFly raw-input message cleanup failed: {cleanup_error}"

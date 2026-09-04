@@ -4,36 +4,38 @@ open Rhino
 open Rhino.Commands
 
 let run () =
-    let struct (remainingRawSessions, rawErrors) = PlatformRawInput.retry_recovery ()
+    let struct (remaining_raw_sessions, raw_errors) = PlatformRawInput.retry_recovery ()
 
-    let struct (remainingCursorClips, cursorErrors) =
+    let struct (remaining_cursor_clips, cursor_errors) =
         PlatformCursorClip.retry_cleanup ()
 
-    let hookErrors = PlatformMouseActions.retry_hook_cleanup ()
+    let hook_errors = PlatformMouseActions.retry_hook_cleanup ()
 
     RhinoApp.WriteLine "RhinosCanFly input recovery"
-    RhinoApp.WriteLine $"Raw cleanup items remaining: {remainingRawSessions}"
-    RhinoApp.WriteLine $"Cursor clips remaining: {remainingCursorClips}"
+    RhinoApp.WriteLine $"Raw cleanup items remaining: {remaining_raw_sessions}"
+    RhinoApp.WriteLine $"Cursor clips remaining: {remaining_cursor_clips}"
 
-    for error in rawErrors do
+    for error in raw_errors do
         RhinoApp.WriteLine $"Raw cleanup: {error}"
 
-    for error in hookErrors do
+    for error in hook_errors do
         RhinoApp.WriteLine $"Hook cleanup: {error}"
 
-    for error in cursorErrors do
+    for error in cursor_errors do
         RhinoApp.WriteLine $"Cursor clip cleanup: {error}"
 
-    let nativeRecoveryComplete =
-        remainingRawSessions = 0 && remainingCursorClips = 0 && List.isEmpty hookErrors
+    let native_recovery_complete =
+        remaining_raw_sessions = 0
+        && remaining_cursor_clips = 0
+        && List.isEmpty hook_errors
 
-    let settingsRecovery =
-        if nativeRecoveryComplete then
+    let settings_recovery =
+        if native_recovery_complete then
             RuntimeSettings.complete_input_recovery ()
         else
             Error "Native input cleanup is incomplete."
 
-    match settingsRecovery with
+    match settings_recovery with
     | Ok() ->
         FlightSession.recovery_completed ()
         RhinoApp.WriteLine "Input recovery completed."

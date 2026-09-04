@@ -10,9 +10,9 @@ module RawInputSessionEvents =
 
         InputAccumulator.add_raw_mouse_button_transition transition input
 
-type RawInputSession(input: InputAccumulator.State, inputAvailable: Action, runtimeFailed: Action<exn>) =
+type RawInputSession(input: InputAccumulator.State, input_available: Action, runtime_failed: Action<exn>) =
 
-    let rawMouseButtonTransitionFlags =
+    let raw_mouse_button_transition_flags =
         RawInputNative.LEFT_BUTTON_DOWN
         ||| RawInputNative.LEFT_BUTTON_UP
         ||| RawInputNative.RIGHT_BUTTON_DOWN
@@ -27,81 +27,81 @@ type RawInputSession(input: InputAccumulator.State, inputAvailable: Action, runt
     member _.ProcessMouse(mouse: RawInputNative.Mouse) =
         let flags = RawInputNative.button_flags mouse
 
-        let hasButtonTransition = flags &&& rawMouseButtonTransitionFlags <> 0us
+        let has_button_transition = flags &&& raw_mouse_button_transition_flags <> 0us
 
         let modifiers =
-            if hasButtonTransition then
+            if has_button_transition then
                 Win32.mouse_modifiers ()
             else
                 MouseModifiers.none
 
-        let mutable buttonAdded = false
+        let mutable button_added = false
 
         // A press owns this packet's movement and a release ends it afterwards.
         if flags &&& RawInputNative.LEFT_BUTTON_DOWN <> 0us then
             RawInputSessionEvents.add_button RawMouseButtonEvent.LeftDown modifiers input
-            buttonAdded <- true
+            button_added <- true
 
         if flags &&& RawInputNative.RIGHT_BUTTON_DOWN <> 0us then
             RawInputSessionEvents.add_button RawMouseButtonEvent.RightDown modifiers input
 
-            buttonAdded <- true
+            button_added <- true
 
         if flags &&& RawInputNative.MIDDLE_BUTTON_DOWN <> 0us then
             RawInputSessionEvents.add_button RawMouseButtonEvent.MiddleDown modifiers input
 
-            buttonAdded <- true
+            button_added <- true
 
         if flags &&& RawInputNative.BUTTON_4_DOWN <> 0us then
             RawInputSessionEvents.add_button RawMouseButtonEvent.Mouse4Down modifiers input
 
-            buttonAdded <- true
+            button_added <- true
 
         if flags &&& RawInputNative.BUTTON_5_DOWN <> 0us then
             RawInputSessionEvents.add_button RawMouseButtonEvent.Mouse5Down modifiers input
 
-            buttonAdded <- true
+            button_added <- true
 
-        let mouseMoved =
+        let mouse_moved =
             mouse.flags &&& RawInputNative.MOUSE_MOVE_ABSOLUTE = 0us
             && (mouse.last_x <> 0 || mouse.last_y <> 0)
 
-        if mouseMoved then
+        if mouse_moved then
             InputAccumulator.add_mouse mouse.last_x mouse.last_y input
 
-        let wheelDelta =
+        let wheel_delta =
             if flags &&& RawInputNative.MOUSE_WHEEL <> 0us then
                 RawInputNative.signed_button_data mouse
             else
                 0
 
-        if wheelDelta <> 0 then
-            InputAccumulator.add_wheel wheelDelta input
+        if wheel_delta <> 0 then
+            InputAccumulator.add_wheel wheel_delta input
 
         if flags &&& RawInputNative.LEFT_BUTTON_UP <> 0us then
             RawInputSessionEvents.add_button RawMouseButtonEvent.LeftUp modifiers input
-            buttonAdded <- true
+            button_added <- true
 
         if flags &&& RawInputNative.RIGHT_BUTTON_UP <> 0us then
             RawInputSessionEvents.add_button RawMouseButtonEvent.RightUp modifiers input
-            buttonAdded <- true
+            button_added <- true
 
         if flags &&& RawInputNative.MIDDLE_BUTTON_UP <> 0us then
             RawInputSessionEvents.add_button RawMouseButtonEvent.MiddleUp modifiers input
-            buttonAdded <- true
+            button_added <- true
 
         if flags &&& RawInputNative.BUTTON_4_UP <> 0us then
             RawInputSessionEvents.add_button RawMouseButtonEvent.Mouse4Up modifiers input
-            buttonAdded <- true
+            button_added <- true
 
         if flags &&& RawInputNative.BUTTON_5_UP <> 0us then
             RawInputSessionEvents.add_button RawMouseButtonEvent.Mouse5Up modifiers input
-            buttonAdded <- true
+            button_added <- true
 
-        mouseMoved || wheelDelta <> 0 || buttonAdded
+        mouse_moved || wheel_delta <> 0 || button_added
 
-    member _.SignalInputAvailable() = inputAvailable.Invoke()
+    member _.SignalInputAvailable() = input_available.Invoke()
 
     member _.FailRuntime(error: exn) =
         Debug.WriteLine $"RhinosCanFly raw-input receiver failed: {error.Message}"
-        runtimeFailed.Invoke error
+        runtime_failed.Invoke error

@@ -87,10 +87,10 @@ let add_mouse (dx: int) (dy: int) (state: State) =
 
         while not updated do
             let current = Volatile.Read(&state.mouse_xy)
-            let struct (currentX, currentY) = unpack_mouse current
+            let struct (current_x, current_y) = unpack_mouse current
 
             let next =
-                pack_mouse (saturating_add currentX (int32 dx)) (saturating_add currentY (int32 dy))
+                pack_mouse (saturating_add current_x (int32 dx)) (saturating_add current_y (int32 dy))
 
             updated <- Interlocked.CompareExchange(&state.mouse_xy, next, current) = current
 
@@ -180,10 +180,10 @@ let drain_timeline (destination: TimelineEvent array) (state: State) =
         if available > int64 state.timeline_events.Length then
             invalidOp "The input timeline contains more events than its fixed capacity."
 
-        let requiredCapacity = int available + 1
+        let required_capacity = int available + 1
 
-        if destination.Length < requiredCapacity then
-            invalidArg (nameof destination) $"The input timeline destination needs {requiredCapacity} entries."
+        if destination.Length < required_capacity then
+            invalidArg (nameof destination) $"The input timeline destination needs {required_capacity} entries."
 
         let mutable count = 0
 
@@ -226,15 +226,15 @@ let discard_pointer_input (state: State) =
         let mutable destination = state.timeline_read
 
         while source < state.timeline_write do
-            let sourceIndex = int (source % int64 state.timeline_events.Length)
-            let event = state.timeline_events[sourceIndex]
+            let source_index = int (source % int64 state.timeline_events.Length)
+            let event = state.timeline_events[source_index]
 
             if
                 event.kind <> TimelineEventKind.Movement
                 && event.kind <> TimelineEventKind.Wheel
             then
-                let destinationIndex = int (destination % int64 state.timeline_events.Length)
-                state.timeline_events[destinationIndex] <- event
+                let destination_index = int (destination % int64 state.timeline_events.Length)
+                state.timeline_events[destination_index] <- event
                 destination <- destination + 1L
 
             source <- source + 1L

@@ -10,22 +10,22 @@ let DOCUMENT_SECTION = "RhinosCanFly"
 [<Literal>]
 let DOCUMENT_ENTRY = "FlyingSpeed"
 
-let sessionSpeeds = Dictionary<uint32, float>()
-let mutable noDocumentSessionSpeed: float option = None
+let session_speeds = Dictionary<uint32, float>()
+let mutable no_document_session_speed: float option = None
 
 let try_session_speed (document: RhinoDoc) =
     if isNull document then
-        noDocumentSessionSpeed
+        no_document_session_speed
     else
-        match sessionSpeeds.TryGetValue document.RuntimeSerialNumber with
+        match session_speeds.TryGetValue document.RuntimeSerialNumber with
         | true, value -> Some value
         | false, _ -> None
 
 let remember_session_speed (document: RhinoDoc) (speed: float) =
     if isNull document then
-        noDocumentSessionSpeed <- Some speed
+        no_document_session_speed <- Some speed
     else
-        sessionSpeeds[document.RuntimeSerialNumber] <- speed
+        session_speeds[document.RuntimeSerialNumber] <- speed
 
 let try_document_speed (document: RhinoDoc) =
     if isNull document then
@@ -35,20 +35,20 @@ let try_document_speed (document: RhinoDoc) =
         |> Option.ofObj
         |> Option.bind Speed.try_parse
 
-let current (document: RhinoDoc) (loadFromDocument: bool) (range: SpeedRange) (fallback: float) =
-    let requestedSpeed =
+let current (document: RhinoDoc) (load_from_document: bool) (range: SpeedRange) (fallback: float) =
+    let requested_speed =
         match try_session_speed document with
         | Some speed -> speed
-        | None when loadFromDocument -> try_document_speed document |> Option.defaultValue fallback
+        | None when load_from_document -> try_document_speed document |> Option.defaultValue fallback
         | None -> fallback
 
-    Speed.allowed range requestedSpeed
+    Speed.allowed range requested_speed
 
-let set (document: RhinoDoc) (saveToDocument: bool) (range: SpeedRange) (requestedSpeed: float) =
-    let speed = Speed.allowed range requestedSpeed
+let set (document: RhinoDoc) (save_to_document: bool) (range: SpeedRange) (requested_speed: float) =
+    let speed = Speed.allowed range requested_speed
 
     try
-        if saveToDocument && not (isNull document) then
+        if save_to_document && not (isNull document) then
             let value = Speed.format speed
             let existing = document.Strings.GetValue(DOCUMENT_SECTION, DOCUMENT_ENTRY)
 
@@ -74,11 +74,11 @@ let step (config: MovementConfig) (speed: float) (SpeedStepCount steps: SpeedSte
 let document_closed =
     EventHandler<DocumentEventArgs>(fun (_: obj) (event: DocumentEventArgs) ->
         if not (isNull event.Document) then
-            sessionSpeeds.Remove event.Document.RuntimeSerialNumber |> ignore)
+            session_speeds.Remove event.Document.RuntimeSerialNumber |> ignore)
 
 do RhinoDoc.CloseDocument.AddHandler document_closed
 
 let shutdown () =
     RhinoDoc.CloseDocument.RemoveHandler document_closed
-    sessionSpeeds.Clear()
-    noDocumentSessionSpeed <- None
+    session_speeds.Clear()
+    no_document_session_speed <- None

@@ -151,7 +151,7 @@ let selected_mode (field: ModeField<'Mode>) =
         field.fallback
 
 let set_mode (field: ModeField<'Mode>) (value: 'Mode) =
-    let selectedIndex =
+    let selected_index =
         match
             field.options
             |> Array.tryFindIndex (fun (candidate: 'Mode, _: string) -> candidate = value)
@@ -162,21 +162,21 @@ let set_mode (field: ModeField<'Mode>) (value: 'Mode) =
             |> Array.tryFindIndex (fun (candidate: 'Mode, _: string) -> candidate = field.fallback)
             |> Option.defaultValue 0
 
-    field.control.SelectedIndex <- selectedIndex
+    field.control.SelectedIndex <- selected_index
 
 let create () =
-    let activationModes =
+    let activation_modes =
         [| KeyActivationMode.Toggle, "Toggle"; KeyActivationMode.Hold, "Hold" |]
 
-    let mouseAxisModes =
+    let mouse_axis_modes =
         [| MouseAxisMode.Normal, "Normal"; MouseAxisMode.Inverted, "Inverted" |]
 
-    let wheelSpeedModes =
+    let wheel_speed_modes =
         [| MouseWheelSpeedMode.Off, "Off"
            MouseWheelSpeedMode.Normal, "On"
            MouseWheelSpeedMode.Reversed, "On but reversed" |]
 
-    let mouseGestureActions =
+    let mouse_gesture_actions =
         [| MouseGestureAction.Off, "Off"
            MouseGestureAction.TogglePivot, "Toggle pivot"
            MouseGestureAction.HoldPivot, "Hold pivot"
@@ -184,25 +184,25 @@ let create () =
            MouseGestureAction.HoldPan, "Hold pan"
            MouseGestureAction.Retarget, "Retarget" |]
 
-    let rightClickEntryModes =
+    let right_click_entry_modes =
         [| RightClickEntryMode.Off, "Off"
            RightClickEntryMode.ClickToFly, "Click to fly"
            RightClickEntryMode.ClickToFlyDuringCommands, "Click to fly + during commands"
            RightClickEntryMode.HoldToFly, "Hold to fly"
            RightClickEntryMode.HoldToFlyDuringCommands, "Hold to fly + during commands" |]
 
-    let viewportNameListModes =
+    let viewport_name_list_modes =
         [| ViewportNameListMode.DisabledAll, "Off"
            ViewportNameListMode.EnabledAll, "Allow all"
            ViewportNameListMode.EnabledSome, "Allow listed"
            ViewportNameListMode.DisabledSome, "Ban listed" |]
 
-    let flightModes =
+    let flight_modes =
         [| DefaultFlightMode.Normal, "Normal"
            DefaultFlightMode.Temporary, "Temporary"
            DefaultFlightMode.TemporaryIncludingNavigationCommands, "Temporary, including Pivot/Pan commands" |]
 
-    let retargetModes =
+    let retarget_modes =
         [| RetargetMode.Off, "Off"
            RetargetMode.Distance, "Distance"
            RetargetMode.SelectionCenterThenDistance, "Selection center, then distance"
@@ -214,12 +214,12 @@ let create () =
            RetargetMode.ObjectCenterThenDistance, "Object center, then distance"
            RetargetMode.ObjectCenter, "Object center, no fallback" |]
 
-    let prioritizedTargets =
+    let prioritized_targets =
         [| PrioritizedTarget.Off, "Off"
            PrioritizedTarget.SelectionCenter, "Selection center"
            PrioritizedTarget.Gumball, "Gumball" |]
 
-    let paintModes =
+    let paint_modes =
         [| ViewportPaintMode.Queued, "Normal Rhino redraw (default)"
            ViewportPaintMode.Immediate, "Immediate paint" |]
 
@@ -272,35 +272,35 @@ let create () =
               forced_perspective_lens_length_on_flight_start_mm = text_box ()
               perspective_lens_length_delta_during_flight_mm = text_box () }
           modes =
-            { boost_mode = mode_field activationModes KeyActivationMode.Toggle
-              slow_mode = mode_field activationModes KeyActivationMode.Toggle
-              wheel_speed_mode = mode_field wheelSpeedModes MouseWheelSpeedMode.Normal
-              mouse_x_mode = mode_field mouseAxisModes MouseAxisMode.Normal
-              mouse_y_mode = mode_field mouseAxisModes MouseAxisMode.Normal
-              viewport_capabilities = mode_field viewportNameListModes ViewportNameListMode.DisabledAll
-              right_click_flight_entry = mode_field viewportNameListModes ViewportNameListMode.DisabledAll
-              right_click_entry_mode = mode_field rightClickEntryModes RightClickEntryMode.ClickToFlyDuringCommands
-              default_flight_mode = mode_field flightModes DefaultFlightMode.Normal
-              prioritized_target = mode_field prioritizedTargets PrioritizedTarget.SelectionCenter
-              shift_right_click_retarget = mode_field retargetModes RetargetMode.ObjectCenter
-              alt_right_click_retarget = mode_field retargetModes RetargetMode.ObjectCenter
-              ctrl_right_click_retarget = mode_field retargetModes RetargetMode.ObjectCenter
-              middle_mouse_retarget = mode_field retargetModes RetargetMode.ObjectCenter
-              mouse4_retarget = mode_field retargetModes RetargetMode.ObjectCenter
-              mouse5_retarget = mode_field retargetModes RetargetMode.ObjectCenter
-              retarget_all_views_mode = mode_field retargetModes RetargetMode.ObjectCenter
-              retarget_other_views_mode = mode_field retargetModes RetargetMode.ObjectCenter
-              retarget_on_pivot = mode_field retargetModes RetargetMode.ObjectCenter
-              retarget_on_pan = mode_field retargetModes RetargetMode.ObjectCenter
-              retarget_on_flight_exit = mode_field retargetModes RetargetMode.ObjectCenter
-              retarget_on_restored_flight_exit = mode_field retargetModes RetargetMode.Off
-              shift_right_click_action = mode_field mouseGestureActions MouseGestureAction.Off
-              alt_right_click_action = mode_field mouseGestureActions MouseGestureAction.Off
-              ctrl_right_click_action = mode_field mouseGestureActions MouseGestureAction.Off
-              middle_mouse_action = mode_field mouseGestureActions MouseGestureAction.Off
-              mouse4_action = mode_field mouseGestureActions MouseGestureAction.Off
-              mouse5_action = mode_field mouseGestureActions MouseGestureAction.Off
-              viewport_paint_mode = mode_field paintModes ViewportPaintMode.Queued }
+            { boost_mode = mode_field activation_modes KeyActivationMode.Toggle
+              slow_mode = mode_field activation_modes KeyActivationMode.Toggle
+              wheel_speed_mode = mode_field wheel_speed_modes MouseWheelSpeedMode.Normal
+              mouse_x_mode = mode_field mouse_axis_modes MouseAxisMode.Normal
+              mouse_y_mode = mode_field mouse_axis_modes MouseAxisMode.Normal
+              viewport_capabilities = mode_field viewport_name_list_modes ViewportNameListMode.DisabledAll
+              right_click_flight_entry = mode_field viewport_name_list_modes ViewportNameListMode.DisabledAll
+              right_click_entry_mode = mode_field right_click_entry_modes RightClickEntryMode.ClickToFlyDuringCommands
+              default_flight_mode = mode_field flight_modes DefaultFlightMode.Normal
+              prioritized_target = mode_field prioritized_targets PrioritizedTarget.SelectionCenter
+              shift_right_click_retarget = mode_field retarget_modes RetargetMode.ObjectCenter
+              alt_right_click_retarget = mode_field retarget_modes RetargetMode.ObjectCenter
+              ctrl_right_click_retarget = mode_field retarget_modes RetargetMode.ObjectCenter
+              middle_mouse_retarget = mode_field retarget_modes RetargetMode.ObjectCenter
+              mouse4_retarget = mode_field retarget_modes RetargetMode.ObjectCenter
+              mouse5_retarget = mode_field retarget_modes RetargetMode.ObjectCenter
+              retarget_all_views_mode = mode_field retarget_modes RetargetMode.ObjectCenter
+              retarget_other_views_mode = mode_field retarget_modes RetargetMode.ObjectCenter
+              retarget_on_pivot = mode_field retarget_modes RetargetMode.ObjectCenter
+              retarget_on_pan = mode_field retarget_modes RetargetMode.ObjectCenter
+              retarget_on_flight_exit = mode_field retarget_modes RetargetMode.ObjectCenter
+              retarget_on_restored_flight_exit = mode_field retarget_modes RetargetMode.Off
+              shift_right_click_action = mode_field mouse_gesture_actions MouseGestureAction.Off
+              alt_right_click_action = mode_field mouse_gesture_actions MouseGestureAction.Off
+              ctrl_right_click_action = mode_field mouse_gesture_actions MouseGestureAction.Off
+              middle_mouse_action = mode_field mouse_gesture_actions MouseGestureAction.Off
+              mouse4_action = mode_field mouse_gesture_actions MouseGestureAction.Off
+              mouse5_action = mode_field mouse_gesture_actions MouseGestureAction.Off
+              viewport_paint_mode = mode_field paint_modes ViewportPaintMode.Queued }
           options =
             { enabled = new CheckBox(Text = "Enable Rhinos Can Fly")
               normalize_diagonal_movement = new CheckBox(Text = "Normalize diagonal movement")

@@ -12,7 +12,7 @@ let report_error (message: string) =
     with error ->
         Debug.WriteLine $"{message}; output failed: {error.Message}"
 
-let useRhinoStyleMethod =
+let use_rhino_style_method =
     typeof<EtoExtensions>
         .GetMethod("UseRhinoStyle", BindingFlags.Public ||| BindingFlags.Static, null, [| typeof<Control> |], null)
 
@@ -33,8 +33,8 @@ let load_icon () =
         None
 
 let use_rhino_style (control: Control) =
-    if not (isNull useRhinoStyleMethod) then
+    if not (isNull use_rhino_style_method) then
         try
-            useRhinoStyleMethod.Invoke(null, [| control :> obj |]) |> ignore
+            use_rhino_style_method.Invoke(null, [| control :> obj |]) |> ignore
         with error ->
             Debug.WriteLine $"RhinosCanFly could not apply the Rhino UI style: {error.Message}"

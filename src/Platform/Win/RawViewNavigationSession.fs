@@ -10,16 +10,16 @@ let view_matches_host (host: ViewportHostIdentity) (view: RhinoView) =
     if isNull view || isNull view.Document then
         false
     else
-        let (ViewWindowHandle expectedWindow) = host.view_window
+        let (ViewWindowHandle expected_window) = host.view_window
         let root = Win32Native.GetAncestor(view.Handle, Win32Native.GA_ROOT)
-        let actualRoot = if root = nativeint 0 then view.Handle else root
-        let (RootWindow expectedRoot) = host.root_window
+        let actual_root = if root = nativeint 0 then view.Handle else root
+        let (RootWindow expected_root) = host.root_window
 
         view.RuntimeSerialNumber = host.view_serial_number
         && view.Document.RuntimeSerialNumber = host.document_serial_number
         && view.ActiveViewportID = host.viewport_id
-        && view.Handle = expectedWindow
-        && actualRoot = expectedRoot
+        && view.Handle = expected_window
+        && actual_root = expected_root
 
 [<Struct>]
 type DrainResult = { count: int; overflowed: bool }
@@ -34,48 +34,48 @@ type Session
         raw: PlatformRawInput.Session,
         view: RhinoView,
         viewport: RhinoViewport,
-        originalCursor: System.Drawing.Point,
-        cursorClip: CursorClipLease,
+        original_cursor: System.Drawing.Point,
+        cursor_clip: CursorClipLease,
         failed: Action
     ) =
 
     let mutable active = true
     let mutable draining = false
-    let mutable mainLoopHandler: EventHandler option = None
-    let mutable failureNotified = false
-    let mutable rawInputClean = false
-    let mutable clipReleased = false
-    let mutable cursorRestored = false
-    let mutable cursorHidden = true
-    let mutable wakeDisposed = false
+    let mutable main_loop_handler: EventHandler option = None
+    let mutable failure_notified = false
+    let mutable raw_input_clean = false
+    let mutable clip_released = false
+    let mutable cursor_restored = false
+    let mutable cursor_hidden = true
+    let mutable wake_disposed = false
 
     member _.NotifyFailure() =
-        if active && not failureNotified then
-            failureNotified <- true
+        if active && not failure_notified then
+            failure_notified <- true
             failed.Invoke()
 
     member _.Host = host
     member _.Mode = mode
     member _.View = view
     member _.Viewport = viewport
-    member _.OriginalCursor = originalCursor
+    member _.OriginalCursor = original_cursor
     member _.IsActive = active
-    member _.FailureNotified = failureNotified
+    member _.FailureNotified = failure_notified
 
     member _.CleanupComplete =
         not active
-        && Option.isNone mainLoopHandler
-        && rawInputClean
-        && clipReleased
-        && cursorRestored
-        && not cursorHidden
-        && wakeDisposed
+        && Option.isNone main_loop_handler
+        && raw_input_clean
+        && clip_released
+        && cursor_restored
+        && not cursor_hidden
+        && wake_disposed
 
     member _.RawInputRegistrationIsCurrent() =
         PlatformRawInput.registration_is_current raw
 
-    member _.Matches(expectedHost: ViewportHostIdentity, expectedMode: ViewportNavigation.Operation) =
-        active && host = expectedHost && mode = expectedMode
+    member _.Matches(expected_host: ViewportHostIdentity, expected_mode: ViewportNavigation.Operation) =
+        active && host = expected_host && mode = expected_mode
 
     member _.DiscardPointerInput() =
         InputAccumulator.discard_pointer_input input
@@ -89,7 +89,7 @@ type Session
             ValueNone
         else
             draining <- true
-            let observedRevision = InputAccumulator.work_revision input
+            let observed_revision = InputAccumulator.work_revision input
 
             try
                 try
@@ -111,84 +111,84 @@ type Session
 
                 if
                     active
-                    && not failureNotified
-                    && InputAccumulator.work_pending_since observedRevision input
+                    && not failure_notified
+                    && InputAccumulator.work_pending_since observed_revision input
                 then
                     PlatformInputWake.signal wake
 
                 draining <- false
 
-    member this.Attach(workAvailable: Action) =
-        if active && Option.isNone mainLoopHandler then
+    member this.Attach(work_available: Action) =
+        if active && Option.isNone main_loop_handler then
             let handler =
                 EventHandler(fun (_: obj) (_: EventArgs) ->
                     try
-                        workAvailable.Invoke()
+                        work_available.Invoke()
                     with error ->
                         Debug.WriteLine $"RhinosCanFly raw view navigation UI work failed: {error}"
                         this.NotifyFailure())
 
             RhinoApp.MainLoop.AddHandler handler
-            mainLoopHandler <- Some handler
+            main_loop_handler <- Some handler
 
     member _.Stop() =
         active <- false
         let errors = ResizeArray<string>()
 
-        match mainLoopHandler with
+        match main_loop_handler with
         | Some handler ->
             try
                 RhinoApp.MainLoop.RemoveHandler handler
-                mainLoopHandler <- None
+                main_loop_handler <- None
             with error ->
                 errors.Add $"main-loop handler: {error.Message}"
         | None -> ()
 
-        if not rawInputClean then
+        if not raw_input_clean then
             match PlatformRawInput.request_stop raw with
             | Ok() -> ()
             | Error error -> errors.Add $"raw-input stop request: {error}"
 
-        if not clipReleased then
-            match PlatformCursorClip.release cursorClip with
-            | Ok() -> clipReleased <- true
+        if not clip_released then
+            match PlatformCursorClip.release cursor_clip with
+            | Ok() -> clip_released <- true
             | Error error -> errors.Add $"cursor clip: {error}"
 
-        if not rawInputClean then
+        if not raw_input_clean then
             let outcome = PlatformRawInput.stop raw
 
-            rawInputClean <-
+            raw_input_clean <-
                 outcome.terminated
                 && outcome.registration_relinquished
                 && not outcome.previous_registration_lost
 
-            if not rawInputClean then
+            if not raw_input_clean then
                 errors.Add "raw input did not shut down cleanly"
 
             for error in outcome.errors do
                 errors.Add $"raw input: {error}"
 
-        if not cursorRestored then
-            let (RootWindow rootWindow) = host.root_window
+        if not cursor_restored then
+            let (RootWindow root_window) = host.root_window
 
             if
-                rootWindow <> nativeint 0
-                && Win32Native.IsWindow rootWindow
-                && Win32Native.GetForegroundWindow() = rootWindow
+                root_window <> nativeint 0
+                && Win32Native.IsWindow root_window
+                && Win32Native.GetForegroundWindow() = root_window
             then
-                match Win32.set_cursor_position originalCursor with
-                | Ok() -> cursorRestored <- true
+                match Win32.set_cursor_position original_cursor with
+                | Ok() -> cursor_restored <- true
                 | Error error -> errors.Add $"cursor position: {error}"
             else
-                cursorRestored <- true
+                cursor_restored <- true
 
-        if cursorHidden then
+        if cursor_hidden then
             Win32Native.ShowCursor true |> ignore
-            cursorHidden <- false
+            cursor_hidden <- false
 
-        if not wakeDisposed then
+        if not wake_disposed then
             PlatformInputWake.dispose wake
-            wakeDisposed <- true
+            wake_disposed <- true
 
         if errors.Count = 0 then
             Ok()
@@ -203,50 +203,61 @@ let start (host: ViewportHostIdentity) (mode: ViewportNavigation.Operation) (fai
     else
         let viewport = view.ActiveViewport
 
-        let requiresParallelProjection =
+        let requires_parallel_projection =
             mode = ViewportNavigation.Operation.ParallelPan
             || mode = ViewportNavigation.Operation.ParallelZoom
 
-        if requiresParallelProjection && not viewport.IsParallelProjection then
+        if requires_parallel_projection && not viewport.IsParallelProjection then
             Error "The viewport is no longer using parallel projection."
         else
             match Win32.get_cursor_position () with
             | Error error -> Error error
-            | Ok originalCursor ->
+            | Ok original_cursor ->
                 let input = InputAccumulator.create ()
                 let wake = PlatformInputWake.create host.root_window
-                let inputAvailable = Action(fun () -> PlatformInputWake.signal wake)
+                let input_available = Action(fun () -> PlatformInputWake.signal wake)
                 let mutable raw: PlatformRawInput.Session option = None
-                let mutable cursorClip: CursorClipLease option = None
-                let mutable cursorHidden = false
+                let mutable cursor_clip: CursorClipLease option = None
+                let mutable cursor_hidden = false
 
                 try
-                    let createdRaw = PlatformRawInput.start input inputAvailable
-                    raw <- Some createdRaw
+                    let created_raw = PlatformRawInput.start input input_available
+                    raw <- Some created_raw
 
                     match PlatformCursorClip.acquire view with
                     | Error error -> failwith error
-                    | Ok lease -> cursorClip <- Some lease
+                    | Ok lease -> cursor_clip <- Some lease
 
                     Win32Native.ShowCursor false |> ignore
-                    cursorHidden <- true
+                    cursor_hidden <- true
 
-                    match cursorClip with
+                    match cursor_clip with
                     | Some lease ->
                         let session =
-                            Session(host, mode, input, wake, createdRaw, view, viewport, originalCursor, lease, failed)
+                            Session(
+                                host,
+                                mode,
+                                input,
+                                wake,
+                                created_raw,
+                                view,
+                                viewport,
+                                original_cursor,
+                                lease,
+                                failed
+                            )
 
-                        let startupRevision = InputAccumulator.work_revision input
+                        let startup_revision = InputAccumulator.work_revision input
                         InputAccumulator.discard_pointer_input input
                         PlatformInputWake.acknowledge wake
 
-                        if InputAccumulator.work_pending_since startupRevision input then
+                        if InputAccumulator.work_pending_since startup_revision input then
                             PlatformInputWake.signal wake
 
                         Ok session
                     | None -> failwith "The navigation cursor clip was not acquired."
                 with error ->
-                    match cursorClip with
+                    match cursor_clip with
                     | Some lease -> PlatformCursorClip.release lease |> ignore
                     | None -> ()
 
@@ -254,7 +265,7 @@ let start (host: ViewportHostIdentity) (mode: ViewportNavigation.Operation) (fai
                     | Some created -> PlatformRawInput.stop created |> ignore
                     | None -> ()
 
-                    if cursorHidden then
+                    if cursor_hidden then
                         Win32Native.ShowCursor true |> ignore
 
                     PlatformInputWake.dispose wake

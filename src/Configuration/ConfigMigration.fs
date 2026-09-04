@@ -10,9 +10,9 @@ let future_version_error (version: int) =
     $"The config version {version} is newer than this RhinosCanFly build supports ({ConfigSchema.CURRENT_VERSION}). The file was left unchanged."
 
 let route (json: JsonObject) =
-    let sourceVersion = ConfigDocument.config_version json
+    let source_version = ConfigDocument.config_version json
 
-    match sourceVersion with
+    match source_version with
     | Some version when version > ConfigSchema.CURRENT_VERSION -> Error(future_version_error version)
     | Some version when version = ConfigSchema.CURRENT_VERSION ->
         Ok

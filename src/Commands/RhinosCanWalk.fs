@@ -6,25 +6,25 @@ open Rhino.Commands
 open Rhino.Input
 open Rhino.Input.Custom
 
-let mutable lastEyeHeight = 1.75
+let mutable last_eye_height = 1.75
 
 let run (document: RhinoDoc) =
-    let previousPrompt = RhinoApp.CommandPrompt
+    let previous_prompt = RhinoApp.CommandPrompt
     use input = new GetNumber()
     input.SetCommandPrompt "Walking eye height"
-    input.SetDefaultNumber lastEyeHeight
+    input.SetDefaultNumber last_eye_height
     input.SetLowerLimit(0., true)
 
-    let getResult =
+    let get_result =
         try
             input.Get()
         finally
-            RhinoApp.SetCommandPrompt previousPrompt
+            RhinoApp.SetCommandPrompt previous_prompt
 
-    match getResult with
+    match get_result with
     | GetResult.Number ->
-        let eyeHeight = input.Number()
-        lastEyeHeight <- eyeHeight
-        FlightStart.run (FlightSessionMode.walk eyeHeight) document
+        let eye_height = input.Number()
+        last_eye_height <- eye_height
+        FlightStart.run (FlightSessionMode.walk eye_height) document
     | GetResult.Cancel -> Result.Cancel
     | _ -> Result.Failure

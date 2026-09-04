@@ -30,65 +30,70 @@ let validate_center (center: Point3d) (camera: CameraState) =
 let reset
     (center: Point3d)
     (camera: CameraState)
-    (horizontalRadiansPerCount: float)
-    (verticalRadiansPerCount: float)
+    (horizontal_radians_per_count: float)
+    (vertical_radians_per_count: float)
     (drag: PivotDragState)
     =
     if not (CameraState.valid camera) then
         invalidArg (nameof camera) "The pivot camera is invalid."
 
     validate_center center camera
-    validate_scale (nameof horizontalRadiansPerCount) horizontalRadiansPerCount
-    validate_scale (nameof verticalRadiansPerCount) verticalRadiansPerCount
+    validate_scale (nameof horizontal_radians_per_count) horizontal_radians_per_count
+    validate_scale (nameof vertical_radians_per_count) vertical_radians_per_count
 
     drag.center <- center
     drag.baseline <- camera
-    drag.horizontal_radians_per_count <- horizontalRadiansPerCount
-    drag.vertical_radians_per_count <- verticalRadiansPerCount
+    drag.horizontal_radians_per_count <- horizontal_radians_per_count
+    drag.vertical_radians_per_count <- vertical_radians_per_count
     drag.total_dx <- 0L
     drag.total_dy <- 0L
 
-let create (center: Point3d) (camera: CameraState) (horizontalRadiansPerCount: float) (verticalRadiansPerCount: float) =
+let create
+    (center: Point3d)
+    (camera: CameraState)
+    (horizontal_radians_per_count: float)
+    (vertical_radians_per_count: float)
+    =
     let drag =
         { center = center
           baseline = camera
-          horizontal_radians_per_count = horizontalRadiansPerCount
-          vertical_radians_per_count = verticalRadiansPerCount
+          horizontal_radians_per_count = horizontal_radians_per_count
+          vertical_radians_per_count = vertical_radians_per_count
           total_dx = 0L
           total_dy = 0L }
 
-    reset center camera horizontalRadiansPerCount verticalRadiansPerCount drag
+    reset center camera horizontal_radians_per_count vertical_radians_per_count drag
     drag
 
 let rebase (camera: CameraState) (drag: PivotDragState) =
     reset drag.center camera drag.horizontal_radians_per_count drag.vertical_radians_per_count drag
 
-let wrapped_angle (counts: int64) (radiansPerCount: float) =
-    Math.IEEERemainder(float counts * radiansPerCount, full_turn)
+let wrapped_angle (counts: int64) (radians_per_count: float) =
+    Math.IEEERemainder(float counts * radians_per_count, full_turn)
 
-let rotate_turntable (yaw: float) (yawedRight: Vector3d) (pitch: float) (vector: Vector3d) =
+let rotate_turntable (yaw: float) (yawed_right: Vector3d) (pitch: float) (vector: Vector3d) =
     let yawed = rotate_vector Vector3d.ZAxis yaw vector
-    rotate_vector yawedRight pitch yawed
+    rotate_vector yawed_right pitch yawed
 
 let evaluate (drag: PivotDragState) =
     let yaw = wrapped_angle drag.total_dx drag.horizontal_radians_per_count
     let pitch = wrapped_angle drag.total_dy drag.vertical_radians_per_count
-    let baselineRight = Movement.camera_right drag.baseline
-    let yawedRight = rotate_vector Vector3d.ZAxis yaw baselineRight
+    let baseline_right = Movement.camera_right drag.baseline
+    let yawed_right = rotate_vector Vector3d.ZAxis yaw baseline_right
 
     let position =
         drag.center
-        + rotate_turntable yaw yawedRight pitch (drag.baseline.position - drag.center)
+        + rotate_turntable yaw yawed_right pitch (drag.baseline.position - drag.center)
 
     let target =
         drag.center
-        + rotate_turntable yaw yawedRight pitch (drag.baseline.target - drag.center)
+        + rotate_turntable yaw yawed_right pitch (drag.baseline.target - drag.center)
 
-    let requestedDirection =
-        rotate_turntable yaw yawedRight pitch drag.baseline.direction
+    let requested_direction =
+        rotate_turntable yaw yawed_right pitch drag.baseline.direction
 
-    let requestedUp = rotate_turntable yaw yawedRight pitch drag.baseline.up
-    let struct (direction, up) = Movement.camera_basis requestedDirection requestedUp
+    let requested_up = rotate_turntable yaw yawed_right pitch drag.baseline.up
+    let struct (direction, up) = Movement.camera_basis requested_direction requested_up
 
     let camera =
         { position = position
@@ -108,33 +113,33 @@ let apply_delta (dx: int64) (dy: int64) (drag: PivotDragState) =
 
 let transform_for_flight_movement
     (translation: Vector3d)
-    (orbitCenter: Point3d)
-    (requestedOrbitAngle: float)
+    (orbit_center: Point3d)
+    (requested_orbit_angle: float)
     (drag: PivotDragState)
     =
-    let angle = Movement.orbit_angle requestedOrbitAngle
+    let angle = Movement.orbit_angle requested_orbit_angle
     let cosine = Math.Cos angle
     let sine = Math.Sin angle
 
-    let baselinePosition =
-        orbitCenter
-        + Movement.rotate_xy cosine sine (drag.baseline.position + translation - orbitCenter)
+    let baseline_position =
+        orbit_center
+        + Movement.rotate_xy cosine sine (drag.baseline.position + translation - orbit_center)
 
-    let baselineTarget =
-        orbitCenter
-        + Movement.rotate_xy cosine sine (drag.baseline.target + translation - orbitCenter)
+    let baseline_target =
+        orbit_center
+        + Movement.rotate_xy cosine sine (drag.baseline.target + translation - orbit_center)
 
     let center =
-        orbitCenter
-        + Movement.rotate_xy cosine sine (drag.center + translation - orbitCenter)
+        orbit_center
+        + Movement.rotate_xy cosine sine (drag.center + translation - orbit_center)
 
-    let requestedDirection = Movement.rotate_xy cosine sine drag.baseline.direction
-    let requestedUp = Movement.rotate_xy cosine sine drag.baseline.up
-    let struct (direction, up) = Movement.camera_basis requestedDirection requestedUp
+    let requested_direction = Movement.rotate_xy cosine sine drag.baseline.direction
+    let requested_up = Movement.rotate_xy cosine sine drag.baseline.up
+    let struct (direction, up) = Movement.camera_basis requested_direction requested_up
 
     let baseline =
-        { position = baselinePosition
-          target = baselineTarget
+        { position = baseline_position
+          target = baseline_target
           direction = direction
           up = up }
 

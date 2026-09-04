@@ -23,10 +23,10 @@ let item (label: string) (control: Control) =
     result.Rows.Add(row [ new TableCell(caption, false); new TableCell(control, true) ])
     result :> Control
 
-let fixed_item (labelWidth: int) (controlWidth: int) (label: string) (control: Control) =
-    control.Width <- controlWidth
+let fixed_item (label_width: int) (control_width: int) (label: string) (control: Control) =
+    control.Width <- control_width
 
-    let caption = new Label(Text = label, Width = labelWidth)
+    let caption = new Label(Text = label, Width = label_width)
     let result = new TableLayout(Spacing = Size(8, 0))
 
     result.Rows.Add(row [ new TableCell(caption, false); new TableCell(control, false) ])
@@ -38,14 +38,14 @@ let grid (columns: int) (controls: Control list) =
 
     let result = new TableLayout(Spacing = Size(16, 4))
 
-    for controlsInRow in List.chunkBySize columns controls do
-        let emptyCells =
-            List.init (columns - controlsInRow.Length) (fun (_: int) -> new TableCell(new Panel(), true))
+    for controls_in_row in List.chunkBySize columns controls do
+        let empty_cells =
+            List.init (columns - controls_in_row.Length) (fun (_: int) -> new TableCell(new Panel(), true))
 
         let cells =
-            controlsInRow
+            controls_in_row
             |> List.map (fun (control: Control) -> new TableCell(control, true))
-            |> fun (populatedCells: TableCell list) -> populatedCells @ emptyCells
+            |> fun (populated_cells: TableCell list) -> populated_cells @ empty_cells
 
         result.Rows.Add(row cells)
 

@@ -2,20 +2,26 @@ open System
 open System.IO
 open System.Text.RegularExpressions
 
-let sourceRoot: string = fsi.CommandLineArgs |> Array.last
+let source_root: string = fsi.CommandLineArgs |> Array.last
 
-let hasUntypedParameters (parameters: string) =
+let source_files () =
+    Directory.EnumerateFiles(source_root, "*", SearchOption.AllDirectories)
+    |> Seq.filter (fun (path: string) ->
+        let extension = Path.GetExtension path
+        extension = ".fs" || extension = ".fsx")
+
+let has_untyped_parameters (parameters: string) =
     let text = parameters.Trim()
 
     if String.IsNullOrWhiteSpace text then
         false
     else
         let groups = Regex.Matches(text, @"\((?<parameter>[^()]*)\)")
-        let bareParameters = Regex.Replace(text, @"\([^()]*\)", "").Trim()
+        let bare_parameters = Regex.Replace(text, @"\([^()]*\)", "").Trim()
 
         if groups.Count = 0 then
             true
-        elif not (String.IsNullOrWhiteSpace bareParameters) then
+        elif not (String.IsNullOrWhiteSpace bare_parameters) then
             true
         else
             groups
@@ -24,13 +30,13 @@ let hasUntypedParameters (parameters: string) =
                 let parameter = group.Groups["parameter"].Value.Trim()
                 not (String.IsNullOrWhiteSpace parameter) && not (parameter.Contains ':'))
 
-let letPrefix =
+let let_prefix =
     @"^\s*let\s+(?!mutable\b)(?>(?:(?:rec|inline|private|internal|public)\s+)*)(?!struct\b)"
 
 let checks =
     [ "function",
       Regex(
-          letPrefix
+          let_prefix
           + @"[A-Za-z_][\w']*(?:<[^>]+>)?\s+(?<parameters>(?:(?:\([^)]*\)|[A-Za-z_][\w']*)\s*)+)(?:\s*:\s*[^=]+)?\s*=",
           RegexOptions.Compiled
       )
@@ -42,12 +48,12 @@ let checks =
       "constructor", Regex(@"^\s*type\s+[A-Za-z_][\w']*(?:<[^>]+>)?\s*(?<parameters>\([^)]*\))", RegexOptions.Compiled)
       "lambda", Regex(@"\bfun\s+(?<parameters>.*?)\s*->", RegexOptions.Compiled) ]
 
-let violationsInLine (line: string) =
+let violations_in_line (line: string) =
     checks
     |> Seq.choose (fun (kind: string, pattern: Regex) ->
         let matched = pattern.Match line
 
-        if matched.Success && hasUntypedParameters matched.Groups["parameters"].Value then
+        if matched.Success && has_untyped_parameters matched.Groups["parameters"].Value then
             Some kind
         else
             None)
@@ -59,56 +65,56 @@ type FragmentEnd =
 
 type SourceFragment = { line_number: int; text: string }
 
-let declarationStart =
+let declaration_start =
     Regex(@"^\s*(?:let\b|member\b|override\b|type\s+[A-Za-z_][\w']*)", RegexOptions.Compiled)
 
-let fragmentEnd (line: string) =
-    if declarationStart.IsMatch line && not (line.Contains '=') then
+let fragment_end (line: string) =
+    if declaration_start.IsMatch line && not (line.Contains '=') then
         Some Equals
     elif Regex.IsMatch(line, @"\bfun\b") && not (line.Contains "->") then
         Some Arrow
     else
         None
 
-let isComplete (ending: FragmentEnd) (text: string) =
+let is_complete (ending: FragmentEnd) (text: string) =
     match ending with
     | Equals -> text.Contains '='
     | Arrow -> text.Contains "->"
 
-let sourceFragments (source: string) =
+let source_fragments (source: string) =
     let lines = source.Replace("\r\n", "\n").Split '\n'
     let fragments = ResizeArray<SourceFragment>()
     let mutable index = 0
 
     while index < lines.Length do
-        let firstLineNumber = index + 1
-        let firstLine = lines[index]
+        let first_line_number = index + 1
+        let first_line = lines[index]
 
-        match fragmentEnd firstLine with
+        match fragment_end first_line with
         | None ->
             fragments.Add
-                { line_number = firstLineNumber
-                  text = firstLine }
+                { line_number = first_line_number
+                  text = first_line }
 
             index <- index + 1
         | Some ending ->
-            let text = Text.StringBuilder(firstLine.TrimEnd())
+            let text = Text.StringBuilder(first_line.TrimEnd())
             index <- index + 1
 
-            while index < lines.Length && not (isComplete ending (text.ToString())) do
+            while index < lines.Length && not (is_complete ending (text.ToString())) do
                 text.Append(' ').Append(lines[index].Trim()) |> ignore
                 index <- index + 1
 
             fragments.Add
-                { line_number = firstLineNumber
+                { line_number = first_line_number
                   text = text.ToString() }
 
     fragments |> Seq.toList
 
-let violationsInSource (source: string) =
-    sourceFragments source
+let violations_in_source (source: string) =
+    source_fragments source
     |> Seq.collect (fun (fragment: SourceFragment) ->
-        violationsInLine fragment.text
+        violations_in_line fragment.text
         |> Seq.map (fun (kind: string) -> fragment.line_number, fragment.text, kind))
     |> Seq.toList
 
@@ -121,7 +127,7 @@ type LexicalState =
     | LineComment
     | BlockComment of int
 
-let codeOnly (source: string) =
+let code_only (source: string) =
     let result = Text.StringBuilder(source.Length)
     let mutable state = Code
     let mutable index = 0
@@ -129,12 +135,12 @@ let codeOnly (source: string) =
     let blank (character: char) =
         result.Append(if character = '\n' then '\n' else ' ') |> ignore
 
-    let blankPair () =
+    let blank_pair () =
         blank source[index]
         blank source[index + 1]
         index <- index + 2
 
-    let blankTriple () =
+    let blank_triple () =
         blank source[index]
         blank source[index + 1]
         blank source[index + 2]
@@ -143,30 +149,33 @@ let codeOnly (source: string) =
     while index < source.Length do
         match state with
         | Code when source.AsSpan(index).StartsWith("//".AsSpan(), StringComparison.Ordinal) ->
-            blankPair ()
+            blank_pair ()
             state <- LineComment
+        | Code when source.AsSpan(index).StartsWith("(*)".AsSpan(), StringComparison.Ordinal) ->
+            result.Append("(*)") |> ignore
+            index <- index + 3
         | Code when source.AsSpan(index).StartsWith("(*".AsSpan(), StringComparison.Ordinal) ->
-            blankPair ()
+            blank_pair ()
             state <- BlockComment 1
         | Code when source.AsSpan(index).StartsWith("\"\"\"".AsSpan(), StringComparison.Ordinal) ->
-            blankTriple ()
+            blank_triple ()
             state <- TripleString
         | Code when source.AsSpan(index).StartsWith("@\"".AsSpan(), StringComparison.Ordinal) ->
-            blankPair ()
+            blank_pair ()
             state <- VerbatimString
         | Code when source[index] = '"' ->
             blank source[index]
             index <- index + 1
             state <- String
         | Code when source[index] = '\'' ->
-            let simpleCharacter = index + 2 < source.Length && source[index + 2] = '\''
+            let simple_character = index + 2 < source.Length && source[index + 2] = '\''
 
-            let escapedCharacter =
+            let escaped_character =
                 index + 3 < source.Length
                 && source[index + 1] = '\\'
                 && source[index + 3] = '\''
 
-            if simpleCharacter || escapedCharacter then
+            if simple_character || escaped_character then
                 blank source[index]
                 index <- index + 1
                 state <- Character
@@ -184,15 +193,15 @@ let codeOnly (source: string) =
             blank source[index]
             index <- index + 1
         | BlockComment depth when source.AsSpan(index).StartsWith("(*".AsSpan(), StringComparison.Ordinal) ->
-            blankPair ()
+            blank_pair ()
             state <- BlockComment(depth + 1)
         | BlockComment depth when source.AsSpan(index).StartsWith("*)".AsSpan(), StringComparison.Ordinal) ->
-            blankPair ()
+            blank_pair ()
             state <- if depth = 1 then Code else BlockComment(depth - 1)
         | BlockComment _ ->
             blank source[index]
             index <- index + 1
-        | String when source[index] = '\\' && index + 1 < source.Length -> blankPair ()
+        | String when source[index] = '\\' && index + 1 < source.Length -> blank_pair ()
         | String when source[index] = '"' ->
             blank source[index]
             index <- index + 1
@@ -200,7 +209,8 @@ let codeOnly (source: string) =
         | String ->
             blank source[index]
             index <- index + 1
-        | VerbatimString when source.AsSpan(index).StartsWith("\"\"".AsSpan(), StringComparison.Ordinal) -> blankPair ()
+        | VerbatimString when source.AsSpan(index).StartsWith("\"\"".AsSpan(), StringComparison.Ordinal) ->
+            blank_pair ()
         | VerbatimString when source[index] = '"' ->
             blank source[index]
             index <- index + 1
@@ -209,12 +219,12 @@ let codeOnly (source: string) =
             blank source[index]
             index <- index + 1
         | TripleString when source.AsSpan(index).StartsWith("\"\"\"".AsSpan(), StringComparison.Ordinal) ->
-            blankTriple ()
+            blank_triple ()
             state <- Code
         | TripleString ->
             blank source[index]
             index <- index + 1
-        | Character when source[index] = '\\' && index + 1 < source.Length -> blankPair ()
+        | Character when source[index] = '\\' && index + 1 < source.Length -> blank_pair ()
         | Character when source[index] = '\'' ->
             blank source[index]
             index <- index + 1
@@ -225,14 +235,62 @@ let codeOnly (source: string) =
 
     result.ToString()
 
-let privateKeywordPattern = Regex(@"\bprivate\b", RegexOptions.Compiled)
+let private_keyword_pattern = Regex(@"\bprivate\b", RegexOptions.Compiled)
 
-let literalDeclarationPattern =
+let literal_declaration_pattern =
     Regex(@"\[<Literal>\]\s*let\s+(?:(?:private|internal|public)\s+)*(?<name>[A-Za-z_][\w']*)", RegexOptions.Compiled)
 
-let yellingSnakeCasePattern = Regex(@"^[A-Z][A-Z0-9_]*$", RegexOptions.Compiled)
+let yelling_snake_case_pattern = Regex(@"^[A-Z][A-Z0-9_]*$", RegexOptions.Compiled)
 
-let checkerSelfTests =
+let lower_camel_identifier_pattern =
+    Regex(@"(?<!\w)_*?(?<name>[a-z][A-Za-z0-9']*[A-Z][A-Za-z0-9']*)\b", RegexOptions.Compiled)
+
+let allowed_lower_camel_identifiers =
+    set [ "defaultArg"; "invalidArg"; "invalidOp"; "isNull"; "nullArg" ]
+
+let allowed_lower_camel_qualifiers =
+    set
+        [ "Array"
+          "Array2D"
+          "Array3D"
+          "Array4D"
+          "Async"
+          "LanguagePrimitives"
+          "List"
+          "Map"
+          "NativePtr"
+          "Operators"
+          "Option"
+          "Result"
+          "Seq"
+          "Set"
+          "Unchecked"
+          "ValueOption" ]
+
+let qualifier_before (source: string) (identifier_index: int) =
+    if identifier_index = 0 || source[identifier_index - 1] <> '.' then
+        None
+    else
+        let mutable start = identifier_index - 2
+
+        while start >= 0
+              && (Char.IsLetterOrDigit source[start]
+                  || source[start] = '_'
+                  || source[start] = '\'') do
+            start <- start - 1
+
+        let qualifier = source.Substring(start + 1, identifier_index - start - 2)
+        if qualifier = "" then None else Some qualifier
+
+let lower_camel_identifier_is_allowed (source: string) (matched: Match) =
+    let name = matched.Groups["name"].Value
+
+    allowed_lower_camel_identifiers.Contains name
+    || match qualifier_before source matched.Groups["name"].Index with
+       | Some qualifier -> allowed_lower_camel_qualifiers.Contains qualifier
+       | None -> false
+
+let checker_self_tests =
     [ "let private sample_rate = 120L", false
       "let internal sample_value: int = 1", false
       "let rec private loop (value: int) = loop value", false
@@ -258,13 +316,13 @@ let checkerSelfTests =
       "let run =\n    fun\n        (value: int)\n        -> value", false
       "let run =\n    fun\n        value\n        -> value", true ]
 
-for source, expectsViolation in checkerSelfTests do
-    let hasViolation = not (List.isEmpty (violationsInSource source))
+for source, expects_violation in checker_self_tests do
+    let has_violation = not (List.isEmpty (violations_in_source source))
 
-    if hasViolation <> expectsViolation then
+    if has_violation <> expects_violation then
         failwith $"Explicit-input lint self-test failed for: {source}"
 
-let privateKeywordSelfTests =
+let private_keyword_self_tests =
     [ "let private value = 1", true
       "let mutable private value = 1", true
       "let rec private loop (value: int) = loop value", true
@@ -276,11 +334,11 @@ let privateKeywordSelfTests =
       "let text = \"private\"", false
       "(* private *) let value = 1", false ]
 
-for source, expectsViolation in privateKeywordSelfTests do
-    if privateKeywordPattern.IsMatch(codeOnly source) <> expectsViolation then
+for source, expects_violation in private_keyword_self_tests do
+    if private_keyword_pattern.IsMatch(code_only source) <> expects_violation then
         failwith $"No-private lint self-test failed for: {source}"
 
-let literalNameSelfTests =
+let literal_name_self_tests =
     [ "CURRENT_VERSION", true
       "WM_RBUTTONDOWN", true
       "BUTTON_4_UP", true
@@ -288,69 +346,119 @@ let literalNameSelfTests =
       "CurrentVersion", false
       "4_BUTTON", false ]
 
-for name, expected in literalNameSelfTests do
-    if yellingSnakeCasePattern.IsMatch(name) <> expected then
+for name, expected in literal_name_self_tests do
+    if yelling_snake_case_pattern.IsMatch(name) <> expected then
         failwith $"Literal-name lint self-test failed for: {name}"
 
+let lower_camel_identifier_self_tests =
+    [ "let cameraLocation = viewport.CameraLocation", [ "cameraLocation" ]
+      "let camera_location = viewport.CameraLocation", []
+      "let struct (currentX, currentY) = unpack pair", [ "currentX"; "currentY" ]
+      "let run (minimumCapacity: uint32) = minimumCapacity", [ "minimumCapacity"; "minimumCapacity" ]
+      "let _cameraLocation = viewport.CameraLocation", [ "cameraLocation" ]
+      "let value = if isNull view then invalidOp text else value", []
+      "let value = Option.defaultValue fallback value", []
+      "let value = Project.headerSize", [ "headerSize" ]
+      "let total = Array.map2 (*) left right\nlet cameraLocation = viewport.CameraLocation", [ "cameraLocation" ]
+      "// let cameraLocation = value", []
+      "let text = \"cameraLocation\"", [] ]
+
+let lower_camel_identifiers (source: string) =
+    let code = code_only source
+
+    lower_camel_identifier_pattern.Matches code
+    |> Seq.cast<Match>
+    |> Seq.filter (lower_camel_identifier_is_allowed code >> not)
+    |> Seq.map (fun (matched: Match) -> matched.Groups["name"].Value)
+    |> Seq.toList
+
+for source, expected in lower_camel_identifier_self_tests do
+    let actual = lower_camel_identifiers source
+
+    if actual <> expected then
+        failwith $"Snake-case value lint self-test failed for: {source}; expected {expected}; got {actual}"
+
 let violations =
-    Directory.EnumerateFiles(sourceRoot, "*.fs", SearchOption.AllDirectories)
+    source_files ()
     |> Seq.collect (fun (path: string) ->
         File.ReadAllText path
-        |> violationsInSource
-        |> Seq.map (fun (lineNumber: int, line: string, kind: string) ->
-            $"{path}({lineNumber}): {kind} input is missing an explicit type: {line.Trim()}"))
+        |> violations_in_source
+        |> Seq.map (fun (line_number: int, line: string, kind: string) ->
+            $"{path}({line_number}): {kind} input is missing an explicit type: {line.Trim()}"))
     |> Seq.toList
 
-let privateKeywordViolations =
-    Directory.EnumerateFiles(sourceRoot, "*.fs", SearchOption.AllDirectories)
+let private_keyword_violations =
+    source_files ()
     |> Seq.collect (fun (path: string) ->
         let source = File.ReadAllText path
-        let code = codeOnly source
-        let sourceLines = source.Replace("\r\n", "\n").Split '\n'
+        let code = code_only source
+        let source_lines = source.Replace("\r\n", "\n").Split '\n'
 
-        privateKeywordPattern.Matches code
+        private_keyword_pattern.Matches code
         |> Seq.cast<Match>
         |> Seq.map (fun (matched: Match) ->
-            let lineNumber = code.AsSpan(0, matched.Index).Count '\n' + 1
+            let line_number = code.AsSpan(0, matched.Index).Count '\n' + 1
 
-            $"{path}({lineNumber}): the private keyword is not used in project source: {sourceLines[lineNumber - 1].Trim()}"))
+            $"{path}({line_number}): the private keyword is not used in project source: {source_lines[line_number - 1].Trim()}"))
     |> Seq.toList
 
-let literalNameViolations =
-    Directory.EnumerateFiles(sourceRoot, "*.fs", SearchOption.AllDirectories)
+let literal_name_violations =
+    source_files ()
     |> Seq.collect (fun (path: string) ->
         let source = File.ReadAllText path
-        let code = codeOnly source
+        let code = code_only source
 
-        literalDeclarationPattern.Matches code
+        literal_declaration_pattern.Matches code
         |> Seq.cast<Match>
         |> Seq.choose (fun (matched: Match) ->
             let name = matched.Groups["name"].Value
 
-            if yellingSnakeCasePattern.IsMatch name then
+            if yelling_snake_case_pattern.IsMatch name then
                 None
             else
-                let lineNumber =
+                let line_number =
                     source.Substring(0, matched.Index)
                     |> Seq.filter (fun (character: char) -> character = '\n')
                     |> Seq.length
                     |> (+) 1
 
-                Some $"{path}({lineNumber}): literal name must use YELLING_SNAKE_CASE: {name}"))
+                Some $"{path}({line_number}): literal name must use YELLING_SNAKE_CASE: {name}"))
+    |> Seq.toList
+
+let lower_camel_identifier_violations =
+    source_files ()
+    |> Seq.collect (fun (path: string) ->
+        let source = File.ReadAllText path
+        let code = code_only source
+        let source_lines = source.Replace("\r\n", "\n").Split '\n'
+
+        lower_camel_identifier_pattern.Matches code
+        |> Seq.cast<Match>
+        |> Seq.filter (lower_camel_identifier_is_allowed code >> not)
+        |> Seq.distinctBy (fun (matched: Match) -> matched.Groups["name"].Value)
+        |> Seq.map (fun (matched: Match) ->
+            let name = matched.Groups["name"].Value
+            let line_number = code.AsSpan(0, matched.Index).Count '\n' + 1
+
+            $"{path}({line_number}): value and parameter names must use snake_case: {name}: {source_lines[line_number - 1].Trim()}"))
     |> Seq.toList
 
 for violation in violations do
     Console.Error.WriteLine violation
 
-for violation in privateKeywordViolations do
+for violation in private_keyword_violations do
     Console.Error.WriteLine violation
 
-for violation in literalNameViolations do
+for violation in literal_name_violations do
+    Console.Error.WriteLine violation
+
+for violation in lower_camel_identifier_violations do
     Console.Error.WriteLine violation
 
 if
     not (List.isEmpty violations)
-    || not (List.isEmpty privateKeywordViolations)
-    || not (List.isEmpty literalNameViolations)
+    || not (List.isEmpty private_keyword_violations)
+    || not (List.isEmpty literal_name_violations)
+    || not (List.isEmpty lower_camel_identifier_violations)
 then
     Environment.Exit 1
