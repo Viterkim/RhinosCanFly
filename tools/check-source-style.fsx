@@ -118,11 +118,17 @@ let violations_in_source (source: string) =
         |> Seq.map (fun (kind: string) -> fragment.line_number, fragment.text, kind))
     |> Seq.toList
 
+type StringKind =
+    | Quoted
+    | Verbatim
+    | Triple
+
 type LexicalState =
     | Code
-    | String
-    | VerbatimString
-    | TripleString
+    | StringBody of StringKind * bool
+    | HoleCode of StringKind * int
+    | HoleFormat of StringKind
+    | HoleString of StringKind * int
     | Character
     | LineComment
     | BlockComment of int
@@ -132,41 +138,49 @@ let code_only (source: string) =
     let mutable state = Code
     let mutable index = 0
 
-    let blank (character: char) =
-        result.Append(if character = '\n' then '\n' else ' ') |> ignore
+    let starts_with (text: string) =
+        source.AsSpan(index).StartsWith(text.AsSpan(), StringComparison.Ordinal)
 
-    let blank_pair () =
-        blank source[index]
-        blank source[index + 1]
-        index <- index + 2
+    let blank_run (count: int) =
+        for offset = 0 to count - 1 do
+            let character = source[index + offset]
+            result.Append(if character = '\n' then '\n' else ' ') |> ignore
 
-    let blank_triple () =
-        blank source[index]
-        blank source[index + 1]
-        blank source[index + 2]
-        index <- index + 3
+        index <- index + count
+
+    let keep_run (count: int) =
+        result.Append(source, index, count) |> ignore
+        index <- index + count
+
+    let doubled_dollar () = index > 0 && source[index - 1] = '$'
 
     while index < source.Length do
         match state with
-        | Code when source.AsSpan(index).StartsWith("//".AsSpan(), StringComparison.Ordinal) ->
-            blank_pair ()
+        | Code when starts_with "//" ->
+            blank_run 2
             state <- LineComment
-        | Code when source.AsSpan(index).StartsWith("(*)".AsSpan(), StringComparison.Ordinal) ->
-            result.Append("(*)") |> ignore
-            index <- index + 3
-        | Code when source.AsSpan(index).StartsWith("(*".AsSpan(), StringComparison.Ordinal) ->
-            blank_pair ()
+        | Code when starts_with "(*)" -> keep_run 3
+        | Code when starts_with "(*" ->
+            blank_run 2
             state <- BlockComment 1
-        | Code when source.AsSpan(index).StartsWith("\"\"\"".AsSpan(), StringComparison.Ordinal) ->
-            blank_triple ()
-            state <- TripleString
-        | Code when source.AsSpan(index).StartsWith("@\"".AsSpan(), StringComparison.Ordinal) ->
-            blank_pair ()
-            state <- VerbatimString
+        | Code when starts_with "$\"\"\"" && not (doubled_dollar ()) ->
+            blank_run 4
+            state <- StringBody(Triple, true)
+        | Code when (starts_with "$@\"" || starts_with "@$\"") && not (doubled_dollar ()) ->
+            blank_run 3
+            state <- StringBody(Verbatim, true)
+        | Code when starts_with "$\"" && not (doubled_dollar ()) ->
+            blank_run 2
+            state <- StringBody(Quoted, true)
+        | Code when starts_with "\"\"\"" ->
+            blank_run 3
+            state <- StringBody(Triple, false)
+        | Code when starts_with "@\"" ->
+            blank_run 2
+            state <- StringBody(Verbatim, false)
         | Code when source[index] = '"' ->
-            blank source[index]
-            index <- index + 1
-            state <- String
+            blank_run 1
+            state <- StringBody(Quoted, false)
         | Code when source[index] = '\'' ->
             let simple_character = index + 2 < source.Length && source[index + 2] = '\''
 
@@ -176,62 +190,68 @@ let code_only (source: string) =
                 && source[index + 3] = '\''
 
             if simple_character || escaped_character then
-                blank source[index]
-                index <- index + 1
+                blank_run 1
                 state <- Character
             else
-                result.Append(source[index]) |> ignore
-                index <- index + 1
-        | Code ->
-            result.Append(source[index]) |> ignore
-            index <- index + 1
+                keep_run 1
+        | Code -> keep_run 1
         | LineComment when source[index] = '\n' ->
-            blank source[index]
-            index <- index + 1
+            blank_run 1
             state <- Code
-        | LineComment ->
-            blank source[index]
-            index <- index + 1
-        | BlockComment depth when source.AsSpan(index).StartsWith("(*".AsSpan(), StringComparison.Ordinal) ->
-            blank_pair ()
+        | LineComment -> blank_run 1
+        | BlockComment depth when starts_with "(*" ->
+            blank_run 2
             state <- BlockComment(depth + 1)
-        | BlockComment depth when source.AsSpan(index).StartsWith("*)".AsSpan(), StringComparison.Ordinal) ->
-            blank_pair ()
+        | BlockComment depth when starts_with "*)" ->
+            blank_run 2
             state <- if depth = 1 then Code else BlockComment(depth - 1)
-        | BlockComment _ ->
-            blank source[index]
-            index <- index + 1
-        | String when source[index] = '\\' && index + 1 < source.Length -> blank_pair ()
-        | String when source[index] = '"' ->
-            blank source[index]
-            index <- index + 1
+        | BlockComment _ -> blank_run 1
+        | StringBody(Triple, _) when starts_with "\"\"\"" ->
+            blank_run 3
             state <- Code
-        | String ->
-            blank source[index]
-            index <- index + 1
-        | VerbatimString when source.AsSpan(index).StartsWith("\"\"".AsSpan(), StringComparison.Ordinal) ->
-            blank_pair ()
-        | VerbatimString when source[index] = '"' ->
-            blank source[index]
-            index <- index + 1
+        | StringBody(Verbatim, _) when starts_with "\"\"" -> blank_run 2
+        | StringBody(Verbatim, _) when source[index] = '"' ->
+            blank_run 1
             state <- Code
-        | VerbatimString ->
-            blank source[index]
-            index <- index + 1
-        | TripleString when source.AsSpan(index).StartsWith("\"\"\"".AsSpan(), StringComparison.Ordinal) ->
-            blank_triple ()
+        | StringBody(Quoted, _) when source[index] = '\\' && index + 1 < source.Length -> blank_run 2
+        | StringBody(Quoted, _) when source[index] = '"' ->
+            blank_run 1
             state <- Code
-        | TripleString ->
-            blank source[index]
-            index <- index + 1
-        | Character when source[index] = '\\' && index + 1 < source.Length -> blank_pair ()
+        | StringBody(_, true) when starts_with "{{" || starts_with "}}" -> blank_run 2
+        | StringBody(kind, true) when source[index] = '{' ->
+            blank_run 1
+            state <- HoleCode(kind, 0)
+        | StringBody _ -> blank_run 1
+        | HoleCode(kind, depth) when source[index] = '"' ->
+            blank_run 1
+            state <- HoleString(kind, depth)
+        | HoleCode(kind, 0) when source[index] = '}' ->
+            blank_run 1
+            state <- StringBody(kind, true)
+        | HoleCode(kind, 0) when source[index] = ':' || source[index] = ',' ->
+            blank_run 1
+            state <- HoleFormat kind
+        | HoleCode(kind, depth) when source[index] = '(' || source[index] = '[' || source[index] = '{' ->
+            keep_run 1
+            state <- HoleCode(kind, depth + 1)
+        | HoleCode(kind, depth) when source[index] = ')' || source[index] = ']' || source[index] = '}' ->
+            keep_run 1
+            state <- HoleCode(kind, depth - 1)
+        | HoleCode _ -> keep_run 1
+        | HoleFormat kind when source[index] = '}' ->
+            blank_run 1
+            state <- StringBody(kind, true)
+        | HoleFormat _ -> blank_run 1
+        | HoleString(_, _) when source[index] = '\\' && index + 1 < source.Length -> blank_run 2
+        | HoleString(kind, depth) when source[index] = '"' ->
+            blank_run 1
+            state <- HoleCode(kind, depth)
+        | HoleString _ -> blank_run 1
+        | Character when source[index] = '\\' && index + 1 < source.Length -> blank_run 2
         | Character when source[index] = '\'' ->
-            blank source[index]
-            index <- index + 1
+            blank_run 1
             state <- Code
-        | Character ->
-            blank source[index]
-            index <- index + 1
+        | Character -> blank_run 1
 
     result.ToString()
 
@@ -245,8 +265,22 @@ let yelling_snake_case_pattern = Regex(@"^[A-Z][A-Z0-9_]*$", RegexOptions.Compil
 let lower_camel_identifier_pattern =
     Regex(@"(?<!\w)_*?(?<name>[a-z][A-Za-z0-9']*[A-Z][A-Za-z0-9']*)\b", RegexOptions.Compiled)
 
+// FSharp.Core functions that are camelCase and used without a qualifier. They
+// are library names a project value never gets to choose, so they are exempt
+// rather than renamed.
 let allowed_lower_camel_identifiers =
-    set [ "defaultArg"; "invalidArg"; "invalidOp"; "isNull"; "nullArg" ]
+    set
+        [ "defaultArg"
+          "defaultValueArg"
+          "invalidArg"
+          "invalidOp"
+          "isNull"
+          "isNullV"
+          "nonNull"
+          "nullArg"
+          "nullV"
+          "withNull"
+          "withNullV" ]
 
 let allowed_lower_camel_qualifiers =
     set
@@ -357,11 +391,27 @@ let lower_camel_identifier_self_tests =
       "let run (minimumCapacity: uint32) = minimumCapacity", [ "minimumCapacity"; "minimumCapacity" ]
       "let _cameraLocation = viewport.CameraLocation", [ "cameraLocation" ]
       "let value = if isNull view then invalidOp text else value", []
+      "let value = defaultValueArg candidate fallback", []
+      "let value = nonNull (withNull view)", []
       "let value = Option.defaultValue fallback value", []
       "let value = Project.headerSize", [ "headerSize" ]
       "let total = Array.map2 (*) left right\nlet cameraLocation = viewport.CameraLocation", [ "cameraLocation" ]
       "// let cameraLocation = value", []
-      "let text = \"cameraLocation\"", [] ]
+      "let text = \"cameraLocation\"", []
+      "let text = $\"{cameraLocation}\"", [ "cameraLocation" ]
+      "let text = $\"{camera_location}\"", []
+      "let text = $\"Camera {cameraLocation:g4} at {headingAngle,10}.\"", [ "cameraLocation"; "headingAngle" ]
+      "let text = $\"{stamp:yyyyMMdd}\"", []
+      "let text = $\"{Seq.tryPick chooser items} {Option.defaultValue fallbackValue value}\"", [ "fallbackValue" ]
+      "let text = $\"{values[keyName].CameraLocation}\"", [ "keyName" ]
+      "let text = $\"{{cameraLocation}}\"", []
+      "let text = $\"\"\"{join \"cameraLocation\" items}\"\"\"", []
+      "let text = $\"{items |> List.map (fun (item: Item) -> item.tagName)}\"", [ "tagName" ]
+      "let text = $\"\"\"{cameraLocation}\"\"\"", [ "cameraLocation" ]
+      "let text = $@\"{cameraLocation}\"", [ "cameraLocation" ]
+      "let text = @$\"{cameraLocation}\"", [ "cameraLocation" ]
+      "let text = $$\"\"\"{cameraLocation}\"\"\"", []
+      "let text = \"{cameraLocation}\"", [] ]
 
 let lower_camel_identifiers (source: string) =
     let code = code_only source
