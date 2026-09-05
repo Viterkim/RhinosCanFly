@@ -15,6 +15,15 @@ let WM_MOUSELEAVE = 0x02A3
 let TTM_POP = 0x041C
 
 [<Literal>]
+let TME_HOVER = 0x00000001u
+
+[<Literal>]
+let TME_LEAVE = 0x00000002u
+
+[<Literal>]
+let TME_CANCEL = 0x80000000u
+
+[<Literal>]
 let TOOLTIP_WINDOW_CLASS = "tooltips_class32"
 
 [<Literal>]
@@ -147,6 +156,13 @@ let VK_LMENU = 0xA4
 let VK_RMENU = 0xA5
 
 [<Struct; StructLayout(LayoutKind.Sequential)>]
+type TrackMouseEventData =
+    val mutable size: uint32
+    val mutable flags: uint32
+    val mutable track_window: nativeint
+    val mutable hover_time: uint32
+
+[<Struct; StructLayout(LayoutKind.Sequential)>]
 type NativePoint =
     val mutable x: int
     val mutable y: int
@@ -180,6 +196,9 @@ extern int16 GetAsyncKeyState(int virtual_key)
 
 [<DllImport("user32.dll", SetLastError = true)>]
 extern bool GetCursorPos(NativePoint& point)
+
+[<DllImport("user32.dll", SetLastError = true, EntryPoint = "TrackMouseEvent")>]
+extern bool TrackMouseEventNative(TrackMouseEventData& track)
 
 [<DllImport("user32.dll")>]
 extern nativeint WindowFromPoint(NativePoint point)

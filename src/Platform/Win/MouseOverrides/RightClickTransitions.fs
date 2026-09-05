@@ -127,14 +127,11 @@ let capture_needed (navigation: State) (state: RightClickState) =
 
 let requested_gesture_action (navigation: State) (modifiers: MouseModifiers) =
     let configured_action =
-        if modifiers.shift && not modifiers.alt && not modifiers.control then
-            navigation.routing.actions.shift_right_click
-        elif modifiers.alt && not modifiers.shift && not modifiers.control then
-            navigation.routing.actions.alt_right_click
-        elif modifiers.control && not modifiers.shift && not modifiers.alt then
-            navigation.routing.actions.ctrl_right_click
-        else
-            RoutedMouseAction.Off
+        match modifiers.shift, modifiers.alt, modifiers.control with
+        | true, false, false -> navigation.routing.actions.shift_right_click
+        | false, true, false -> navigation.routing.actions.alt_right_click
+        | false, false, true -> navigation.routing.actions.ctrl_right_click
+        | _ -> RoutedMouseAction.Off
 
     if RoutedMouseAction.enabled configured_action then
         ValueSome configured_action
@@ -486,19 +483,14 @@ let command_began (state: RightClickState) =
     | ButtonReleased _
     | FlightDispatched -> clear_action state
 
-let prune_released_button (state: RightClickState) =
-    if owns_button state then
-        if Win32Native.GetAsyncKeyState Win32Native.VK_RBUTTON < 0s then
-            state.button_ownership <- Owned
-        else
-            state.button_ownership <- ReleaseObserved
-
 let reconcile_physical_button (state: RightClickState) =
     if owns_button state then
         if Win32Native.GetAsyncKeyState Win32Native.VK_RBUTTON < 0s then
             state.button_ownership <- Owned
         else
             state.button_ownership <- ReleaseObserved
+
+let prune_released_button (state: RightClickState) = reconcile_physical_button state
 
 let parallel_zoom_host (state: RightClickState) =
     match state.gesture with

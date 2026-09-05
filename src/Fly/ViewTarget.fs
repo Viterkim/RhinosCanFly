@@ -75,6 +75,29 @@ let try_geometry_target_at (viewport: RhinoViewport) (point: ViewportClientPoint
 let try_geometry_target (viewport: RhinoViewport) =
     try_geometry_target_at viewport (viewport_center viewport)
 
+type GeometrySample =
+    | NotSampled
+    | SampledHit of Point3d
+    | SampledMiss
+
+type GeometrySampleState = { mutable sample: GeometrySample }
+
+let geometry_sample () = { sample = NotSampled }
+
+let sampled_geometry_target_at (state: GeometrySampleState) (viewport: RhinoViewport) (point: ViewportClientPoint) =
+    match state.sample with
+    | SampledHit target -> Some target
+    | SampledMiss -> None
+    | NotSampled ->
+        let result = try_geometry_target_at viewport point
+
+        state.sample <-
+            match result with
+            | Some target -> SampledHit target
+            | None -> SampledMiss
+
+        result
+
 let object_bounds (accurate: bool) (rhino_object: RhinoObject) =
     if isNull rhino_object then
         ValueNone
@@ -288,6 +311,7 @@ let selected_object_candidate
                     ValueSome(struct (rhino_object, center, depth))
 
 let try_object_target_candidate_at
+    (sample: GeometrySampleState)
     (selected_object_pick_mode: SelectedObjectPickMode)
     (view: RhinoView)
     (viewport: RhinoViewport)
@@ -357,7 +381,7 @@ let try_object_target_candidate_at
 
                         let geometry_target =
                             if check_selected_objects && exact_selected_hit then
-                                try_geometry_target_at viewport point
+                                sampled_geometry_target_at sample viewport point
                             else
                                 None
 
@@ -396,20 +420,30 @@ let try_object_target_candidate_at
         Debug.WriteLine $"RhinosCanFly filtered target: {error}"
         None
 
-let try_filtered_selection_at (view: RhinoView) (viewport: RhinoViewport) (point: ViewportClientPoint) =
-    match try_object_target_candidate_at ExactUnderCursor view viewport point with
+let try_filtered_selection_at
+    (sample: GeometrySampleState)
+    (view: RhinoView)
+    (viewport: RhinoViewport)
+    (point: ViewportClientPoint)
+    =
+    match try_object_target_candidate_at sample ExactUnderCursor view viewport point with
     | Some candidate ->
         // Framing needs the full box. Navigation can use the cached centre.
         object_selection viewport candidate.rhino_object
     | None -> None
 
-let try_filtered_target_at (view: RhinoView) (viewport: RhinoViewport) (point: ViewportClientPoint) =
-    match try_object_target_candidate_at BoundsWhenNothingElsePicked view viewport point with
+let try_filtered_target_at
+    (sample: GeometrySampleState)
+    (view: RhinoView)
+    (viewport: RhinoViewport)
+    (point: ViewportClientPoint)
+    =
+    match try_object_target_candidate_at sample BoundsWhenNothingElsePicked view viewport point with
     | Some candidate -> Some candidate.estimated_target
     | None -> None
 
 let try_filtered_target (view: RhinoView) (viewport: RhinoViewport) =
-    try_filtered_target_at view viewport (viewport_center viewport)
+    try_filtered_target_at (geometry_sample ()) view viewport (viewport_center viewport)
 
 let try_object_center_at
     (select: RhinoView -> RhinoViewport -> ViewportClientPoint -> 'Target option)
@@ -439,14 +473,24 @@ let try_object_center_at
         Debug.WriteLine $"RhinosCanFly object center selection: {error}"
         None
 
-let try_object_center_selection_at (view: RhinoView) (viewport: RhinoViewport) (point: ViewportClientPoint) =
-    try_object_center_at try_filtered_selection_at view viewport point
+let try_object_center_selection_at
+    (sample: GeometrySampleState)
+    (view: RhinoView)
+    (viewport: RhinoViewport)
+    (point: ViewportClientPoint)
+    =
+    try_object_center_at (try_filtered_selection_at sample) view viewport point
 
-let try_object_center_target_at (view: RhinoView) (viewport: RhinoViewport) (point: ViewportClientPoint) =
-    try_object_center_at try_filtered_target_at view viewport point
+let try_object_center_target_at
+    (sample: GeometrySampleState)
+    (view: RhinoView)
+    (viewport: RhinoViewport)
+    (point: ViewportClientPoint)
+    =
+    try_object_center_at (try_filtered_target_at sample) view viewport point
 
 let try_object_center_target (view: RhinoView) (viewport: RhinoViewport) =
-    try_object_center_target_at view viewport (viewport_center viewport)
+    try_object_center_target_at (geometry_sample ()) view viewport (viewport_center viewport)
 
 let retarget_distance (config: RetargetConfig) (speed: float) (viewport: RhinoViewport) =
     let (RetargetFallbackMultiplier multiplier) =
@@ -537,25 +581,30 @@ let selected_target_at
         | Some _ -> target
         | None -> distance_target_at config speed viewport point
 
+    let sample = geometry_sample ()
+
     match mode with
     | RetargetMode.Distance -> distance_target_at config speed viewport point
     | RetargetMode.SelectionCenter -> selection_center_target view viewport
     | RetargetMode.SelectionCenterThenDistance -> selection_center_target view viewport |> picked_or_distance
-    | RetargetMode.Geometry -> try_geometry_target_at viewport point
-    | RetargetMode.GeometryThenDistance -> try_geometry_target_at viewport point |> picked_or_distance
-    | RetargetMode.Target -> try_filtered_target_at view viewport point
-    | RetargetMode.TargetThenDistance -> try_filtered_target_at view viewport point |> picked_or_distance
-    | RetargetMode.ObjectCenter -> try_object_center_target_at view viewport point
-    | RetargetMode.ObjectCenterThenDistance -> try_object_center_target_at view viewport point |> picked_or_distance
+    | RetargetMode.Geometry -> sampled_geometry_target_at sample viewport point
+    | RetargetMode.GeometryThenDistance -> sampled_geometry_target_at sample viewport point |> picked_or_distance
+    | RetargetMode.Target -> try_filtered_target_at sample view viewport point
+    | RetargetMode.TargetThenDistance -> try_filtered_target_at sample view viewport point |> picked_or_distance
+    | RetargetMode.ObjectCenter -> try_object_center_target_at sample view viewport point
+    | RetargetMode.ObjectCenterThenDistance ->
+        try_object_center_target_at sample view viewport point |> picked_or_distance
     | RetargetMode.Off
     | _ -> None
 
 let try_geometry_selection_at (view: RhinoView) (viewport: RhinoViewport) (point: ViewportClientPoint) =
-    match try_geometry_target_at viewport point with
+    let sample = geometry_sample ()
+
+    match sampled_geometry_target_at sample viewport point with
     | None -> None
     | Some target ->
         let bounds =
-            match try_object_center_selection_at view viewport point with
+            match try_object_center_selection_at sample view viewport point with
             | Some selection -> selection.bounds
             | None -> ValueNone
 
@@ -635,6 +684,8 @@ let selected_selection_at
     (viewport: RhinoViewport)
     (point: ViewportClientPoint)
     =
+    let sample = geometry_sample ()
+
     match mode with
     | RetargetMode.Distance -> distance_selection_at config speed viewport point
     | RetargetMode.SelectionCenter -> selection_center_selection view viewport
@@ -647,14 +698,14 @@ let selected_selection_at
         match try_geometry_selection_at view viewport point with
         | Some selection -> Some selection
         | None -> distance_selection_at config speed viewport point
-    | RetargetMode.Target -> try_filtered_selection_at view viewport point
+    | RetargetMode.Target -> try_filtered_selection_at sample view viewport point
     | RetargetMode.TargetThenDistance ->
-        match try_filtered_selection_at view viewport point with
+        match try_filtered_selection_at sample view viewport point with
         | Some selection -> Some selection
         | None -> distance_selection_at config speed viewport point
-    | RetargetMode.ObjectCenter -> try_object_center_selection_at view viewport point
+    | RetargetMode.ObjectCenter -> try_object_center_selection_at sample view viewport point
     | RetargetMode.ObjectCenterThenDistance ->
-        match try_object_center_selection_at view viewport point with
+        match try_object_center_selection_at sample view viewport point with
         | Some selection -> Some selection
         | None -> distance_selection_at config speed viewport point
     | RetargetMode.Off

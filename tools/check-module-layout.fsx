@@ -1,6 +1,9 @@
+#load "source-lexer.fsx"
+
 open System
 open System.IO
 open System.Text.RegularExpressions
+open SourceLexer
 
 let source_root: string = fsi.CommandLineArgs |> Array.last
 
@@ -19,7 +22,7 @@ let namespace_value_pattern =
     Regex(@"^(?:type|exception|let|do)\b", RegexOptions.Compiled)
 
 let layout_violations_in_source (source: string) =
-    let lines = source.Replace("\r\n", "\n").Split '\n'
+    let lines = (code_only source).Replace("\r\n", "\n").Split '\n'
 
     let namespace_name =
         lines

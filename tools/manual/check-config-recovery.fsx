@@ -47,6 +47,66 @@ try
 
         require (not (repaired.document.ContainsKey "removed_setting")) "migration kept an unknown setting"
 
+    let empty_nested = ConfigDocument.to_object ConfigSchema.defaults
+    set_value empty_nested "viewport_capabilities" (JsonObject())
+
+    match ConfigRepair.repair_document empty_nested with
+    | Error error -> fail error
+    | Ok repaired ->
+        require
+            (repaired.config_file.viewport_capabilities = ConfigSchema.defaults.viewport_capabilities)
+            "empty nested object did not receive its schema defaults"
+
+    let partial_nested = ConfigDocument.to_object ConfigSchema.defaults
+    let partial_list = JsonObject()
+    partial_list["viewports"] <- JsonArray(JsonValue.Create "Perspective")
+    set_value partial_nested "viewport_capabilities" partial_list
+
+    match ConfigRepair.repair_document partial_nested with
+    | Error error -> fail error
+    | Ok repaired ->
+        require
+            (repaired.config_file.viewport_capabilities.mode = ConfigSchema.defaults.viewport_capabilities.mode)
+            "omitted nested mode did not receive its schema default"
+
+        require
+            (repaired.config_file.viewport_capabilities.viewports = [| "Perspective" |])
+            "nested repair discarded a supplied viewport list"
+
+    let explicit_disabled = ConfigDocument.to_object ConfigSchema.defaults
+    let disabled_list = JsonObject()
+    disabled_list["mode"] <- JsonValue.Create(string ViewportNameListMode.DisabledAll)
+    disabled_list["viewports"] <- JsonArray()
+    set_value explicit_disabled "viewport_capabilities" disabled_list
+
+    match ConfigRepair.repair_document explicit_disabled with
+    | Error error -> fail error
+    | Ok repaired ->
+        require
+            (repaired.config_file.viewport_capabilities.mode = ViewportNameListMode.DisabledAll)
+            "explicit disabled mode was not preserved"
+
+        require
+            (Array.isEmpty repaired.config_file.viewport_capabilities.viewports)
+            "explicit empty viewport list was not preserved"
+
+    let malformed_nested = ConfigDocument.to_object ConfigSchema.defaults
+    let malformed_list = JsonObject()
+    malformed_list["mode"] <- JsonValue.Create "broken"
+    malformed_list["viewports"] <- JsonArray(JsonValue.Create "Top")
+    set_value malformed_nested "viewport_capabilities" malformed_list
+
+    match ConfigRepair.repair_document malformed_nested with
+    | Error error -> fail error
+    | Ok repaired ->
+        require
+            (repaired.config_file.viewport_capabilities.mode = ConfigSchema.defaults.viewport_capabilities.mode)
+            "malformed nested mode was not reset"
+
+        require
+            (repaired.config_file.viewport_capabilities.viewports = [| "Top" |])
+            "malformed nested mode repair discarded a valid list"
+
     ConfigStorage.initialize temporary_directory
 
     let config_path = ConfigStorage.path ()

@@ -143,6 +143,10 @@ let dismiss_native_tooltips (root_window: RootWindow) =
     let (RootWindow window) = root_window
     Win32.dismiss_native_tooltips window
 
+let prepare_viewport_for_navigation (view: RhinoView) (root_window: RootWindow) =
+    clear_mouse_hover view
+    dismiss_native_tooltips root_window
+
 let update_window (view: RhinoView) = Win32.update_window view.Handle
 
 let request_application_redraw () =

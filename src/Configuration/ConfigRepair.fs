@@ -84,6 +84,71 @@ let add_missing_properties (json: JsonObject) (defaults: JsonObject) =
 
     List.ofSeq added
 
+let nested_object_names (defaults: JsonObject) =
+    defaults
+    |> Seq.choose (fun (property: KeyValuePair<string, JsonNode>) ->
+        match property.Value with
+        | :? JsonObject -> Some property.Key
+        | _ -> None)
+    |> List.ofSeq
+
+let nested_children (json: JsonObject) (defaults: JsonObject) =
+    nested_object_names defaults
+    |> List.choose (fun (name: string) ->
+        match json[name], defaults[name] with
+        | (:? JsonObject as child), (:? JsonObject as child_defaults) -> Some(name, child, child_defaults)
+        | _ -> None)
+
+let repair_nested_members (json: JsonObject) (defaults: JsonObject) =
+    let repaired = ResizeArray<string>()
+
+    for name, child, child_defaults in nested_children json defaults do
+        let removed, renamed = canonicalize_properties child child_defaults
+
+        if removed > 0 then
+            repaired.Add $"{name}: removed {removed} unknown member(s)"
+
+        if renamed > 0 then
+            repaired.Add $"{name}: normalized {renamed} member name(s)"
+
+        for added in add_missing_properties child child_defaults do
+            repaired.Add $"added missing setting {name}.{added}"
+
+    List.ofSeq repaired
+
+let repair_nested_values (json: JsonObject) (defaults: JsonObject) =
+    match ConfigDocument.deserialize json with
+    | Ok _ -> []
+    | Error _ ->
+        let repaired = ResizeArray<string>()
+
+        for name, child, child_defaults in nested_children json defaults do
+            let originals =
+                child_defaults
+                |> Seq.map (fun (property: KeyValuePair<string, JsonNode>) ->
+                    property.Key, ConfigDocument.clone child[property.Key])
+                |> List.ofSeq
+
+            for member_property: KeyValuePair<string, JsonNode> in child_defaults do
+                child[member_property.Key] <- ConfigDocument.clone member_property.Value
+
+            match ConfigDocument.deserialize json with
+            | Error _ ->
+                for key, original in originals do
+                    child[key] <- original
+            | Ok _ ->
+                for key, original in originals do
+                    let defaulted = ConfigDocument.clone child[key]
+                    child[key] <- original
+
+                    match ConfigDocument.deserialize json with
+                    | Ok _ -> ()
+                    | Error _ ->
+                        child[key] <- defaulted
+                        repaired.Add $"{name}.{key}"
+
+        List.ofSeq repaired
+
 let apply_typed_repairs (source: FlyConfigFile) (issues: ConfigCompiler.ConfigIssue list) =
     issues
     |> List.fold (fun (current: FlyConfigFile) (issue: ConfigCompiler.ConfigIssue) -> issue.repair current) source
@@ -135,6 +200,16 @@ let repair_document (source_json: JsonObject) =
         if not (List.isEmpty added) then
             messages.Add $"added {List.length added} missing setting(s)"
 
+        let nested_repairs = repair_nested_members json defaults
+
+        for message in nested_repairs do
+            messages.Add message
+
+        let nested_malformed = repair_nested_values json defaults
+
+        for name in nested_malformed do
+            messages.Add $"reset {name}: malformed value"
+
         let malformed = repair_malformed_values json defaults
 
         for name in malformed do
@@ -160,6 +235,8 @@ let repair_document (source_json: JsonObject) =
             || removed > 0
             || renamed > 0
             || not (List.isEmpty added)
+            || not (List.isEmpty nested_repairs)
+            || not (List.isEmpty nested_malformed)
             || not (List.isEmpty malformed)
             || json.ToJsonString() <> before
 

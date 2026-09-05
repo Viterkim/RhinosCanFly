@@ -138,6 +138,28 @@ type RhinosCanFlyOptionsPage() =
 
     let control = lazy (new SettingsControl())
     let mutable input_suspension: InputSuspensionLease option = None
+    let mutable baseline: FlyConfigFile option = None
+    let mutable baseline_unavailable = false
+    let mutable committed = false
+
+    let copy_viewport_list (source: ViewportNameListFile) =
+        { source with
+            viewports =
+                if isNull source.viewports then
+                    Array.empty
+                else
+                    Array.copy source.viewports }
+
+    let snapshot (source: FlyConfigFile) =
+        { source with
+            viewport_capabilities = copy_viewport_list source.viewport_capabilities
+            right_click_flight_entry = copy_viewport_list source.right_click_flight_entry }
+
+    let capture_baseline () =
+        if Option.isNone baseline && not baseline_unavailable then
+            match RuntimeSettings.current () with
+            | Ok result -> baseline <- Some(snapshot result.config_file)
+            | Error _ -> baseline_unavailable <- true
 
     let save_scroll_position () =
         if control.IsValueCreated then
@@ -188,6 +210,7 @@ type RhinosCanFlyOptionsPage() =
                 false
             | Ok() ->
                 try
+                    capture_baseline ()
                     Settings.load control.Value
                     control.Value.SetScrollPosition SettingsScrollPosition.rhino_options
                     true
@@ -217,7 +240,11 @@ type RhinosCanFlyOptionsPage() =
 
                 let saved = Settings.save control.Value
 
-                if saved then resume_input_after_options () else false
+                if saved then
+                    committed <- true
+                    resume_input_after_options ()
+                else
+                    false
             else
                 resume_input_after_options ()
         with error ->
@@ -225,11 +252,37 @@ type RhinosCanFlyOptionsPage() =
             false
 
     override _.OnCancel() =
+        let mutable restored = true
+
         try
             save_scroll_position ()
 
             if control.IsValueCreated then
                 control.Value.CancelBindingCapture()
+
+            if committed then
+                match baseline with
+                | Some original ->
+                    let differs =
+                        match RuntimeSettings.current () with
+                        | Ok result -> result.config_file <> original
+                        | Error _ -> true
+
+                    if differs then
+                        match RuntimeSettings.save_and_apply original with
+                        | Ok _ -> committed <- false
+                        | Error error ->
+                            restored <- false
+                            SettingsUi.report_error $"RhinosCanFly could not restore settings on cancel: {error}"
+                    else
+                        committed <- false
+                | None ->
+                    restored <- false
+
+                    SettingsUi.report_error
+                        "RhinosCanFly could not restore settings on cancel: the original configuration was not available"
+
+            if control.IsValueCreated && restored then
                 Settings.load control.Value
         with error ->
             SettingsUi.report_error $"RhinosCanFly Options cancel failed: {error.Message}"

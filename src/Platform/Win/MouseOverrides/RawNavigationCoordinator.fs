@@ -438,6 +438,8 @@ let start (state: State) (requested: DesiredNavigation) =
         state.session <- Some(StartingTransport transport)
 
         try
+            PlatformInput.prepare_viewport_for_navigation transport.View requested.host.root_window
+
             let pivot_center =
                 match requested.pivot_center with
                 | ValueSome center when center.IsValid -> center

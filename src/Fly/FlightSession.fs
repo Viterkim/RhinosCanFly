@@ -408,8 +408,7 @@ let enter_active (session_mode: FlightSessionMode) (session: ActiveSession) =
         session.cursor_hidden <- true
         PlatformInput.hide_cursor ()
 
-        PlatformInput.clear_mouse_hover state.view
-        PlatformInput.dismiss_native_tooltips state.host_identity.root_window
+        PlatformInput.prepare_viewport_for_navigation state.view state.host_identity.root_window
 
         if state.config.behavior.hide_gumball && session.original_gumball_enabled then
             session.gumball_changed <- true

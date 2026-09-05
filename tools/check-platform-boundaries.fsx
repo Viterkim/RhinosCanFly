@@ -1,6 +1,9 @@
+#load "source-lexer.fsx"
+
 open System
 open System.IO
 open System.Text.RegularExpressions
+open SourceLexer
 
 let source_root = fsi.CommandLineArgs |> Array.last |> Path.GetFullPath
 let platform_root = Path.Combine(source_root, "Platform") |> Path.GetFullPath
@@ -33,7 +36,8 @@ let violations =
     Directory.EnumerateFiles(source_root, "*.fs", SearchOption.AllDirectories)
     |> Seq.filter (is_inside platform_root >> not)
     |> Seq.collect (fun (path: string) ->
-        File.ReadLines path
+        code_only (File.ReadAllText path)
+        |> fun (code: string) -> code.Replace("\r\n", "\n").Split '\n'
         |> Seq.mapi (fun (index: int) (line: string) -> index + 1, line)
         |> Seq.collect (fun (line_number: int, line: string) ->
             forbidden

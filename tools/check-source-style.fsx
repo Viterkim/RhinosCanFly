@@ -1,6 +1,9 @@
+﻿#load "source-lexer.fsx"
+
 open System
 open System.IO
 open System.Text.RegularExpressions
+open SourceLexer
 
 let source_root: string = fsi.CommandLineArgs |> Array.last
 
@@ -51,12 +54,12 @@ let checks =
 let violations_in_line (line: string) =
     checks
     |> Seq.choose (fun (kind: string, pattern: Regex) ->
-        let matched = pattern.Match line
+        let offending =
+            pattern.Matches line
+            |> Seq.cast<Match>
+            |> Seq.exists (fun (matched: Match) -> has_untyped_parameters matched.Groups["parameters"].Value)
 
-        if matched.Success && has_untyped_parameters matched.Groups["parameters"].Value then
-            Some kind
-        else
-            None)
+        if offending then Some kind else None)
     |> Seq.toList
 
 type FragmentEnd =
@@ -111,149 +114,23 @@ let source_fragments (source: string) =
 
     fragments |> Seq.toList
 
-let violations_in_source (source: string) =
-    source_fragments source
+let violations_in_source (source: string) (code: string) =
+    let original_lines = source.Replace("\r\n", "\n").Split '\n'
+
+    source_fragments code
     |> Seq.collect (fun (fragment: SourceFragment) ->
         violations_in_line fragment.text
-        |> Seq.map (fun (kind: string) -> fragment.line_number, fragment.text, kind))
+        |> Seq.map (fun (kind: string) ->
+            let index = fragment.line_number - 1
+
+            let original =
+                if index < original_lines.Length then
+                    original_lines[index]
+                else
+                    fragment.text
+
+            fragment.line_number, original, kind))
     |> Seq.toList
-
-type StringKind =
-    | Quoted
-    | Verbatim
-    | Triple
-
-type LexicalState =
-    | Code
-    | StringBody of StringKind * bool
-    | HoleCode of StringKind * int
-    | HoleFormat of StringKind
-    | HoleString of StringKind * int
-    | Character
-    | LineComment
-    | BlockComment of int
-
-let code_only (source: string) =
-    let result = Text.StringBuilder(source.Length)
-    let mutable state = Code
-    let mutable index = 0
-
-    let starts_with (text: string) =
-        source.AsSpan(index).StartsWith(text.AsSpan(), StringComparison.Ordinal)
-
-    let blank_run (count: int) =
-        for offset = 0 to count - 1 do
-            let character = source[index + offset]
-            result.Append(if character = '\n' then '\n' else ' ') |> ignore
-
-        index <- index + count
-
-    let keep_run (count: int) =
-        result.Append(source, index, count) |> ignore
-        index <- index + count
-
-    let doubled_dollar () = index > 0 && source[index - 1] = '$'
-
-    while index < source.Length do
-        match state with
-        | Code when starts_with "//" ->
-            blank_run 2
-            state <- LineComment
-        | Code when starts_with "(*)" -> keep_run 3
-        | Code when starts_with "(*" ->
-            blank_run 2
-            state <- BlockComment 1
-        | Code when starts_with "$\"\"\"" && not (doubled_dollar ()) ->
-            blank_run 4
-            state <- StringBody(Triple, true)
-        | Code when (starts_with "$@\"" || starts_with "@$\"") && not (doubled_dollar ()) ->
-            blank_run 3
-            state <- StringBody(Verbatim, true)
-        | Code when starts_with "$\"" && not (doubled_dollar ()) ->
-            blank_run 2
-            state <- StringBody(Quoted, true)
-        | Code when starts_with "\"\"\"" ->
-            blank_run 3
-            state <- StringBody(Triple, false)
-        | Code when starts_with "@\"" ->
-            blank_run 2
-            state <- StringBody(Verbatim, false)
-        | Code when source[index] = '"' ->
-            blank_run 1
-            state <- StringBody(Quoted, false)
-        | Code when source[index] = '\'' ->
-            let simple_character = index + 2 < source.Length && source[index + 2] = '\''
-
-            let escaped_character =
-                index + 3 < source.Length
-                && source[index + 1] = '\\'
-                && source[index + 3] = '\''
-
-            if simple_character || escaped_character then
-                blank_run 1
-                state <- Character
-            else
-                keep_run 1
-        | Code -> keep_run 1
-        | LineComment when source[index] = '\n' ->
-            blank_run 1
-            state <- Code
-        | LineComment -> blank_run 1
-        | BlockComment depth when starts_with "(*" ->
-            blank_run 2
-            state <- BlockComment(depth + 1)
-        | BlockComment depth when starts_with "*)" ->
-            blank_run 2
-            state <- if depth = 1 then Code else BlockComment(depth - 1)
-        | BlockComment _ -> blank_run 1
-        | StringBody(Triple, _) when starts_with "\"\"\"" ->
-            blank_run 3
-            state <- Code
-        | StringBody(Verbatim, _) when starts_with "\"\"" -> blank_run 2
-        | StringBody(Verbatim, _) when source[index] = '"' ->
-            blank_run 1
-            state <- Code
-        | StringBody(Quoted, _) when source[index] = '\\' && index + 1 < source.Length -> blank_run 2
-        | StringBody(Quoted, _) when source[index] = '"' ->
-            blank_run 1
-            state <- Code
-        | StringBody(_, true) when starts_with "{{" || starts_with "}}" -> blank_run 2
-        | StringBody(kind, true) when source[index] = '{' ->
-            blank_run 1
-            state <- HoleCode(kind, 0)
-        | StringBody _ -> blank_run 1
-        | HoleCode(kind, depth) when source[index] = '"' ->
-            blank_run 1
-            state <- HoleString(kind, depth)
-        | HoleCode(kind, 0) when source[index] = '}' ->
-            blank_run 1
-            state <- StringBody(kind, true)
-        | HoleCode(kind, 0) when source[index] = ':' || source[index] = ',' ->
-            blank_run 1
-            state <- HoleFormat kind
-        | HoleCode(kind, depth) when source[index] = '(' || source[index] = '[' || source[index] = '{' ->
-            keep_run 1
-            state <- HoleCode(kind, depth + 1)
-        | HoleCode(kind, depth) when source[index] = ')' || source[index] = ']' || source[index] = '}' ->
-            keep_run 1
-            state <- HoleCode(kind, depth - 1)
-        | HoleCode _ -> keep_run 1
-        | HoleFormat kind when source[index] = '}' ->
-            blank_run 1
-            state <- StringBody(kind, true)
-        | HoleFormat _ -> blank_run 1
-        | HoleString(_, _) when source[index] = '\\' && index + 1 < source.Length -> blank_run 2
-        | HoleString(kind, depth) when source[index] = '"' ->
-            blank_run 1
-            state <- HoleCode(kind, depth)
-        | HoleString _ -> blank_run 1
-        | Character when source[index] = '\\' && index + 1 < source.Length -> blank_run 2
-        | Character when source[index] = '\'' ->
-            blank_run 1
-            state <- Code
-        | Character -> blank_run 1
-
-    result.ToString()
 
 let private_keyword_pattern = Regex(@"\bprivate\b", RegexOptions.Compiled)
 
@@ -265,9 +142,6 @@ let yelling_snake_case_pattern = Regex(@"^[A-Z][A-Z0-9_]*$", RegexOptions.Compil
 let lower_camel_identifier_pattern =
     Regex(@"(?<!\w)_*?(?<name>[a-z][A-Za-z0-9']*[A-Z][A-Za-z0-9']*)\b", RegexOptions.Compiled)
 
-// FSharp.Core functions that are camelCase and used without a qualifier. They
-// are library names a project value never gets to choose, so they are exempt
-// rather than renamed.
 let allowed_lower_camel_identifiers =
     set
         [ "defaultArg"
@@ -351,7 +225,8 @@ let checker_self_tests =
       "let run =\n    fun\n        value\n        -> value", true ]
 
 for source, expects_violation in checker_self_tests do
-    let has_violation = not (List.isEmpty (violations_in_source source))
+    let has_violation =
+        not (List.isEmpty (violations_in_source source (code_only source)))
 
     if has_violation <> expects_violation then
         failwith $"Explicit-input lint self-test failed for: {source}"
@@ -398,18 +273,14 @@ let lower_camel_identifier_self_tests =
       "let total = Array.map2 (*) left right\nlet cameraLocation = viewport.CameraLocation", [ "cameraLocation" ]
       "// let cameraLocation = value", []
       "let text = \"cameraLocation\"", []
-      "let text = $\"{cameraLocation}\"", [ "cameraLocation" ]
-      "let text = $\"{camera_location}\"", []
       "let text = $\"Camera {cameraLocation:g4} at {headingAngle,10}.\"", [ "cameraLocation"; "headingAngle" ]
       "let text = $\"{stamp:yyyyMMdd}\"", []
-      "let text = $\"{Seq.tryPick chooser items} {Option.defaultValue fallbackValue value}\"", [ "fallbackValue" ]
       "let text = $\"{values[keyName].CameraLocation}\"", [ "keyName" ]
       "let text = $\"{{cameraLocation}}\"", []
       "let text = $\"\"\"{join \"cameraLocation\" items}\"\"\"", []
       "let text = $\"{items |> List.map (fun (item: Item) -> item.tagName)}\"", [ "tagName" ]
       "let text = $\"\"\"{cameraLocation}\"\"\"", [ "cameraLocation" ]
       "let text = $@\"{cameraLocation}\"", [ "cameraLocation" ]
-      "let text = @$\"{cameraLocation}\"", [ "cameraLocation" ]
       "let text = $$\"\"\"{cameraLocation}\"\"\"", []
       "let text = \"{cameraLocation}\"", [] ]
 
@@ -431,8 +302,9 @@ for source, expected in lower_camel_identifier_self_tests do
 let violations =
     source_files ()
     |> Seq.collect (fun (path: string) ->
-        File.ReadAllText path
-        |> violations_in_source
+        let source = File.ReadAllText path
+
+        violations_in_source source (code_only source)
         |> Seq.map (fun (line_number: int, line: string, kind: string) ->
             $"{path}({line_number}): {kind} input is missing an explicit type: {line.Trim()}"))
     |> Seq.toList

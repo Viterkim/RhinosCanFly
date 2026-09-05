@@ -59,8 +59,18 @@ let clip_cursor (rectangle: Rectangle) =
         Error(last_error "ClipCursor")
 
 let clear_mouse_hover (window: nativeint) =
-    Win32Native.PostMessage(window, Win32Native.WM_MOUSELEAVE, nativeint 0, nativeint 0)
-    |> ignore
+    if window <> nativeint 0 then
+        let mutable track = Win32Native.TrackMouseEventData()
+        track.size <- uint32 (Marshal.SizeOf<Win32Native.TrackMouseEventData>())
+
+        track.flags <- Win32Native.TME_CANCEL ||| Win32Native.TME_HOVER ||| Win32Native.TME_LEAVE
+
+        track.track_window <- window
+        track.hover_time <- 0u
+        Win32Native.TrackMouseEventNative &track |> ignore
+
+        Win32Native.PostMessage(window, Win32Native.WM_MOUSELEAVE, nativeint 0, nativeint 0)
+        |> ignore
 
 let dismiss_native_tooltips (window: nativeint) =
     let mutable process_id = 0u
