@@ -78,6 +78,15 @@ let KEYBOARD_SCAN_CODE_SHIFT = 16
 let RIGHT_SHIFT_SCAN_CODE = 0x36
 
 [<Literal>]
+let WM_LBUTTONDOWN = 0x0201
+
+[<Literal>]
+let WM_LBUTTONUP = 0x0202
+
+[<Literal>]
+let WM_LBUTTONDBLCLK = 0x0203
+
+[<Literal>]
 let WM_RBUTTONDOWN = 0x0204
 
 [<Literal>]
@@ -112,6 +121,9 @@ let XBUTTON2 = 0x0002u
 
 [<Literal>]
 let VK_LBUTTON = 0x01
+
+[<Literal>]
+let VK_CANCEL = 0x03
 
 [<Literal>]
 let VK_RBUTTON = 0x02
@@ -193,6 +205,12 @@ type WindowsHook =
 
 [<DllImport("user32.dll")>]
 extern int16 GetAsyncKeyState(int virtual_key)
+
+[<DllImport("user32.dll")>]
+extern int GetSystemMetrics(int index)
+
+[<Literal>]
+let SM_SWAPBUTTON = 23
 
 [<DllImport("user32.dll", SetLastError = true)>]
 extern bool GetCursorPos(NativePoint& point)

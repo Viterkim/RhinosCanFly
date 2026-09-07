@@ -12,8 +12,10 @@ type RuntimeEnableOverride =
     | ForceDisabled
 
 let mutable loaded_config: ConfigLoadResult option = None
+let mutable activation_error: string option = None
 let mutable runtime_enable_override = RuntimeEnableOverride.FollowConfig
 let input_suspension_ids = HashSet<int64>()
+let mutable startup_retry: Eto.Forms.UITimer option = None
 
 let record_exception (context: string) (error: exn) =
     let details = $"{DateTimeOffset.Now:O} {context}{Environment.NewLine}{error}"
@@ -25,9 +27,10 @@ let record_exception (context: string) (error: exn) =
         Debug.WriteLine $"RhinosCanFly exception output failed: {output_error}"
 
 let current () =
-    match loaded_config with
-    | Some loaded -> Ok loaded
-    | None -> Error "The configuration has not been loaded. Restart Rhino and try again."
+    match loaded_config, activation_error with
+    | Some loaded, None -> Ok loaded
+    | _, Some error -> Error error
+    | None, None -> Error "The configuration has not been loaded. Open RhinosCanFly Options to retry."
 
 let input_suspended () = input_suspension_ids.Count > 0
 
@@ -39,7 +42,7 @@ let runtime_enabled_for (config: FlyConfigFile) =
 
 let runtime_enabled () =
     match loaded_config with
-    | Some loaded -> runtime_enabled_for loaded.config_file
+    | Some loaded -> Option.isNone activation_error && runtime_enabled_for loaded.config_file
     | None -> false
 
 let apply_live (loaded: ConfigLoadResult) =
@@ -122,7 +125,9 @@ let toggle_runtime_enabled () =
 
             match apply_live loaded with
             | Ok() -> Error error
-            | Error rollback_error -> Error $"{error}; rollback failed: {rollback_error}"
+            | Error rollback_error ->
+                activation_error <- Some rollback_error
+                Error $"{error}; rollback failed: {rollback_error}"
 
 let suspend_input () =
     let platform_result =
@@ -170,12 +175,6 @@ let resume_input (lease: InputSuspensionLease) =
             Ok()
         | Error error -> Error error
 
-let complete_input_recovery () =
-    if input_suspension_ids.Count > 0 then
-        Error "Input is still suspended by an active command."
-    else
-        current () |> Result.bind apply_live
-
 let candidate (config: FlyConfigFile) =
     let source = ConfigSchema.normalize config
 
@@ -191,21 +190,24 @@ let save_and_apply (config: FlyConfigFile) =
     match candidate config with
     | Error error -> Error error
     | Ok requested ->
-        match loaded_config with
-        | None ->
-            match ConfigStorage.save requested.config_file with
-            | Error error -> Error $"Could not save settings: {error}"
-            | Ok saved ->
-                match apply_live saved with
-                | Ok() ->
-                    loaded_config <- Some saved
-                    Ok saved
-                | Error error -> Error error
-        | Some previous ->
+        let previous =
+            match loaded_config with
+            | Some loaded -> Ok loaded
+            | None -> ConfigStorage.load ()
+
+        match previous with
+        | Error error -> Error $"Could not load the original settings: {error}"
+        | Ok previous ->
+            loaded_config <- Some previous
+
             let rollback (error: string) =
                 match apply_live previous with
-                | Ok() -> Error error
-                | Error rollback_error -> Error $"{error}; rollback failed: {rollback_error}"
+                | Ok() ->
+                    activation_error <- None
+                    Error error
+                | Error rollback_error ->
+                    activation_error <- Some rollback_error
+                    Error $"{error}; rollback failed: {rollback_error}"
 
             match apply_live requested with
             | Error error -> rollback error
@@ -213,18 +215,92 @@ let save_and_apply (config: FlyConfigFile) =
                 match ConfigStorage.save requested.config_file with
                 | Ok saved ->
                     loaded_config <- Some saved
+                    activation_error <- None
                     Ok saved
                 | Error error -> rollback $"Could not save settings: {error}"
 
-let load_and_apply () =
-    match ConfigStorage.load () with
+let apply_loaded (result: Result<ConfigLoadResult, string>) =
+    match result with
     | Ok loaded ->
         loaded_config <- Some loaded
 
-        if input_suspension_ids.Count > 0 then
-            Ok()
-        else
-            apply_live loaded
+        match apply_live loaded with
+        | Ok() ->
+            activation_error <- None
+            Ok loaded
+        | Error error ->
+            activation_error <- Some error
+            Error error
     | Error error -> Error error
 
-let shutdown () = input_suspension_ids.Clear()
+let reload () = ConfigStorage.load () |> apply_loaded
+
+let complete_input_recovery () =
+    if input_suspension_ids.Count > 0 then
+        Error "Input is still suspended by an active command."
+    else
+        match loaded_config with
+        | Some loaded -> apply_loaded (Ok loaded) |> Result.map ignore
+        | None -> Error "The configuration has not been loaded. Open RhinosCanFly Options to retry."
+
+let resolve () =
+    match loaded_config with
+    | Some loaded ->
+        if Option.isSome activation_error then
+            apply_loaded (Ok loaded) |> ignore
+
+        Ok loaded
+    | None ->
+        let result = ConfigStorage.load ()
+        apply_loaded result |> ignore
+        result
+
+let initialize () =
+    let report_loaded (result: Result<ConfigLoadResult, string>) =
+        match apply_loaded result with
+        | Ok _ -> ()
+        | Error error -> RhinoApp.WriteLine $"RhinosCanFly settings unavailable: {error}"
+
+    match ConfigStorage.try_load () with
+    | ValueSome result -> report_loaded result
+    | ValueNone ->
+        let started = Stopwatch.GetTimestamp()
+        let timer = new Eto.Forms.UITimer(Interval = 0.1)
+        startup_retry <- Some timer
+
+        timer.Elapsed.Add(fun (_: EventArgs) ->
+            try
+                let result =
+                    if Option.isSome loaded_config then
+                        ValueSome(Ok loaded_config.Value)
+                    elif float (Stopwatch.GetTimestamp() - started) / float Stopwatch.Frequency >= 2. then
+                        ValueSome(Error "Settings remained locked for two seconds. Open Options to retry loading.")
+                    else
+                        ConfigStorage.try_load ()
+
+                match result with
+                | ValueNone -> ()
+                | ValueSome result ->
+                    timer.Stop()
+                    startup_retry <- None
+                    timer.Dispose()
+
+                    if Option.isNone loaded_config then
+                        report_loaded result
+            with error ->
+                timer.Stop()
+                startup_retry <- None
+                timer.Dispose()
+                record_exception "RhinosCanFly settings startup retry failed" error)
+
+        timer.Start()
+
+let shutdown () =
+    match startup_retry with
+    | Some timer ->
+        timer.Stop()
+        timer.Dispose()
+        startup_retry <- None
+    | None -> ()
+
+    input_suspension_ids.Clear()

@@ -176,11 +176,29 @@ let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) (st
     let keyboard_actions =
         PlatformFlightKeyboard.apply_raw_mouse_button_transition transition
 
-    let mutable effect = apply_keyboard_actions keyboard_actions state
+    let mouse = state.config.mouse
+
+    let mutable effect =
+        match
+            InputAccumulator.event_exit
+                state.session_mode.lifetime
+                mouse.exit_on_left
+                mouse.exit_on_right
+                keyboard_actions
+                transition.event
+        with
+        | Some reason ->
+            let reason =
+                if reason = ExplicitKeepCamera then
+                    explicit_exit_reason state
+                else
+                    reason
+
+            FlyState.request_exit reason state
+            InputEffect.none
+        | None -> apply_keyboard_actions keyboard_actions state
 
     if FlyState.is_running state then
-        let mouse = state.config.mouse
-
         match transition.event with
         | RawMouseButtonEvent.MiddleDown ->
             effect <- InputEffect.combine effect (apply_mouse_action_down MIDDLE_BUTTON_BIT mouse.middle_button state)
@@ -191,11 +209,6 @@ let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) (st
         | RawMouseButtonEvent.Mouse5Down ->
             effect <- InputEffect.combine effect (apply_mouse_action_down MOUSE5_BUTTON_BIT mouse.mouse5 state)
         | RawMouseButtonEvent.Mouse5Up -> apply_mouse_action_up MOUSE5_BUTTON_BIT mouse.mouse5 state
-        | RawMouseButtonEvent.LeftUp when mouse.exit_on_left -> FlyState.request_exit (explicit_exit_reason state) state
-        | RawMouseButtonEvent.RightUp when state.session_mode.lifetime = FlightLifetime.WhileRightMouseHeld ->
-            FlyState.request_exit RightMouseReleased state
-        | RawMouseButtonEvent.RightUp when mouse.exit_on_right ->
-            FlyState.request_exit (explicit_exit_reason state) state
         | RawMouseButtonEvent.None
         | RawMouseButtonEvent.LeftDown
         | RawMouseButtonEvent.LeftUp
@@ -243,6 +256,12 @@ let apply_wheel_delta (wheel_delta: int64) (state: FlyState) =
             FlightCamera.apply_navigation_wheel (PlatformInput.wheel_zoom_steps wheel_delta) state
 
 let update_state (now: float) (input: InputAccumulator.State) (state: FlyState) =
+    PlatformFlightKeyboard.consume_escape_exit
+        state.session_mode.lifetime
+        state.config.mouse.exit_on_left
+        state.config.mouse.exit_on_right
+        input
+
     let periodic_validation_due = now >= state.next_host_validation_at
 
     if periodic_validation_due then

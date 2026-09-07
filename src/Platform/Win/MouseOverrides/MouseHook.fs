@@ -133,10 +133,13 @@ let remove (state: State) (environment: Environment) =
             Error error
 
 let refresh (state: State) (environment: Environment) (needed: bool) =
-    if needed then
-        install state environment
-    else
-        remove state environment
+    match state.status with
+    | RemovalPending _ ->
+        match remove state environment with
+        | Ok() when needed -> install state environment
+        | result -> result
+    | _ when needed -> install state environment
+    | _ -> remove state environment
 
 let needs_reconciliation (state: State) (environment: Environment) (needed: bool) =
     match state.status with

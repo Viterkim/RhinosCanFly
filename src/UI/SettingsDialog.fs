@@ -79,7 +79,13 @@ type RhinosCanFlySettingsDialog() as self =
         SettingsUi.use_rhino_style self
 
         save_button.Click.Add(fun (_: EventArgs) ->
-            if Settings.save control then
+            let edited =
+                try
+                    control.ReadConfig()
+                with error ->
+                    Error $"Could not read settings: {error.Message}"
+
+            if Settings.save control edited |> Option.isSome then
                 self.Close())
 
         cancel_button.Click.Add(fun (_: EventArgs) -> self.Close())
@@ -90,7 +96,7 @@ type RhinosCanFlySettingsDialog() as self =
             SettingsDialogPlacement.last_location <- Some self.Location
             SettingsScrollPosition.command_dialog <- control.ReadScrollPosition())
 
-        Settings.load control
+        Settings.load (RuntimeSettings.reload ()) control
 
     override _.Dispose(disposing: bool) =
         if disposing && not resources_disposed then
@@ -136,11 +142,17 @@ type RhinosCanFlySettingsDialog() as self =
 type RhinosCanFlyOptionsPage() =
     inherit OptionsDialogPage "RhinosCanFly"
 
-    let control = lazy (new SettingsControl())
+    let control =
+        lazy
+            (let value = new SettingsControl()
+             SettingsUi.use_rhino_style value
+             value)
+
     let mutable input_suspension: InputSuspensionLease option = None
     let mutable baseline: FlyConfigFile option = None
-    let mutable baseline_unavailable = false
     let mutable committed = false
+    let mutable displayed_config: FlyConfigFile option = None
+    let mutable defaults_requested = false
 
     let copy_viewport_list (source: ViewportNameListFile) =
         { source with
@@ -155,11 +167,11 @@ type RhinosCanFlyOptionsPage() =
             viewport_capabilities = copy_viewport_list source.viewport_capabilities
             right_click_flight_entry = copy_viewport_list source.right_click_flight_entry }
 
-    let capture_baseline () =
-        if Option.isNone baseline && not baseline_unavailable then
-            match RuntimeSettings.current () with
+    let capture_baseline (loaded: Result<ConfigLoadResult, string>) =
+        if Option.isNone baseline && not committed then
+            match loaded with
             | Ok result -> baseline <- Some(snapshot result.config_file)
-            | Error _ -> baseline_unavailable <- true
+            | Error _ -> ()
 
     let save_scroll_position () =
         if control.IsValueCreated then
@@ -210,8 +222,16 @@ type RhinosCanFlyOptionsPage() =
                 false
             | Ok() ->
                 try
-                    capture_baseline ()
-                    Settings.load control.Value
+                    let loaded =
+                        if Option.isNone baseline && not committed then
+                            RuntimeSettings.reload ()
+                        else
+                            RuntimeSettings.resolve ()
+
+                    capture_baseline loaded
+                    Settings.load loaded control.Value
+                    displayed_config <- control.Value.ReadConfig() |> Result.toOption
+                    defaults_requested <- false
                     control.Value.SetScrollPosition SettingsScrollPosition.rhino_options
                     true
                 with error ->
@@ -238,13 +258,26 @@ type RhinosCanFlyOptionsPage() =
             if control.IsValueCreated then
                 control.Value.CancelBindingCapture()
 
-                let saved = Settings.save control.Value
-
-                if saved then
-                    committed <- true
+                match control.Value.ReadConfig() with
+                | Ok edited when not (Settings.needs_save displayed_config defaults_requested edited) ->
                     resume_input_after_options ()
-                else
-                    false
+                | edited ->
+                    if Option.isNone baseline && not committed then
+                        capture_baseline (RuntimeSettings.resolve ())
+
+                    if Option.isNone baseline then
+                        control.Value.ShowError
+                            "The original configuration is unavailable. Reopen this page to retry before saving."
+
+                        false
+                    else
+                        match Settings.save control.Value edited with
+                        | Some saved ->
+                            committed <- true
+                            defaults_requested <- false
+                            displayed_config <- Some saved.config_file
+                            resume_input_after_options ()
+                        | None -> false
             else
                 resume_input_after_options ()
         with error ->
@@ -255,42 +288,49 @@ type RhinosCanFlyOptionsPage() =
         let mutable restored = true
 
         try
-            save_scroll_position ()
+            try
+                save_scroll_position ()
 
-            if control.IsValueCreated then
-                control.Value.CancelBindingCapture()
+                if control.IsValueCreated then
+                    control.Value.CancelBindingCapture()
+            with error ->
+                SettingsUi.report_error $"RhinosCanFly Options cancel bookkeeping failed: {error.Message}"
 
-            if committed then
-                match baseline with
-                | Some original ->
-                    let differs =
-                        match RuntimeSettings.current () with
-                        | Ok result -> result.config_file <> original
-                        | Error _ -> true
+            try
+                if committed then
+                    match baseline with
+                    | Some original ->
+                        let differs =
+                            match RuntimeSettings.current () with
+                            | Ok result -> result.config_file <> original
+                            | Error _ -> true
 
-                    if differs then
-                        match RuntimeSettings.save_and_apply original with
-                        | Ok _ -> committed <- false
-                        | Error error ->
-                            restored <- false
-                            SettingsUi.report_error $"RhinosCanFly could not restore settings on cancel: {error}"
-                    else
-                        committed <- false
-                | None ->
-                    restored <- false
+                        if differs then
+                            match RuntimeSettings.save_and_apply original with
+                            | Ok _ -> committed <- false
+                            | Error error ->
+                                restored <- false
+                                SettingsUi.report_error $"RhinosCanFly could not restore settings on cancel: {error}"
+                        else
+                            committed <- false
+                    | None ->
+                        restored <- false
 
-                    SettingsUi.report_error
-                        "RhinosCanFly could not restore settings on cancel: the original configuration was not available"
+                        SettingsUi.report_error
+                            "RhinosCanFly could not restore settings on cancel: the original configuration was not available"
+
+            with error ->
+                restored <- false
+                SettingsUi.report_error $"RhinosCanFly could not restore settings on cancel: {error.Message}"
 
             if control.IsValueCreated && restored then
-                Settings.load control.Value
-        with error ->
-            SettingsUi.report_error $"RhinosCanFly Options cancel failed: {error.Message}"
-
-        resume_input_after_options () |> ignore
+                Settings.load (RuntimeSettings.current ()) control.Value
+        finally
+            resume_input_after_options () |> ignore
 
     override _.OnDefaults() =
         try
+            defaults_requested <- true
             control.Value.CancelBindingCapture()
             control.Value.LoadConfig ConfigSchema.defaults
             control.Value.ClearError()

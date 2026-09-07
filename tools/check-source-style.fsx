@@ -14,24 +14,56 @@ let source_files () =
         extension = ".fs" || extension = ".fsx")
 
 let has_untyped_parameters (parameters: string) =
-    let text = parameters.Trim()
+    let mutable depth = 0
+    let mutable group_start = 0
+    let mutable untyped = false
 
-    if String.IsNullOrWhiteSpace text then
-        false
-    else
-        let groups = Regex.Matches(text, @"\((?<parameter>[^()]*)\)")
-        let bare_parameters = Regex.Replace(text, @"\([^()]*\)", "").Trim()
+    for index = 0 to parameters.Length - 1 do
+        match parameters[index] with
+        | '(' ->
+            if depth = 0 then
+                group_start <- index + 1
 
-        if groups.Count = 0 then
-            true
-        elif not (String.IsNullOrWhiteSpace bare_parameters) then
-            true
+            depth <- depth + 1
+        | ')' ->
+            depth <- depth - 1
+
+            if depth = 0 then
+                let group = parameters.Substring(group_start, index - group_start).Trim()
+
+                if group <> "" && not (group.Contains ':') then
+                    untyped <- true
+        | character when depth = 0 && not (Char.IsWhiteSpace character) -> untyped <- true
+        | _ -> ()
+
+    untyped || depth <> 0
+
+let lambda_parameters (source: string) =
+    Regex.Matches(source, @"\bfun\b")
+    |> Seq.cast<Match>
+    |> Seq.choose (fun (matched: Match) ->
+        let start = matched.Index + matched.Length
+        let mutable index = start
+        let mutable depth = 0
+        let mutable ending = -1
+
+        while index + 1 < source.Length && ending < 0 do
+            match source[index] with
+            | '('
+            | '['
+            | '{' -> depth <- depth + 1
+            | ')'
+            | ']'
+            | '}' -> depth <- depth - 1
+            | '-' when depth = 0 && source[index + 1] = '>' -> ending <- index
+            | _ -> ()
+
+            index <- index + 1
+
+        if ending < 0 then
+            None
         else
-            groups
-            |> Seq.cast<Match>
-            |> Seq.exists (fun (group: Match) ->
-                let parameter = group.Groups["parameter"].Value.Trim()
-                not (String.IsNullOrWhiteSpace parameter) && not (parameter.Contains ':'))
+            Some(source.Substring(start, ending - start)))
 
 let let_prefix =
     @"^\s*let\s+(?!mutable\b)(?>(?:(?:rec|inline|private|internal|public)\s+)*)(?!struct\b)"
@@ -48,19 +80,24 @@ let checks =
           @"^\s*(?:member|override)\s+[^.]+\.[A-Za-z_][\w']*\s+(?<parameters>(?:(?:\([^)]*\)|[A-Za-z_][\w']*)\s*)+)(?:\s*:\s*[^=]+)?\s*=",
           RegexOptions.Compiled
       )
-      "constructor", Regex(@"^\s*type\s+[A-Za-z_][\w']*(?:<[^>]+>)?\s*(?<parameters>\([^)]*\))", RegexOptions.Compiled)
-      "lambda", Regex(@"\bfun\s+(?<parameters>.*?)\s*->", RegexOptions.Compiled) ]
+      "constructor", Regex(@"^\s*type\s+[A-Za-z_][\w']*(?:<[^>]+>)?\s*(?<parameters>\([^)]*\))", RegexOptions.Compiled) ]
 
 let violations_in_line (line: string) =
-    checks
-    |> Seq.choose (fun (kind: string, pattern: Regex) ->
-        let offending =
-            pattern.Matches line
-            |> Seq.cast<Match>
-            |> Seq.exists (fun (matched: Match) -> has_untyped_parameters matched.Groups["parameters"].Value)
+    let declarations =
+        checks
+        |> Seq.choose (fun (kind: string, pattern: Regex) ->
+            let offending =
+                pattern.Matches line
+                |> Seq.cast<Match>
+                |> Seq.exists (fun (matched: Match) -> has_untyped_parameters matched.Groups["parameters"].Value)
 
-        if offending then Some kind else None)
-    |> Seq.toList
+            if offending then Some kind else None)
+        |> Seq.toList
+
+    if lambda_parameters line |> Seq.exists has_untyped_parameters then
+        declarations @ [ "lambda" ]
+    else
+        declarations
 
 type FragmentEnd =
     | Equals
@@ -74,7 +111,7 @@ let declaration_start =
 let fragment_end (line: string) =
     if declaration_start.IsMatch line && not (line.Contains '=') then
         Some Equals
-    elif Regex.IsMatch(line, @"\bfun\b") && not (line.Contains "->") then
+    elif Regex.IsMatch(line, @"\bfun\b") && (lambda_parameters line |> Seq.isEmpty) then
         Some Arrow
     else
         None
@@ -82,7 +119,7 @@ let fragment_end (line: string) =
 let is_complete (ending: FragmentEnd) (text: string) =
     match ending with
     | Equals -> text.Contains '='
-    | Arrow -> text.Contains "->"
+    | Arrow -> lambda_parameters text |> Seq.isEmpty |> not
 
 let source_fragments (source: string) =
     let lines = source.Replace("\r\n", "\n").Split '\n'
@@ -222,6 +259,9 @@ let checker_self_tests =
       "member _.Run left right = left + right", true
       "member _.Run (left: int) (right: int) = left + right", false
       "let run =\n    fun\n        (value: int)\n        -> value", false
+      "let run = fun (callback: int -> int) -> callback 1", false
+      "let run = fun\n    (callback: int -> int)\n    -> callback 1", false
+      "let pair = (fun (value: int) -> value), (fun value -> value)", true
       "let run =\n    fun\n        value\n        -> value", true ]
 
 for source, expects_violation in checker_self_tests do
@@ -282,6 +322,10 @@ let lower_camel_identifier_self_tests =
       "let text = $\"\"\"{cameraLocation}\"\"\"", [ "cameraLocation" ]
       "let text = $@\"{cameraLocation}\"", [ "cameraLocation" ]
       "let text = $$\"\"\"{cameraLocation}\"\"\"", []
+      "let text = $$\"\"\"{{cameraLocation}}\"\"\"", [ "cameraLocation" ]
+      "let text = $\"\"\"{(* ignore cameraLocation *) otherValue}\"\"\"", [ "otherValue" ]
+      "let text = $\"\"\"{ // cameraLocation\n otherValue}\"\"\"", [ "otherValue" ]
+      "let text = $\"\"\"{$\"{cameraLocation}\"}\"\"\"", [ "cameraLocation" ]
       "let text = \"{cameraLocation}\"", [] ]
 
 let lower_camel_identifiers (source: string) =

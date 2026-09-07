@@ -24,99 +24,6 @@ type RawInputReceiver(process_control: Action) as self =
     let mutable stop_requested = false
     let mutable session_finished_notified = false
 
-    let registration_relinquished () =
-        match registration_lease with
-        | None -> true
-        | Some lease -> lease.relinquished
-
-    let finish_session () =
-        registration_retry_timer.Stop()
-
-        if not session_finished_notified then
-            session_finished_notified <- true
-
-            match session_finished with
-            | Some finished -> finished.Invoke()
-            | None -> ()
-
-    let try_release_registration () =
-        match registration_lease with
-        | None ->
-            finish_session ()
-            Ok()
-        | Some lease ->
-            match RawInputNative.release_mouse_registration lease with
-            | Ok RawInputNative.OwnRegistrationRemovedButPreviousRegistrationLost ->
-                registration_release_error <-
-                    Some
-                        "RhinosCanFly removed its raw-mouse registration but could not restore the previous registration. Restart Rhino before flying again."
-
-                finish_session ()
-                Ok()
-            | Ok _ ->
-                finish_session ()
-                Ok()
-            | Error error ->
-                if not registration_retry_timer.Enabled then
-                    registration_retry_timer.Start()
-
-                Error error
-
-    let request_stop () =
-        stop_requested <- true
-        try_release_registration () |> ignore
-
-    let release_session () =
-        if not (registration_relinquished ()) then
-            invalidOp "The raw-input session cannot be released while mouse registration still belongs to it."
-
-        let release_error = registration_release_error
-        active_session <- None
-        registration_lease <- None
-        registration_release_error <- None
-        session_finished <- None
-        stop_requested <- false
-        session_finished_notified <- false
-
-        match release_error with
-        | Some error -> raise (InvalidOperationException error)
-        | None -> ()
-
-    let release_resources () =
-        if Option.isSome active_session || Option.isSome session_finished then
-            invalidOp "The raw-input worker cannot release its window while a session is active."
-
-        if not (registration_relinquished ()) then
-            invalidOp "The raw-input worker cannot release its window while mouse registration still belongs to it."
-
-        let errors = ResizeArray<exn>()
-
-        try
-            if handle_created then
-                self.DestroyHandle()
-                handle_created <- false
-        with error ->
-            errors.Add error
-
-        try
-            if not input_buffer_disposed then
-                input_buffer.Dispose()
-                input_buffer_disposed <- true
-        with error ->
-            errors.Add error
-
-        try
-            if not registration_retry_timer_disposed then
-                registration_retry_timer.Dispose()
-                registration_retry_timer_disposed <- true
-        with error ->
-            errors.Add error
-
-        match errors.Count with
-        | 0 -> ()
-        | 1 -> raise errors[0]
-        | _ -> raise (AggregateException errors)
-
     let grow_input_buffer (minimum_capacity: uint32) =
         let current_capacity = int64 input_buffer.Capacity
 
@@ -208,6 +115,107 @@ type RawInputReceiver(process_control: Action) as self =
 
         work_added
 
+    let registration_relinquished () =
+        match registration_lease with
+        | None -> true
+        | Some lease -> lease.relinquished
+
+    let finish_session () =
+        registration_retry_timer.Stop()
+
+        if not session_finished_notified then
+            session_finished_notified <- true
+
+            match active_session with
+            | Some session ->
+                try
+                    process_buffered_input session |> ignore
+                with error ->
+                    session.FailRuntime error
+            | None -> ()
+
+            match session_finished with
+            | Some finished -> finished.Invoke()
+            | None -> ()
+
+    let try_release_registration () =
+        match registration_lease with
+        | None ->
+            finish_session ()
+            Ok()
+        | Some lease ->
+            match RawInputNative.release_mouse_registration lease with
+            | Ok RawInputNative.OwnRegistrationRemovedButPreviousRegistrationLost ->
+                registration_release_error <-
+                    Some
+                        "RhinosCanFly removed its raw-mouse registration but could not restore the previous registration. Restart Rhino before flying again."
+
+                finish_session ()
+                Ok()
+            | Ok _ ->
+                finish_session ()
+                Ok()
+            | Error error ->
+                if not registration_retry_timer.Enabled then
+                    registration_retry_timer.Start()
+
+                Error error
+
+    let request_stop () =
+        stop_requested <- true
+        try_release_registration () |> ignore
+
+    let release_session () =
+        if not (registration_relinquished ()) then
+            invalidOp "The raw-input session cannot be released while mouse registration still belongs to it."
+
+        let release_error = registration_release_error
+        active_session <- None
+        registration_lease <- None
+        registration_release_error <- None
+        session_finished <- None
+        stop_requested <- false
+        session_finished_notified <- false
+
+        match release_error with
+        | Some error -> raise (InvalidOperationException error)
+        | None -> ()
+
+    let release_resources () =
+        if Option.isSome active_session || Option.isSome session_finished then
+            invalidOp "The raw-input worker cannot release its window while a session is active."
+
+        if not (registration_relinquished ()) then
+            invalidOp "The raw-input worker cannot release its window while mouse registration still belongs to it."
+
+        let errors = ResizeArray<exn>()
+
+        try
+            if handle_created then
+                self.DestroyHandle()
+                handle_created <- false
+        with error ->
+            errors.Add error
+
+        try
+            if not input_buffer_disposed then
+                input_buffer.Dispose()
+                input_buffer_disposed <- true
+        with error ->
+            errors.Add error
+
+        try
+            if not registration_retry_timer_disposed then
+                registration_retry_timer.Dispose()
+                registration_retry_timer_disposed <- true
+        with error ->
+            errors.Add error
+
+        match errors.Count with
+        | 0 -> ()
+        | 1 -> raise errors[0]
+        | _ -> raise (AggregateException errors)
+
     let discard_buffered_input () =
         let mutable draining = true
 
@@ -258,6 +266,7 @@ type RawInputReceiver(process_control: Action) as self =
 
     member _.StartSession
         (
+            buttons_swapped: bool,
             input: InputAccumulator.State,
             input_available: Action,
             registration_ready: Action<RawInputNative.MouseRegistrationLease>,
@@ -275,7 +284,8 @@ type RawInputReceiver(process_control: Action) as self =
         try
             discard_buffered_input ()
 
-            let session = RawInputSession(input, input_available, runtime_failed)
+            let session =
+                RawInputSession(buttons_swapped, input, input_available, runtime_failed)
 
             active_session <- Some session
 
@@ -307,8 +317,7 @@ type RawInputReceiver(process_control: Action) as self =
                     message.Result <- nativeint 0
                     process_control.Invoke()
                 elif message.Msg = RawInputNative.MESSAGE then
-                    if not stop_requested then
-                        process_input_message message.LParam
+                    process_input_message message.LParam
 
                     base_attempted <- true
                     base.WndProc(&message)

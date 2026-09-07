@@ -129,6 +129,8 @@ let load_existing (config_path: string) =
     | Ok json -> ConfigRepair.repair_document json
     | Error _ -> Ok(ConfigRepair.reset_to_defaults "reset malformed settings to defaults")
 
+let mutable loaded_content: string option = None
+
 let load_locked (config_path: string) =
     let created = not (File.Exists config_path)
 
@@ -155,17 +157,27 @@ let load_locked (config_path: string) =
             with error ->
                 messages.Add $"could not prune old config backups: {error.Message}"
 
+        loaded_content <- Some(File.ReadAllText config_path)
+
         Ok
             { config_file = repaired.config_file
               config = repaired.config
               messages = List.ofSeq messages }
 
-let load () =
+// A competing Rhino may hold the sidecar briefly during startup or an atomic save.
+// Keep contention distinct from invalid data; callers decide when to retry.
+let try_load () =
     try
         let config_path = path ()
-        with_lock config_path (fun () -> load_locked config_path)
-    with error ->
-        Error error.Message
+        ValueSome(with_lock config_path (fun () -> load_locked config_path))
+    with
+    | :? IOException as error when error.HResult &&& 0xFFFF = 32 || error.HResult &&& 0xFFFF = 33 -> ValueNone
+    | error -> ValueSome(Error error.Message)
+
+let load () =
+    match try_load () with
+    | ValueSome result -> result
+    | ValueNone -> Error "Settings are being written by another process. Try again shortly."
 
 let save_locked (config_path: string) (source: FlyConfigFile) (config: FlyConfig) =
     match backup_requirement config_path with
@@ -192,6 +204,8 @@ let save_locked (config_path: string) (source: FlyConfigFile) (config: FlyConfig
         if existing <> content then
             write_atomic config_path content
 
+        loaded_content <- Some content
+
         if backup_requirement = BackupRequirement.Required then
             try
                 prune_automatic_backups config_path
@@ -211,7 +225,18 @@ let save (source: FlyConfigFile) =
     | Ok config ->
         try
             let config_path = path ()
-            with_lock config_path (fun () -> save_locked config_path normalized_source config)
+
+            with_lock config_path (fun () ->
+                let current =
+                    if File.Exists config_path then
+                        File.ReadAllText config_path
+                    else
+                        ""
+
+                match loaded_content with
+                | Some previous when previous <> current ->
+                    Error "Settings changed on disk since they were loaded. Reopen Options to load them before saving."
+                | _ -> save_locked config_path normalized_source config)
         with error ->
             Error error.Message
 

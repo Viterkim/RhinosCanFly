@@ -8,7 +8,7 @@ open Rhino.PlugIns
 [<assembly: AssemblyDescription("Rhinos Can Fly, classic game engine flying controls / WASD or custom binds with raw mouse input, for workflow or editing")>]
 [<assembly: AssemblyCompany("Viterkim")>]
 [<assembly: AssemblyProduct("RhinosCanFly")>]
-[<assembly: AssemblyCopyright("Copyright 2026")>]
+[<assembly: AssemblyCopyright("Copyright (c) 1985 Your Mom")>]
 [<assembly: ComVisible(false)>]
 [<assembly: Guid("8E6E7D56-5434-4EF6-884F-6C5130291935")>]
 [<assembly: PlugInDescription(DescriptionType.Icon, "RhinosCanFly.Resources.PluginIcon.ico")>]

@@ -28,4 +28,4 @@ $gcdump = ".\obj\diagnostics\tools\dotnet-gcdump.exe"
 & $gcdump report .\obj\diagnostics\after.gcdump | Set-Content .\obj\diagnostics\after.txt
 ```
 
-`gcdump collect` pauses Rhino and forces a full GC. Compare the two reports. If private memory grows but handles, USER and GDI return near baseline, it is probably managed objects being kept alive.
+`gcdump collect` pauses Rhino and forces a full GC. Compare the two reports. Stable handle, USER and GDI counts do not explain private-memory growth; it can come from managed or native allocations.

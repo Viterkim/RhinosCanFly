@@ -8,8 +8,6 @@ This is not guaranteed. 0.3.1 `FlightLoop` emitted `System.Tuple<bool,bool>` fro
 
 0.2.2 `FlightLoop` also allocated from normal tuple returns and `Some`. Those allocations are gone now.
 
-Current `FlightLoop` has no per frame heap allocation from looking at the IL.
-
 `Some x` allocates. `ValueSome x` does not. `Result` is already a struct.
 
 `match` can also produce better code than repeated boolean checks. `requested_gesture_action` went from 9 modifier reads to 3 after changing it to a match.

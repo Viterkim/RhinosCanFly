@@ -155,6 +155,14 @@ type ViewportPaintMode =
     | Immediate = 0
     | Queued = 1
 
+type CrosshairConfig =
+    { enabled: bool
+      arm_length: int
+      gap: int
+      red: int
+      green: int
+      blue: int }
+
 [<CLIMutable>]
 type FlyConfigFile =
     { config_version: int
@@ -194,6 +202,12 @@ type FlyConfigFile =
       mouse_x_mode: MouseAxisMode
       mouse_y_mode: MouseAxisMode
       normalize_diagonal_movement: bool
+      show_crosshair: bool
+      crosshair_arm_length: int
+      crosshair_gap: int
+      crosshair_red: int
+      crosshair_green: int
+      crosshair_blue: int
       hide_gumball_while_flying: bool
       prioritized_target: PrioritizedTarget
       save_speed_to_document: bool
@@ -222,6 +236,7 @@ type FlyConfigFile =
       retarget_on_pan: RetargetMode
       retarget_on_flight_exit: RetargetMode
       retarget_on_restored_flight_exit: RetargetMode
+      retarget_base_distance: float
       perspective_retarget_fallback_multiplier: float
       parallel_retarget_fallback_multiplier: float
       perspective_retarget_zoom_border: float

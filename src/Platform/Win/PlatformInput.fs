@@ -17,8 +17,7 @@ let wheel_zoom_steps (delta: int64) =
 let foreground_root_window () =
     RootWindow(Win32Native.GetForegroundWindow())
 
-let right_mouse_button_down () =
-    Win32Native.GetAsyncKeyState Win32Native.VK_RBUTTON < 0s
+let right_mouse_button_down () = Win32.key_down Win32Native.VK_RBUTTON
 
 let middle_mouse_button_down () =
     Win32Native.GetAsyncKeyState Win32Native.VK_MBUTTON < 0s

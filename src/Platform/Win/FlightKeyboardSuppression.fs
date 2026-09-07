@@ -20,6 +20,7 @@ type State =
       passthrough_keys_down: HashSet<int>
       suppressed_keys_down: HashSet<int>
       key_is_down: bool array
+      observed_key_is_down: bool array
       mouse_key_configured: bool array
       mutable bindings: FlightBindings option
       mutable boost_mode: KeyActivationMode
@@ -56,6 +57,7 @@ let state =
       passthrough_keys_down = HashSet<int>()
       suppressed_keys_down = HashSet<int>()
       key_is_down = Array.zeroCreate 256
+      observed_key_is_down = Array.zeroCreate 256
       mouse_key_configured = Array.zeroCreate 256
       bindings = None
       boost_mode = KeyActivationMode.Hold
@@ -94,28 +96,28 @@ let is_plain_escape (binding: KeyBinding) =
         false
 
 let try_request_plain_escape_exit () =
-    if not (Volatile.Read(&state.active)) then
+    if
+        not (Volatile.Read(&state.active))
+        || not (Volatile.Read(&state.accept_new_keys))
+    then
         false
     else
         match state.bindings with
         | Some bindings ->
-            let exit_reason =
-                if is_plain_escape bindings.cancel_flight_and_restore then
-                    ValueSome ExplicitRestoreCamera
-                elif is_plain_escape bindings.exit_key then
-                    ValueSome ExplicitKeepCamera
-                else
-                    ValueNone
-
-            match exit_reason with
-            | ValueSome reason ->
+            if
+                is_plain_escape bindings.cancel_flight_and_restore
+                || is_plain_escape bindings.exit_key
+            then
                 match state.input with
                 | Some input ->
+                    // End publication here; earlier cancellation transitions still get consumed.
+                    InputAccumulator.add_keyboard_transition Win32Native.VK_ESCAPE true input
                     Volatile.Write(&state.accept_new_keys, false)
-                    InputAccumulator.request_exit reason input
+                    Volatile.Write(&input.escape_requested, true)
                     true
                 | None -> false
-            | ValueNone -> false
+            else
+                false
         | None -> false
 
 let escape_key_pressed =
@@ -132,7 +134,7 @@ let escape_key_pressed =
         finally
             Monitor.Exit state.transition_gate)
 
-do RhinoApp.EscapeKeyPressed.AddHandler escape_key_pressed
+let mutable escape_handler_installed = false
 
 let clear_configured () =
     state.configured.exact.Clear()
@@ -167,14 +169,13 @@ let configured_key (physical_key: int) =
     || (state.configured.either_alt
         && (physical_key = Win32Native.VK_LMENU || physical_key = Win32Native.VK_RMENU))
 
-let add_passthrough_if_down (physical_key: int) =
-    if
-        configured_key physical_key
-        && Win32Native.GetAsyncKeyState physical_key < 0s
-        && not (state.suppressed_keys_down.Contains physical_key)
-    then
-        state.passthrough_keys_down.Add physical_key |> ignore
+let seed_held_key (physical_key: int) (down: bool) =
+    if configured_key physical_key && down then
+        if not (state.suppressed_keys_down.Contains physical_key) then
+            state.passthrough_keys_down.Add physical_key |> ignore
+
         state.key_is_down[physical_key] <- true
+        state.observed_key_is_down[physical_key] <- true
 
 let virtual_key_down (virtual_key: int) =
     match virtual_key with
@@ -214,7 +215,12 @@ let is_optional_binding_down (binding: KeyBinding option) =
     | Some value -> binding_is_down value
     | None -> false
 
-let configure (config: FlyConfig) (input: InputAccumulator.State) (input_available: Action) =
+let configure_with_snapshot
+    (is_down: int -> bool)
+    (config: FlyConfig)
+    (input: InputAccumulator.State)
+    (input_available: Action)
+    =
     let released_keys = ResizeArray<int>()
     let bindings = config.bindings
     let retarget = config.behavior.retarget
@@ -229,9 +235,10 @@ let configure (config: FlyConfig) (input: InputAccumulator.State) (input_availab
         enabled_binding retarget.keyboard_other_views bindings.retarget_other_views
 
     System.Array.Clear(state.key_is_down, 0, state.key_is_down.Length)
+    System.Array.Clear(state.observed_key_is_down, 0, state.observed_key_is_down.Length)
 
     for physical_key in state.suppressed_keys_down do
-        if Win32Native.GetAsyncKeyState physical_key >= 0s then
+        if not (is_down physical_key) then
             released_keys.Add physical_key
 
     for physical_key in released_keys do
@@ -271,25 +278,27 @@ let configure (config: FlyConfig) (input: InputAccumulator.State) (input_availab
     state.passthrough_keys_down.Clear()
 
     for physical_key in state.configured.exact do
-        add_passthrough_if_down physical_key
+        seed_held_key physical_key (is_down physical_key)
 
     if state.configured.either_shift then
-        add_passthrough_if_down Win32Native.VK_LSHIFT
-        add_passthrough_if_down Win32Native.VK_RSHIFT
+        seed_held_key Win32Native.VK_LSHIFT (is_down Win32Native.VK_LSHIFT)
+        seed_held_key Win32Native.VK_RSHIFT (is_down Win32Native.VK_RSHIFT)
 
     if state.configured.either_control then
-        add_passthrough_if_down Win32Native.VK_LCONTROL
-        add_passthrough_if_down Win32Native.VK_RCONTROL
+        seed_held_key Win32Native.VK_LCONTROL (is_down Win32Native.VK_LCONTROL)
+        seed_held_key Win32Native.VK_RCONTROL (is_down Win32Native.VK_RCONTROL)
 
     if state.configured.either_alt then
-        add_passthrough_if_down Win32Native.VK_LMENU
-        add_passthrough_if_down Win32Native.VK_RMENU
+        seed_held_key Win32Native.VK_LMENU (is_down Win32Native.VK_LMENU)
+        seed_held_key Win32Native.VK_RMENU (is_down Win32Native.VK_RMENU)
 
     state.bindings <- Some bindings
     state.boost_mode <- config.movement.boost_mode
     state.slow_mode <- config.movement.slow_mode
     state.retarget_all_views_binding <- retarget_all_views_binding
     state.retarget_other_views_binding <- retarget_other_views_binding
+    // Seed action edges from the same snapshot used by movement.
+    Volatile.Write(&state.active, true)
     state.pivot_toggle_down <- is_optional_binding_down bindings.mouse_navigation.pivot.toggle
     state.pan_toggle_down <- is_optional_binding_down bindings.mouse_navigation.pan.toggle
     state.pivot_hold_down <- is_optional_binding_down bindings.mouse_navigation.pivot.hold
@@ -308,6 +317,19 @@ let configure (config: FlyConfig) (input: InputAccumulator.State) (input_availab
     state.input_available <- Some input_available
     Volatile.Write(&state.accept_new_keys, true)
     Volatile.Write(&state.active, true)
+
+let configure_with_physical_snapshot
+    (swapped: bool)
+    (is_down: int -> bool)
+    (config: FlyConfig)
+    (input: InputAccumulator.State)
+    (input_available: Action)
+    =
+    configure_with_snapshot
+        (fun (key: int) -> is_down (Win32.physical_mouse_key swapped key))
+        config
+        input
+        input_available
 
 let stop_core () =
     Volatile.Write(&state.accept_new_keys, false)
@@ -336,6 +358,7 @@ let stop_core () =
     clear_configured ()
     state.passthrough_keys_down.Clear()
     System.Array.Clear(state.key_is_down, 0, state.key_is_down.Length)
+    System.Array.Clear(state.observed_key_is_down, 0, state.observed_key_is_down.Length)
     System.Array.Clear(state.mouse_key_configured, 0, state.mouse_key_configured.Length)
 
 let stop () =
@@ -353,7 +376,7 @@ let classify_fresh_key_down (physical_key: int) =
         && configured_key physical_key
     then
         state.suppressed_keys_down.Add physical_key |> ignore
-        state.key_is_down[physical_key] <- true
+        state.observed_key_is_down[physical_key] <- true
         true
     else
         false
@@ -366,7 +389,7 @@ let handle_event (event: Win32.KeyboardHookEvent) =
     elif event.released then
         let suppressed = state.suppressed_keys_down.Remove physical_key
         state.passthrough_keys_down.Remove physical_key |> ignore
-        state.key_is_down[physical_key] <- false
+        state.observed_key_is_down[physical_key] <- false
         suppressed
     elif state.suppressed_keys_down.Contains physical_key then
         if event.was_down then
@@ -503,13 +526,36 @@ let collect_actions () =
         state.cancel_and_restore_down <- cancel_and_restore
         actions
 
+let admit_mouse_bindings (buttons: int) =
+    Monitor.Enter state.transition_gate
+
+    try
+        for key in Win32Native.VK_LBUTTON .. Win32Native.VK_XBUTTON2 do
+            if key <> Win32Native.VK_CANCEL && state.mouse_key_configured[key] then
+                let down = buttons &&& (1 <<< key) <> 0
+                state.key_is_down[key] <- down
+                state.observed_key_is_down[key] <- down
+
+                if not down then
+                    state.passthrough_keys_down.Remove key |> ignore
+
+        collect_actions () |> ignore
+    finally
+        Monitor.Exit state.transition_gate
+
 let release_stale_key (physical_key: int) =
     if
-        Volatile.Read(&state.key_is_down[physical_key])
+        physical_key > Win32Native.VK_XBUTTON2
+        && Volatile.Read(&state.observed_key_is_down[physical_key])
         && Win32Native.GetAsyncKeyState physical_key >= 0s
     then
-        state.key_is_down[physical_key] <- false
+        state.observed_key_is_down[physical_key] <- false
         state.passthrough_keys_down.Remove physical_key |> ignore
+
+        match state.input with
+        | Some input -> InputAccumulator.add_keyboard_transition physical_key false input
+        | None -> ()
+
         true
     else
         false
@@ -547,12 +593,6 @@ let reconcile_physical_keys () =
                     changed <- true
 
             if changed then
-                let actions = collect_actions ()
-
-                match state.input with
-                | Some input -> InputAccumulator.add_keyboard_actions actions input
-                | None -> ()
-
                 Interlocked.Increment(&state.revision) |> ignore
 
                 match state.input_available with
@@ -572,11 +612,11 @@ let hook_event (event: Win32.KeyboardHookEvent) =
                 && event.released
                 && Volatile.Read(&state.active)
                 && Volatile.Read(&state.accept_new_keys)
-                && not state.key_is_down[event.physical_key]
+                && not state.observed_key_is_down[event.physical_key]
                 && not (state.suppressed_keys_down.Contains event.physical_key)
                 && not (state.passthrough_keys_down.Contains event.physical_key)
 
-            let was_down = state.key_is_down[event.physical_key]
+            let was_down = state.observed_key_is_down[event.physical_key]
             swallow <- handle_event event
 
             if escape_up_without_down && try_request_plain_escape_exit () then
@@ -585,33 +625,19 @@ let hook_event (event: Win32.KeyboardHookEvent) =
                 match state.input_available with
                 | Some available -> available.Invoke()
                 | None -> ()
-            elif was_down <> state.key_is_down[event.physical_key] then
-                let mutable actions = collect_actions ()
-
+            elif was_down <> state.observed_key_is_down[event.physical_key] then
                 let escape_requested =
-                    int actions &&& int InputAccumulator.KeyboardAction.CancelAndRestore <> 0
-                    || int actions &&& int InputAccumulator.KeyboardAction.Exit <> 0
-
-                if
                     event.physical_key = Win32Native.VK_ESCAPE
-                    && escape_requested
+                    && not event.released
                     && try_request_plain_escape_exit ()
-                then
-                    let escape_actions =
-                        int InputAccumulator.KeyboardAction.Exit
-                        ||| int InputAccumulator.KeyboardAction.CancelAndRestore
-
-                    actions <- enum<InputAccumulator.KeyboardAction> (int actions &&& ~~~escape_actions)
-
-                if
-                    int actions &&& int InputAccumulator.KeyboardAction.Exit <> 0
-                    || int actions &&& int InputAccumulator.KeyboardAction.CancelAndRestore <> 0
-                then
-                    Volatile.Write(&state.accept_new_keys, false)
 
                 match state.input with
-                | Some input -> InputAccumulator.add_keyboard_actions actions input
-                | None -> ()
+                | Some input when not escape_requested ->
+                    InputAccumulator.add_keyboard_transition
+                        event.physical_key
+                        state.observed_key_is_down[event.physical_key]
+                        input
+                | _ -> ()
 
                 Interlocked.Increment(&state.revision) |> ignore
 
@@ -626,69 +652,73 @@ let hook_event (event: Win32.KeyboardHookEvent) =
 
     swallow
 
+let apply_keyboard_transition (key: int) (down: bool) =
+    state.key_is_down[key] <- down
+    collect_actions ()
+
 [<Struct>]
-type PhysicalMouseTransition =
-    { physical_key: int
+type LogicalMouseTransition =
+    { virtual_key: int
       down: bool
       valid: bool }
 
-let physical_mouse_transition (event: RawMouseButtonEvent) =
+let logical_mouse_transition (event: RawMouseButtonEvent) =
     match event with
     | RawMouseButtonEvent.LeftDown ->
-        { physical_key = Win32Native.VK_LBUTTON
+        { virtual_key = Win32Native.VK_LBUTTON
           down = true
           valid = true }
     | RawMouseButtonEvent.LeftUp ->
-        { physical_key = Win32Native.VK_LBUTTON
+        { virtual_key = Win32Native.VK_LBUTTON
           down = false
           valid = true }
     | RawMouseButtonEvent.RightDown ->
-        { physical_key = Win32Native.VK_RBUTTON
+        { virtual_key = Win32Native.VK_RBUTTON
           down = true
           valid = true }
     | RawMouseButtonEvent.RightUp ->
-        { physical_key = Win32Native.VK_RBUTTON
+        { virtual_key = Win32Native.VK_RBUTTON
           down = false
           valid = true }
     | RawMouseButtonEvent.MiddleDown ->
-        { physical_key = Win32Native.VK_MBUTTON
+        { virtual_key = Win32Native.VK_MBUTTON
           down = true
           valid = true }
     | RawMouseButtonEvent.MiddleUp ->
-        { physical_key = Win32Native.VK_MBUTTON
+        { virtual_key = Win32Native.VK_MBUTTON
           down = false
           valid = true }
     | RawMouseButtonEvent.Mouse4Down ->
-        { physical_key = Win32Native.VK_XBUTTON1
+        { virtual_key = Win32Native.VK_XBUTTON1
           down = true
           valid = true }
     | RawMouseButtonEvent.Mouse4Up ->
-        { physical_key = Win32Native.VK_XBUTTON1
+        { virtual_key = Win32Native.VK_XBUTTON1
           down = false
           valid = true }
     | RawMouseButtonEvent.Mouse5Down ->
-        { physical_key = Win32Native.VK_XBUTTON2
+        { virtual_key = Win32Native.VK_XBUTTON2
           down = true
           valid = true }
     | RawMouseButtonEvent.Mouse5Up ->
-        { physical_key = Win32Native.VK_XBUTTON2
+        { virtual_key = Win32Native.VK_XBUTTON2
           down = false
           valid = true }
     | RawMouseButtonEvent.None
     | _ ->
-        { physical_key = 0
+        { virtual_key = 0
           down = false
           valid = false }
 
 let apply_raw_mouse_button_transition_core (transition: RawMouseButtonTransition) =
-    let physical = physical_mouse_transition transition.event
+    let logical = logical_mouse_transition transition.event
 
     if
         Volatile.Read(&state.active)
-        && physical.valid
-        && state.mouse_key_configured[physical.physical_key]
+        && logical.valid
+        && state.mouse_key_configured[logical.virtual_key]
     then
-        state.key_is_down[physical.physical_key] <- physical.down
+        state.key_is_down[logical.virtual_key] <- logical.down
 
         collect_actions ()
     else
@@ -702,12 +732,62 @@ let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) =
     finally
         Monitor.Exit state.transition_gate
 
+let consume_escape_exit
+    (lifetime: FlightLifetime)
+    (exit_on_left: bool)
+    (exit_on_right: bool)
+    (input: InputAccumulator.State)
+    =
+    if
+        Volatile.Read(&input.escape_requested)
+        && Option.isNone (InputAccumulator.exit_reason input)
+    then
+        let events = InputAccumulator.timeline_buffer ()
+        let struct (count, overflowed) = InputAccumulator.drain_timeline events input
+        let mutable index = 0
+        let mutable reason = None
+
+        while index < count && Option.isNone reason do
+            let event = events[index]
+
+            let actions =
+                match event.kind with
+                | InputAccumulator.TimelineEventKind.KeyboardTransition ->
+                    apply_keyboard_transition event.key event.key_down
+                | InputAccumulator.TimelineEventKind.RawMouseButton -> apply_raw_mouse_button_transition event.button
+                | _ -> InputAccumulator.KeyboardAction.None
+
+            let button =
+                if event.kind = InputAccumulator.TimelineEventKind.RawMouseButton then
+                    event.button.event
+                else
+                    RawMouseButtonEvent.None
+
+            reason <- InputAccumulator.event_exit lifetime exit_on_left exit_on_right actions button
+
+            index <- index + 1
+
+        let final_reason =
+            match reason with
+            | Some reason -> reason
+            | None ->
+                match state.bindings with
+                | Some bindings when is_plain_escape bindings.cancel_flight_and_restore -> ExplicitRestoreCamera
+                | _ when overflowed -> SessionFailure "The input timeline overflowed before Escape."
+                | _ -> ExplicitKeepCamera
+
+        InputAccumulator.request_exit final_reason input
+
 let revision () = Volatile.Read(&state.revision)
 
 let allow_passthrough () =
     Volatile.Write(&state.accept_new_keys, false)
 
 let ensure_hook () =
+    if not escape_handler_installed then
+        RhinoApp.EscapeKeyPressed.AddHandler escape_key_pressed
+        escape_handler_installed <- true
+
     match keyboard_hook with
     | Some _ -> Ok()
     | None ->
@@ -722,21 +802,31 @@ let start (config: FlyConfig) (input: InputAccumulator.State) (input_available: 
     | Error error -> Error error
     | Ok() ->
         try
+            let swapped = Win32.mouse_buttons_swapped ()
             Monitor.Enter state.transition_gate
 
             try
-                configure config input input_available
+                configure_with_physical_snapshot
+                    swapped
+                    (fun (key: int) -> Win32Native.GetAsyncKeyState key < 0s)
+                    config
+                    input
+                    input_available
             finally
                 Monitor.Exit state.transition_gate
 
-            Ok()
+            Ok swapped
         with error ->
             stop ()
             Error error.Message
 
 let shutdown () =
     stop ()
-    RhinoApp.EscapeKeyPressed.RemoveHandler escape_key_pressed
+
+    if escape_handler_installed then
+        RhinoApp.EscapeKeyPressed.RemoveHandler escape_key_pressed
+        escape_handler_installed <- false
+
     Monitor.Enter state.transition_gate
 
     try

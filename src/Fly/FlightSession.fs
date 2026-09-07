@@ -14,6 +14,9 @@ type StartingSession =
       override_suspension: InputSuspensionLease
       input_wake: PlatformInputWake.State
       raw_input: InputAccumulator.State
+      capture_deadline: int64
+      held_entry: (unit -> bool) option
+      buttons_swapped: bool
       input_available: Action }
 
 type ActiveSession =
@@ -24,6 +27,7 @@ type ActiveSession =
       override_suspension: InputSuspensionLease
       cleanup_errors: ResizeArray<string>
       original_gumball_enabled: bool
+      crosshair: FlightCrosshair option
       mutable raw: PlatformRawInput.Session option
       mutable cursor_clip: CursorClipLease option
       mutable cursor_hidden: bool
@@ -33,7 +37,9 @@ type ActiveSession =
       mutable keyboard_suppressed: bool
       mutable raw_input_clean: bool
       mutable raw_input_failed: bool
-      mutable input_safe: bool }
+      mutable input_safe: bool
+      mutable finalizing: bool
+      mutable final_result: Result<unit, string> option }
 
 type SessionState =
     | Ready
@@ -43,6 +49,7 @@ type SessionState =
     | RestartRequired
 
 let mutable session_state = Ready
+let mutable shutting_down = false
 let mutable main_loop_handler_installed = false
 let mutable processing_main_loop = false
 let mutable main_loop_handler: EventHandler = null
@@ -79,6 +86,15 @@ let attempt_cleanup (errors: ResizeArray<string>) (name: string) (action: unit -
         errors.Add $"{name}: {error_message error}"
         false
 
+let resume_mouse_overrides (errors: ResizeArray<string>) (lease: InputSuspensionLease) =
+    if shutting_down then
+        true
+    else
+        attempt_cleanup errors "mouse button overrides" (fun () ->
+            match PlatformMouseActions.resume lease with
+            | Ok() -> ()
+            | Error error -> failwith error)
+
 let is_running () =
     match session_state with
     | Starting _
@@ -88,8 +104,9 @@ let is_running () =
     | RestartRequired -> false
 
 let recovery_completed () =
-    if session_state = RestartRequired then
-        session_state <- Ready
+    match session_state with
+    | RestartRequired when not shutting_down -> session_state <- Ready
+    | _ -> ()
 
 let finish_result (flight_result: Result<unit, string>) (errors: ResizeArray<string>) =
     if errors.Count = 0 then
@@ -105,6 +122,12 @@ let finish_active_core (session: ActiveSession) (active_result: Result<unit, str
     session_state <- Finishing
     let state = session.state
     let cleanup_errors = session.cleanup_errors
+
+    match session.crosshair with
+    | Some crosshair ->
+        attempt_cleanup cleanup_errors "crosshair" (fun () -> crosshair.Enabled <- false)
+        |> ignore
+    | None -> ()
 
     if session.keyboard_suppressed then
         let released =
@@ -198,7 +221,8 @@ let finish_active_core (session: ActiveSession) (active_result: Result<unit, str
         | Ok() when session.raw_input_failed -> SessionFailure "The raw-input worker failed during flight."
         | Ok() -> recorded_exit_reason
 
-    let skip_background_display = FlightExitReason.skips_background_display exit_reason
+    let skip_background_display =
+        shutting_down || FlightExitReason.skips_background_display exit_reason
 
     if skip_background_display then
         InputAccumulator.discard_transient_input session.raw_input
@@ -222,9 +246,23 @@ let finish_active_core (session: ActiveSession) (active_result: Result<unit, str
         if not restored then
             session.input_safe <- false
 
-    let restore_camera = state.restore_camera_on_exit
+    let active_result =
+        match active_result, exit_reason with
+        | Ok(), SessionFailure error -> Error error
+        | result, _ -> result
 
-    let host_exists = PlatformInput.viewport_host_exists state.host_identity state.view
+    let restore_camera =
+        state.restore_camera_on_exit
+        || match exit_reason with
+           | SessionFailure _ -> true
+           | _ -> false
+
+    let host_exists =
+        try
+            PlatformInput.viewport_host_exists state.host_identity state.view
+        with error ->
+            cleanup_errors.Add $"viewport lookup: {error_message error}"
+            false
 
     let camera_restored =
         if restore_camera && host_exists then
@@ -259,14 +297,19 @@ let finish_active_core (session: ActiveSession) (active_result: Result<unit, str
         && (not restore_camera || camera_restored)
 
     let display_is_safe () =
-        session.raw_input_clean
-        && session.input_safe
-        && not skip_background_display
-        && PlatformInput.viewport_host_is_foreground state.host_identity state.view
+        try
+            session.raw_input_clean
+            && session.input_safe
+            && not shutting_down
+            && not skip_background_display
+            && PlatformInput.viewport_host_is_foreground state.host_identity state.view
+        with error ->
+            cleanup_errors.Add $"foreground lookup: {error_message error}"
+            false
 
     if retarget_requested && display_is_safe () then
         attempt_cleanup cleanup_errors "retarget" (fun () ->
-            ViewTarget.apply state.config.behavior.retarget retarget_mode state.speed state.view state.viewport)
+            ViewTarget.apply state.config.behavior.retarget retarget_mode state.view state.viewport)
         |> ignore
 
     if session.gumball_changed then
@@ -274,7 +317,9 @@ let finish_active_core (session: ActiveSession) (active_result: Result<unit, str
             ModelAidSettings.AutoGumballEnabled <- session.original_gumball_enabled)
         |> ignore
 
-    if session.flight_entered && host_exists then
+    state.hidden_gumball_plane <- ValueNone
+
+    if not shutting_down && session.flight_entered && host_exists then
         attempt_cleanup cleanup_errors "speed" (fun () ->
             match
                 FlightSpeed.set
@@ -287,15 +332,15 @@ let finish_active_core (session: ActiveSession) (active_result: Result<unit, str
             | Error error -> failwith error)
         |> ignore
 
-    if session.flight_entered && display_is_safe () then
+    if
+        (session.flight_entered || Option.isSome session.crosshair)
+        && display_is_safe ()
+    then
         attempt_cleanup cleanup_errors "redraw" (fun () -> state.view.Redraw())
         |> ignore
 
     let override_resumed =
-        attempt_cleanup cleanup_errors "mouse button overrides" (fun () ->
-            match PlatformMouseActions.resume session.override_suspension with
-            | Ok() -> ()
-            | Error error -> failwith error)
+        resume_mouse_overrides cleanup_errors session.override_suspension
 
     if not override_resumed then
         session.input_safe <- false
@@ -309,22 +354,50 @@ let finish_active_core (session: ActiveSession) (active_result: Result<unit, str
     if not session.input_safe then
         cleanup_errors.Add "input cleanup did not finish safely; run RhinosCanFlyInputRecover or restart Rhino"
 
-    if session.raw_input_clean && session.input_safe then
-        PlatformInput.request_application_redraw ()
-
-    session_state <-
-        if session.raw_input_clean && session.input_safe then
-            Ready
-        else
-            RestartRequired
+    if not shutting_down && session.raw_input_clean && session.input_safe then
+        attempt_cleanup cleanup_errors "application redraw" PlatformInput.request_application_redraw
+        |> ignore
 
     finish_result active_result cleanup_errors
 
 let finish_active (session: ActiveSession) (active_result: Result<unit, string>) =
-    try
-        finish_active_core session active_result
-    finally
-        CameraSnapshot.dispose session.state.original_camera
+    match session.final_result with
+    | Some result -> result
+    | None when session.finalizing -> Error "Flight cleanup is already in progress."
+    | None ->
+        session.finalizing <- true
+        let mutable core_completed = false
+
+        let result =
+            try
+                let result = finish_active_core session active_result
+                core_completed <- true
+                result
+            with error ->
+                session_state <- RestartRequired
+                finish_result (Error(error_message error)) session.cleanup_errors
+
+        let disposal_errors = ResizeArray<string>()
+
+        attempt_cleanup disposal_errors "camera snapshot" (fun () ->
+            CameraSnapshot.dispose session.state.original_camera)
+        |> ignore
+
+        let completed = finish_result result disposal_errors
+
+        session_state <-
+            if
+                core_completed
+                && disposal_errors.Count = 0
+                && session.raw_input_clean
+                && session.input_safe
+            then
+                Ready
+            else
+                RestartRequired
+
+        session.final_result <- Some completed
+        completed
 
 let cleanup_starting (starting: StartingSession) (result: Result<unit, string>) =
     session_state <- Finishing
@@ -336,11 +409,7 @@ let cleanup_starting (starting: StartingSession) (result: Result<unit, string>) 
     attempt_cleanup errors "main-loop wake" (fun () -> PlatformInputWake.dispose starting.input_wake)
     |> ignore
 
-    let resumed =
-        attempt_cleanup errors "mouse button overrides" (fun () ->
-            match PlatformMouseActions.resume starting.override_suspension with
-            | Ok() -> ()
-            | Error error -> failwith error)
+    let resumed = resume_mouse_overrides errors starting.override_suspension
 
     session_state <-
         if resumed && errors.Count = 0 then
@@ -350,14 +419,27 @@ let cleanup_starting (starting: StartingSession) (result: Result<unit, string>) 
 
     finish_result result errors
 
-let enter_active (session_mode: FlightSessionMode) (session: ActiveSession) =
+let enter_active (starting: StartingSession) (session: ActiveSession) =
     let state = session.state
 
     PlatformInput.focus_view state.view
 
+    if not (FlyState.is_running state) then
+        failwith "Flight was cancelled during viewport activation."
+
+    if
+        starting.held_entry
+        |> Option.exists (fun (valid: unit -> bool) -> not (valid ()))
+    then
+        failwith "The held flight entry was released or replaced before startup."
+
+    match PlatformMouseActions.raw_mouse_admission starting.buttons_swapped with
+    | ValueNone -> failwith "Rhino owns an unfinished mouse interaction. Release the buttons before starting flight."
+    | ValueSome buttons -> PlatformFlightKeyboard.admit_mouse_bindings buttons
+
     let raw =
         try
-            PlatformRawInput.start session.raw_input session.input_available
+            PlatformRawInput.start starting.buttons_swapped session.raw_input session.input_available
         with error ->
             FlyState.request_exit (SessionFailure(error.ToString())) state
 
@@ -374,6 +456,9 @@ let enter_active (session_mode: FlightSessionMode) (session: ActiveSession) =
     session.raw <- Some raw
     session.raw_input_clean <- false
 
+    if not (FlyState.is_running state) then
+        failwith "Flight was cancelled during raw-input startup."
+
     let navigation_bindings = state.config.bindings.mouse_navigation
     state.keyboard_pivot_held <- FlightControls.is_optional_down navigation_bindings.pivot.hold
     state.keyboard_pan_held <- FlightControls.is_optional_down navigation_bindings.pan.hold
@@ -385,7 +470,7 @@ let enter_active (session_mode: FlightSessionMode) (session: ActiveSession) =
         FlightControls.current_mouse_hold_buttons RoutedMouseAction.holds_pan state.config.mouse
 
     let held_entry_released =
-        session_mode.lifetime = FlightLifetime.WhileRightMouseHeld
+        starting.session_mode.lifetime = FlightLifetime.WhileRightMouseHeld
         && not (PlatformInput.right_mouse_button_down ())
 
     if held_entry_released then
@@ -410,19 +495,34 @@ let enter_active (session_mode: FlightSessionMode) (session: ActiveSession) =
 
         PlatformInput.prepare_viewport_for_navigation state.view state.host_identity.root_window
 
+        if not (FlyState.is_running state) then
+            failwith "Flight was cancelled during viewport preparation."
+
         if state.config.behavior.hide_gumball && session.original_gumball_enabled then
+            state.hidden_gumball_plane <- ViewTarget.gumball_plane state.view
             session.gumball_changed <- true
             ModelAidSettings.AutoGumballEnabled <- false
+
+        match session.crosshair with
+        | Some crosshair -> crosshair.Enabled <- true
+        | None -> ()
 
         session.perspective_lens_changed <- FlightCamera.entry_perspective_lens_changes state
         FlightCamera.apply_entry_perspective_lens state
 
         if ValueOption.isSome state.walking_plane then
-            FlightCamera.apply
-                state
-                { camera_changed = true
-                  parallel_magnification = 1. }
-        elif session.gumball_changed || session.perspective_lens_changed then
+            if
+                FlightCamera.write_view
+                    state
+                    { camera_changed = true
+                      parallel_magnification = 1. }
+            then
+                FlightCamera.redraw state
+        elif
+            session.gumball_changed
+            || session.perspective_lens_changed
+            || Option.isSome session.crosshair
+        then
             state.view.Redraw()
 
         session.flight_entered <- true
@@ -447,6 +547,11 @@ let begin_active (starting: StartingSession) =
               override_suspension = starting.override_suspension
               cleanup_errors = ResizeArray<string>()
               original_gumball_enabled = original_gumball_enabled
+              crosshair =
+                if state.config.behavior.crosshair.enabled then
+                    Some(FlightCrosshair state)
+                else
+                    None
               raw = None
               cursor_clip = None
               cursor_hidden = false
@@ -456,10 +561,29 @@ let begin_active (starting: StartingSession) =
               keyboard_suppressed = true
               raw_input_clean = true
               raw_input_failed = false
-              input_safe = true }
+              input_safe = true
+              finalizing = false
+              final_result = None }
 
         active_session <- Some session
         created_state <- None
+        // Entry can reenter Rhino. Own the resources before it does.
+        session_state <- Flying session
+
+        let owns_session () =
+            not session.finalizing
+            && (match session_state with
+                | Flying current -> obj.ReferenceEquals(current, session)
+                | _ -> false)
+
+        state.camera_write_allowed <-
+            fun () ->
+                not shutting_down
+                && owns_session ()
+                && Option.isNone (InputAccumulator.exit_reason session.raw_input)
+                && not (System.Threading.Volatile.Read(&session.raw_input.escape_requested))
+                && PlatformInput.viewport_id_matches state.host_identity state.view
+                && PlatformInput.foreground_root_window () = state.host_identity.root_window
 
         if
             starting.session_mode.lifetime = FlightLifetime.WhileRightMouseHeld
@@ -467,14 +591,15 @@ let begin_active (starting: StartingSession) =
         then
             FlyState.request_exit RightMouseReleased state
         else
-            enter_active starting.session_mode session
+            enter_active starting session
 
-        if FlyState.is_running state then
-            session_state <- Flying session
-
+        if FlyState.is_running state && owns_session () then
             let active_result =
                 try
-                    FlightLoop.run session.input_wake session.raw_input state
+                    match session.raw with
+                    | Some raw -> FlightLoop.run session.input_wake session.raw_input raw state
+                    | None -> failwith "Flight has no raw-input session."
+
                     Ok()
                 with error ->
                     state.restore_camera_on_exit <- true
@@ -489,8 +614,7 @@ let begin_active (starting: StartingSession) =
 
         match active_session with
         | Some session ->
-            if session.flight_entered then
-                session.state.restore_camera_on_exit <- true
+            session.state.restore_camera_on_exit <- true
 
             FlyState.request_exit (SessionFailure(error.ToString())) session.state
             finish_active session (Error message)
@@ -509,11 +633,7 @@ let begin_active (starting: StartingSession) =
             attempt_cleanup errors "main-loop wake" (fun () -> PlatformInputWake.dispose starting.input_wake)
             |> ignore
 
-            let resumed =
-                attempt_cleanup errors "mouse button overrides" (fun () ->
-                    match PlatformMouseActions.resume starting.override_suspension with
-                    | Ok() -> ()
-                    | Error resume_error -> failwith resume_error)
+            let resumed = resume_mouse_overrides errors starting.override_suspension
 
             session_state <-
                 if resumed && errors.Count = 0 then
@@ -531,9 +651,20 @@ let finish_and_report (result: Result<unit, string>) =
 let process_starting (starting: StartingSession) =
     PlatformInputWake.acknowledge starting.input_wake
 
+    PlatformFlightKeyboard.consume_escape_exit
+        starting.session_mode.lifetime
+        starting.config.mouse.exit_on_left
+        starting.config.mouse.exit_on_right
+        starting.raw_input
+
     match InputAccumulator.exit_reason starting.raw_input with
     | Some(SessionFailure error) -> cleanup_starting starting (Error error) |> finish_and_report
     | Some _ -> cleanup_starting starting (Ok()) |> finish_and_report
+    | None when
+        starting.held_entry
+        |> Option.exists (fun (valid: unit -> bool) -> not (valid ()))
+        ->
+        cleanup_starting starting (Ok()) |> finish_and_report
     | None when not (PlatformInput.viewport_host_is_active starting.host_identity starting.view) ->
         cleanup_starting starting (Error "The active Rhino document or viewport changed before flight began.")
         |> finish_and_report
@@ -543,6 +674,9 @@ let process_starting (starting: StartingSession) =
     | None when not (starting.view.MouseCaptured false) ->
         remove_main_loop_handler ()
         begin_active starting |> finish_and_report
+    | None when Stopwatch.GetTimestamp() >= starting.capture_deadline ->
+        cleanup_starting starting (Error "Rhino kept mouse capture for two seconds. Flight entry was cancelled.")
+        |> finish_and_report
     | None -> PlatformInputWake.signal starting.input_wake
 
 let process_main_loop () =
@@ -586,8 +720,9 @@ let ensure_main_loop_handler () =
         RhinoApp.MainLoop.AddHandler main_loop_handler
         main_loop_handler_installed <- true
 
-let run (view: RhinoView) (config: FlyConfig) (session_mode: FlightSessionMode) =
+let run (view: RhinoView) (config: FlyConfig) (session_mode: FlightSessionMode) (held_entry: (unit -> bool) option) =
     match session_state with
+    | _ when shutting_down -> Error "Rhino is shutting down."
     | Starting _
     | Flying _
     | Finishing -> Error "Fly mode is already running."
@@ -601,11 +736,7 @@ let run (view: RhinoView) (config: FlyConfig) (session_mode: FlightSessionMode) 
                 | Some error ->
                     let errors = ResizeArray<string>()
 
-                    attempt_cleanup errors "mouse button overrides" (fun () ->
-                        match PlatformMouseActions.resume suspension with
-                        | Ok() -> ()
-                        | Error resume_error -> failwith resume_error)
-                    |> ignore
+                    resume_mouse_overrides errors suspension |> ignore
 
                     session_state <- RestartRequired
                     finish_result (Error $"Could not suspend mouse button overrides safely: {error}") errors
@@ -619,9 +750,10 @@ let run (view: RhinoView) (config: FlyConfig) (session_mode: FlightSessionMode) 
                         let raw_input = InputAccumulator.create ()
                         let input_available = Action(fun () -> PlatformInputWake.signal wake)
 
-                        match PlatformFlightKeyboard.start config raw_input input_available with
-                        | Ok() -> ()
-                        | Error error -> failwith $"Could not suppress flight keys: {error}"
+                        let buttons_swapped =
+                            match PlatformFlightKeyboard.start config raw_input input_available with
+                            | Ok swapped -> swapped
+                            | Error error -> failwith $"Could not suppress flight keys: {error}"
 
                         let starting =
                             { view = view
@@ -631,6 +763,9 @@ let run (view: RhinoView) (config: FlyConfig) (session_mode: FlightSessionMode) 
                               override_suspension = suspension
                               input_wake = wake
                               raw_input = raw_input
+                              capture_deadline = Stopwatch.GetTimestamp() + 2L * Stopwatch.Frequency
+                              held_entry = held_entry
+                              buttons_swapped = buttons_swapped
                               input_available = input_available }
 
                         session_state <- Starting starting
@@ -657,11 +792,7 @@ let run (view: RhinoView) (config: FlyConfig) (session_mode: FlightSessionMode) 
                             |> ignore
                         | None -> ()
 
-                        attempt_cleanup errors "mouse button overrides" (fun () ->
-                            match PlatformMouseActions.resume suspension with
-                            | Ok() -> ()
-                            | Error resume_error -> failwith resume_error)
-                        |> ignore
+                        resume_mouse_overrides errors suspension |> ignore
 
                         session_state <- if errors.Count = 0 then Ready else RestartRequired
                         finish_result (Error(error_message error)) errors
@@ -674,13 +805,16 @@ let run (view: RhinoView) (config: FlyConfig) (session_mode: FlightSessionMode) 
             | RestartRequired -> Error(error_message error)
 
 let shutdown () =
+    shutting_down <- true
+
     try
         match session_state with
-        | Starting starting -> cleanup_starting starting (Error "Rhino is shutting down.") |> ignore
+        | Starting starting -> cleanup_starting starting (Ok()) |> finish_and_report
         | Flying session ->
             session.state.restore_camera_on_exit <- true
-            FlyState.request_exit (SessionFailure "Rhino is shutting down.") session.state
-            finish_active session (Error "Rhino is shutting down.") |> ignore
+            FlyState.request_exit HostInvalid session.state
+            // Let the running session unwind and clean up.
+            InputAccumulator.request_exit HostInvalid session.raw_input
         | Ready
         | Finishing
         | RestartRequired -> ()

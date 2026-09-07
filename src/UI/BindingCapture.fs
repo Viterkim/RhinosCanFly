@@ -17,8 +17,6 @@ type State =
 [<Literal>]
 let SIDE_BUTTON_POLL_INTERVAL_SECONDS = 0.015
 
-let same_button (left: Button) (right: Button) = Object.ReferenceEquals(left, right)
-
 let stop (state: State) =
     match state.active with
     | Some active -> active.button.Text <- "Set..."
@@ -62,7 +60,7 @@ let editor (state: State) (field: TextBox) (default_value: string) =
 
     set_button.Click.Add(fun (_: EventArgs) ->
         match state.suppress_next_set_click with
-        | Some suppressed when same_button suppressed set_button -> state.suppress_next_set_click <- None
+        | Some suppressed when Object.ReferenceEquals(suppressed, set_button) -> state.suppress_next_set_click <- None
         | Some _ ->
             state.suppress_next_set_click <- None
             start state field set_button
@@ -70,7 +68,7 @@ let editor (state: State) (field: TextBox) (default_value: string) =
 
     set_button.KeyDown.Add(fun (event: KeyEventArgs) ->
         match state.active with
-        | Some active when same_button active.button set_button ->
+        | Some active when Object.ReferenceEquals(active.button, set_button) ->
             event.Handled <- true
 
             if not (PlatformBindings.is_modifier_key event.Key) then
@@ -79,7 +77,7 @@ let editor (state: State) (field: TextBox) (default_value: string) =
 
     set_button.KeyUp.Add(fun (event: KeyEventArgs) ->
         match state.active with
-        | Some active when same_button active.button set_button ->
+        | Some active when Object.ReferenceEquals(active.button, set_button) ->
             event.Handled <- true
 
             if PlatformBindings.is_modifier_key event.Key then
@@ -136,7 +134,10 @@ let create () =
 
     state.side_button_timer.Elapsed.Add(fun (_: EventArgs) ->
         try
-            PlatformBindings.try_side_mouse_binding () |> Option.iter (complete state)
+            match state.active with
+            | Some active when active.button.HasFocus ->
+                PlatformBindings.try_side_mouse_binding () |> Option.iter (complete state)
+            | _ -> cancel state
         with error ->
             Debug.WriteLine $"RhinosCanFly binding capture timer: {error}"
             cancel state)

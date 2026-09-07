@@ -69,13 +69,20 @@ let reset_pivot_drag (viewport: RhinoViewport) (config: MouseConfig) (center: Po
 
     PivotOrbit.reset center (capture_camera viewport) horizontal_scale vertical_scale drag
 
-let apply_pivot (viewport: RhinoViewport) (drag: PivotDragState) (dx: int64) (dy: int64) =
+let apply_pivot (viewport: RhinoViewport) (can_write: unit -> bool) (drag: PivotDragState) (dx: int64) (dy: int64) =
     let camera = PivotOrbit.apply_delta dx dy drag
-    viewport.SetCameraLocations(camera.target, camera.position)
-    viewport.CameraUp <- camera.up
-    true
 
-let apply_pan (viewport: RhinoViewport) (config: MouseConfig) (dx: int64) (dy: int64) =
+    if can_write () then
+        viewport.SetCameraLocations(camera.target, camera.position)
+
+        if can_write () then
+            viewport.CameraUp <- camera.up
+
+        true
+    else
+        false
+
+let apply_pan (viewport: RhinoViewport) (can_write: unit -> bool) (config: MouseConfig) (dx: int64) (dy: int64) =
     let (MousePanMultiplier multiplier) = config.pan_multiplier
 
     let deltas =
@@ -101,11 +108,14 @@ let apply_pan (viewport: RhinoViewport) (config: MouseConfig) (dx: int64) (dy: i
 
         let translation = right * deltas.yaw_delta * depth - up * deltas.pitch_delta * depth
 
-        if translation.IsZero then
+        if translation.IsZero || not (can_write ()) then
             false
         else
             viewport.SetCameraLocation(location + translation, false)
-            viewport.SetCameraTarget(target + translation, false)
+
+            if can_write () then
+                viewport.SetCameraTarget(target + translation, false)
+
             true
     else
         false

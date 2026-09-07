@@ -184,7 +184,7 @@ let is_down (binding: KeyBinding) =
 
     while down && index < keys.Length do
         let (VirtualKey key) = keys[index]
-        down <- Win32Native.GetAsyncKeyState key < 0s
+        down <- Win32.key_down key
         index <- index + 1
 
     down
@@ -259,8 +259,7 @@ let binding_from_mouse (button: MouseButtons) (modifiers: Keys) =
 
     name |> Option.map (chord_name (modifier_names modifiers))
 
-let win_key_down (virtual_key: int) =
-    Win32Native.GetAsyncKeyState virtual_key < 0s
+let win_key_down (virtual_key: int) = Win32.key_down virtual_key
 
 let win_modifier_names () =
     [ if win_key_down Win32Native.VK_LCONTROL || win_key_down Win32Native.VK_RCONTROL then
@@ -270,9 +269,20 @@ let win_modifier_names () =
       if win_key_down Win32Native.VK_LSHIFT || win_key_down Win32Native.VK_RSHIFT then
           "Shift" ]
 
+let process_id =
+    use process = System.Diagnostics.Process.GetCurrentProcess()
+    uint32 process.Id
+
 let try_side_mouse_binding () =
+    let mutable foreground_process = 0u
+
+    Win32Native.GetWindowThreadProcessId(Win32Native.GetForegroundWindow(), &foreground_process)
+    |> ignore
+
     let name =
-        if win_key_down Win32Native.VK_XBUTTON1 then
+        if foreground_process <> process_id then
+            None
+        elif win_key_down Win32Native.VK_XBUTTON1 then
             Some "MouseX1"
         elif win_key_down Win32Native.VK_XBUTTON2 then
             Some "MouseX2"

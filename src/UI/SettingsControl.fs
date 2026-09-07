@@ -29,6 +29,7 @@ type SettingsControl() as self =
     let options_icon = SettingsUi.load_icon ()
     let binding_capture = BindingCapture.create ()
     let mutable resources_disposed = false
+    let mutable load_depth = 0
 
     let format_runtime_number (value: float) =
         value.ToString("0.######", CultureInfo.InvariantCulture)
@@ -105,6 +106,7 @@ type SettingsControl() as self =
             || RetargetMode.uses_distance (SettingsFields.selected_mode modes.retarget_on_flight_exit)
             || RetargetMode.uses_distance (SettingsFields.selected_mode modes.retarget_on_restored_flight_exit)
 
+        numbers.retarget_base_distance.Enabled <- fallback_enabled
         numbers.perspective_retarget_fallback_multiplier.Enabled <- fallback_enabled
         numbers.parallel_retarget_fallback_multiplier.Enabled <- fallback_enabled
 
@@ -309,6 +311,25 @@ type SettingsControl() as self =
         |> SettingsLayout.full_width
         |> main_table.Rows.Add
 
+        main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Crosshair"))
+        let crosshair = fields.config.crosshair
+        main_table.Rows.Add(SettingsLayout.full_width crosshair.show)
+
+        SettingsLayout.grid
+            2
+            [ SettingsLayout.fixed_item 155 64 "Arm length (px)" crosshair.arm_length
+              SettingsLayout.fixed_item 155 64 "Center gap (px)" crosshair.gap ]
+        |> SettingsLayout.full_width
+        |> main_table.Rows.Add
+
+        SettingsLayout.grid
+            3
+            [ SettingsLayout.fixed_item 50 64 "Red" crosshair.red
+              SettingsLayout.fixed_item 50 64 "Green" crosshair.green
+              SettingsLayout.fixed_item 50 64 "Blue" crosshair.blue ]
+        |> SettingsLayout.full_width
+        |> main_table.Rows.Add
+
         main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Controls"))
 
         SettingsLayout.grid
@@ -432,6 +453,10 @@ type SettingsControl() as self =
 
         main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.subheading "Fallback distance"))
 
+        SettingsLayout.grid 2 [ SettingsLayout.item "Distance (doc units)" numbers.retarget_base_distance ]
+        |> SettingsLayout.full_width
+        |> main_table.Rows.Add
+
         SettingsLayout.grid
             2
             [ SettingsLayout.item "Perspective multiplier" numbers.perspective_retarget_fallback_multiplier
@@ -497,10 +522,13 @@ type SettingsControl() as self =
 
         self.Content <- host
 
-        modes.viewport_capabilities.control.SelectedIndexChanged.Add(fun (_: EventArgs) -> refresh_viewport_controls ())
+        modes.viewport_capabilities.control.SelectedIndexChanged.Add(fun (_: EventArgs) ->
+            if load_depth = 0 then
+                refresh_viewport_controls ())
 
         modes.right_click_flight_entry.control.SelectedIndexChanged.Add(fun (_: EventArgs) ->
-            refresh_viewport_controls ())
+            if load_depth = 0 then
+                refresh_viewport_controls ())
 
         [ modes.shift_right_click_action.control
           modes.alt_right_click_action.control
@@ -521,9 +549,13 @@ type SettingsControl() as self =
           modes.retarget_on_flight_exit.control
           modes.retarget_on_restored_flight_exit.control ]
         |> List.iter (fun (control: DropDown) ->
-            control.SelectedIndexChanged.Add(fun (_: EventArgs) -> refresh_retarget_controls ()))
+            control.SelectedIndexChanged.Add(fun (_: EventArgs) ->
+                if load_depth = 0 then
+                    refresh_retarget_controls ()))
 
-        modes.wheel_speed_mode.control.SelectedIndexChanged.Add(fun (_: EventArgs) -> refresh_wheel_speed_controls ())
+        modes.wheel_speed_mode.control.SelectedIndexChanged.Add(fun (_: EventArgs) ->
+            if load_depth = 0 then
+                refresh_wheel_speed_controls ())
 
         refresh_retarget_controls ()
         refresh_wheel_speed_controls ()
@@ -551,11 +583,11 @@ type SettingsControl() as self =
                 self.ShowError $"Could not open GitHub: {error.Message}")
 
         actions.reset_all.Click.Add(fun (_: EventArgs) ->
+            BindingCapture.cancel binding_capture
             self.LoadConfig defaults
             self.ClearError())
 
         BindingCapture.attach_mouse_behavior binding_capture self
-        SettingsUi.use_rhino_style self
         self.UnLoad.Add(fun (_: EventArgs) -> BindingCapture.cancel binding_capture)
 
     override _.Dispose(disposing: bool) =
@@ -596,9 +628,16 @@ type SettingsControl() as self =
     member _.SetScrollPosition(position: Point) = scrollable.ScrollPosition <- position
 
     member _.LoadConfig(config: FlyConfigFile) =
-        SettingsConfig.load fields.config config
-        refresh_retarget_controls ()
-        refresh_wheel_speed_controls ()
-        refresh_viewport_controls ()
+        load_depth <- load_depth + 1
+
+        try
+            SettingsConfig.load fields.config config
+        finally
+            load_depth <- load_depth - 1
+
+        if load_depth = 0 then
+            refresh_retarget_controls ()
+            refresh_wheel_speed_controls ()
+            refresh_viewport_controls ()
 
     member _.ReadConfig() = SettingsConfig.read fields.config

@@ -2,7 +2,7 @@ param(
     [ValidateSet("Debug", "Release")]
     [string] $Configuration = "Release",
     [switch] $Clean,
-    [int] $RhinoVersion = 9
+    [int] $RhinoVersion = 0
 )
 
 $ErrorActionPreference = "Stop"

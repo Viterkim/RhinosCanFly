@@ -28,7 +28,6 @@ type Session
     internal
     (
         host: ViewportHostIdentity,
-        mode: ViewportNavigation.Operation,
         input: InputAccumulator.State,
         wake: PlatformInputWake.State,
         raw: PlatformRawInput.Session,
@@ -41,7 +40,6 @@ type Session
 
     let mutable active = true
     let mutable draining = false
-    let mutable main_loop_handler: EventHandler option = None
     let mutable failure_notified = false
     let mutable raw_input_clean = false
     let mutable clip_released = false
@@ -55,16 +53,14 @@ type Session
             failed.Invoke()
 
     member _.Host = host
-    member _.Mode = mode
     member _.View = view
     member _.Viewport = viewport
     member _.OriginalCursor = original_cursor
     member _.IsActive = active
-    member _.FailureNotified = failure_notified
+    member _.WorkPending = InputAccumulator.work_pending input
 
     member _.CleanupComplete =
         not active
-        && Option.isNone main_loop_handler
         && raw_input_clean
         && clip_released
         && cursor_restored
@@ -73,9 +69,6 @@ type Session
 
     member _.RawInputRegistrationIsCurrent() =
         PlatformRawInput.registration_is_current raw
-
-    member _.Matches(expected_host: ViewportHostIdentity, expected_mode: ViewportNavigation.Operation) =
-        active && host = expected_host && mode = expected_mode
 
     member _.DiscardPointerInput() =
         InputAccumulator.discard_pointer_input input
@@ -118,84 +111,74 @@ type Session
 
                 draining <- false
 
-    member this.Attach(work_available: Action) =
-        if active && Option.isNone main_loop_handler then
-            let handler =
-                EventHandler(fun (_: obj) (_: EventArgs) ->
-                    try
-                        work_available.Invoke()
-                    with error ->
-                        Debug.WriteLine $"RhinosCanFly raw view navigation UI work failed: {error}"
-                        this.NotifyFailure())
-
-            RhinoApp.MainLoop.AddHandler handler
-            main_loop_handler <- Some handler
-
     member _.Stop() =
         active <- false
         let errors = ResizeArray<string>()
 
-        match main_loop_handler with
-        | Some handler ->
+        let attempt (name: string) (action: unit -> unit) =
             try
-                RhinoApp.MainLoop.RemoveHandler handler
-                main_loop_handler <- None
+                action ()
             with error ->
-                errors.Add $"main-loop handler: {error.Message}"
-        | None -> ()
+                errors.Add $"{name}: {error.Message}"
 
         if not raw_input_clean then
-            match PlatformRawInput.request_stop raw with
-            | Ok() -> ()
-            | Error error -> errors.Add $"raw-input stop request: {error}"
+            attempt "raw-input stop request" (fun () ->
+                match PlatformRawInput.request_stop raw with
+                | Ok() -> ()
+                | Error error -> errors.Add $"raw-input stop request: {error}")
 
         if not clip_released then
-            match PlatformCursorClip.release cursor_clip with
-            | Ok() -> clip_released <- true
-            | Error error -> errors.Add $"cursor clip: {error}"
+            attempt "cursor clip" (fun () ->
+                match PlatformCursorClip.release cursor_clip with
+                | Ok() -> clip_released <- true
+                | Error error -> errors.Add $"cursor clip: {error}")
 
         if not raw_input_clean then
-            let outcome = PlatformRawInput.stop raw
+            attempt "raw input" (fun () ->
+                let outcome = PlatformRawInput.stop raw
 
-            raw_input_clean <-
-                outcome.terminated
-                && outcome.registration_relinquished
-                && not outcome.previous_registration_lost
+                raw_input_clean <-
+                    outcome.terminated
+                    && outcome.registration_relinquished
+                    && not outcome.previous_registration_lost
 
-            if not raw_input_clean then
-                errors.Add "raw input did not shut down cleanly"
+                if not raw_input_clean then
+                    errors.Add "raw input did not shut down cleanly"
 
-            for error in outcome.errors do
-                errors.Add $"raw input: {error}"
+                for error in outcome.errors do
+                    errors.Add $"raw input: {error}")
 
         if not cursor_restored then
-            let (RootWindow root_window) = host.root_window
+            attempt "cursor position" (fun () ->
+                let (RootWindow root_window) = host.root_window
 
-            if
-                root_window <> nativeint 0
-                && Win32Native.IsWindow root_window
-                && Win32Native.GetForegroundWindow() = root_window
-            then
-                match Win32.set_cursor_position original_cursor with
-                | Ok() -> cursor_restored <- true
-                | Error error -> errors.Add $"cursor position: {error}"
-            else
-                cursor_restored <- true
+                if
+                    root_window <> nativeint 0
+                    && Win32Native.IsWindow root_window
+                    && Win32Native.GetForegroundWindow() = root_window
+                then
+                    match Win32.set_cursor_position original_cursor with
+                    | Ok() -> cursor_restored <- true
+                    | Error error -> errors.Add $"cursor position: {error}"
+                else
+                    cursor_restored <- true)
 
         if cursor_hidden then
-            Win32Native.ShowCursor true |> ignore
-            cursor_hidden <- false
+            attempt "cursor visibility" (fun () ->
+                Win32Native.ShowCursor true |> ignore
+                cursor_hidden <- false)
 
         if not wake_disposed then
-            PlatformInputWake.dispose wake
-            wake_disposed <- true
+            attempt "input wake" (fun () ->
+                PlatformInputWake.dispose wake
+                wake_disposed <- true)
 
         if errors.Count = 0 then
             Ok()
         else
             Error(String.Join("; ", errors))
 
-let start (host: ViewportHostIdentity) (mode: ViewportNavigation.Operation) (failed: Action) =
+let start (host: ViewportHostIdentity) (mode: ViewportNavigation.Operation) (admit: unit -> bool) (failed: Action) =
     let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
 
     if not (view_matches_host host view) then
@@ -221,7 +204,12 @@ let start (host: ViewportHostIdentity) (mode: ViewportNavigation.Operation) (fai
                 let mutable cursor_hidden = false
 
                 try
-                    let created_raw = PlatformRawInput.start input input_available
+                    if Win32Native.GetCapture() <> nativeint 0 || not (admit ()) then
+                        failwith "Rhino owns an unfinished mouse interaction."
+
+                    let created_raw =
+                        PlatformRawInput.start (Win32.mouse_buttons_swapped ()) input input_available
+
                     raw <- Some created_raw
 
                     match PlatformCursorClip.acquire view with
@@ -234,18 +222,7 @@ let start (host: ViewportHostIdentity) (mode: ViewportNavigation.Operation) (fai
                     match cursor_clip with
                     | Some lease ->
                         let session =
-                            Session(
-                                host,
-                                mode,
-                                input,
-                                wake,
-                                created_raw,
-                                view,
-                                viewport,
-                                original_cursor,
-                                lease,
-                                failed
-                            )
+                            Session(host, input, wake, created_raw, view, viewport, original_cursor, lease, failed)
 
                         let startup_revision = InputAccumulator.work_revision input
                         InputAccumulator.discard_pointer_input input
@@ -257,16 +234,34 @@ let start (host: ViewportHostIdentity) (mode: ViewportNavigation.Operation) (fai
                         Ok session
                     | None -> failwith "The navigation cursor clip was not acquired."
                 with error ->
+                    let errors = ResizeArray<string>()
+                    errors.Add $"Could not start raw view navigation: {error.Message}"
+
+                    let attempt (name: string) (action: unit -> unit) =
+                        try
+                            action ()
+                        with cleanup_error ->
+                            errors.Add $"{name}: {cleanup_error.Message}"
+
                     match cursor_clip with
-                    | Some lease -> PlatformCursorClip.release lease |> ignore
+                    | Some lease ->
+                        attempt "cursor clip" (fun () ->
+                            match PlatformCursorClip.release lease with
+                            | Ok() -> ()
+                            | Error message -> errors.Add message)
                     | None -> ()
 
                     match raw with
-                    | Some created -> PlatformRawInput.stop created |> ignore
+                    | Some created ->
+                        attempt "raw input" (fun () ->
+                            let outcome = PlatformRawInput.stop created
+
+                            for message in outcome.errors do
+                                errors.Add message)
                     | None -> ()
 
                     if cursor_hidden then
-                        Win32Native.ShowCursor true |> ignore
+                        attempt "cursor visibility" (fun () -> Win32Native.ShowCursor true |> ignore)
 
-                    PlatformInputWake.dispose wake
-                    Error $"Could not start raw view navigation: {error.Message}"
+                    attempt "input wake" (fun () -> PlatformInputWake.dispose wake)
+                    Error(String.concat "; " errors)

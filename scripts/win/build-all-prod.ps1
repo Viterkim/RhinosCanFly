@@ -1,8 +1,11 @@
+#Requires -Version 7.4
+
 $ErrorActionPreference = "Stop"
 $yakScript = Join-Path $PSScriptRoot "yak.ps1"
 $buildSetup = Join-Path $PSScriptRoot "build-setup.ps1"
 $formatScript = Join-Path $PSScriptRoot "format.ps1"
 $checkScript = Join-Path $PSScriptRoot "check.ps1"
+& (Join-Path $PSScriptRoot 'set-versions.ps1') -Check | Out-Null
 
 . $buildSetup -Quiet -MatrixOnly
 
@@ -40,6 +43,9 @@ foreach ($rhinoVersion in $ReleaseRhinoVersions) {
         exit $LASTEXITCODE
     }
 }
+
+& (Join-Path $projectRoot 'tools\manual\check-runtime-payload.ps1')
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $releaseNames = ($ReleaseRhinoVersions | ForEach-Object { "Rhino $_" }) -join " and "
 Write-Host "Finished $releaseNames release packages."

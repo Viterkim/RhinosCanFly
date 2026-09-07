@@ -22,6 +22,8 @@ type State =
       mutable create_subscribed: bool
       mutable destroy_subscribed: bool
       mutable application_initialized: EventHandler option
+      mutable viewport_changed: EventHandler<ViewEventArgs> option
+      mutable page_space_changed: EventHandler<PageViewSpaceChangeEventArgs> option
       mutable view_created: EventHandler<ViewEventArgs> option
       mutable view_destroyed: EventHandler<ViewEventArgs> option }
 
@@ -100,6 +102,8 @@ let create (callbacks: Callbacks) =
           create_subscribed = false
           destroy_subscribed = false
           application_initialized = None
+          viewport_changed = None
+          page_space_changed = None
           view_created = None
           view_destroyed = None }
 
@@ -143,10 +147,31 @@ let create (callbacks: Callbacks) =
             with error ->
                 callbacks.log_exception "viewport window destroyed" error)
 
+    let viewport_changed =
+        EventHandler<ViewEventArgs>(fun (_: obj) (event: ViewEventArgs) ->
+            if callbacks.hook_installed () then
+                view_created.Invoke(null, event))
+
+    let page_space_changed =
+        EventHandler<PageViewSpaceChangeEventArgs>(fun (_: obj) (event: PageViewSpaceChangeEventArgs) ->
+            if callbacks.hook_installed () then
+                try
+                    let view = event.PageView
+
+                    if not (isNull view) && not (isNull view.Document) && view.Handle <> nativeint 0 then
+                        update state view
+                with error ->
+                    callbacks.log_exception "layout detail refresh" error)
+
     state.application_initialized <- Some application_initialized
+    state.viewport_changed <- Some viewport_changed
+    state.page_space_changed <- Some page_space_changed
     state.view_created <- Some view_created
     state.view_destroyed <- Some view_destroyed
     RhinoApp.Initialized.AddHandler application_initialized
+    RhinoView.SetActive.AddHandler viewport_changed
+    RhinoView.Rename.AddHandler viewport_changed
+    RhinoPageView.PageViewSpaceChange.AddHandler page_space_changed
     state
 
 let subscribe (state: State) =
@@ -243,9 +268,22 @@ let try_viewport (state: State) (window: nativeint) =
 
     result
 
-let remove_application_handler (state: State) =
+let remove_persistent_handlers (state: State) =
     match state.application_initialized with
     | Some handler ->
         RhinoApp.Initialized.RemoveHandler handler
         state.application_initialized <- None
+    | None -> ()
+
+    match state.viewport_changed with
+    | Some handler ->
+        RhinoView.SetActive.RemoveHandler handler
+        RhinoView.Rename.RemoveHandler handler
+        state.viewport_changed <- None
+    | None -> ()
+
+    match state.page_space_changed with
+    | Some handler ->
+        RhinoPageView.PageViewSpaceChange.RemoveHandler handler
+        state.page_space_changed <- None
     | None -> ()

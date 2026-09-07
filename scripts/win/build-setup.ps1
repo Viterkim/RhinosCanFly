@@ -29,7 +29,13 @@ function Get-RhinoBuildProperties {
         $arguments += "-p:RhinoMajorVersion=$Major"
     }
 
-    $output = & dotnet @arguments
+    Push-Location $projectRoot
+    try {
+        $output = & dotnet @arguments
+    }
+    finally {
+        Pop-Location
+    }
 
     if ($LASTEXITCODE -ne 0) {
         throw "Could not read the Rhino build matrix from '$project'."

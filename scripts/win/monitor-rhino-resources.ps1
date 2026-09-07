@@ -81,27 +81,34 @@ Write-Host "CSV: $OutputPath"
 Write-Host "Reproduce the problem. Watch what keeps growing."
 
 while (-not $process.HasExited) {
-    $process.Refresh()
+    try {
+        $process.Refresh()
 
-    $gdiObjects = [RhinosCanFly.NativeResourceCounters]::GetGuiResources($process.Handle, 0)
-    $userObjects = [RhinosCanFly.NativeResourceCounters]::GetGuiResources($process.Handle, 1)
+        $gdiObjects = [RhinosCanFly.NativeResourceCounters]::GetGuiResources($process.Handle, 0)
+        $userObjects = [RhinosCanFly.NativeResourceCounters]::GetGuiResources($process.Handle, 1)
 
-    $sample = [PSCustomObject]@{
-        Timestamp = (Get-Date).ToString("o")
-        ElapsedSeconds = [math]::Round($clock.Elapsed.TotalSeconds, 3)
-        RhinoVersion = $fileVersion
-        ProcessId = $process.Id
-        PrivateMB = [math]::Round($process.PrivateMemorySize64 / 1MB, 2)
-        PrivateDeltaMB = [math]::Round(($process.PrivateMemorySize64 - $initialPrivateBytes) / 1MB, 2)
-        WorkingSetMB = [math]::Round($process.WorkingSet64 / 1MB, 2)
-        Handles = $process.HandleCount
-        HandleDelta = $process.HandleCount - $initialHandles
-        Threads = $process.Threads.Count
-        ThreadDelta = $process.Threads.Count - $initialThreads
-        GdiObjects = $gdiObjects
-        GdiDelta = [int64] $gdiObjects - [int64] $initialGdiObjects
-        UserObjects = $userObjects
-        UserDelta = [int64] $userObjects - [int64] $initialUserObjects
+        $sample = [PSCustomObject]@{
+            Timestamp = (Get-Date).ToString("o")
+            ElapsedSeconds = [math]::Round($clock.Elapsed.TotalSeconds, 3)
+            RhinoVersion = $fileVersion
+            ProcessId = $process.Id
+            PrivateMB = [math]::Round($process.PrivateMemorySize64 / 1MB, 2)
+            PrivateDeltaMB = [math]::Round(($process.PrivateMemorySize64 - $initialPrivateBytes) / 1MB, 2)
+            WorkingSetMB = [math]::Round($process.WorkingSet64 / 1MB, 2)
+            Handles = $process.HandleCount
+            HandleDelta = $process.HandleCount - $initialHandles
+            Threads = $process.Threads.Count
+            ThreadDelta = $process.Threads.Count - $initialThreads
+            GdiObjects = $gdiObjects
+            GdiDelta = [int64] $gdiObjects - [int64] $initialGdiObjects
+            UserObjects = $userObjects
+            UserDelta = [int64] $userObjects - [int64] $initialUserObjects
+        }
+
+    }
+    catch {
+        if ($process.HasExited) { break }
+        throw
     }
 
     $sample | Export-Csv -LiteralPath $OutputPath -NoTypeInformation -Append

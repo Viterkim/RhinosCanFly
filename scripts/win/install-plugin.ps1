@@ -84,31 +84,38 @@ if (-not $devInstallDirectory.StartsWith($expectedInstallPrefix, [StringComparis
     throw "Refusing to replace unexpected development install path '$devInstallDirectory'."
 }
 
-if (Test-Path -LiteralPath $devInstallDirectory) {
-    Remove-Item -LiteralPath $devInstallDirectory -Recurse -Force
-}
-
-New-Item -ItemType Directory -Path $devInstallDirectory | Out-Null
-
-$developmentFiles = @(
-    $builtPluginFile
-    (Join-Path $buildOutput "RhinosCanFly.pdb")
-    (Join-Path $buildOutput "RhinosCanFly.deps.json")
-    (Join-Path $buildOutput "RhinosCanFly.runtimeconfig.json")
-)
-
-foreach ($file in $developmentFiles) {
-    if (Test-Path -LiteralPath $file) {
-        Copy-Item -LiteralPath $file -Destination $devInstallDirectory -Force
+$installId = [Guid]::NewGuid().ToString('N')
+$stagedInstall = [IO.Path]::GetFullPath((Join-Path $devInstallRoot "rh$RhinoMajorVersion-stage-$installId"))
+$previousInstall = [IO.Path]::GetFullPath((Join-Path $devInstallRoot "rh$RhinoMajorVersion-previous-$installId"))
+foreach ($path in @($stagedInstall, $previousInstall)) {
+    if (-not $path.StartsWith($expectedInstallPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing unexpected development install path '$path'."
     }
 }
 
-foreach ($file in Get-ChildItem -LiteralPath $buildOutput -Filter "*.dll" -File) {
-    Copy-Item -LiteralPath $file.FullName -Destination $devInstallDirectory -Force
+. (Join-Path $PSScriptRoot "runtime-payload.ps1")
+try {
+    Copy-RuntimePayload -BuildOutput $buildOutput -Destination $stagedInstall -AssetsFile (Join-Path $repoRoot "obj\rh$RhinoMajorVersion\project.assets.json") -TargetFramework $TargetFramework -IncludeSymbols
+    if (Test-Path -LiteralPath $devInstallDirectory) {
+        Move-Item -LiteralPath $devInstallDirectory -Destination $previousInstall
+    }
+    try {
+        Move-Item -LiteralPath $stagedInstall -Destination $devInstallDirectory
+    }
+    catch {
+        if (Test-Path -LiteralPath $previousInstall) {
+            Move-Item -LiteralPath $previousInstall -Destination $devInstallDirectory
+        }
+        throw
+    }
+    if (Test-Path -LiteralPath $previousInstall) {
+        Remove-Item -LiteralPath $previousInstall -Recurse -Force
+    }
 }
-
-foreach ($directory in Get-ChildItem -LiteralPath $buildOutput -Directory) {
-    Copy-Item -LiteralPath $directory.FullName -Destination $devInstallDirectory -Recurse -Force
+finally {
+    if (Test-Path -LiteralPath $stagedInstall) {
+        Remove-Item -LiteralPath $stagedInstall -Recurse -Force
+    }
 }
 
 $existingRegistration = Get-ItemProperty -LiteralPath $registryPath -ErrorAction SilentlyContinue

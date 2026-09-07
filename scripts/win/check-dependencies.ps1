@@ -22,6 +22,7 @@ function Invoke-Check {
     }
 }
 
+Push-Location $projectRoot
 try {
     . $buildSetup -Quiet -MatrixOnly
 
@@ -74,6 +75,7 @@ try {
 }
 finally {
     $env:RhinoMajorVersion = $previousRhinoMajorVersion
+    Pop-Location
 }
 
 if ($failedChecks.Count -gt 0) {

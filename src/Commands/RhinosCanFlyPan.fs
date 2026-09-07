@@ -5,4 +5,4 @@ open Rhino
 open Rhino.Commands
 
 let run (document: RhinoDoc) =
-    StandaloneNavigation.run StandaloneNavigation.Mode.Pan document
+    StandaloneNavigation.run ViewNavigationMode.Pan document

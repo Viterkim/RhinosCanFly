@@ -42,6 +42,7 @@ type NumberFields =
       key_pivot_speed_multiplier: TextBox
       mouse_pivot_multiplier: TextBox
       mouse_pan_multiplier: TextBox
+      retarget_base_distance: TextBox
       perspective_retarget_fallback_multiplier: TextBox
       parallel_retarget_fallback_multiplier: TextBox
       perspective_retarget_zoom_border: TextBox
@@ -104,8 +105,17 @@ type OptionFields =
       exit_on_mouse_right: CheckBox
       commands_do_not_repeat: CheckBox }
 
+type CrosshairFields =
+    { show: CheckBox
+      arm_length: NumericStepper
+      gap: NumericStepper
+      red: NumericStepper
+      green: NumericStepper
+      blue: NumericStepper }
+
 type ConfigFields =
-    { bindings: BindingFields
+    { crosshair: CrosshairFields
+      bindings: BindingFields
       numbers: NumberFields
       modes: ModeFields
       options: OptionFields
@@ -130,7 +140,14 @@ type Fields =
       raw_json: RawJsonFields
       actions: ActionFields }
 
-let text_box () = new TextBox()
+let crosshair_number (minimum: int) (maximum: int) =
+    new NumericStepper(
+        MinValue = float minimum,
+        MaxValue = float maximum,
+        DecimalPlaces = 0,
+        Increment = 1.,
+        Width = 64
+    )
 
 let mode_field (options: ('Mode * string) array) (fallback: 'Mode) =
     let control = new DropDown(Height = 24)
@@ -224,53 +241,61 @@ let create () =
            ViewportPaintMode.Immediate, "Immediate paint" |]
 
     { config =
-        { bindings =
-            { forward = text_box ()
-              backward = text_box ()
-              left = text_box ()
-              right = text_box ()
-              up = text_box ()
-              down = text_box ()
-              key_pivot_left = text_box ()
-              key_pivot_right = text_box ()
-              pivot_toggle = text_box ()
-              pivot_hold = text_box ()
-              pan_toggle = text_box ()
-              pan_hold = text_box ()
-              boost = text_box ()
-              slow = text_box ()
-              speed_increase = text_box ()
-              speed_decrease = text_box ()
-              retarget_all_views = text_box ()
-              retarget_other_views = text_box ()
-              untilt_view = text_box ()
-              exit_key = text_box ()
-              cancel_flight_and_restore = text_box ()
-              toggle_projection = text_box () }
+        { crosshair =
+            { show = new CheckBox(Text = "Show crosshair while flying")
+              arm_length = crosshair_number 1 99999
+              gap = crosshair_number 1 99999
+              red = crosshair_number 0 255
+              green = crosshair_number 0 255
+              blue = crosshair_number 0 255 }
+          bindings =
+            { forward = new TextBox()
+              backward = new TextBox()
+              left = new TextBox()
+              right = new TextBox()
+              up = new TextBox()
+              down = new TextBox()
+              key_pivot_left = new TextBox()
+              key_pivot_right = new TextBox()
+              pivot_toggle = new TextBox()
+              pivot_hold = new TextBox()
+              pan_toggle = new TextBox()
+              pan_hold = new TextBox()
+              boost = new TextBox()
+              slow = new TextBox()
+              speed_increase = new TextBox()
+              speed_decrease = new TextBox()
+              retarget_all_views = new TextBox()
+              retarget_other_views = new TextBox()
+              untilt_view = new TextBox()
+              exit_key = new TextBox()
+              cancel_flight_and_restore = new TextBox()
+              toggle_projection = new TextBox() }
           numbers =
-            { base_speed = text_box ()
-              minimum_speed = text_box ()
-              maximum_speed = text_box ()
-              speed_step_multiplier = text_box ()
-              boost_multiplier = text_box ()
-              slow_multiplier = text_box ()
-              vertical_speed_multiplier = text_box ()
-              key_pivot_speed_multiplier = text_box ()
-              mouse_pivot_multiplier = text_box ()
-              mouse_pan_multiplier = text_box ()
-              perspective_retarget_fallback_multiplier = text_box ()
-              parallel_retarget_fallback_multiplier = text_box ()
-              perspective_retarget_zoom_border = text_box ()
-              parallel_retarget_zoom_border = text_box ()
-              parallel_mouse_sensitivity = text_box ()
-              parallel_mouse_pivot_multiplier = text_box ()
-              parallel_mouse_pan_multiplier = text_box ()
-              parallel_zoom_speed_multiplier = text_box ()
-              parallel_up_down_multiplier = text_box ()
-              mouse_sensitivity = text_box ()
-              perspective_lens_length_after_parallel_mm = text_box ()
-              forced_perspective_lens_length_on_flight_start_mm = text_box ()
-              perspective_lens_length_delta_during_flight_mm = text_box () }
+            { base_speed = new TextBox()
+              minimum_speed = new TextBox()
+              maximum_speed = new TextBox()
+              speed_step_multiplier = new TextBox()
+              boost_multiplier = new TextBox()
+              slow_multiplier = new TextBox()
+              vertical_speed_multiplier = new TextBox()
+              key_pivot_speed_multiplier = new TextBox()
+              mouse_pivot_multiplier = new TextBox()
+              mouse_pan_multiplier = new TextBox()
+              retarget_base_distance = new TextBox()
+              perspective_retarget_fallback_multiplier = new TextBox()
+              parallel_retarget_fallback_multiplier = new TextBox()
+              perspective_retarget_zoom_border = new TextBox()
+              parallel_retarget_zoom_border = new TextBox()
+              parallel_mouse_sensitivity = new TextBox()
+              parallel_mouse_pivot_multiplier = new TextBox()
+              parallel_mouse_pan_multiplier = new TextBox()
+              parallel_zoom_speed_multiplier = new TextBox()
+              parallel_up_down_multiplier = new TextBox()
+              mouse_sensitivity = new TextBox()
+              perspective_lens_length_after_parallel_mm = new TextBox()
+              forced_perspective_lens_length_on_flight_start_mm = new TextBox()
+              perspective_lens_length_delta_during_flight_mm = new TextBox() }
           modes =
             { boost_mode = mode_field activation_modes KeyActivationMode.Toggle
               slow_mode = mode_field activation_modes KeyActivationMode.Toggle
@@ -318,8 +343,8 @@ let create () =
               exit_on_mouse_left = new CheckBox(Text = "Left click exits flight / navigation")
               exit_on_mouse_right = new CheckBox(Text = "Right click exits flight / navigation")
               commands_do_not_repeat = new CheckBox(Text = "Don't repeat flight commands") }
-          viewport_capability_names = text_box ()
-          right_click_flight_entry_names = text_box () }
+          viewport_capability_names = new TextBox()
+          right_click_flight_entry_names = new TextBox() }
       status =
         { runtime_enabled = new CheckBox(Text = "Runtime enabled (RhinosCanFlyToggleEnable)", Enabled = false)
           status_line = new Label(Wrap = WrapMode.Word)

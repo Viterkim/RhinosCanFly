@@ -31,7 +31,7 @@ type TimelineEventKind =
     | Movement = 0
     | Wheel = 1
     | RawMouseButton = 2
-    | KeyboardActions = 3
+    | KeyboardTransition = 3
 
 [<Struct>]
 type TimelineEvent =
@@ -40,7 +40,8 @@ type TimelineEvent =
       dy: int64
       wheel: int64
       button: RawMouseButtonTransition
-      keyboard_actions: KeyboardAction }
+      key: int
+      key_down: bool }
 
 type State =
     { mutable mouse_xy: int64
@@ -50,10 +51,29 @@ type State =
       mutable timeline_read: int64
       mutable timeline_overflow: int
       mutable exit_reason: FlightExitReason option
+      mutable escape_requested: bool
       mutable work_revision: int64 }
 
 [<Struct>]
 type WorkRevision = WorkRevision of int64
+
+let event_exit
+    (lifetime: FlightLifetime)
+    (exit_on_left: bool)
+    (exit_on_right: bool)
+    (actions: KeyboardAction)
+    (button: RawMouseButtonEvent)
+    =
+    if int actions &&& int KeyboardAction.CancelAndRestore <> 0 then
+        Some ExplicitRestoreCamera
+    elif int actions &&& int KeyboardAction.Exit <> 0 then
+        Some ExplicitKeepCamera
+    else
+        match button with
+        | RawMouseButtonEvent.LeftUp when exit_on_left -> Some ExplicitKeepCamera
+        | RawMouseButtonEvent.RightUp when lifetime = FlightLifetime.WhileRightMouseHeld -> Some RightMouseReleased
+        | RawMouseButtonEvent.RightUp when exit_on_right -> Some ExplicitKeepCamera
+        | _ -> None
 
 let create () =
     { mouse_xy = 0L
@@ -63,6 +83,7 @@ let create () =
       timeline_read = 0L
       timeline_overflow = 0
       exit_reason = None
+      escape_requested = false
       work_revision = 0L }
 
 let mark_work_available (state: State) =
@@ -108,7 +129,8 @@ let movement_event (dx: int64) (dy: int64) =
       dy = dy
       wheel = 0L
       button = Unchecked.defaultof<RawMouseButtonTransition>
-      keyboard_actions = KeyboardAction.None }
+      key = 0
+      key_down = false }
 
 let wheel_event (delta: int64) =
     { kind = TimelineEventKind.Wheel
@@ -116,7 +138,8 @@ let wheel_event (delta: int64) =
       dy = 0L
       wheel = delta
       button = Unchecked.defaultof<RawMouseButtonTransition>
-      keyboard_actions = KeyboardAction.None }
+      key = 0
+      key_down = false }
 
 let raw_mouse_button_event (transition: RawMouseButtonTransition) =
     { kind = TimelineEventKind.RawMouseButton
@@ -124,15 +147,8 @@ let raw_mouse_button_event (transition: RawMouseButtonTransition) =
       dy = 0L
       wheel = 0L
       button = transition
-      keyboard_actions = KeyboardAction.None }
-
-let keyboard_actions_event (actions: KeyboardAction) =
-    { kind = TimelineEventKind.KeyboardActions
-      dx = 0L
-      dy = 0L
-      wheel = 0L
-      button = Unchecked.defaultof<RawMouseButtonTransition>
-      keyboard_actions = actions }
+      key = 0
+      key_down = false }
 
 let enqueue_locked (event: TimelineEvent) (state: State) =
     if state.timeline_write - state.timeline_read >= int64 state.timeline_events.Length then
@@ -167,9 +183,16 @@ let add_wheel (delta: int) (state: State) =
     if delta <> 0 then
         add_boundary_event (wheel_event (int64 delta)) state
 
-let add_keyboard_actions (actions: KeyboardAction) (state: State) =
-    if actions <> KeyboardAction.None then
-        add_boundary_event (keyboard_actions_event actions) state
+let add_keyboard_transition (key: int) (down: bool) (state: State) =
+    add_boundary_event
+        { kind = TimelineEventKind.KeyboardTransition
+          dx = 0L
+          dy = 0L
+          wheel = 0L
+          button = Unchecked.defaultof<RawMouseButtonTransition>
+          key = key
+          key_down = down }
+        state
 
 let drain_timeline (destination: TimelineEvent array) (state: State) =
     Monitor.Enter state.timeline_gate
@@ -211,7 +234,8 @@ let timeline_pending (state: State) =
     Volatile.Read(&state.timeline_read) < Volatile.Read(&state.timeline_write)
 
 let work_pending (state: State) =
-    Option.isSome (Volatile.Read(&state.exit_reason))
+    Volatile.Read(&state.escape_requested)
+    || Option.isSome (Volatile.Read(&state.exit_reason))
     || Volatile.Read(&state.mouse_xy) <> 0L
     || timeline_pending state
     || Volatile.Read(&state.timeline_overflow) <> 0

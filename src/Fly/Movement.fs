@@ -162,27 +162,32 @@ let clamped_mouse_angle_deltas
     let deltas =
         scaled_mouse_angle_deltas config mouse_sensitivity multiplier mouse_dx mouse_dy
 
-    let current_pitch = pitch camera
-    let requested_pitch = current_pitch + deltas.pitch_delta
+    // Pitch follows camera-right, including when the view is rolled or inverted.
+    let a = camera.direction.Z
+    let b = camera.up.Z
+    let radius = Math.Sqrt(a * a + b * b)
+    let limit = Math.Sin maximum_pitch_radians
+    let requested = deltas.pitch_delta
 
-    let next_pitch =
-        if deltas.pitch_delta = 0. then
-            current_pitch
-        elif current_pitch > maximum_pitch_radians then
-            if deltas.pitch_delta < 0. then
-                max -maximum_pitch_radians requested_pitch
-            else
-                current_pitch
-        elif current_pitch < -maximum_pitch_radians then
-            if deltas.pitch_delta > 0. then
-                min maximum_pitch_radians requested_pitch
-            else
-                current_pitch
+    let allowed =
+        if requested = 0. || radius <= limit then
+            requested
+        elif abs a > limit && a * b * requested > 0. then
+            0.
         else
-            clamp -maximum_pitch_radians maximum_pitch_radians requested_pitch
+            let phase = Math.Atan2(a, b)
+            let boundary = Math.Asin(min 1. (limit / radius))
 
-    { yaw_delta = deltas.yaw_delta
-      pitch_delta = next_pitch - current_pitch }
+            let distance =
+                if requested > 0. then
+                    boundary - phase
+                else
+                    phase + boundary
+
+            let available = (distance % Math.PI + Math.PI) % Math.PI
+            Math.Sign(requested) |> float |> (*) (min (abs requested) available)
+
+    { deltas with pitch_delta = allowed }
 
 let rotate_vector (axis: Vector3d) (angle: float) (vector: Vector3d) =
     let mutable rotated = vector

@@ -2,15 +2,67 @@ namespace RhinosCanFly.Platform.Win
 
 open System
 open System.Diagnostics
+open System.Threading
 open RhinosCanFly
+
+module RawMouseButtons =
+    // These pairs survive the raw session until their actual release is consumed.
+    let mutable pending = 0
+
+    let update (key: int) (down: bool) =
+        let bit = 1 <<< key
+        let mutable previous = 0
+        let mutable updated = false
+
+        while not updated do
+            previous <- Volatile.Read(&pending)
+            let next = if down then previous ||| bit else previous &&& ~~~bit
+            updated <- Interlocked.CompareExchange(&pending, next, previous) = previous
+
+        previous &&& bit <> 0
+
+    let any () = Volatile.Read(&pending) <> 0
+
+    let observe (event: RawMouseButtonEvent) =
+        let struct (key, down) =
+            match event with
+            | RawMouseButtonEvent.LeftDown -> struct (Win32Native.VK_LBUTTON, true)
+            | RawMouseButtonEvent.LeftUp -> struct (Win32Native.VK_LBUTTON, false)
+            | RawMouseButtonEvent.RightDown -> struct (Win32Native.VK_RBUTTON, true)
+            | RawMouseButtonEvent.RightUp -> struct (Win32Native.VK_RBUTTON, false)
+            | RawMouseButtonEvent.MiddleDown -> struct (Win32Native.VK_MBUTTON, true)
+            | RawMouseButtonEvent.MiddleUp -> struct (Win32Native.VK_MBUTTON, false)
+            | RawMouseButtonEvent.Mouse4Down -> struct (Win32Native.VK_XBUTTON1, true)
+            | RawMouseButtonEvent.Mouse4Up -> struct (Win32Native.VK_XBUTTON1, false)
+            | RawMouseButtonEvent.Mouse5Down -> struct (Win32Native.VK_XBUTTON2, true)
+            | RawMouseButtonEvent.Mouse5Up -> struct (Win32Native.VK_XBUTTON2, false)
+            | _ -> struct (0, false)
+
+        if key <> 0 then
+            update key down |> ignore
 
 module RawInputSessionEvents =
     let add_button (event: RawMouseButtonEvent) (modifiers: MouseModifiers) (input: InputAccumulator.State) =
+        RawMouseButtons.observe event
         let transition = { event = event; modifiers = modifiers }
 
         InputAccumulator.add_raw_mouse_button_transition transition input
 
-type RawInputSession(input: InputAccumulator.State, input_available: Action, runtime_failed: Action<exn>) =
+type RawInputSession
+    (buttons_swapped: bool, input: InputAccumulator.State, input_available: Action, runtime_failed: Action<exn>) =
+
+    // Keep Down/Up identity fixed for this raw session.
+    let struct (left_down, left_up, right_down, right_up) =
+        if buttons_swapped then
+            struct (RawMouseButtonEvent.RightDown,
+                    RawMouseButtonEvent.RightUp,
+                    RawMouseButtonEvent.LeftDown,
+                    RawMouseButtonEvent.LeftUp)
+        else
+            struct (RawMouseButtonEvent.LeftDown,
+                    RawMouseButtonEvent.LeftUp,
+                    RawMouseButtonEvent.RightDown,
+                    RawMouseButtonEvent.RightUp)
 
     let raw_mouse_button_transition_flags =
         RawInputNative.LEFT_BUTTON_DOWN
@@ -39,11 +91,12 @@ type RawInputSession(input: InputAccumulator.State, input_available: Action, run
 
         // A press owns this packet's movement and a release ends it afterwards.
         if flags &&& RawInputNative.LEFT_BUTTON_DOWN <> 0us then
-            RawInputSessionEvents.add_button RawMouseButtonEvent.LeftDown modifiers input
+            RawInputSessionEvents.add_button left_down modifiers input
+
             button_added <- true
 
         if flags &&& RawInputNative.RIGHT_BUTTON_DOWN <> 0us then
-            RawInputSessionEvents.add_button RawMouseButtonEvent.RightDown modifiers input
+            RawInputSessionEvents.add_button right_down modifiers input
 
             button_added <- true
 
@@ -79,11 +132,13 @@ type RawInputSession(input: InputAccumulator.State, input_available: Action, run
             InputAccumulator.add_wheel wheel_delta input
 
         if flags &&& RawInputNative.LEFT_BUTTON_UP <> 0us then
-            RawInputSessionEvents.add_button RawMouseButtonEvent.LeftUp modifiers input
+            RawInputSessionEvents.add_button left_up modifiers input
+
             button_added <- true
 
         if flags &&& RawInputNative.RIGHT_BUTTON_UP <> 0us then
-            RawInputSessionEvents.add_button RawMouseButtonEvent.RightUp modifiers input
+            RawInputSessionEvents.add_button right_up modifiers input
+
             button_added <- true
 
         if flags &&& RawInputNative.MIDDLE_BUTTON_UP <> 0us then

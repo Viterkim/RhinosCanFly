@@ -3,6 +3,15 @@ module RhinosCanFly.Platform.Win.MouseOverrideState
 open RhinosCanFly
 open RhinosCanFly.Platform.Win.MouseOverrideTypes
 
+let apply_suspended_routing (state: State) (config: MouseOverrideConfig) =
+    match state.suspension_cleanup_error with
+    | Some error -> Error error
+    | None when state.suspension_ids.Count = 0 -> Error "Input is not suspended."
+    | None ->
+        state.routing <- config
+        state.lifecycle <- Suspended
+        Ok()
+
 let hook_button_ownership (state: State) (button: SideButton) =
     match button with
     | Middle -> state.side_button_hook_capture.middle
@@ -31,6 +40,16 @@ let hook_owns_any_button (state: State) =
     hook_owns_button state Middle
     || hook_owns_button state Mouse4
     || hook_owns_button state Mouse5
+
+let raw_mouse_buttons_owned (state: State) (right_owned: bool) (is_down: int -> bool) =
+    not (is_down Win32Native.VK_LBUTTON)
+    && (not (is_down Win32Native.VK_RBUTTON) || right_owned)
+    && (not (is_down Win32Native.VK_MBUTTON)
+        || hook_button_ownership state Middle = Owned)
+    && (not (is_down Win32Native.VK_XBUTTON1)
+        || hook_button_ownership state Mouse4 = Owned)
+    && (not (is_down Win32Native.VK_XBUTTON2)
+        || hook_button_ownership state Mouse5 = Owned)
 
 let action_for (state: State) (button: SideButton) =
     match button with
@@ -63,9 +82,9 @@ let exit_key_is_down (state: State) (virtual_key: int) =
         match state.view_latch with
         | WaitingForRelease _ -> false
         | NoViewLatch
-        | ViewLatchActive _ -> Win32Native.GetAsyncKeyState virtual_key < 0s
+        | ViewLatchActive _ -> Win32.key_down virtual_key
     else
-        Win32Native.GetAsyncKeyState virtual_key < 0s
+        Win32.key_down virtual_key
 
 let exit_keys_down (state: State) (keys: VirtualKey array) =
     let mutable index = 0
@@ -128,6 +147,15 @@ let same_host (left: ViewportHostIdentity) (right: ViewportHostIdentity) =
     && left.view_window = right.view_window
     && left.root_window = right.root_window
 
+let begin_action (state: State) =
+    state.navigation_revision <- state.navigation_revision + 1L
+    let revision = state.navigation_revision
+
+    fun () ->
+        state.lifecycle = Available
+        && not state.navigation_exit_requested
+        && state.navigation_revision = revision
+
 let keep_timer_running (state: State) =
     state.poll_timer.Interval <- POLL_TIMER_INTERVAL_MILLISECONDS
 
@@ -171,7 +199,6 @@ let try_bring_root_window_to_foreground (window: RootWindow) =
         && foreground_root_window () = window
 
 let navigation_host (state: State) =
-    // Keep these matches nested because reference tuples allocate.
     match state.gesture_navigation with
     | GestureNavigationActive session -> ValueSome session.host
     | NoGestureNavigation ->
@@ -206,6 +233,7 @@ let clear_navigation (state: State) =
     previous_view_latch
 
 let release_all (state: State) =
+    state.navigation_revision <- state.navigation_revision + 1L
     let previous_view_latch = clear_navigation state
     state.poll_timer.Stop()
     complete_view_latch previous_view_latch

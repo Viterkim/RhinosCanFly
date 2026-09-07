@@ -119,6 +119,31 @@ let compile_detailed (source: FlyConfigFile) =
         if not (Enum.IsDefined(enum_type, value)) then
             add_issue name $"{name} is invalid" repair
 
+    if source.crosshair_arm_length < 1 || source.crosshair_arm_length > 99999 then
+        add_issue "crosshair_arm_length" "Crosshair arm length must be 1 to 99999." (fun (config: FlyConfigFile) ->
+            { config with
+                crosshair_arm_length = defaults.crosshair_arm_length })
+
+    if source.crosshair_gap < 1 || source.crosshair_gap > 99999 then
+        add_issue "crosshair_gap" "Crosshair gap must be 1 to 99999." (fun (config: FlyConfigFile) ->
+            { config with
+                crosshair_gap = defaults.crosshair_gap })
+
+    if source.crosshair_red < 0 || source.crosshair_red > 255 then
+        add_issue "crosshair_red" "Crosshair red must be 0 to 255." (fun (config: FlyConfigFile) ->
+            { config with
+                crosshair_red = defaults.crosshair_red })
+
+    if source.crosshair_green < 0 || source.crosshair_green > 255 then
+        add_issue "crosshair_green" "Crosshair green must be 0 to 255." (fun (config: FlyConfigFile) ->
+            { config with
+                crosshair_green = defaults.crosshair_green })
+
+    if source.crosshair_blue < 0 || source.crosshair_blue > 255 then
+        add_issue "crosshair_blue" "Crosshair blue must be 0 to 255." (fun (config: FlyConfigFile) ->
+            { config with
+                crosshair_blue = defaults.crosshair_blue })
+
     let positive_checks: PositiveCheck list =
         [ "base_speed",
           source.base_speed,
@@ -170,6 +195,11 @@ let compile_detailed (source: FlyConfigFile) =
           (fun (config: FlyConfigFile) ->
               { config with
                   mouse_sensitivity = defaults.mouse_sensitivity })
+          "retarget_base_distance",
+          source.retarget_base_distance,
+          (fun (config: FlyConfigFile) ->
+              { config with
+                  retarget_base_distance = defaults.retarget_base_distance })
           "perspective_retarget_fallback_multiplier",
           source.perspective_retarget_fallback_multiplier,
           (fun (config: FlyConfigFile) ->
@@ -296,6 +326,26 @@ let compile_detailed (source: FlyConfigFile) =
     let maximum_movement_multiplier =
         max 1. (max source.boost_multiplier (max source.slow_multiplier combined_movement_multiplier))
 
+    let distance_checks =
+        [ "perspective_retarget_fallback_multiplier", source.perspective_retarget_fallback_multiplier
+          "parallel_retarget_fallback_multiplier", source.parallel_retarget_fallback_multiplier ]
+
+    for setting, multiplier in distance_checks do
+        let distance = source.retarget_base_distance * multiplier
+
+        if
+            not (Rhino.RhinoMath.IsValidDouble distance)
+            || distance <= Rhino.RhinoMath.ZeroTolerance
+        then
+            add_issue
+                setting
+                $"retarget_base_distance times {setting} must be finite and greater than {Rhino.RhinoMath.ZeroTolerance}"
+                (fun (config: FlyConfigFile) ->
+                    { config with
+                        retarget_base_distance = defaults.retarget_base_distance
+                        perspective_retarget_fallback_multiplier = defaults.perspective_retarget_fallback_multiplier
+                        parallel_retarget_fallback_multiplier = defaults.parallel_retarget_fallback_multiplier })
+
     let derived_checks: DerivedCheck list =
         [ "movement_speed_multipliers",
           "combined boost and slow multiplier",
@@ -360,19 +410,7 @@ let compile_detailed (source: FlyConfigFile) =
           (fun (config: FlyConfigFile) ->
               { config with
                   mouse_sensitivity = defaults.mouse_sensitivity
-                  mouse_pan_multiplier = defaults.mouse_pan_multiplier })
-          "perspective_retarget_fallback_multiplier",
-          "maximum perspective retarget fallback distance",
-          source.maximum_speed * source.perspective_retarget_fallback_multiplier,
-          (fun (config: FlyConfigFile) ->
-              { config with
-                  perspective_retarget_fallback_multiplier = defaults.perspective_retarget_fallback_multiplier })
-          "parallel_retarget_fallback_multiplier",
-          "maximum parallel retarget fallback distance",
-          source.maximum_speed * source.parallel_retarget_fallback_multiplier,
-          (fun (config: FlyConfigFile) ->
-              { config with
-                  parallel_retarget_fallback_multiplier = defaults.parallel_retarget_fallback_multiplier }) ]
+                  mouse_pan_multiplier = defaults.mouse_pan_multiplier }) ]
 
     derived_checks
     |> List.iter (fun (check: DerivedCheck) ->
@@ -664,7 +702,14 @@ let compile_detailed (source: FlyConfigFile) =
               mouse4 = while_flying source.mouse4_action_while_flying source.mouse4_action source.mouse4_retarget
               mouse5 = while_flying source.mouse5_action_while_flying source.mouse5_action source.mouse5_retarget }
           behavior =
-            { hide_gumball = source.hide_gumball_while_flying
+            { crosshair =
+                { enabled = source.show_crosshair
+                  arm_length = source.crosshair_arm_length
+                  gap = source.crosshair_gap
+                  red = source.crosshair_red
+                  green = source.crosshair_green
+                  blue = source.crosshair_blue }
+              hide_gumball = source.hide_gumball_while_flying
               prioritized_target = source.prioritized_target
               retarget =
                 { keyboard_all_views = source.retarget_all_views_mode
@@ -679,6 +724,7 @@ let compile_detailed (source: FlyConfigFile) =
                   on_pan = source.retarget_on_pan
                   on_flight_exit = source.retarget_on_flight_exit
                   on_restored_flight_exit = source.retarget_on_restored_flight_exit
+                  fallback_distance = source.retarget_base_distance
                   perspective_fallback_multiplier =
                     RetargetFallbackMultiplier source.perspective_retarget_fallback_multiplier
                   parallel_fallback_multiplier = RetargetFallbackMultiplier source.parallel_retarget_fallback_multiplier

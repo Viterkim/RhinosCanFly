@@ -10,6 +10,36 @@ open System.Text
 open Microsoft.FSharp.NativeInterop
 open RhinosCanFly
 
+let physical_mouse_key (swapped: bool) (virtual_key: int) =
+    if swapped then
+        match virtual_key with
+        | Win32Native.VK_LBUTTON -> Win32Native.VK_RBUTTON
+        | Win32Native.VK_RBUTTON -> Win32Native.VK_LBUTTON
+        | _ -> virtual_key
+    else
+        virtual_key
+
+let mouse_buttons_swapped () =
+    Win32Native.GetSystemMetrics Win32Native.SM_SWAPBUTTON <> 0
+
+let capture_mouse_buttons (swapped: bool) (is_down: int -> bool) =
+    let mutable buttons = 0
+
+    for key in Win32Native.VK_LBUTTON .. Win32Native.VK_XBUTTON2 do
+        if key <> Win32Native.VK_CANCEL && is_down (physical_mouse_key swapped key) then
+            buttons <- buttons ||| (1 <<< key)
+
+    buttons
+
+let key_down (virtual_key: int) =
+    let physical_key =
+        if virtual_key = Win32Native.VK_LBUTTON || virtual_key = Win32Native.VK_RBUTTON then
+            physical_mouse_key (mouse_buttons_swapped ()) virtual_key
+        else
+            virtual_key
+
+    Win32Native.GetAsyncKeyState physical_key < 0s
+
 let win32_error (operation: string) (error_code: int) =
     Win32Exception(error_code)
     |> fun (error: Win32Exception) -> $"{operation} failed: {error.Message}"
@@ -240,7 +270,10 @@ let install_mouse_hook (handle_event: MouseHookEvent -> bool) =
 
             if
                 code = Win32Native.HC_ACTION
-                && (message = Win32Native.WM_RBUTTONDOWN
+                && (message = Win32Native.WM_LBUTTONDOWN
+                    || message = Win32Native.WM_LBUTTONUP
+                    || message = Win32Native.WM_LBUTTONDBLCLK
+                    || message = Win32Native.WM_RBUTTONDOWN
                     || message = Win32Native.WM_RBUTTONUP
                     || message = Win32Native.WM_RBUTTONDBLCLK
                     || message = Win32Native.WM_MBUTTONDOWN
@@ -261,7 +294,9 @@ let install_mouse_hook (handle_event: MouseHookEvent -> bool) =
                       screen_point = System.Drawing.Point(data.point.x, data.point.y)
                       modifiers = mouse_modifiers () }
 
-                if handle_event event then
+                let swallowed = handle_event event
+
+                if swallowed then
                     nativeint 1
                 else
                     Win32Native.CallNextHookEx(hook, code, wparam, lparam)

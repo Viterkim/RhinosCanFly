@@ -123,29 +123,16 @@ let repair_nested_values (json: JsonObject) (defaults: JsonObject) =
         let repaired = ResizeArray<string>()
 
         for name, child, child_defaults in nested_children json defaults do
-            let originals =
-                child_defaults
-                |> Seq.map (fun (property: KeyValuePair<string, JsonNode>) ->
-                    property.Key, ConfigDocument.clone child[property.Key])
-                |> List.ofSeq
-
             for member_property: KeyValuePair<string, JsonNode> in child_defaults do
-                child[member_property.Key] <- ConfigDocument.clone member_property.Value
+                let candidate = defaults.DeepClone().AsObject()
+                let key = member_property.Key
+                candidate[name].AsObject()[key] <- ConfigDocument.clone child[key]
 
-            match ConfigDocument.deserialize json with
-            | Error _ ->
-                for key, original in originals do
-                    child[key] <- original
-            | Ok _ ->
-                for key, original in originals do
-                    let defaulted = ConfigDocument.clone child[key]
-                    child[key] <- original
-
-                    match ConfigDocument.deserialize json with
-                    | Ok _ -> ()
-                    | Error _ ->
-                        child[key] <- defaulted
-                        repaired.Add $"{name}.{key}"
+                match ConfigDocument.deserialize candidate with
+                | Ok _ -> ()
+                | Error _ ->
+                    child[key] <- ConfigDocument.clone member_property.Value
+                    repaired.Add $"{name}.{key}"
 
         List.ofSeq repaired
 

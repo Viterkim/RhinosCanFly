@@ -5,35 +5,15 @@ open Rhino
 open Rhino.Commands
 open Rhino.Display
 
-[<RequireQualifiedAccess>]
-type Mode =
-    | Pivot
-    | Pan
-
-let name (mode: Mode) =
+let name (mode: ViewNavigationMode) =
     match mode with
-    | Mode.Pivot -> "RhinosCanFlyPivot"
-    | Mode.Pan -> "RhinosCanFlyPan"
+    | ViewNavigationMode.Pivot -> "RhinosCanFlyPivot"
+    | ViewNavigationMode.Pan -> "RhinosCanFlyPan"
 
-let active (mode: Mode) =
+let stop_conflict (mode: ViewNavigationMode) =
     match mode with
-    | Mode.Pivot -> PlatformMouseActions.view_latch_is ViewNavigationMode.Pivot
-    | Mode.Pan -> PlatformMouseActions.view_latch_is ViewNavigationMode.Pan
-
-let stop (mode: Mode) =
-    match mode with
-    | Mode.Pivot -> PlatformMouseActions.stop_view_latch ViewNavigationMode.Pivot
-    | Mode.Pan -> PlatformMouseActions.stop_view_latch ViewNavigationMode.Pan
-
-let stop_conflict (mode: Mode) =
-    match mode with
-    | Mode.Pivot -> PlatformMouseActions.stop_view_latch ViewNavigationMode.Pan
-    | Mode.Pan -> PlatformMouseActions.stop_view_latch ViewNavigationMode.Pivot
-
-let start (mode: Mode) (view: RhinoView) (completion: Action option) =
-    match mode with
-    | Mode.Pivot -> PlatformMouseActions.start_view_latch view ViewNavigationMode.Pivot completion
-    | Mode.Pan -> PlatformMouseActions.start_view_latch view ViewNavigationMode.Pan completion
+    | ViewNavigationMode.Pivot -> PlatformMouseActions.stop_view_latch ViewNavigationMode.Pan
+    | ViewNavigationMode.Pan -> PlatformMouseActions.stop_view_latch ViewNavigationMode.Pivot
 
 let restored_view_completion (loaded: ConfigLoadResult) (view: RhinoView) =
     if DefaultFlightMode.restores_navigation_commands loaded.config_file.default_flight_mode then
@@ -61,7 +41,7 @@ let restored_view_completion (loaded: ConfigLoadResult) (view: RhinoView) =
     else
         struct (None, None)
 
-let start_navigation (mode: Mode) (loaded: ConfigLoadResult) (view: RhinoView) =
+let start_navigation (mode: ViewNavigationMode) (loaded: ConfigLoadResult) (view: RhinoView) =
     let command_name = name mode
 
     match stop_conflict mode with
@@ -72,7 +52,7 @@ let start_navigation (mode: Mode) (loaded: ConfigLoadResult) (view: RhinoView) =
         let struct (completion, snapshot) = restored_view_completion loaded view
 
         try
-            match start mode view completion with
+            match PlatformMouseActions.start_view_latch view mode completion with
             | Ok() -> Result.Success
             | Error error ->
                 snapshot |> Option.iter CameraSnapshot.dispose
@@ -83,7 +63,7 @@ let start_navigation (mode: Mode) (loaded: ConfigLoadResult) (view: RhinoView) =
             RhinoApp.WriteLine $"{command_name} failed: {error.Message}"
             Result.Failure
 
-let start_if_ready (mode: Mode) (loaded: ConfigLoadResult) (document: RhinoDoc) =
+let start_if_ready (mode: ViewNavigationMode) (loaded: ConfigLoadResult) (document: RhinoDoc) =
     let command_name = name mode
     let view = document.Views.ActiveView
 
@@ -103,9 +83,9 @@ let start_if_ready (mode: Mode) (loaded: ConfigLoadResult) (document: RhinoDoc) 
             Result.Cancel
         | Ok true -> start_navigation mode loaded view
 
-let toggle (mode: Mode) (document: RhinoDoc) =
-    if active mode then
-        match stop mode with
+let toggle (mode: ViewNavigationMode) (document: RhinoDoc) =
+    if PlatformMouseActions.view_latch_is mode then
+        match PlatformMouseActions.stop_view_latch mode with
         | Ok() -> Result.Success
         | Error error ->
             RhinoApp.WriteLine $"{name mode} failed: {error}"
@@ -113,7 +93,7 @@ let toggle (mode: Mode) (document: RhinoDoc) =
     else
         CurrentConfig.with_loaded (fun (loaded: ConfigLoadResult) -> start_if_ready mode loaded document)
 
-let run (mode: Mode) (document: RhinoDoc) =
+let run (mode: ViewNavigationMode) (document: RhinoDoc) =
     if RuntimeSettings.input_suspended () then
         RhinoApp.WriteLine $"{name mode} is unavailable while an Options dialog is open."
         Result.Cancel

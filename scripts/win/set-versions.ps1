@@ -3,6 +3,9 @@ param(
     [Parameter(Mandatory = $true, ParameterSetName = "Get")]
     [switch] $Get,
 
+    [Parameter(Mandatory = $true, ParameterSetName = "Check")]
+    [switch] $Check,
+
     [Parameter(Mandatory = $true, Position = 0, ParameterSetName = "Set")]
     [ValidatePattern('^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$')]
     [string] $Set
@@ -94,6 +97,15 @@ function Replace-Version {
 
 $state = Get-VersionState
 
+if ($PSCmdlet.ParameterSetName -eq "Check") {
+    $expected = "$($state.ManifestVersion).0"
+    if ($state.AssemblyInformationalVersion -ne $state.ManifestVersion -or
+        $state.AssemblyVersion -ne $expected -or $state.AssemblyFileVersion -ne $expected) {
+        throw "Release version mismatch: manifest=$($state.ManifestVersion), informational=$($state.AssemblyInformationalVersion), assembly=$($state.AssemblyVersion), file=$($state.AssemblyFileVersion)."
+    }
+    return $state.ManifestVersion
+}
+
 if ($PSCmdlet.ParameterSetName -eq "Get") {
     Show-VersionState $state
     return
@@ -126,14 +138,28 @@ $updatedAssemblyInfo =
 $utf8WithoutBom = [Text.UTF8Encoding]::new($false)
 $updatedPaths = @()
 
-if ($updatedManifest -ne $state.ManifestContent) {
-    [IO.File]::WriteAllText($manifestPath, $updatedManifest, $utf8WithoutBom)
-    $updatedPaths += $manifestPath
-}
+try {
+    if ($updatedManifest -ne $state.ManifestContent) {
+        [IO.File]::WriteAllText($manifestPath, $updatedManifest, $utf8WithoutBom)
+        $updatedPaths += $manifestPath
+    }
 
-if ($updatedAssemblyInfo -ne $state.AssemblyInfoContent) {
-    [IO.File]::WriteAllText($assemblyInfoPath, $updatedAssemblyInfo, $utf8WithoutBom)
-    $updatedPaths += $assemblyInfoPath
+    if ($updatedAssemblyInfo -ne $state.AssemblyInfoContent) {
+        [IO.File]::WriteAllText($assemblyInfoPath, $updatedAssemblyInfo, $utf8WithoutBom)
+        $updatedPaths += $assemblyInfoPath
+    }
+
+}
+catch {
+    $writeError = $_
+    foreach ($original in @(
+        @{ Path = $manifestPath; Content = $state.ManifestContent },
+        @{ Path = $assemblyInfoPath; Content = $state.AssemblyInfoContent }
+    )) {
+        try { [IO.File]::WriteAllText($original.Path, $original.Content, $utf8WithoutBom) }
+        catch { Write-Warning "Could not restore '$($original.Path)': $_" }
+    }
+    throw $writeError
 }
 
 if ($updatedPaths.Count -eq 0) {

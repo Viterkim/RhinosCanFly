@@ -25,10 +25,10 @@ let current_speed (config: FlyConfigFile) =
 
     FlightSpeed.current document config.load_speed_from_document range config.base_speed
 
-let load (control: SettingsControl) =
+let load (loaded: Result<ConfigLoadResult, string>) (control: SettingsControl) =
     control.ShowRuntimeEnabled(RuntimeSettings.runtime_enabled ())
 
-    match RuntimeSettings.current () with
+    match loaded with
     | Error error ->
         control.LoadConfig ConfigSchema.defaults
         control.ShowRuntimeState(current_speed ConfigSchema.defaults, current_lens ())
@@ -44,29 +44,30 @@ let load (control: SettingsControl) =
             result.messages
             |> List.filter (fun (message: string) -> message.StartsWith("reset ", StringComparison.Ordinal))
 
-        match repair_messages with
-        | [] -> control.ClearError()
-        | messages -> control.ShowError(String.concat "; " messages)
+        match RuntimeSettings.activation_error, repair_messages with
+        | Some error, _ -> control.ShowError $"Settings loaded, but input could not be activated: {error}"
+        | None, [] -> control.ClearError()
+        | None, messages -> control.ShowError(String.concat "; " messages)
 
-let save (control: SettingsControl) =
+let needs_save (displayed: FlyConfigFile option) (defaults_requested: bool) (edited: FlyConfigFile) =
+    defaults_requested
+    || Option.map ConfigSchema.normalize displayed
+       <> Some(ConfigSchema.normalize edited)
+
+let save (control: SettingsControl) (edited: Result<FlyConfigFile, string>) =
     try
-        match control.ReadConfig() with
+        match edited with
         | Error error ->
             control.ShowError error
             SettingsUi.report_error $"RhinosCanFly settings were not saved: {error}"
-            false
+            None
         | Ok config ->
             match RuntimeSettings.save_and_apply config with
-            | Ok saved ->
-                control.RefreshRawIfVisible()
-                control.ShowRuntimeState(current_speed saved.config_file, current_lens ())
-                control.ShowRuntimeEnabled(RuntimeSettings.runtime_enabled ())
-                control.ClearError()
-                true
+            | Ok saved -> Some saved
             | Error error ->
                 control.ShowError error
                 SettingsUi.report_error $"RhinosCanFly settings error: {error}"
-                false
+                None
     with error ->
         try
             control.ShowError $"Could not save settings: {error.Message}"
@@ -75,4 +76,4 @@ let save (control: SettingsControl) =
 
         SettingsUi.report_error $"RhinosCanFly settings error: {error.Message}"
 
-        false
+        None

@@ -18,10 +18,6 @@ type StopOutcome =
       previous_registration_lost: bool
       errors: string list }
 
-type StopAttempt =
-    | InitialStop
-    | RecoveryRetry
-
 type StartFailureException(message: string, restart_required: bool, inner_error: exn) =
     inherit Exception(message, inner_error)
 
@@ -29,6 +25,7 @@ type StartFailureException(message: string, restart_required: bool, inner_error:
 
 type SessionRequest =
     { id: int64
+      buttons_swapped: bool
       input: InputAccumulator.State
       input_available: Action
       ready: ManualResetEventSlim
@@ -91,6 +88,7 @@ let mutable worker_state: WorkerState option = None
 let mutable worker_shut_down = false
 let mutable session_ownership = NoSession
 let mutable next_session_id = 0L
+let starting = Event<unit>()
 
 let startup_error (result: ThreadResult) = Volatile.Read(&result.startup_error)
 let runtime_error (result: ThreadResult) = Volatile.Read(&result.runtime_error)
@@ -107,6 +105,10 @@ let record_shutdown_error (result: ThreadResult) (error: exn) =
 
 let recovery_pending () =
     lock recovery_gate (fun () -> recovery_sessions.Count > 0)
+
+let owns_mouse_messages () =
+    lock session_gate (fun () -> session_ownership <> NoSession)
+    || recovery_pending ()
 
 let retain_session (session: Session) =
     lock recovery_gate (fun () ->
@@ -223,6 +225,7 @@ let run_worker (worker: WorkerState) =
                         match receiver with
                         | Some created ->
                             created.StartSession(
+                                request.buttons_swapped,
                                 request.input,
                                 request.input_available,
                                 registration_ready,
@@ -507,10 +510,10 @@ let request_stop_core (session: Session) =
 let request_stop (session: Session) =
     lock session.stop_gate (fun () -> request_stop_core session)
 
-let stop_internal (attempt: StopAttempt) (session: Session) =
+let stop (session: Session) =
     lock session.stop_gate (fun () ->
         match session.stop_outcome with
-        | Some outcome when attempt = InitialStop -> outcome
+        | Some outcome when stop_outcome_is_clean outcome -> outcome
         | Some _
         | None ->
             let errors = ResizeArray<string>()
@@ -519,7 +522,9 @@ let stop_internal (attempt: StopAttempt) (session: Session) =
             | Ok() -> ()
             | Error error -> errors.Add error
 
-            let terminated = session.request.stopped.Wait STOP_OBSERVATION_MS
+            let terminated =
+                session.request.stopped_disposed
+                || session.request.stopped.Wait STOP_OBSERVATION_MS
 
             let cleanup_complete =
                 terminated && try_complete_registration_cleanup session.request.registration
@@ -569,9 +574,7 @@ let stop_internal (attempt: StopAttempt) (session: Session) =
 
             outcome)
 
-let stop (session: Session) = stop_internal InitialStop session
-
-let start (input: InputAccumulator.State) (input_available: Action) =
+let start (buttons_swapped: bool) (input: InputAccumulator.State) (input_available: Action) =
     if recovery_pending () then
         let message =
             "A previous raw-input session still needs cleanup. Run RhinosCanFlyInputRecover or restart Rhino."
@@ -592,6 +595,7 @@ let start (input: InputAccumulator.State) (input_available: Action) =
         raise (StartFailureException(message, false, InvalidOperationException message))
 
     try
+        starting.Trigger()
         let worker = ensure_worker ()
         let session_id = Interlocked.Increment(&next_session_id)
 
@@ -602,6 +606,7 @@ let start (input: InputAccumulator.State) (input_available: Action) =
 
         let request =
             { id = session_id
+              buttons_swapped = buttons_swapped
               input = input
               input_available = input_available
               ready = new ManualResetEventSlim(false)
@@ -625,21 +630,21 @@ let start (input: InputAccumulator.State) (input_available: Action) =
             request.ready.Set()
             request.stopped.Set()
 
-            let outcome = stop_internal RecoveryRetry session
+            let outcome = stop session
 
             let restart_required = not (stop_outcome_is_clean outcome)
 
             raise (StartFailureException(error, restart_required, InvalidOperationException error))
         | Ok(QueuedWithoutWake error) ->
             Interlocked.Exchange(&request.cancelled, 1) |> ignore
-            let outcome = stop_internal RecoveryRetry session
+            let outcome = stop session
             let restart_required = not (stop_outcome_is_clean outcome)
             raise (StartFailureException(error, restart_required, InvalidOperationException error))
         | Ok Posted -> ()
 
         if not (request.ready.Wait STARTUP_TIMEOUT_MS) then
             Interlocked.Exchange(&request.cancelled, 1) |> ignore
-            let outcome = stop_internal RecoveryRetry session
+            let outcome = stop session
 
             let message =
                 "The raw-input session did not become ready within 250 ms. Cleanup is continuing on the worker."
@@ -654,7 +659,7 @@ let start (input: InputAccumulator.State) (input_available: Action) =
 
         match startup_error result with
         | Some error ->
-            let outcome = stop_internal RecoveryRetry session
+            let outcome = stop session
 
             let errors =
                 exception_messages error
@@ -666,14 +671,14 @@ let start (input: InputAccumulator.State) (input_available: Action) =
         | None ->
             match request.registration with
             | None ->
-                let outcome = stop_internal RecoveryRetry session
+                let outcome = stop session
                 let message = "The raw-input session started without a mouse registration."
 
                 let restart_required = not (stop_outcome_is_clean outcome)
 
                 raise (StartFailureException(message, restart_required, InvalidOperationException message))
             | Some _ when request.stopped.IsSet ->
-                let outcome = stop_internal RecoveryRetry session
+                let outcome = stop session
                 let message = "The raw-input session stopped before startup completed."
 
                 let restart_required = not (stop_outcome_is_clean outcome)
@@ -702,7 +707,7 @@ let retry_recovery () =
     let errors = ResizeArray<string>()
 
     for session in sessions do
-        let outcome = stop_internal RecoveryRetry session
+        let outcome = stop session
 
         for error in outcome.errors do
             errors.Add error

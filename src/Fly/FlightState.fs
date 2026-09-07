@@ -14,9 +14,6 @@ let create
     let movement = config.movement
     let behavior = config.behavior
 
-    let prioritized_target =
-        ViewTarget.prioritized_target behavior.prioritized_target view viewport
-
     let original_cursor =
         match PlatformInput.get_cursor_position () with
         | Ok point -> point
@@ -87,7 +84,8 @@ let create
       walking_plane = walking_plane
       original_cursor = original_cursor
       original_camera = original_camera
-      prioritized_target = prioritized_target
+      hidden_gumball_plane = ValueNone
+      camera_write_allowed = fun () -> false
       key_pivot_target = camera.target
       key_pivot_input_state = KeyPivotInputArmed
       active_mouse_navigation = MouseLook

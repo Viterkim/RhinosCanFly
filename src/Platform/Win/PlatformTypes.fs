@@ -34,5 +34,9 @@ type MouseOverrideConfig =
     { actions: MouseActionConfig
       exit_binding: KeyBinding option
       prepare_navigation:
-          ViewportHostIdentity -> NavigationTargetPoint -> ViewNavigationMode -> Result<ViewportHostIdentity, string>
-      retarget: ViewportHostIdentity -> ViewportClientPoint -> RetargetMode -> Result<unit, string> }
+          ViewportHostIdentity
+              -> NavigationTargetPoint
+              -> ViewNavigationMode
+              -> (unit -> bool)
+              -> Result<struct (ViewportHostIdentity * Rhino.Geometry.Point3d), string>
+      retarget: ViewportHostIdentity -> ViewportClientPoint -> RetargetMode -> (unit -> bool) -> ApplicationOutcome }

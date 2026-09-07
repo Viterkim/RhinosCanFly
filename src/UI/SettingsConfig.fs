@@ -2,6 +2,7 @@ module RhinosCanFly.SettingsConfig
 
 open System
 open System.Globalization
+open System.Text.Json
 open Eto.Forms
 
 type NumberValues =
@@ -15,6 +16,7 @@ type NumberValues =
       key_pivot_speed_multiplier: float
       mouse_pivot_multiplier: float
       mouse_pan_multiplier: float
+      retarget_base_distance: float
       perspective_retarget_fallback_multiplier: float
       parallel_retarget_fallback_multiplier: float
       perspective_retarget_zoom_border: float
@@ -28,6 +30,15 @@ type NumberValues =
       perspective_lens_length_after_parallel_mm: float
       forced_perspective_lens_length_on_flight_start_mm: float
       perspective_lens_length_delta_during_flight_mm: float }
+
+let format_viewport_names (names: string array) =
+    if
+        names
+        |> Array.exists (fun (name: string) -> name.Contains "," || name.StartsWith "[")
+    then
+        JsonSerializer.Serialize names
+    else
+        String.Join(", ", names)
 
 let is_checked (control: CheckBox) = control.Checked.GetValueOrDefault()
 
@@ -79,6 +90,7 @@ let parse_numbers (fields: SettingsFields.NumberFields) =
           key_pivot_speed_multiplier = required "Key pivot speed multiplier" fields.key_pivot_speed_multiplier
           mouse_pivot_multiplier = required "Pivot multiplier" fields.mouse_pivot_multiplier
           mouse_pan_multiplier = required "Pan multiplier" fields.mouse_pan_multiplier
+          retarget_base_distance = required "Distance (doc units)" fields.retarget_base_distance
           perspective_retarget_fallback_multiplier =
             required "Perspective fallback multiplier" fields.perspective_retarget_fallback_multiplier
           parallel_retarget_fallback_multiplier =
@@ -132,6 +144,12 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     bindings.exit_key.Text <- config.exit_key
     bindings.cancel_flight_and_restore.Text <- config.cancel_flight_and_restore
     bindings.toggle_projection.Text <- config.toggle_projection
+    set_checked fields.crosshair.show config.show_crosshair
+    fields.crosshair.arm_length.Value <- float config.crosshair_arm_length
+    fields.crosshair.gap.Value <- float config.crosshair_gap
+    fields.crosshair.red.Value <- float config.crosshair_red
+    fields.crosshair.green.Value <- float config.crosshair_green
+    fields.crosshair.blue.Value <- float config.crosshair_blue
     numbers.base_speed.Text <- ConfigSchema.format_number config.base_speed
     numbers.minimum_speed.Text <- ConfigSchema.format_number config.minimum_speed
     numbers.maximum_speed.Text <- ConfigSchema.format_number config.maximum_speed
@@ -142,6 +160,8 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     numbers.key_pivot_speed_multiplier.Text <- ConfigSchema.format_number config.key_pivot_speed_multiplier
     numbers.mouse_pivot_multiplier.Text <- ConfigSchema.format_number config.mouse_pivot_multiplier
     numbers.mouse_pan_multiplier.Text <- ConfigSchema.format_number config.mouse_pan_multiplier
+
+    numbers.retarget_base_distance.Text <- ConfigSchema.format_number config.retarget_base_distance
 
     numbers.perspective_retarget_fallback_multiplier.Text <-
         ConfigSchema.format_number config.perspective_retarget_fallback_multiplier
@@ -200,8 +220,8 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     SettingsFields.set_mode modes.mouse_y_mode config.mouse_y_mode
     SettingsFields.set_mode modes.viewport_capabilities config.viewport_capabilities.mode
     SettingsFields.set_mode modes.right_click_flight_entry config.right_click_flight_entry.mode
-    fields.viewport_capability_names.Text <- String.Join(", ", config.viewport_capabilities.viewports)
-    fields.right_click_flight_entry_names.Text <- String.Join(", ", config.right_click_flight_entry.viewports)
+    fields.viewport_capability_names.Text <- format_viewport_names config.viewport_capabilities.viewports
+    fields.right_click_flight_entry_names.Text <- format_viewport_names config.right_click_flight_entry.viewports
     set_checked options.normalize_diagonal_movement config.normalize_diagonal_movement
     set_checked options.hide_gumball_while_flying config.hide_gumball_while_flying
     set_checked options.save_speed_to_document config.save_speed_to_document
@@ -224,12 +244,15 @@ let read (fields: SettingsFields.ConfigFields) =
 
     let viewport_names (field: TextBox) =
         let names =
-            field.Text.Split([| ',' |], StringSplitOptions.RemoveEmptyEntries)
+            (if field.Text.TrimStart().StartsWith "[" then
+                 JsonSerializer.Deserialize<string array> field.Text
+             else
+                 field.Text.Split([| ',' |], StringSplitOptions.RemoveEmptyEntries))
             |> Array.map (fun (value: string) -> value.Trim())
             |> Array.filter (String.IsNullOrWhiteSpace >> not)
             |> Array.distinctBy (fun (value: string) -> value.ToUpperInvariant())
 
-        field.Text <- String.Join(", ", names)
+        field.Text <- format_viewport_names names
         names
 
     let viewport_capability_names = viewport_names fields.viewport_capability_names
@@ -274,6 +297,7 @@ let read (fields: SettingsFields.ConfigFields) =
               key_pivot_speed_multiplier = numbers.key_pivot_speed_multiplier
               mouse_pivot_multiplier = numbers.mouse_pivot_multiplier
               mouse_pan_multiplier = numbers.mouse_pan_multiplier
+              retarget_base_distance = numbers.retarget_base_distance
               perspective_retarget_fallback_multiplier = numbers.perspective_retarget_fallback_multiplier
               parallel_retarget_fallback_multiplier = numbers.parallel_retarget_fallback_multiplier
               perspective_retarget_zoom_border = numbers.perspective_retarget_zoom_border
@@ -287,6 +311,12 @@ let read (fields: SettingsFields.ConfigFields) =
               mouse_x_mode = SettingsFields.selected_mode modes.mouse_x_mode
               mouse_y_mode = SettingsFields.selected_mode modes.mouse_y_mode
               normalize_diagonal_movement = is_checked options.normalize_diagonal_movement
+              show_crosshair = is_checked fields.crosshair.show
+              crosshair_arm_length = int fields.crosshair.arm_length.Value
+              crosshair_gap = int fields.crosshair.gap.Value
+              crosshair_red = int fields.crosshair.red.Value
+              crosshair_green = int fields.crosshair.green.Value
+              crosshair_blue = int fields.crosshair.blue.Value
               hide_gumball_while_flying = is_checked options.hide_gumball_while_flying
               prioritized_target = SettingsFields.selected_mode modes.prioritized_target
               save_speed_to_document = is_checked options.save_speed_to_document

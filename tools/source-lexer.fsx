@@ -1,6 +1,7 @@
 module SourceLexer
 
 open System
+open System.Collections.Generic
 
 type StringKind =
     | Quoted
@@ -9,10 +10,9 @@ type StringKind =
 
 type LexicalState =
     | Code
-    | StringBody of StringKind * bool
-    | HoleCode of StringKind * int
-    | HoleFormat of StringKind
-    | HoleString of StringKind * int
+    | StringBody of StringKind * int
+    | HoleCode of int * int
+    | HoleFormat of int
     | Character
     | LineComment
     | BlockComment of int
@@ -21,6 +21,7 @@ let code_only (source: string) =
     let result = Text.StringBuilder(source.Length)
     let mutable state = Code
     let mutable index = 0
+    let contexts = Stack<LexicalState>()
 
     let starts_with (text: string) =
         source.AsSpan(index).StartsWith(text.AsSpan(), StringComparison.Ordinal)
@@ -36,36 +37,41 @@ let code_only (source: string) =
         result.Append(source, index, count) |> ignore
         index <- index + count
 
-    let doubled_dollar () = index > 0 && source[index - 1] = '$'
+    let enter (next: LexicalState) (count: int) =
+        contexts.Push state
+        blank_run count
+        state <- next
+
+    let leave (count: int) =
+        blank_run count
+        state <- contexts.Pop()
 
     while index < source.Length do
         match state with
-        | Code when starts_with "//" ->
-            blank_run 2
-            state <- LineComment
-        | Code when starts_with "(*)" -> keep_run 3
-        | Code when starts_with "(*" ->
-            blank_run 2
-            state <- BlockComment 1
-        | Code when starts_with "$\"\"\"" && not (doubled_dollar ()) ->
-            blank_run 4
-            state <- StringBody(Triple, true)
-        | Code when (starts_with "$@\"" || starts_with "@$\"") && not (doubled_dollar ()) ->
-            blank_run 3
-            state <- StringBody(Verbatim, true)
-        | Code when starts_with "$\"" && not (doubled_dollar ()) ->
-            blank_run 2
-            state <- StringBody(Quoted, true)
-        | Code when starts_with "\"\"\"" ->
-            blank_run 3
-            state <- StringBody(Triple, false)
-        | Code when starts_with "@\"" ->
-            blank_run 2
-            state <- StringBody(Verbatim, false)
-        | Code when source[index] = '"' ->
-            blank_run 1
-            state <- StringBody(Quoted, false)
-        | Code when source[index] = '\'' ->
+        | (Code | HoleCode _) when starts_with "//" -> enter LineComment 2
+        | (Code | HoleCode _) when starts_with "(*)" -> keep_run 3
+        | (Code | HoleCode _) when starts_with "(*" -> enter (BlockComment 1) 2
+        | (Code | HoleCode _) when starts_with "@$\"" -> enter (StringBody(Verbatim, 1)) 3
+        | (Code | HoleCode _) when source[index] = '$' ->
+            let mutable dollars = 1
+
+            while index + dollars < source.Length && source[index + dollars] = '$' do
+                dollars <- dollars + 1
+
+            let tail = source.AsSpan(index + dollars)
+
+            if tail.StartsWith("\"\"\"".AsSpan(), StringComparison.Ordinal) then
+                enter (StringBody(Triple, dollars)) (dollars + 3)
+            elif tail.StartsWith("@\"".AsSpan(), StringComparison.Ordinal) then
+                enter (StringBody(Verbatim, dollars)) (dollars + 2)
+            elif tail.StartsWith("\"".AsSpan(), StringComparison.Ordinal) then
+                enter (StringBody(Quoted, dollars)) (dollars + 1)
+            else
+                keep_run dollars
+        | (Code | HoleCode _) when starts_with "\"\"\"" -> enter (StringBody(Triple, 0)) 3
+        | (Code | HoleCode _) when starts_with "@\"" -> enter (StringBody(Verbatim, 0)) 2
+        | (Code | HoleCode _) when source[index] = '"' -> enter (StringBody(Quoted, 0)) 1
+        | (Code | HoleCode _) when source[index] = '\'' ->
             let simple_character = index + 2 < source.Length && source[index + 2] = '\''
 
             let escaped_character =
@@ -74,67 +80,46 @@ let code_only (source: string) =
                 && source[index + 3] = '\''
 
             if simple_character || escaped_character then
-                blank_run 1
-                state <- Character
+                enter Character 1
             else
                 keep_run 1
         | Code -> keep_run 1
-        | LineComment when source[index] = '\n' ->
-            blank_run 1
-            state <- Code
+        | LineComment when source[index] = '\n' -> leave 1
         | LineComment -> blank_run 1
         | BlockComment depth when starts_with "(*" ->
             blank_run 2
             state <- BlockComment(depth + 1)
         | BlockComment depth when starts_with "*)" ->
-            blank_run 2
-            state <- if depth = 1 then Code else BlockComment(depth - 1)
+            if depth = 1 then
+                leave 2
+            else
+                blank_run 2
+                state <- BlockComment(depth - 1)
         | BlockComment _ -> blank_run 1
-        | StringBody(Triple, _) when starts_with "\"\"\"" ->
-            blank_run 3
-            state <- Code
+        | StringBody(Triple, _) when starts_with "\"\"\"" -> leave 3
         | StringBody(Verbatim, _) when starts_with "\"\"" -> blank_run 2
-        | StringBody(Verbatim, _) when source[index] = '"' ->
-            blank_run 1
-            state <- Code
+        | StringBody(Verbatim, _) when source[index] = '"' -> leave 1
         | StringBody(Quoted, _) when source[index] = '\\' && index + 1 < source.Length -> blank_run 2
-        | StringBody(Quoted, _) when source[index] = '"' ->
-            blank_run 1
-            state <- Code
-        | StringBody(_, true) when starts_with "{{" || starts_with "}}" -> blank_run 2
-        | StringBody(kind, true) when source[index] = '{' ->
-            blank_run 1
-            state <- HoleCode(kind, 0)
+        | StringBody(Quoted, _) when source[index] = '"' -> leave 1
+        | StringBody(_, 1) when starts_with "{{" || starts_with "}}" -> blank_run 2
+        | StringBody(_, dollars) when dollars > 0 && starts_with (String('{', dollars)) ->
+            enter (HoleCode(dollars, 0)) dollars
         | StringBody _ -> blank_run 1
-        | HoleCode(kind, depth) when source[index] = '"' ->
+        | HoleCode(dollars, 0) when starts_with (String('}', dollars)) -> leave dollars
+        | HoleCode(dollars, 0) when source[index] = ':' || source[index] = ',' ->
             blank_run 1
-            state <- HoleString(kind, depth)
-        | HoleCode(kind, 0) when source[index] = '}' ->
-            blank_run 1
-            state <- StringBody(kind, true)
-        | HoleCode(kind, 0) when source[index] = ':' || source[index] = ',' ->
-            blank_run 1
-            state <- HoleFormat kind
-        | HoleCode(kind, depth) when source[index] = '(' || source[index] = '[' || source[index] = '{' ->
+            state <- HoleFormat dollars
+        | HoleCode(dollars, depth) when source[index] = '(' || source[index] = '[' || source[index] = '{' ->
             keep_run 1
-            state <- HoleCode(kind, depth + 1)
-        | HoleCode(kind, depth) when source[index] = ')' || source[index] = ']' || source[index] = '}' ->
+            state <- HoleCode(dollars, depth + 1)
+        | HoleCode(dollars, depth) when source[index] = ')' || source[index] = ']' || source[index] = '}' ->
             keep_run 1
-            state <- HoleCode(kind, depth - 1)
+            state <- HoleCode(dollars, depth - 1)
         | HoleCode _ -> keep_run 1
-        | HoleFormat kind when source[index] = '}' ->
-            blank_run 1
-            state <- StringBody(kind, true)
+        | HoleFormat dollars when starts_with (String('}', dollars)) -> leave dollars
         | HoleFormat _ -> blank_run 1
-        | HoleString(_, _) when source[index] = '\\' && index + 1 < source.Length -> blank_run 2
-        | HoleString(kind, depth) when source[index] = '"' ->
-            blank_run 1
-            state <- HoleCode(kind, depth)
-        | HoleString _ -> blank_run 1
         | Character when source[index] = '\\' && index + 1 < source.Length -> blank_run 2
-        | Character when source[index] = '\'' ->
-            blank_run 1
-            state <- Code
+        | Character when source[index] = '\'' -> leave 1
         | Character -> blank_run 1
 
     result.ToString()

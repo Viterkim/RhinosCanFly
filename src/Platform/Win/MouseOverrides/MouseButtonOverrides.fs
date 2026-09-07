@@ -13,6 +13,33 @@ open RhinosCanFly.Platform.Win.MouseOverrideTypes
 
 let state = create_state ()
 let right_click = RightClickTransitions.create ()
+
+let consume_held_flight_entry (view: RhinoView) (request_id: Guid) =
+    let host = PlatformInput.capture_viewport_host view
+
+    match RightClickTransitions.consume_held_entry right_click host request_id with
+    | Some pair_id ->
+        Some(fun () ->
+            state.lifecycle <> ShutDown
+            && right_click.pair_id = pair_id
+            && right_click.button_ownership = Owned
+            && PlatformInput.viewport_host_is_foreground host view
+            && Win32.key_down Win32Native.VK_RBUTTON)
+    | None -> None
+
+let raw_mouse_admission (swapped: bool) =
+    let buttons =
+        Win32.capture_mouse_buttons swapped (fun (key: int) -> Win32Native.GetAsyncKeyState key < 0s)
+
+    if
+        Win32Native.GetCapture() = nativeint 0
+        && MouseOverrideState.raw_mouse_buttons_owned state (right_click.button_ownership = Owned) (fun (key: int) ->
+            buttons &&& (1 <<< key) <> 0)
+    then
+        ValueSome buttons
+    else
+        ValueNone
+
 let mutable hook_ui_wake: PlatformInputWake.State option = None
 let mutable hook_ui_main_loop_handler: EventHandler option = None
 let hook_ui_work_requested = Event<unit>()
@@ -128,13 +155,19 @@ let action_button_up (button: SideButton) (message: int) =
     | Mouse4
     | Mouse5 -> message = Win32Native.WM_XBUTTONUP
 
-let handle_mouse_event (event: Win32.MouseHookEvent) =
+let handle_routed_mouse_event (event: Win32.MouseHookEvent) =
     let mutable swallow = false
     let mutable right_click_event = false
     let mutable right_click_was_owned = false
 
     try
         if
+            event.message = Win32Native.WM_LBUTTONDOWN
+            || event.message = Win32Native.WM_LBUTTONUP
+            || event.message = Win32Native.WM_LBUTTONDBLCLK
+        then
+            false
+        elif
             event.message = Win32Native.WM_RBUTTONDOWN
             || event.message = Win32Native.WM_RBUTTONUP
             || event.message = Win32Native.WM_RBUTTONDBLCLK
@@ -207,7 +240,7 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
                     MouseOverrideState.set_hook_button_ownership state button NotOwned
 
                     if state.lifecycle = Available then
-                        state.pending_side_button_events.Enqueue(ButtonUp button)
+                        state.pending_side_button_events.AddLast(ButtonUp button) |> ignore
                         signal_hook_ui_work ()
 
                     MouseOverrideState.keep_timer_running state
@@ -232,9 +265,10 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
                             swallow <- true
                             MouseOverrideState.set_hook_button_ownership state button Owned
 
-                            state.pending_side_button_events.Enqueue(
+                            state.pending_side_button_events.AddLast(
                                 ButtonDown(button, point_viewport.host, event.screen_point)
                             )
+                            |> ignore
 
                             signal_hook_ui_work ()
 
@@ -252,6 +286,47 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
             right_click_was_owned || RightClickTransitions.owns_button right_click
         else
             swallow
+
+let handle_mouse_event (event: Win32.MouseHookEvent) =
+    let struct (key, released) =
+        match event.message with
+        | Win32Native.WM_LBUTTONDOWN
+        | Win32Native.WM_LBUTTONDBLCLK -> struct (Win32Native.VK_LBUTTON, false)
+        | Win32Native.WM_LBUTTONUP -> struct (Win32Native.VK_LBUTTON, true)
+        | Win32Native.WM_RBUTTONDOWN
+        | Win32Native.WM_RBUTTONDBLCLK -> struct (Win32Native.VK_RBUTTON, false)
+        | Win32Native.WM_RBUTTONUP -> struct (Win32Native.VK_RBUTTON, true)
+        | Win32Native.WM_MBUTTONDOWN
+        | Win32Native.WM_MBUTTONDBLCLK -> struct (Win32Native.VK_MBUTTON, false)
+        | Win32Native.WM_MBUTTONUP -> struct (Win32Native.VK_MBUTTON, true)
+        | _ ->
+            let key =
+                match side_button_from_data event.mouse_data with
+                | ValueSome Mouse4 -> Win32Native.VK_XBUTTON1
+                | ValueSome Mouse5 -> Win32Native.VK_XBUTTON2
+                | _ -> 0
+
+            struct (key, event.message = Win32Native.WM_XBUTTONUP)
+
+    let raw_owned = key <> 0 && RawMouseButtons.update key false
+
+    if raw_owned then
+        match key with
+        | Win32Native.VK_RBUTTON ->
+            right_click.button_ownership <- NotOwned
+            RightClickTransitions.clear_action right_click
+        | Win32Native.VK_MBUTTON -> MouseOverrideState.set_hook_button_ownership state Middle NotOwned
+        | Win32Native.VK_XBUTTON1 -> MouseOverrideState.set_hook_button_ownership state Mouse4 NotOwned
+        | Win32Native.VK_XBUTTON2 -> MouseOverrideState.set_hook_button_ownership state Mouse5 NotOwned
+        | _ -> ()
+
+        signal_hook_ui_work ()
+
+    // A fresh legacy Down closes an old raw pair whose Up happened outside Rhino.
+    if raw_owned && released then
+        true
+    else
+        handle_routed_mouse_event event
 
 let mouse_hook_environment: MouseHook.Environment =
     { handle_event = handle_mouse_event
@@ -278,63 +353,46 @@ let remove_mouse_hook () =
     MouseHook.remove mouse_hook mouse_hook_environment
 
 let mouse_hook_needed () =
-    match state.lifecycle with
-    | ShutDown -> false
-    | Suspended ->
-        RightClickTransitions.owns_button right_click
-        || MouseOverrideState.hook_owns_any_button state
-    | Available
-    | Resuming
-    | Degraded _ ->
-        RightClickTransitions.capture_needed state right_click
-        || MouseOverrideState.side_button_routing_enabled state
-        || MouseOverrideState.hook_owns_any_button state
+    if RawMouseButtons.any () || PlatformRawInput.owns_mouse_messages () then
+        true
+    else
+        match state.lifecycle with
+        | ShutDown -> false
+        | Suspended ->
+            RightClickTransitions.owns_button right_click
+            || MouseOverrideState.hook_owns_any_button state
+        | Available
+        | Resuming
+        | Degraded _ ->
+            RightClickTransitions.capture_needed state right_click
+            || MouseOverrideState.side_button_routing_enabled state
+            || MouseOverrideState.hook_owns_any_button state
 
 let refresh_mouse_hook () =
     MouseHook.refresh mouse_hook mouse_hook_environment (mouse_hook_needed ())
+
+do
+    PlatformRawInput.starting.Publish.Add(fun () ->
+        match refresh_mouse_hook () with
+        | Ok() -> MouseOverrideState.keep_watchdog_running state
+        | Error error -> invalidOp $"Could not retain mouse releases during raw input: {error}")
 
 let mouse_hook_needs_reconciliation () =
     MouseHook.needs_reconciliation mouse_hook mouse_hook_environment (mouse_hook_needed ())
 
 let prune_released_side_buttons () =
-    if MouseOverrideState.hook_owns_button state Middle then
-        if SideButtonTransitions.is_down Middle then
-            MouseOverrideState.set_hook_button_ownership state Middle Owned
-        else
-            MouseOverrideState.observe_hook_button_released state Middle
+    if not (SideButtonTransitions.is_down Middle) then
+        MouseOverrideState.observe_hook_button_released state Middle
 
-    if MouseOverrideState.hook_owns_button state Mouse4 then
-        if SideButtonTransitions.is_down Mouse4 then
-            MouseOverrideState.set_hook_button_ownership state Mouse4 Owned
-        else
-            MouseOverrideState.observe_hook_button_released state Mouse4
+    if not (SideButtonTransitions.is_down Mouse4) then
+        MouseOverrideState.observe_hook_button_released state Mouse4
 
-    if MouseOverrideState.hook_owns_button state Mouse5 then
-        if SideButtonTransitions.is_down Mouse5 then
-            MouseOverrideState.set_hook_button_ownership state Mouse5 Owned
-        else
-            MouseOverrideState.observe_hook_button_released state Mouse5
+    if not (SideButtonTransitions.is_down Mouse5) then
+        MouseOverrideState.observe_hook_button_released state Mouse5
 
 let reconcile_button_ownership_after_suspension () =
     RightClickTransitions.reconcile_physical_button right_click
-
-    if MouseOverrideState.hook_owns_button state Middle then
-        if SideButtonTransitions.is_down Middle then
-            MouseOverrideState.set_hook_button_ownership state Middle Owned
-        else
-            MouseOverrideState.observe_hook_button_released state Middle
-
-    if MouseOverrideState.hook_owns_button state Mouse4 then
-        if SideButtonTransitions.is_down Mouse4 then
-            MouseOverrideState.set_hook_button_ownership state Mouse4 Owned
-        else
-            MouseOverrideState.observe_hook_button_released state Mouse4
-
-    if MouseOverrideState.hook_owns_button state Mouse5 then
-        if SideButtonTransitions.is_down Mouse5 then
-            MouseOverrideState.set_hook_button_ownership state Mouse5 Owned
-        else
-            MouseOverrideState.observe_hook_button_released state Mouse5
+    prune_released_side_buttons ()
 
 let release_after_timer_error (error: exn) =
     log_exception "mouse override timer" error
@@ -410,105 +468,167 @@ let activate_available () =
         activate_degraded message
         Error message
 
-let poll_timer_elapsed () =
-    try
-        let navigation_was_active =
-            MouseOverrideState.gesture_navigation_engaged state
-            || MouseOverrideState.view_latch_engaged state
-            || ValueOption.isSome (RightClickTransitions.direct_navigation_host right_click)
+let maintain_navigation () =
+    let raw_processing =
+        match raw_navigation.session with
+        | Some(RawNavigationCoordinator.ActiveTransport active) -> active.processing
+        | _ -> false
 
-        let mutable navigation_cleanup_failed = false
-
+    // A nested timer must not reconcile physical releases ahead of the active drain.
+    if not raw_processing then
         try
-            SideButtonTransitions.process_hook_events state
-            prune_released_side_buttons ()
-            RightClickTransitions.prune_released_button right_click
-            RightClickTransitions.update state right_click (command_depth > 0)
+            let navigation_was_active =
+                MouseOverrideState.gesture_navigation_engaged state
+                || MouseOverrideState.view_latch_engaged state
+                || ValueOption.isSome (RightClickTransitions.direct_navigation_host right_click)
 
-            let foreground = MouseOverrideState.foreground_root_window ()
+            let mutable navigation_cleanup_failed = false
 
-            let navigation_lost_focus =
-                match RawNavigationCoordinator.active_host raw_navigation with
-                | ValueSome expected -> foreground <> expected.root_window
-                | ValueNone -> false
+            try
+                // Consume the canonical final movement/Up before missing-release polling.
+                RawNavigationCoordinator.drain raw_navigation
+                SideButtonTransitions.process_hook_events state
+                prune_released_side_buttons ()
+                RightClickTransitions.reconcile_physical_button right_click
+                RightClickTransitions.update state right_click (command_depth > 0)
 
-            if navigation_lost_focus then
-                match RawNavigationCoordinator.release raw_navigation with
+                let foreground = MouseOverrideState.foreground_root_window ()
+
+                let navigation_lost_focus =
+                    match RawNavigationCoordinator.active_host raw_navigation with
+                    | ValueSome expected -> foreground <> expected.root_window
+                    | ValueNone -> false
+
+                if navigation_lost_focus then
+                    match RawNavigationCoordinator.release raw_navigation with
+                    | Ok() -> ()
+                    | Error error ->
+                        navigation_cleanup_failed <- true
+                        Debug.WriteLine $"RhinosCanFly mouse override focus loss: {error}"
+                elif state.navigation_exit_requested || MouseOverrideState.exit_key_down state then
+                    match RawNavigationCoordinator.release raw_navigation with
+                    | Ok() -> ()
+                    | Error error ->
+                        navigation_cleanup_failed <- true
+                        Debug.WriteLine $"RhinosCanFly mouse override exit: {error}"
+                else
+                    GestureNavigationTransitions.poll state
+
+                    ViewLatchTransitions.update state
+
+                if not navigation_cleanup_failed then
+                    match RawNavigationCoordinator.reconcile raw_navigation with
+                    | Ok() -> ()
+                    | Error error -> failwith error
+
+                if
+                    navigation_was_active
+                    && not (MouseOverrideState.gesture_navigation_engaged state)
+                    && not (MouseOverrideState.view_latch_engaged state)
+                    && ValueOption.isNone (RightClickTransitions.direct_navigation_host right_click)
+                then
+                    request_ui_redraw ()
+
+            with error ->
+                release_after_timer_error error
+
+            let recover_hooks =
+                MouseHook.removal_pending mouse_hook
+                || mouse_hook_needs_reconciliation ()
+                || match state.lifecycle with
+                   | Degraded _ -> not (MouseHook.removal_abandoned mouse_hook)
+                   | Available
+                   | Suspended
+                   | Resuming
+                   | ShutDown -> false
+
+            if recover_hooks then
+                let mouse_result = refresh_mouse_hook ()
+
+                match mouse_result with
                 | Ok() -> ()
-                | Error error ->
-                    navigation_cleanup_failed <- true
-                    Debug.WriteLine $"RhinosCanFly mouse override focus loss: {error}"
-            elif state.navigation_exit_requested || MouseOverrideState.exit_key_down state then
-                match RawNavigationCoordinator.release raw_navigation with
-                | Ok() -> ()
-                | Error error ->
-                    navigation_cleanup_failed <- true
-                    Debug.WriteLine $"RhinosCanFly mouse override exit: {error}"
+                | Error error -> Debug.WriteLine $"RhinosCanFly mouse override hook: {error}"
+
+                match state.lifecycle with
+                | Degraded _ when state.suspension_ids.Count = 0 ->
+                    match mouse_result with
+                    | Ok() ->
+                        match activate_available () with
+                        | Ok() -> ()
+                        | Error error -> Debug.WriteLine $"RhinosCanFly mouse override activation: {error}"
+                    | Error _ -> apply_poll_requirement ()
+                | Available
+                | Suspended
+                | Resuming
+                | Degraded _
+                | ShutDown -> apply_poll_requirement ()
             else
-                GestureNavigationTransitions.poll state
-
-                ViewLatchTransitions.update state
-
-            if not navigation_cleanup_failed then
-                match RawNavigationCoordinator.reconcile raw_navigation with
-                | Ok() -> ()
-                | Error error -> failwith error
-
-            if
-                navigation_was_active
-                && not (MouseOverrideState.gesture_navigation_engaged state)
-                && not (MouseOverrideState.view_latch_engaged state)
-                && ValueOption.isNone (RightClickTransitions.direct_navigation_host right_click)
-            then
-                request_ui_redraw ()
-
+                apply_poll_requirement ()
         with error ->
             release_after_timer_error error
 
-        let recover_hooks =
-            MouseHook.removal_pending mouse_hook
-            || mouse_hook_needs_reconciliation ()
-            || match state.lifecycle with
-               | Degraded _ -> not (MouseHook.removal_abandoned mouse_hook)
-               | Available
-               | Suspended
-               | Resuming
-               | ShutDown -> false
+            try
+                apply_poll_requirement ()
+            with stop_error ->
+                Debug.WriteLine $"RhinosCanFly mouse override timer scheduling: {stop_error}"
 
-        if recover_hooks then
-            let mouse_result = refresh_mouse_hook ()
+let mutable navigation_loop_running = false
 
-            match mouse_result with
-            | Ok() -> ()
-            | Error error -> Debug.WriteLine $"RhinosCanFly mouse override hook: {error}"
-
-            // Keep these matches nested because reference tuples allocate.
-            match state.lifecycle with
-            | Degraded _ when state.suspension_ids.Count = 0 ->
-                match mouse_result with
-                | Ok() ->
-                    match activate_available () with
-                    | Ok() -> ()
-                    | Error error -> Debug.WriteLine $"RhinosCanFly mouse override activation: {error}"
-                | Error _ -> apply_poll_requirement ()
-            | Available
-            | Suspended
-            | Resuming
-            | Degraded _
-            | ShutDown -> apply_poll_requirement ()
-        else
-            apply_poll_requirement ()
-    with error ->
-        release_after_timer_error error
+let process_ui_work () =
+    // Rhino's pump can reenter these handlers. Keep one loop owner.
+    if not navigation_loop_running then
+        navigation_loop_running <- true
 
         try
+            try
+                maintain_navigation ()
+
+                let poll_interval_ticks =
+                    Stopwatch.Frequency * int64 POLL_TIMER_INTERVAL_MILLISECONDS / 1000L
+
+                let mutable next_poll_at = Stopwatch.GetTimestamp() + poll_interval_ticks
+
+                let step () =
+                    RawNavigationCoordinator.drain raw_navigation
+                    let now = Stopwatch.GetTimestamp()
+
+                    // Don't poll physical buttons for every mouse packet.
+                    if
+                        now >= next_poll_at
+                        || state.pending_side_button_events.Count > 0
+                        || state.navigation_exit_requested
+                        || match raw_navigation.session with
+                           | Some(RawNavigationCoordinator.ActiveTransport active) -> not active.pointer_input_valid
+                           | _ -> false
+                    then
+                        next_poll_at <- now + poll_interval_ticks
+                        maintain_navigation ()
+
+                NavigationLoop.run
+                    (fun () ->
+                        state.lifecycle = Available
+                        && match raw_navigation.session with
+                           | Some(RawNavigationCoordinator.ActiveTransport active) -> active.transport.IsActive
+                           | _ -> false)
+                    (fun () ->
+                        state.pending_side_button_events.Count > 0
+                        || state.navigation_exit_requested
+                        || match raw_navigation.session with
+                           | Some(RawNavigationCoordinator.ActiveTransport active) -> active.transport.WorkPending
+                           | _ -> false)
+                    (fun () ->
+                        let remaining_ticks = max 0L (next_poll_at - Stopwatch.GetTimestamp())
+                        int (Math.Ceiling(float remaining_ticks * 1000. / float Stopwatch.Frequency)))
+                    step
+            with error ->
+                release_after_timer_error error
+        finally
+            navigation_loop_running <- false
             apply_poll_requirement ()
-        with stop_error ->
-            Debug.WriteLine $"RhinosCanFly mouse override timer scheduling: {stop_error}"
 
-do hook_ui_work_requested.Publish.Add(fun () -> poll_timer_elapsed ())
+do hook_ui_work_requested.Publish.Add process_ui_work
 
-state.poll_timer.Tick.Add(fun (_: EventArgs) -> poll_timer_elapsed ())
+state.poll_timer.Tick.Add(fun (_: EventArgs) -> process_ui_work ())
 
 let keeps_navigation_active (command_name: string) =
     String.Equals(command_name, "RhinosCanFlyPivot", StringComparison.Ordinal)
@@ -519,7 +639,7 @@ let command_began =
         command_depth <- command_depth + 1
 
         try
-            RightClickTransitions.command_began right_click
+            RightClickTransitions.command_began right_click event.CommandEnglishName
 
             if
                 not (keeps_navigation_active event.CommandEnglishName)
@@ -584,7 +704,9 @@ let start_view_latch (view: RhinoView) (mode: ViewNavigationMode) (completion: A
                     | Ok() -> refresh_mouse_hook ()
 
                 match activation with
-                | Ok() -> Ok()
+                | Ok() ->
+                    signal_hook_ui_work ()
+                    Ok()
                 | Error activation_error ->
                     let mutable error = activation_error
 
@@ -659,11 +781,10 @@ let apply (config: MouseOverrideConfig) =
             activate_degraded error
             Error error
         | Ok() ->
-            state.routing <- config
-
-            if state.lifecycle = Suspended then
-                Ok()
+            if state.suspension_ids.Count > 0 then
+                MouseOverrideState.apply_suspended_routing state config
             else
+                state.routing <- config
                 state.lifecycle <- Resuming
 
                 try
@@ -812,8 +933,7 @@ let shutdown () =
         attempt "command handler" (fun () -> Command.BeginCommand.RemoveHandler command_began)
         attempt "command end handler" (fun () -> Command.EndCommand.RemoveHandler command_ended)
 
-        attempt "application initialized handler" (fun () ->
-            ViewportRegistry.remove_application_handler viewport_registry)
+        attempt "viewport event handlers" (fun () -> ViewportRegistry.remove_persistent_handlers viewport_registry)
 
         attempt "view navigation" (fun () ->
             match RawNavigationCoordinator.release raw_navigation with

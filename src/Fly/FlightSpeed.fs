@@ -62,14 +62,7 @@ let set (document: RhinoDoc) (save_to_document: bool) (range: SpeedRange) (reque
         Error $"Could not save flying speed to the document: {error.Message}"
 
 let step (config: MovementConfig) (speed: float) (SpeedStepCount steps: SpeedStepCount) =
-    let stepped = speed * Math.Pow(config.speed_step_multiplier, steps)
-
-    let requested =
-        if steps < 0. then Math.Floor stepped
-        elif steps > 0. then Math.Ceiling stepped
-        else speed
-
-    Speed.allowed config.speed_range requested
+    Speed.allowed config.speed_range (speed * Math.Pow(config.speed_step_multiplier, steps))
 
 let document_closed =
     EventHandler<DocumentEventArgs>(fun (_: obj) (event: DocumentEventArgs) ->

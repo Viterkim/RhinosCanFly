@@ -13,7 +13,7 @@ let run (document: RhinoDoc) =
     use input = new GetNumber()
     input.SetCommandPrompt "Walking eye height"
     input.SetDefaultNumber last_eye_height
-    input.SetLowerLimit(0., true)
+    input.SetLowerLimit(0., false)
 
     let get_result =
         try

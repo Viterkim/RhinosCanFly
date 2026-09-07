@@ -8,16 +8,22 @@ $tools = Join-Path $projectRoot "tools"
 $check = Join-Path $projectRoot "tools\check-all.fsx"
 $styleCheck = Join-Path $projectRoot "tools\check-source-style.fsx"
 
-& dotnet fsi $check -- $source
+Push-Location $projectRoot
+try {
+    & dotnet fsi $check -- $source
 
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
+
+    & dotnet fsi $styleCheck -- $tools
+
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
+
+    Write-Host "Source checks passed."
 }
-
-& dotnet fsi $styleCheck -- $tools
-
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
+finally {
+    Pop-Location
 }
-
-Write-Host "Source checks passed."
