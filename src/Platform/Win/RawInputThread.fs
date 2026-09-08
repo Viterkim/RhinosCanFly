@@ -16,12 +16,8 @@ type StopOutcome =
     { terminated: bool
       registration_relinquished: bool
       previous_registration_lost: bool
+      pending_only: bool
       errors: string list }
-
-type StartFailureException(message: string, restart_required: bool, inner_error: exn) =
-    inherit Exception(message, inner_error)
-
-    member _.RestartRequired = restart_required
 
 type SessionRequest =
     { id: int64
@@ -69,7 +65,15 @@ type Session =
       request: SessionRequest
       stop_gate: obj
       mutable stop_request_sent: bool
+      mutable ownership_completed: bool
+      mutable completing_ownership: bool
       mutable stop_outcome: StopOutcome option }
+
+type StartFailureException(message: string, restart_required: bool, inner_error: exn, ?pending_cleanup: Session) =
+    inherit Exception(message, inner_error)
+
+    member _.RestartRequired = restart_required
+    member _.PendingCleanup = pending_cleanup
 
 [<Literal>]
 let STARTUP_TIMEOUT_MS = 250
@@ -89,6 +93,12 @@ let mutable worker_shut_down = false
 let mutable session_ownership = NoSession
 let mutable next_session_id = 0L
 let starting = Event<unit>()
+let released = Event<int>()
+let finished = Event<unit>()
+
+let acknowledge_stop (request: SessionRequest) =
+    request.stopped.Set()
+    finished.Trigger()
 
 let startup_error (result: ThreadResult) = Volatile.Read(&result.startup_error)
 let runtime_error (result: ThreadResult) = Volatile.Read(&result.runtime_error)
@@ -173,10 +183,13 @@ let run_worker (worker: WorkerState) =
                     created.ReleaseSession()
                 with error ->
                     record_shutdown_error request.result error
+
+                    if created.HasSession then
+                        reraise ()
             | None -> ()
 
             current_request <- None
-            request.stopped.Set()
+            acknowledge_stop request
 
             if shutdown_requested then
                 Application.ExitThread()
@@ -201,14 +214,14 @@ let run_worker (worker: WorkerState) =
         if Volatile.Read(&request.cancelled) <> 0 then
             record_startup_error request.result (OperationCanceledException "Raw-input startup was cancelled.")
             request.ready.Set()
-            request.stopped.Set()
+            acknowledge_stop request
         else
             match current_request with
             | Some _ ->
                 let error = InvalidOperationException "Another raw-input session is already active."
                 record_startup_error request.result error
                 request.ready.Set()
-                request.stopped.Set()
+                acknowledge_stop request
             | None ->
                 try
                     let registration_ready =
@@ -238,23 +251,27 @@ let run_worker (worker: WorkerState) =
                     | Some error -> record_startup_error request.result error
                     | None -> ()
 
-                    request.ready.Set()
-
                     if Option.isSome startup_error then
                         match receiver with
                         | Some created -> created.RequestStop()
-                        | None -> request.stopped.Set()
+                        | None -> finish_current request.id
+
+                    request.ready.Set()
                 with error ->
                     record_startup_error request.result error
                     request.ready.Set()
-                    request.stopped.Set()
+
+                    match current_request with
+                    | Some current when current.id = request.id -> worker.commands.Enqueue(StopSession request.id)
+                    | Some _
+                    | None -> acknowledge_stop request
 
     let stop_session (session_id: int64) =
         match current_request with
         | Some request when request.id = session_id ->
             match receiver with
             | Some created -> created.RequestStop()
-            | None -> request.stopped.Set()
+            | None -> finish_current request.id
         | Some _
         | None -> ()
 
@@ -272,7 +289,7 @@ let run_worker (worker: WorkerState) =
                             (InvalidOperationException "The raw-input worker is shutting down.")
 
                         request.ready.Set()
-                        request.stopped.Set()
+                        acknowledge_stop request
                     else
                         begin_session request
                 | StopSession session_id -> stop_session session_id
@@ -329,7 +346,12 @@ let run_worker (worker: WorkerState) =
         match receiver with
         | Some created ->
             while not created.RegistrationRelinquished do
-                created.RequestStop()
+                try
+                    created.RequestStop()
+                with error ->
+                    match current_request with
+                    | Some request -> record_shutdown_error request.result error
+                    | None -> record_shutdown_error worker.result error
 
                 if not created.RegistrationRelinquished then
                     Thread.Sleep RawInputNative.REGISTRATION_RETRY_INTERVAL_MS
@@ -341,7 +363,9 @@ let run_worker (worker: WorkerState) =
                 with error ->
                     record_shutdown_error request.result error
 
-                request.stopped.Set()
+                if not created.HasSession then
+                    current_request <- None
+                    acknowledge_stop request
             | None -> ()
         | None -> ()
 
@@ -358,7 +382,7 @@ let run_worker (worker: WorkerState) =
                 record_startup_error request.result pending_error
 
                 request.ready.Set()
-                request.stopped.Set()
+                acknowledge_stop request
             | StopSession _
             | FinishSession _
             | ShutdownWorker -> ()
@@ -493,10 +517,15 @@ let clear_active_session (session_id: int64) =
 let request_stop_core (session: Session) =
     if session.stop_request_sent then
         Ok()
-    elif session.request.stopped.IsSet then
+    elif session.request.stopped_disposed || session.request.stopped.IsSet then
         session.stop_request_sent <- true
         Ok()
     else
+        try
+            Win32.drain_legacy_button_messages ()
+        with error ->
+            record_shutdown_error session.request.result error
+
         match enqueue_command session.worker (StopSession session.request.id) with
         | Ok Posted ->
             session.stop_request_sent <- true
@@ -513,9 +542,10 @@ let request_stop (session: Session) =
 let stop (session: Session) =
     lock session.stop_gate (fun () ->
         match session.stop_outcome with
-        | Some outcome when stop_outcome_is_clean outcome -> outcome
+        | Some outcome when stop_outcome_is_clean outcome && session.ownership_completed -> outcome
         | Some _
         | None ->
+            retain_session session
             let errors = ResizeArray<string>()
 
             match request_stop_core session with
@@ -550,6 +580,9 @@ let stop (session: Session) =
             | Some error -> exception_messages error |> Seq.iter errors.Add
             | None -> ()
 
+            let pending_only =
+                not terminated && not previous_registration_lost && errors.Count = 0
+
             if not terminated then
                 errors.Add "The raw-input session is still cleaning up in the background."
 
@@ -562,11 +595,27 @@ let stop (session: Session) =
                 { terminated = terminated
                   registration_relinquished = registration_relinquished
                   previous_registration_lost = previous_registration_lost
+                  pending_only = pending_only
                   errors = List.ofSeq errors }
+
+            if
+                terminated
+                && registration_relinquished
+                && not session.ownership_completed
+                && not session.completing_ownership
+            then
+                session.completing_ownership <- true
+
+                try
+                    Win32.drain_legacy_button_messages ()
+                    released.Trigger(RawMouseButtons.finish_handoff ())
+                    session.ownership_completed <- true
+                finally
+                    session.completing_ownership <- false
 
             session.stop_outcome <- Some outcome
 
-            if stop_outcome_is_clean outcome then
+            if stop_outcome_is_clean outcome && session.ownership_completed then
                 forget_session session
                 clear_active_session session.request.id
             else
@@ -574,7 +623,32 @@ let stop (session: Session) =
 
             outcome)
 
-let start (buttons_swapped: bool) (input: InputAccumulator.State) (input_available: Action) =
+let cleanup_result (session: Session) =
+    lock session.stop_gate (fun () ->
+        match session.stop_outcome with
+        | Some outcome when not outcome.pending_only ->
+            Some(
+                session.ownership_completed
+                && stop_outcome_is_clean outcome
+                && List.isEmpty outcome.errors
+            )
+        | _ -> None)
+
+let complete_finished_sessions () =
+    let sessions = lock recovery_gate (fun () -> recovery_sessions.ToArray())
+
+    for session in sessions do
+        if
+            not session.ownership_completed
+            && not session.completing_ownership
+            && (session.request.stopped_disposed || session.request.stopped.IsSet)
+        then
+            let outcome = stop session
+
+            for error in outcome.errors do
+                System.Diagnostics.Debug.WriteLine $"RhinosCanFly raw cleanup: {error}"
+
+let start (buttons_swapped: bool) (admit: unit -> bool) (input: InputAccumulator.State) (input_available: Action) =
     if recovery_pending () then
         let message =
             "A previous raw-input session still needs cleanup. Run RhinosCanFlyInputRecover or restart Rhino."
@@ -594,103 +668,140 @@ let start (buttons_swapped: bool) (input: InputAccumulator.State) (input_availab
         let message = "Another raw-input session is already active."
         raise (StartFailureException(message, false, InvalidOperationException message))
 
+    let mutable starting_session: Session option = None
+    let mutable committed = false
+
     try
-        starting.Trigger()
-        let worker = ensure_worker ()
-        let session_id = Interlocked.Increment(&next_session_id)
+        try
+            starting.Trigger()
+            let worker = ensure_worker ()
 
-        let result =
-            { startup_error = None
-              runtime_error = None
-              shutdown_error = None }
+            if not (admit ()) then
+                invalidOp "Mouse ownership changed during raw-input preparation."
 
-        let request =
-            { id = session_id
-              buttons_swapped = buttons_swapped
-              input = input
-              input_available = input_available
-              ready = new ManualResetEventSlim(false)
-              stopped = new ManualResetEventSlim(false)
-              result = result
-              registration = None
-              cancelled = 0
-              ready_disposed = false
-              stopped_disposed = false }
+            let session_id = Interlocked.Increment(&next_session_id)
 
-        let session =
-            { worker = worker
-              request = request
-              stop_gate = obj ()
-              stop_request_sent = false
-              stop_outcome = None }
+            let result =
+                { startup_error = None
+                  runtime_error = None
+                  shutdown_error = None }
 
-        match enqueue_command worker (StartSession request) with
-        | Error error ->
-            Interlocked.Exchange(&request.cancelled, 1) |> ignore
-            request.ready.Set()
-            request.stopped.Set()
+            let request =
+                { id = session_id
+                  buttons_swapped = buttons_swapped
+                  input = input
+                  input_available = input_available
+                  ready = new ManualResetEventSlim(false)
+                  stopped = new ManualResetEventSlim(false)
+                  result = result
+                  registration = None
+                  cancelled = 0
+                  ready_disposed = false
+                  stopped_disposed = false }
 
-            let outcome = stop session
+            let session =
+                { worker = worker
+                  request = request
+                  stop_gate = obj ()
+                  stop_request_sent = false
+                  ownership_completed = false
+                  completing_ownership = false
+                  stop_outcome = None }
 
-            let restart_required = not (stop_outcome_is_clean outcome)
+            starting_session <- Some session
 
-            raise (StartFailureException(error, restart_required, InvalidOperationException error))
-        | Ok(QueuedWithoutWake error) ->
-            Interlocked.Exchange(&request.cancelled, 1) |> ignore
-            let outcome = stop session
-            let restart_required = not (stop_outcome_is_clean outcome)
-            raise (StartFailureException(error, restart_required, InvalidOperationException error))
-        | Ok Posted -> ()
+            match enqueue_command worker (StartSession request) with
+            | Error error ->
+                Interlocked.Exchange(&request.cancelled, 1) |> ignore
+                request.ready.Set()
+                request.stopped.Set()
 
-        if not (request.ready.Wait STARTUP_TIMEOUT_MS) then
-            Interlocked.Exchange(&request.cancelled, 1) |> ignore
-            let outcome = stop session
+                let outcome = stop session
 
-            let message =
-                "The raw-input session did not become ready within 250 ms. Cleanup is continuing on the worker."
+                let restart_required = not (stop_outcome_is_clean outcome)
 
-            let restart_required = not (stop_outcome_is_clean outcome)
+                raise (StartFailureException(error, restart_required, InvalidOperationException error))
+            | Ok(QueuedWithoutWake error) ->
+                Interlocked.Exchange(&request.cancelled, 1) |> ignore
+                let outcome = stop session
+                let restart_required = not (stop_outcome_is_clean outcome)
+                raise (StartFailureException(error, restart_required, InvalidOperationException error))
+            | Ok Posted -> ()
 
-            raise (StartFailureException(message, restart_required, TimeoutException message))
+            if not (request.ready.Wait STARTUP_TIMEOUT_MS) then
+                Interlocked.Exchange(&request.cancelled, 1) |> ignore
+                let outcome = stop session
 
-        if not request.ready_disposed then
-            request.ready.Dispose()
-            request.ready_disposed <- true
+                let message =
+                    "The raw-input session did not become ready within 250 ms. Cleanup is continuing on the worker."
 
-        match startup_error result with
-        | Some error ->
-            let outcome = stop session
+                let restart_required = not (stop_outcome_is_clean outcome)
 
-            let errors =
-                exception_messages error
-                @ (shutdown_error result |> Option.map exception_messages |> Option.defaultValue [])
+                raise (StartFailureException(message, restart_required, TimeoutException message))
 
-            let restart_required = not (stop_outcome_is_clean outcome)
+            if not request.ready_disposed then
+                request.ready.Dispose()
+                request.ready_disposed <- true
 
-            raise (StartFailureException(String.concat "; " errors, restart_required, error))
-        | None ->
-            match request.registration with
+            match startup_error result with
+            | Some error ->
+                let outcome = stop session
+
+                let errors =
+                    exception_messages error
+                    @ (shutdown_error result |> Option.map exception_messages |> Option.defaultValue [])
+
+                let restart_required = not (stop_outcome_is_clean outcome)
+
+                raise (StartFailureException(String.concat "; " errors, restart_required, error))
             | None ->
+                match request.registration with
+                | None ->
+                    let outcome = stop session
+                    let message = "The raw-input session started without a mouse registration."
+
+                    let restart_required = not (stop_outcome_is_clean outcome)
+
+                    raise (StartFailureException(message, restart_required, InvalidOperationException message))
+                | Some _ when request.stopped.IsSet ->
+                    let outcome = stop session
+                    let message = "The raw-input session stopped before startup completed."
+
+                    let restart_required = not (stop_outcome_is_clean outcome)
+
+                    raise (StartFailureException(message, restart_required, InvalidOperationException message))
+                | Some _ ->
+                    Win32.drain_legacy_button_messages ()
+
+                    if Option.isSome (InputAccumulator.exit_reason input) || not (admit ()) then
+                        invalidOp "Raw-input startup was cancelled during message settlement."
+
+                    lock session_gate (fun () -> session_ownership <- SessionActive session_id)
+                    committed <- true
+                    session
+        with error ->
+            match starting_session with
+            | Some session when not committed ->
                 let outcome = stop session
-                let message = "The raw-input session started without a mouse registration."
+                let pending_cleanup = if outcome.pending_only then Some session else None
 
-                let restart_required = not (stop_outcome_is_clean outcome)
-
-                raise (StartFailureException(message, restart_required, InvalidOperationException message))
-            | Some _ when request.stopped.IsSet ->
-                let outcome = stop session
-                let message = "The raw-input session stopped before startup completed."
-
-                let restart_required = not (stop_outcome_is_clean outcome)
-
-                raise (StartFailureException(message, restart_required, InvalidOperationException message))
-            | Some _ ->
-                lock session_gate (fun () -> session_ownership <- SessionActive session_id)
-                session
+                raise (
+                    StartFailureException(
+                        error.Message,
+                        cleanup_result session <> Some true,
+                        error,
+                        ?pending_cleanup = pending_cleanup
+                    )
+                )
+            | _ -> reraise ()
     finally
         lock session_gate (fun () ->
             match session_ownership with
-            | SessionStarting -> session_ownership <- NoSession
+            | SessionStarting ->
+                session_ownership <- NoSession
+
+                if not (recovery_pending ()) then
+                    released.Trigger(RawMouseButtons.finish_handoff ())
             | NoSession
             | SessionActive _ -> ())
 

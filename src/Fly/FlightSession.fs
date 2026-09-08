@@ -37,6 +37,7 @@ type ActiveSession =
       mutable keyboard_suppressed: bool
       mutable raw_input_clean: bool
       mutable raw_input_failed: bool
+      mutable pending_raw_cleanup: PlatformRawInput.Session option
       mutable input_safe: bool
       mutable finalizing: bool
       mutable final_result: Result<unit, string> option }
@@ -46,6 +47,7 @@ type SessionState =
     | Starting of StartingSession
     | Flying of ActiveSession
     | Finishing
+    | AwaitingRawCleanup of PlatformRawInput.Session
     | RestartRequired
 
 let mutable session_state = Ready
@@ -101,11 +103,12 @@ let is_running () =
     | Flying _
     | Finishing -> true
     | Ready
+    | AwaitingRawCleanup _
     | RestartRequired -> false
 
 let recovery_completed () =
     match session_state with
-    | RestartRequired when not shutting_down -> session_state <- Ready
+    | (RestartRequired | AwaitingRawCleanup _) when not shutting_down -> session_state <- Ready
     | _ -> ()
 
 let finish_result (flight_result: Result<unit, string>) (errors: ResizeArray<string>) =
@@ -189,11 +192,14 @@ let finish_active_core (session: ActiveSession) (active_result: Result<unit, str
                     && outcome.registration_relinquished
                     && not outcome.previous_registration_lost
 
-                if not (List.isEmpty outcome.errors) then
-                    session.raw_input_failed <- true
+                if outcome.pending_only && not session.raw_input_failed then
+                    session.pending_raw_cleanup <- Some raw
+                else
+                    if not (List.isEmpty outcome.errors) then
+                        session.raw_input_failed <- true
 
-                for error in outcome.errors do
-                    cleanup_errors.Add $"raw input shutdown: {error}"
+                    for error in outcome.errors do
+                        cleanup_errors.Add $"raw input shutdown: {error}"
             with error ->
                 session.raw_input_failed <- true
                 session.raw_input_clean <- false
@@ -345,7 +351,7 @@ let finish_active_core (session: ActiveSession) (active_result: Result<unit, str
     if not override_resumed then
         session.input_safe <- false
 
-    if not session.raw_input_clean then
+    if not session.raw_input_clean && Option.isNone session.pending_raw_cleanup then
         cleanup_errors.Add "raw input did not shut down cleanly; restart Rhino before using fly mode again"
 
     if PlatformCursorClip.recovery_count () > 0 then
@@ -358,7 +364,11 @@ let finish_active_core (session: ActiveSession) (active_result: Result<unit, str
         attempt_cleanup cleanup_errors "application redraw" PlatformInput.request_application_redraw
         |> ignore
 
-    finish_result active_result cleanup_errors
+    let result = finish_result active_result cleanup_errors
+
+    match session.pending_raw_cleanup, result with
+    | Some _, Ok() -> Error "Raw input is still cleaning up. Try flying again shortly."
+    | _ -> result
 
 let finish_active (session: ActiveSession) (active_result: Result<unit, string>) =
     match session.final_result with
@@ -393,6 +403,16 @@ let finish_active (session: ActiveSession) (active_result: Result<unit, string>)
                 && session.input_safe
             then
                 Ready
+            elif
+                core_completed
+                && disposal_errors.Count = 0
+                && session.cleanup_errors.Count = 0
+                && session.input_safe
+                && not session.raw_input_failed
+            then
+                match session.pending_raw_cleanup with
+                | Some raw -> AwaitingRawCleanup raw
+                | None -> RestartRequired
             else
                 RestartRequired
 
@@ -439,17 +459,26 @@ let enter_active (starting: StartingSession) (session: ActiveSession) =
 
     let raw =
         try
-            PlatformRawInput.start starting.buttons_swapped session.raw_input session.input_available
+            PlatformRawInput.start
+                starting.buttons_swapped
+                (fun () ->
+                    FlyState.is_running state
+                    && state.camera_write_allowed ()
+                    && (starting.held_entry |> Option.forall (fun (valid: unit -> bool) -> valid ()))
+                    && (PlatformMouseActions.raw_mouse_admission starting.buttons_swapped
+                        |> ValueOption.isSome))
+                session.raw_input
+                session.input_available
         with error ->
             FlyState.request_exit (SessionFailure(error.ToString())) state
 
-            let restart_required =
-                match error with
-                | :? PlatformRawInput.StartFailureException as failure -> failure.RestartRequired
-                | _ -> false
+            match error with
+            | :? PlatformRawInput.StartFailureException as failure ->
+                session.pending_raw_cleanup <- failure.PendingCleanup
 
-            if restart_required then
-                session.raw_input_clean <- false
+                if failure.RestartRequired then
+                    session.raw_input_clean <- false
+            | _ -> ()
 
             raise error
 
@@ -561,6 +590,7 @@ let begin_active (starting: StartingSession) =
               keyboard_suppressed = true
               raw_input_clean = true
               raw_input_failed = false
+              pending_raw_cleanup = None
               input_safe = true
               finalizing = false
               final_result = None }
@@ -690,6 +720,7 @@ let process_main_loop () =
                 | Flying _ -> ()
                 | Ready
                 | Finishing
+                | AwaitingRawCleanup _
                 | RestartRequired -> ()
             with error ->
                 match session_state with
@@ -702,6 +733,7 @@ let process_main_loop () =
                     session_state <- RestartRequired
                     report $"RhinosCanFly main-loop cleanup failed: {error_message error}"
                 | Ready
+                | AwaitingRawCleanup _
                 | RestartRequired -> report $"RhinosCanFly main-loop handler failed: {error_message error}"
         finally
             processing_main_loop <- false
@@ -711,6 +743,7 @@ let process_main_loop () =
             | Ready
             | Flying _
             | Finishing
+            | AwaitingRawCleanup _
             | RestartRequired -> remove_main_loop_handler ()
 
 do main_loop_handler <- EventHandler(fun (_: obj) (_: EventArgs) -> process_main_loop ())
@@ -722,10 +755,19 @@ let ensure_main_loop_handler () =
 
 let run (view: RhinoView) (config: FlyConfig) (session_mode: FlightSessionMode) (held_entry: (unit -> bool) option) =
     match session_state with
+    | AwaitingRawCleanup raw when not shutting_down ->
+        match PlatformRawInput.cleanup_result raw with
+        | Some true -> session_state <- Ready
+        | Some false -> session_state <- RestartRequired
+        | None -> ()
+    | _ -> ()
+
+    match session_state with
     | _ when shutting_down -> Error "Rhino is shutting down."
     | Starting _
     | Flying _
     | Finishing -> Error "Fly mode is already running."
+    | AwaitingRawCleanup _ -> Error "Raw input is still cleaning up. Try flying again shortly."
     | RestartRequired -> Error "Input cleanup did not finish safely. Run RhinosCanFlyInputRecover or restart Rhino."
     | Ready ->
         try
@@ -802,6 +844,7 @@ let run (view: RhinoView) (config: FlyConfig) (session_mode: FlightSessionMode) 
             | Flying session -> finish_active session (Error(error_message error))
             | Ready
             | Finishing
+            | AwaitingRawCleanup _
             | RestartRequired -> Error(error_message error)
 
 let shutdown () =
@@ -817,6 +860,7 @@ let shutdown () =
             InputAccumulator.request_exit HostInvalid session.raw_input
         | Ready
         | Finishing
+        | AwaitingRawCleanup _
         | RestartRequired -> ()
     with error ->
         report $"RhinosCanFly flight shutdown failed: {error_message error}"

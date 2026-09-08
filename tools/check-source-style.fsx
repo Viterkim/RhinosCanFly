@@ -77,7 +77,7 @@ let checks =
       )
       "member",
       Regex(
-          @"^\s*(?:member|override)\s+[^.]+\.[A-Za-z_][\w']*\s+(?<parameters>(?:(?:\([^)]*\)|[A-Za-z_][\w']*)\s*)+)(?:\s*:\s*[^=]+)?\s*=",
+          @"^\s*(?:member|override)\s+[^.]+\.[A-Za-z_][\w']*(?:\s+|(?=\())(?!with\b)(?<parameters>(?:(?:\([^)]*\)|[A-Za-z_][\w']*)\s*)+)(?:\s*:\s*[^=]+)?\s*=",
           RegexOptions.Compiled
       )
       "constructor", Regex(@"^\s*type\s+[A-Za-z_][\w']*(?:<[^>]+>)?\s*(?<parameters>\([^)]*\))", RegexOptions.Compiled) ]
@@ -258,6 +258,12 @@ let checker_self_tests =
       "member _.Run value = value", true
       "member _.Run left right = left + right", true
       "member _.Run (left: int) (right: int) = left + right", false
+      "member _.Run(value) = value", true
+      "override _.RunCommand(document, mode) = run document mode", true
+      "override _.RunCommand(document: RhinoDoc, mode: RunMode) = run document mode", false
+      "member _.Run = value", false
+      "override _.EnglishName = value", false
+      "member _.Name with get () = value", false
       "let run =\n    fun\n        (value: int)\n        -> value", false
       "let run = fun (callback: int -> int) -> callback 1", false
       "let run = fun\n    (callback: int -> int)\n    -> callback 1", false

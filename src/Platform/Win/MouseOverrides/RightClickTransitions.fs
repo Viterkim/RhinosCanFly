@@ -229,7 +229,8 @@ let rec handle_event
         clear_action state
         false
     elif is_down && state.gesture = NativeModifiedGesture then
-        false
+        clear_action state
+        handle_event navigation state try_view command_active event
     elif is_up && owns_button state then
         state.button_ownership <- NotOwned
         state.dispatched_entry <- None

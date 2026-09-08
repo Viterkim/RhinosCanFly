@@ -114,6 +114,51 @@ let WM_XBUTTONUP = 0x020C
 let WM_XBUTTONDBLCLK = 0x020D
 
 [<Literal>]
+let WM_NCLBUTTONDOWN = 0x00A1
+
+[<Literal>]
+let WM_NCLBUTTONUP = 0x00A2
+
+[<Literal>]
+let WM_NCLBUTTONDBLCLK = 0x00A3
+
+[<Literal>]
+let WM_NCRBUTTONDOWN = 0x00A4
+
+[<Literal>]
+let WM_NCRBUTTONUP = 0x00A5
+
+[<Literal>]
+let WM_NCRBUTTONDBLCLK = 0x00A6
+
+[<Literal>]
+let WM_NCMBUTTONDOWN = 0x00A7
+
+[<Literal>]
+let WM_NCMBUTTONUP = 0x00A8
+
+[<Literal>]
+let WM_NCMBUTTONDBLCLK = 0x00A9
+
+[<Literal>]
+let WM_NCXBUTTONDOWN = 0x00AB
+
+[<Literal>]
+let WM_NCXBUTTONUP = 0x00AC
+
+[<Literal>]
+let WM_NCXBUTTONDBLCLK = 0x00AD
+
+[<Literal>]
+let PM_REMOVE = 0x0001u
+
+[<Literal>]
+let PM_MOUSEBUTTON = 0x00040000u
+
+[<Literal>]
+let WM_QUIT = 0x0012u
+
+[<Literal>]
 let XBUTTON1 = 0x0001u
 
 [<Literal>]
@@ -185,6 +230,25 @@ type NativeRect =
     val mutable top: int
     val mutable right: int
     val mutable bottom: int
+
+[<Struct; StructLayout(LayoutKind.Sequential)>]
+type NativeMessage =
+    val mutable window: nativeint
+    val mutable message: uint32
+    val mutable wparam: unativeint
+    val mutable lparam: nativeint
+    val mutable time: uint32
+    val mutable point: NativePoint
+    val mutable private_data: uint32
+
+[<DllImport("user32.dll", EntryPoint = "PeekMessageW")>]
+extern bool PeekMessage(NativeMessage& message, nativeint window, uint32 first, uint32 last, uint32 flags)
+
+[<DllImport("user32.dll", EntryPoint = "DispatchMessageW")>]
+extern nativeint DispatchMessage(NativeMessage& message)
+
+[<DllImport("user32.dll")>]
+extern void PostQuitMessage(int exit_code)
 
 [<Struct; StructLayout(LayoutKind.Sequential)>]
 type MouseHookData =

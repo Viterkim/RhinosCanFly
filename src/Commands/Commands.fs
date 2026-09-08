@@ -42,7 +42,7 @@ type RhinosCanFlyHeldCommand() =
     inherit Command()
     override _.EnglishName = "RhinosCanFlyHeld"
 
-    override _.RunCommand(document, mode) =
+    override _.RunCommand(document: RhinoDoc, mode: RunMode) =
         Commands.RhinosCanFlyHeld.run document mode
 
 [<Guid("D06ECC7F-7346-4112-9367-F1E9D7B228F7")>]
@@ -51,7 +51,7 @@ type RhinosCanFlyTempFlyHeldCommand() =
     inherit Command()
     override _.EnglishName = "RhinosCanFlyTempFlyHeld"
 
-    override _.RunCommand(document, mode) =
+    override _.RunCommand(document: RhinoDoc, mode: RunMode) =
         Commands.RhinosCanFlyTempFlyHeld.run document mode
 
 [<Guid("06912096-2514-4F29-9E35-A00D0D436334")>]

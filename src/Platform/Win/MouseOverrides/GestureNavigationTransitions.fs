@@ -86,16 +86,11 @@ let restore_original_target (host: ViewportHostIdentity) (original_target: Rhino
     | ValueNone -> Ok()
     | ValueSome target ->
         try
-            let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
-
-            if
-                not (isNull view)
-                && not (isNull view.Document)
-                && view.Document.RuntimeSerialNumber = host.document_serial_number
-                && view.ActiveViewportID = host.viewport_id
-            then
-                view.ActiveViewport.SetCameraTarget(target, false)
-                view.Redraw()
+            match PlatformInput.try_find_host_viewport host with
+            | Some viewport ->
+                viewport.SetCameraTarget(target, false)
+                RhinoView.FromRuntimeSerialNumber(host.view_serial_number).Redraw()
+            | None -> ()
 
             Ok()
         with error ->
@@ -109,9 +104,18 @@ let rollback_start (state: State) =
 
     stop state
 
-    match session with
-    | ValueSome active -> restore_original_target active.host active.original_target
-    | ValueNone -> Ok()
+    let gesture_result =
+        match session with
+        | ValueSome active -> restore_original_target active.host active.original_target
+        | ValueNone -> Ok()
+
+    let latch_result = complete_view_latch state
+
+    match gesture_result, latch_result with
+    | Ok(), Ok() -> Ok()
+    | Error error, Ok()
+    | Ok(), Error error -> Error error
+    | Error gesture_error, Error latch_error -> Error $"{gesture_error}; {latch_error}"
 
 let begin_navigation
     (state: State)
@@ -159,32 +163,38 @@ let begin_navigation
                 else
                     NavigationTargetPoint.ClientPoint(client_target_point state owner view screen_point)
 
-            match state.routing.prepare_navigation host target_point mode can_apply with
-            | _ when not (can_apply ()) -> Error "Navigation was cancelled during preparation."
+            let result =
+                try
+                    match state.routing.prepare_navigation host target_point mode can_apply with
+                    | _ when not (can_apply ()) -> Error "Navigation was cancelled during preparation."
+                    | Error error -> Error error
+                    | Ok(struct (prepared, target)) ->
+                        let prepared_view = RhinoView.FromRuntimeSerialNumber prepared.view_serial_number
+
+                        if not (PlatformInput.viewport_host_is_active prepared prepared_view) then
+                            Error "The navigation viewport disappeared during startup."
+                        else
+                            MouseOverrideState.keep_timer_running state
+
+                            state.gesture_navigation <-
+                                GestureNavigationActive
+                                    { owner = owner
+                                      host = prepared
+                                      mode = mode
+                                      lifetime = lifetime
+                                      pivot_center = target
+                                      original_target = original_target }
+
+                            Ok()
+                with error ->
+                    Error error.Message
+
+            match result with
+            | Ok() -> Ok()
             | Error error ->
                 match restore_original_target host original_target with
                 | Ok() -> Error error
                 | Error restore_error -> Error $"{error}; {restore_error}"
-            | Ok(struct (prepared, target)) ->
-                let prepared_view = RhinoView.FromRuntimeSerialNumber prepared.view_serial_number
-
-                if isNull prepared_view || isNull prepared_view.Document then
-                    match restore_original_target host original_target with
-                    | Ok() -> Error "The navigation viewport disappeared during startup."
-                    | Error restore_error ->
-                        Error $"The navigation viewport disappeared during startup; {restore_error}"
-                else
-                    state.gesture_navigation <-
-                        GestureNavigationActive
-                            { owner = owner
-                              host = prepared
-                              mode = mode
-                              lifetime = lifetime
-                              pivot_center = target
-                              original_target = original_target }
-
-                    MouseOverrideState.keep_timer_running state
-                    Ok()
 
 let retarget (apply: unit -> ApplicationOutcome) (can_apply: unit -> bool) =
     let outcome = apply ()

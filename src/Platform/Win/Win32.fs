@@ -183,6 +183,7 @@ type KeyboardHookEvent =
 [<Struct>]
 type MouseHookEvent =
     { message: int
+      nonclient: bool
       mouse_data: uint32
       hook_window: nativeint
       point_window: nativeint
@@ -261,12 +262,48 @@ let install_keyboard_hook (handle_event: KeyboardHookEvent -> bool) =
 
         Ok keyboard_hook
 
+let client_button_message (message: int) =
+    match message with
+    | Win32Native.WM_NCLBUTTONDOWN -> Win32Native.WM_LBUTTONDOWN
+    | Win32Native.WM_NCLBUTTONUP -> Win32Native.WM_LBUTTONUP
+    | Win32Native.WM_NCLBUTTONDBLCLK -> Win32Native.WM_LBUTTONDBLCLK
+    | Win32Native.WM_NCRBUTTONDOWN -> Win32Native.WM_RBUTTONDOWN
+    | Win32Native.WM_NCRBUTTONUP -> Win32Native.WM_RBUTTONUP
+    | Win32Native.WM_NCRBUTTONDBLCLK -> Win32Native.WM_RBUTTONDBLCLK
+    | Win32Native.WM_NCMBUTTONDOWN -> Win32Native.WM_MBUTTONDOWN
+    | Win32Native.WM_NCMBUTTONUP -> Win32Native.WM_MBUTTONUP
+    | Win32Native.WM_NCMBUTTONDBLCLK -> Win32Native.WM_MBUTTONDBLCLK
+    | Win32Native.WM_NCXBUTTONDOWN -> Win32Native.WM_XBUTTONDOWN
+    | Win32Native.WM_NCXBUTTONUP -> Win32Native.WM_XBUTTONUP
+    | Win32Native.WM_NCXBUTTONDBLCLK -> Win32Native.WM_XBUTTONDBLCLK
+    | _ -> message
+
+let drain_legacy_button_messages () =
+    // Let WH_MOUSE settle pre-registration pairs before legacy delivery resumes.
+    let mutable message = Unchecked.defaultof<Win32Native.NativeMessage>
+    let mutable quitting = false
+
+    // QS_MOUSEBUTTON keeps client and nonclient transitions in queue order.
+    while not quitting
+          && Win32Native.PeekMessage(
+              &message,
+              nativeint 0,
+              0u,
+              0u,
+              Win32Native.PM_REMOVE ||| Win32Native.PM_MOUSEBUTTON
+          ) do
+        if message.message = Win32Native.WM_QUIT then
+            quitting <- true
+            Win32Native.PostQuitMessage(int message.wparam)
+        else
+            Win32Native.DispatchMessage(&message) |> ignore
+
 let install_mouse_hook (handle_event: MouseHookEvent -> bool) =
     let mutable hook = nativeint 0
 
     let procedure =
         Win32Native.HookProcedure(fun (code: int) (wparam: nativeint) (lparam: nativeint) ->
-            let message = int wparam
+            let message = client_button_message (int wparam)
 
             if
                 code = Win32Native.HC_ACTION
@@ -288,6 +325,7 @@ let install_mouse_hook (handle_event: MouseHookEvent -> bool) =
 
                 let event: MouseHookEvent =
                     { message = message
+                      nonclient = message <> int wparam
                       mouse_data = data.mouse_data
                       hook_window = data.window
                       point_window = point_window

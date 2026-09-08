@@ -40,7 +40,7 @@ if ($firstDirectory -in @(".git", "bin", "dist", "obj")) {
 
 $project = $projects[0].FullName
 $content = [IO.File]::ReadAllText($project)
-$compileMatches = [regex]::Matches($content, '(?m)^(?<indent>[ \t]*)<Compile\b[^>]*\/>[ \t]*$')
+$compileMatches = [regex]::Matches($content, '(?m)^(?<indent>[ \t]*)<Compile\b[^>]*\/>[ \t]*\r?$')
 $sourceMatches = @(
     $compileMatches |
         Where-Object {

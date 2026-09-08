@@ -111,11 +111,7 @@ let apply_pan (viewport: RhinoViewport) (can_write: unit -> bool) (config: Mouse
         if translation.IsZero || not (can_write ()) then
             false
         else
-            viewport.SetCameraLocation(location + translation, false)
-
-            if can_write () then
-                viewport.SetCameraTarget(target + translation, false)
-
+            viewport.SetCameraLocations(target + translation, location + translation)
             true
     else
         false

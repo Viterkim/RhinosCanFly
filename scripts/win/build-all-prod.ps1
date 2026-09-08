@@ -1,5 +1,3 @@
-#Requires -Version 7.4
-
 $ErrorActionPreference = "Stop"
 $yakScript = Join-Path $PSScriptRoot "yak.ps1"
 $buildSetup = Join-Path $PSScriptRoot "build-setup.ps1"

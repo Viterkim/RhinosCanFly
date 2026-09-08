@@ -287,6 +287,24 @@ let handle_routed_mouse_event (event: Win32.MouseHookEvent) =
         else
             swallow
 
+let release_hook_button (key: int) =
+    match key with
+    | Win32Native.VK_RBUTTON ->
+        right_click.button_ownership <- NotOwned
+        RightClickTransitions.clear_action right_click
+    | Win32Native.VK_MBUTTON -> MouseOverrideState.set_hook_button_ownership state Middle NotOwned
+    | Win32Native.VK_XBUTTON1 -> MouseOverrideState.set_hook_button_ownership state Mouse4 NotOwned
+    | Win32Native.VK_XBUTTON2 -> MouseOverrideState.set_hook_button_ownership state Mouse5 NotOwned
+    | _ -> ()
+
+let hook_button_owned (key: int) =
+    match key with
+    | Win32Native.VK_RBUTTON -> RightClickTransitions.owns_button right_click
+    | Win32Native.VK_MBUTTON -> MouseOverrideState.hook_owns_button state Middle
+    | Win32Native.VK_XBUTTON1 -> MouseOverrideState.hook_owns_button state Mouse4
+    | Win32Native.VK_XBUTTON2 -> MouseOverrideState.hook_owns_button state Mouse5
+    | _ -> false
+
 let handle_mouse_event (event: Win32.MouseHookEvent) =
     let struct (key, released) =
         match event.message with
@@ -308,22 +326,21 @@ let handle_mouse_event (event: Win32.MouseHookEvent) =
 
             struct (key, event.message = Win32Native.WM_XBUTTONUP)
 
-    let raw_owned = key <> 0 && RawMouseButtons.update key false
+    let struct (swallow, retired) =
+        if key = 0 then
+            struct (false, false)
+        else
+            RawMouseButtons.legacy_transition key released
 
-    if raw_owned then
-        match key with
-        | Win32Native.VK_RBUTTON ->
-            right_click.button_ownership <- NotOwned
-            RightClickTransitions.clear_action right_click
-        | Win32Native.VK_MBUTTON -> MouseOverrideState.set_hook_button_ownership state Middle NotOwned
-        | Win32Native.VK_XBUTTON1 -> MouseOverrideState.set_hook_button_ownership state Mouse4 NotOwned
-        | Win32Native.VK_XBUTTON2 -> MouseOverrideState.set_hook_button_ownership state Mouse5 NotOwned
-        | _ -> ()
-
+    if retired || event.nonclient then
+        let hook_owned = hook_button_owned key
+        release_hook_button key
         signal_hook_ui_work ()
 
-    // A fresh legacy Down closes an old raw pair whose Up happened outside Rhino.
-    if raw_owned && released then
+        if event.nonclient then swallow || (released && hook_owned)
+        elif swallow then true
+        else handle_routed_mouse_event event
+    elif swallow then
         true
     else
         handle_routed_mouse_event event
@@ -372,10 +389,35 @@ let refresh_mouse_hook () =
     MouseHook.refresh mouse_hook mouse_hook_environment (mouse_hook_needed ())
 
 do
+    PlatformRawInput.finished.Publish.Add(fun () -> signal_hook_ui_work ())
+
     PlatformRawInput.starting.Publish.Add(fun () ->
+        let mutable owned = 0
+
+        for key in
+            [| Win32Native.VK_RBUTTON
+               Win32Native.VK_MBUTTON
+               Win32Native.VK_XBUTTON1
+               Win32Native.VK_XBUTTON2 |] do
+            if hook_button_owned key then
+                owned <- owned ||| (1 <<< key)
+
+        RawMouseButtons.begin_handoff owned
+
         match refresh_mouse_hook () with
         | Ok() -> MouseOverrideState.keep_watchdog_running state
         | Error error -> invalidOp $"Could not retain mouse releases during raw input: {error}")
+
+    PlatformRawInput.released.Publish.Add(fun (released: int) ->
+        for key in
+            [| Win32Native.VK_RBUTTON
+               Win32Native.VK_MBUTTON
+               Win32Native.VK_XBUTTON1
+               Win32Native.VK_XBUTTON2 |] do
+            if released &&& (1 <<< key) <> 0 then
+                release_hook_button key
+
+        signal_hook_ui_work ())
 
 let mouse_hook_needs_reconciliation () =
     MouseHook.needs_reconciliation mouse_hook mouse_hook_environment (mouse_hook_needed ())
@@ -423,6 +465,7 @@ let poll_requirement () =
          | Resuming
          | ShutDown -> false)
         || button_release_poll_required
+        || PlatformRawInput.recovery_pending ()
         || RawNavigationCoordinator.is_present raw_navigation
         || MouseHook.removal_pending mouse_hook
         || mouse_hook_needs_reconciliation ()
@@ -477,6 +520,8 @@ let maintain_navigation () =
     // A nested timer must not reconcile physical releases ahead of the active drain.
     if not raw_processing then
         try
+            PlatformRawInput.complete_finished_sessions ()
+
             let navigation_was_active =
                 MouseOverrideState.gesture_navigation_engaged state
                 || MouseOverrideState.view_latch_engaged state
@@ -694,37 +739,52 @@ let start_view_latch (view: RhinoView) (mode: ViewNavigationMode) (completion: A
         | Error error -> Error error
         | Ok() ->
             let original_target = view.ActiveViewport.CameraTarget
+            let mutable rollback_pending = true
 
-            match ViewLatchTransitions.start_or_switch state host mode completion with
-            | Error error -> Error error
-            | Ok() ->
-                let activation =
-                    match RawNavigationCoordinator.reconcile raw_navigation with
-                    | Error error -> Error error
-                    | Ok() -> refresh_mouse_hook ()
-
-                match activation with
-                | Ok() ->
-                    signal_hook_ui_work ()
+            let rollback () =
+                if rollback_pending then
+                    rollback_pending <- false
+                    GestureNavigationTransitions.restore_original_target host (ValueSome original_target)
+                else
                     Ok()
-                | Error activation_error ->
-                    let mutable error = activation_error
 
+            let activation =
+                try
+                    match ViewLatchTransitions.start_or_switch state host mode rollback completion with
+                    | Error error -> Error error
+                    | Ok() ->
+                        match RawNavigationCoordinator.reconcile raw_navigation with
+                        | Error error -> Error error
+                        | Ok() -> refresh_mouse_hook ()
+                with error ->
+                    Error error.Message
+
+            match activation with
+            | Ok() ->
+                signal_hook_ui_work ()
+                Ok()
+            | Error activation_error ->
+                let mutable error = activation_error
+
+                try
                     match ViewLatchTransitions.release state with
                     | Ok() -> ()
                     | Error cleanup_error -> error <- $"{error}; cleanup failed: {cleanup_error}"
+                with cleanup_error ->
+                    error <- $"{error}; cleanup failed: {cleanup_error.Message}"
 
+                try
                     match RawNavigationCoordinator.reconcile raw_navigation with
                     | Ok() -> ()
                     | Error cleanup_error -> error <- $"{error}; raw cleanup failed: {cleanup_error}"
+                with cleanup_error ->
+                    error <- $"{error}; raw cleanup failed: {cleanup_error.Message}"
 
-                    try
-                        if ViewportRegistry.view_matches_host host view then
-                            view.ActiveViewport.SetCameraTarget(original_target, false)
-                    with target_error ->
-                        error <- $"{error}; target rollback failed: {target_error.Message}"
+                match rollback () with
+                | Ok() -> ()
+                | Error target_error -> error <- $"{error}; {target_error}"
 
-                    Error error
+                Error error
 
 let stop_view_latch (mode: ViewNavigationMode) =
     let was_active = ViewLatchTransitions.is_mode state mode

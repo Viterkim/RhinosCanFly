@@ -1,5 +1,3 @@
-#Requires -Version 7.4
-
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $buildSetup = Join-Path $PSScriptRoot "build-setup.ps1"

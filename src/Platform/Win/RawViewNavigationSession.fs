@@ -208,7 +208,14 @@ let start (host: ViewportHostIdentity) (mode: ViewportNavigation.Operation) (adm
                         failwith "Rhino owns an unfinished mouse interaction."
 
                     let created_raw =
-                        PlatformRawInput.start (Win32.mouse_buttons_swapped ()) input input_available
+                        PlatformRawInput.start
+                            (Win32.mouse_buttons_swapped ())
+                            (fun () ->
+                                Win32Native.GetCapture() = nativeint 0
+                                && PlatformInput.viewport_host_is_foreground host view
+                                && admit ())
+                            input
+                            input_available
 
                     raw <- Some created_raw
 

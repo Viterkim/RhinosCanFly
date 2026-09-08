@@ -606,6 +606,7 @@ let start (state: State) (requested: DesiredNavigation) =
             | _ -> invalidOp "Raw navigation was cancelled during camera preparation."
 
             transport.RequestDrain()
+            MouseOverrideState.commit_view_latch state.navigation requested.host
             Ok()
         with error ->
             let owns_navigation =
@@ -673,6 +674,9 @@ let reconcile (state: State) =
                     | ValueNone -> ()
                 | PointerInputDisposition.Invalidate -> state.request_exit ()
                 | _ -> ()
+
+            if current.pointer_input_valid && current.can_write_camera () then
+                MouseOverrideState.commit_view_latch state.navigation requested.host
 
             Ok()
         | Some _ ->

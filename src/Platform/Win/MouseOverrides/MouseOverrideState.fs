@@ -207,21 +207,43 @@ let navigation_host (state: State) =
         | ViewLatchActive session -> ValueSome session.host
         | NoViewLatch -> ValueNone
 
-let view_latch_completion (latch: ViewLatch) =
-    match latch with
-    | NoViewLatch -> None
-    | WaitingForRelease session
-    | ViewLatchActive session -> session.completion
-
 let complete_view_latch (latch: ViewLatch) =
-    match view_latch_completion latch with
-    | None -> Ok()
-    | Some completion ->
-        try
-            completion.Invoke()
-            Ok()
-        with error ->
-            Error $"Could not restore the original view: {error.Message}"
+    let errors = ResizeArray<string>()
+
+    match latch with
+    | NoViewLatch -> ()
+    | WaitingForRelease session
+    | ViewLatchActive session ->
+        let rollback = session.startup_rollback
+        session.startup_rollback <- None
+
+        match rollback with
+        | Some restore ->
+            try
+                match restore () with
+                | Ok() -> ()
+                | Error error -> errors.Add error
+            with error ->
+                errors.Add error.Message
+        | None -> ()
+
+        match session.completion with
+        | Some completion ->
+            try
+                completion.Invoke()
+            with error ->
+                errors.Add $"Could not restore the original view: {error.Message}"
+        | None -> ()
+
+    if errors.Count = 0 then
+        Ok()
+    else
+        Error(String.concat "; " errors)
+
+let commit_view_latch (state: State) (host: ViewportHostIdentity) =
+    match state.view_latch with
+    | ViewLatchActive session when session.host = host -> session.startup_rollback <- None
+    | _ -> ()
 
 let clear_navigation (state: State) =
     let previous_view_latch = state.view_latch

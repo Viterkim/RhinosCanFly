@@ -54,6 +54,7 @@ type ViewLatchSession =
     { host: ViewportHostIdentity
       mode: ViewNavigationMode
       pivot_center: Rhino.Geometry.Point3d
+      mutable startup_rollback: (unit -> Result<unit, string>) option
       completion: Action option }
 
 type ViewLatch =

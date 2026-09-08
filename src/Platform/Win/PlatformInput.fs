@@ -61,10 +61,36 @@ let viewport_matches_identity (identity: ViewportHostIdentity) (view: RhinoView)
         && Win32Native.IsWindow expected_handle
         && view.Handle = expected_handle
 
+let try_find_host_viewport (identity: ViewportHostIdentity) =
+    try
+        let view = RhinoView.FromRuntimeSerialNumber identity.view_serial_number
+
+        if not (viewport_matches_identity identity view) then
+            None
+        elif view.MainViewport.Id = identity.viewport_id then
+            Some view.MainViewport
+        else
+            match view with
+            | :? RhinoPageView as page ->
+                let details = page.GetDetailViews()
+
+                if isNull details then
+                    None
+                else
+                    details
+                    |> Array.tryPick (fun (detail: Rhino.DocObjects.DetailViewObject) ->
+                        if not detail.IsDeleted && detail.Viewport.Id = identity.viewport_id then
+                            Some detail.Viewport
+                        else
+                            None)
+            | _ -> None
+    with _ ->
+        None
+
 let viewport_host_exists (identity: ViewportHostIdentity) (view: RhinoView) =
     try
         viewport_matches_identity identity view
-        && viewport_matches_identity identity (RhinoView.FromRuntimeSerialNumber identity.view_serial_number)
+        && Option.isSome (try_find_host_viewport identity)
     with _ ->
         false
 

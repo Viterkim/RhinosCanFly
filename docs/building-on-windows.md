@@ -2,8 +2,6 @@
 
 Install Rhino and the [.NET 10 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/10.0).
 
-Use PowerShell 7.4 or newer (`pwsh`) for packaging. Building and installing also work in Windows PowerShell 5.1. Rhino 8 builds require its .NET 8 runtime mode.
-
 Run (set your version)
 
 ```powershell

@@ -89,12 +89,12 @@ let apply_camera_operation
             invalidOp "Retargeting was cancelled."
 
         set_location ()
+        accepted <- ValueSome target
 
         if not (can_apply ()) then
             invalidOp "Retargeting was cancelled."
 
         set_up ()
-        accepted <- ValueSome target
 
         if can_apply () then
             redraw ()
@@ -304,11 +304,21 @@ let acquire_and_apply
     (view: RhinoView)
     (point: ViewportClientPoint)
     =
-    match ViewTarget.selected_selection_at retarget mode view view.ActiveViewport point with
-    | None ->
+    try
+        if not (can_apply ()) then
+            invalidOp "Retargeting was cancelled."
+
+        if isNull view || isNull view.Document then
+            invalidOp "The retarget viewport is unavailable."
+
+        match ViewTarget.selected_selection_at retarget mode view view.ActiveViewport point with
+        | None ->
+            { source_target = ValueNone
+              errors = [] }
+        | Some selection -> apply_selection can_apply retarget scope selection view
+    with error ->
         { source_target = ValueNone
-          errors = [] }
-    | Some selection -> apply_selection can_apply retarget scope selection view
+          errors = [ error.Message ] }
 
 let retarget
     (loaded: ConfigLoadResult)

@@ -7,21 +7,44 @@ open RhinosCanFly
 
 module RawMouseButtons =
     // These pairs survive the raw session until their actual release is consumed.
+    let gate = obj ()
     let mutable pending = 0
-
-    let update (key: int) (down: bool) =
-        let bit = 1 <<< key
-        let mutable previous = 0
-        let mutable updated = false
-
-        while not updated do
-            previous <- Volatile.Read(&pending)
-            let next = if down then previous ||| bit else previous &&& ~~~bit
-            updated <- Interlocked.CompareExchange(&pending, next, previous) = previous
-
-        previous &&& bit <> 0
+    let mutable tracked = 0
+    let mutable handoff = false
 
     let any () = Volatile.Read(&pending) <> 0
+
+    let begin_handoff (owned: int) =
+        lock gate (fun () ->
+            pending <- pending ||| owned
+            tracked <- pending
+            handoff <- true)
+
+    let finish_handoff () =
+        lock gate (fun () ->
+            handoff <- false
+            let released = tracked &&& ~~~pending
+            tracked <- 0
+            released)
+
+    let legacy_transition (key: int) (released: bool) =
+        let bit = 1 <<< key
+
+        lock gate (fun () ->
+            if handoff then
+                let owned = tracked &&& bit <> 0
+
+                if not released || owned then
+                    tracked <- tracked ||| bit
+
+                    pending <- if released then pending &&& ~~~bit else pending ||| bit
+
+                struct (not released || owned, false)
+            else
+                let owned = pending &&& bit <> 0
+                pending <- pending &&& ~~~bit
+                tracked <- tracked &&& ~~~bit
+                struct (released && owned, owned))
 
     let observe (event: RawMouseButtonEvent) =
         let struct (key, down) =
@@ -39,7 +62,10 @@ module RawMouseButtons =
             | _ -> struct (0, false)
 
         if key <> 0 then
-            update key down |> ignore
+            lock gate (fun () ->
+                let bit = 1 <<< key
+                tracked <- tracked ||| bit
+                pending <- if down then pending ||| bit else pending &&& ~~~bit)
 
 module RawInputSessionEvents =
     let add_button (event: RawMouseButtonEvent) (modifiers: MouseModifiers) (input: InputAccumulator.State) =

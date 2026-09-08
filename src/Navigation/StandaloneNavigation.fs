@@ -22,24 +22,28 @@ let restored_view_completion (loaded: ConfigLoadResult) (view: RhinoView) =
 
         try
             let host = PlatformInput.capture_viewport_host view
+            let mutable completed = false
 
             let completion =
                 Action(fun () ->
-                    try
-                        if PlatformInput.viewport_host_exists host view then
-                            CameraSnapshot.restore viewport snapshot
+                    if not completed then
+                        completed <- true
 
-                            if PlatformInput.viewport_host_is_foreground host view then
-                                view.Redraw()
-                    finally
-                        CameraSnapshot.dispose snapshot)
+                        try
+                            if PlatformInput.viewport_host_exists host view then
+                                CameraSnapshot.restore viewport snapshot
 
-            struct (Some completion, Some snapshot)
+                                if PlatformInput.viewport_host_is_foreground host view then
+                                    view.Redraw()
+                        finally
+                            CameraSnapshot.dispose snapshot)
+
+            Some completion
         with _ ->
             CameraSnapshot.dispose snapshot
             reraise ()
     else
-        struct (None, None)
+        None
 
 let start_navigation (mode: ViewNavigationMode) (loaded: ConfigLoadResult) (view: RhinoView) =
     let command_name = name mode
@@ -49,17 +53,17 @@ let start_navigation (mode: ViewNavigationMode) (loaded: ConfigLoadResult) (view
         RhinoApp.WriteLine $"{command_name} failed: {error}"
         Result.Failure
     | Ok() ->
-        let struct (completion, snapshot) = restored_view_completion loaded view
+        let completion = restored_view_completion loaded view
 
         try
             match PlatformMouseActions.start_view_latch view mode completion with
             | Ok() -> Result.Success
             | Error error ->
-                snapshot |> Option.iter CameraSnapshot.dispose
+                completion |> Option.iter (fun (complete: Action) -> complete.Invoke())
                 RhinoApp.WriteLine $"{command_name} failed: {error}"
                 Result.Failure
         with error ->
-            snapshot |> Option.iter CameraSnapshot.dispose
+            completion |> Option.iter (fun (complete: Action) -> complete.Invoke())
             RhinoApp.WriteLine $"{command_name} failed: {error.Message}"
             Result.Failure
 

@@ -1,11 +1,10 @@
-#Requires -Version 7.4
-
 param(
     [ValidateSet(0, 7, 8, 9)][int] $RhinoVersion = 0,
     [string[]] $ArchivePath
 )
 
 $ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 $repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $payload_requested_version = $RhinoVersion
 if ($ArchivePath -and $payload_requested_version -eq 0) { throw 'ArchivePath requires a specific RhinoVersion.' }
@@ -26,52 +25,17 @@ $payload_name = Get-ManifestValue ([IO.File]::ReadAllText((Join-Path $repo 'mani
 
 function Assert-PluginVersion {
     param([string] $Path, [string] $Version, [string] $Framework, [string] $RhinoPackage)
-    $stream = [IO.File]::OpenRead($Path)
-    $pe = [Reflection.PortableExecutable.PEReader]::new($stream)
-    try {
-        $reader = [Reflection.Metadata.PEReaderExtensions]::GetMetadataReader($pe)
-        $assembly = $reader.GetAssemblyDefinition()
-        if ($reader.GetString($assembly.Name) -cne 'RhinosCanFly') { throw 'The packaged assembly is not RhinosCanFly.' }
-        $versions = @{}
-        foreach ($handle in $assembly.GetCustomAttributes()) {
-            $attribute = $reader.GetCustomAttribute($handle)
-            if ($attribute.Constructor.Kind -ne 'MemberReference') { continue }
-            $member = $reader.GetMemberReference([Reflection.Metadata.MemberReferenceHandle] $attribute.Constructor)
-            if ($member.Parent.Kind -ne 'TypeReference') { continue }
-            $type = $reader.GetTypeReference([Reflection.Metadata.TypeReferenceHandle] $member.Parent)
-            $name = $reader.GetString($type.Name)
-            if ($name -notin @('AssemblyFileVersionAttribute', 'AssemblyInformationalVersionAttribute', 'TargetFrameworkAttribute', 'GuidAttribute')) { continue }
-            if ($versions.ContainsKey($name)) { throw "Duplicate plugin version attribute '$name'." }
-            $blob = $reader.GetBlobReader($attribute.Value)
-            if ($blob.ReadUInt16() -ne 1) { throw "Invalid plugin version attribute '$name'." }
-            $versions[$name] = $blob.ReadSerializedString()
-        }
-        $expectedFramework = if ($Framework -eq 'net48') { '.NETFramework,Version=v4.8' } else {
-            '.NETCoreApp,Version=v' + ([regex]::Match($Framework, '^net(\d+\.\d+)')).Groups[1].Value
-        }
-        $guidMatches = [regex]::Matches([IO.File]::ReadAllText((Join-Path $repo 'src\AssemblyInfo.fs')), 'assembly:\s*Guid\("([^"]+)"\)')
-        if ($guidMatches.Count -ne 1 -or $versions['GuidAttribute'] -ine $guidMatches[0].Groups[1].Value) {
-            throw 'Packaged plug-in GUID does not match AssemblyInfo.fs.'
-        }
-        if ($versions['TargetFrameworkAttribute'] -cne $expectedFramework) {
-            throw "Packaged plug-in targets '$($versions['TargetFrameworkAttribute'])'; expected '$expectedFramework'."
-        }
-        $rhinoReferences = @(
-            foreach ($referenceHandle in $reader.AssemblyReferences) {
-                $reference = $reader.GetAssemblyReference($referenceHandle)
-                if ($reader.GetString($reference.Name) -eq 'RhinoCommon') { $reference.Version.ToString() }
-            }
-        )
-        if ($rhinoReferences.Count -ne 1 -or $rhinoReferences[0] -ne ($RhinoPackage -split '-')[0]) {
-            throw "Packaged plug-in uses an unexpected RhinoCommon version."
-        }
-        if ($assembly.Version.ToString() -ne "$Version.0" -or
-            $versions['AssemblyFileVersionAttribute'] -cne "$Version.0" -or
-            $versions['AssemblyInformationalVersionAttribute'] -cne $Version) {
-            throw "Packaged plugin version mismatch; expected $Version ($Version.0)."
-        }
+    $expectedFramework = if ($Framework -eq 'net48') { '.NETFramework,Version=v4.8' } else {
+        '.NETCoreApp,Version=v' + ([regex]::Match($Framework, '^net(\d+\.\d+)')).Groups[1].Value
     }
-    finally { $pe.Dispose(); $stream.Dispose() }
+    $guidMatches = [regex]::Matches([IO.File]::ReadAllText((Join-Path $repo 'src\AssemblyInfo.fs')), 'assembly:\s*Guid\("([^"]+)"\)')
+    if ($guidMatches.Count -ne 1) { throw 'Expected one plug-in GUID in AssemblyInfo.fs.' }
+    Push-Location $repo
+    try {
+        & dotnet fsi (Join-Path $repo 'tools\check-plugin-metadata.fsx') -- $Path 'RhinosCanFly' $Version $expectedFramework ($RhinoPackage -split '-')[0] $guidMatches[0].Groups[1].Value
+        if ($LASTEXITCODE -ne 0) { throw "Packaged plug-in metadata check failed for '$Path'." }
+    }
+    finally { Pop-Location }
 }
 $temporary = Join-Path ([IO.Path]::GetTempPath()) ('rcf-payload-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $temporary | Out-Null

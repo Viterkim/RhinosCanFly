@@ -1,17 +1,13 @@
 # Never do this
 
-Don't cancel mouse Down/Up with `Rhino.UI.MouseCallback`. This caused white Rhino windows, frozen panels and a dead command line.
+The old right-click entry cancelled mouse Down/Up through `Rhino.UI.MouseCallback`. It could leave Rhino with white dialogs, frozen panels and a dead command line. The original fix was in 0.3.1 (`48beed3`). Don't bring that button cancellation back.
 
-`WH_MOUSE` owns every legacy pair. Raw navigation owns its raw pairs while `RIDEV_NOLEGACY` disables legacy mouse messages. Only take a legacy Down when the target window and the window under the cursor are the same viewport and `GetCapture()` is zero. Capture belonging to the expected host is still existing capture.
+Use `WH_MOUSE` for legacy button ownership. The hook records input and wakes the UI. No RhinoCommon or `RunScript` inside it.
 
-If Down is ours, Up is ours. Don't fake either half or switch owners halfway through.
+If Down is ours, Up is ours, including releases over the title bar or outside the viewport. Don't fake mouse messages or switch owners halfway through a pair. Physical-release polling must not discard an outstanding legacy Up.
 
-Track raw button pairs before queuing navigation input. Keep the legacy hook available through raw shutdown to consume releases for buttons pressed during flight, including LMB. Drain queued raw releases before retiring the transport.
+Start mouse navigation only when the hook target and cursor window resolve to the same viewport and `GetCapture()` is zero. Capture belonging to that viewport is still Rhino's existing interaction.
 
-Physical-state polling may observe a missing release. It must not revive that pair or release legacy ownership before `WH_MOUSE` consumes Up. A fresh Down can close an old pair whose Up happened outside Rhino.
+`RIDEV_NOLEGACY` suppresses legacy mouse messages. Keep button ownership intact across raw startup and shutdown. Never let Rhino receive a Down whose Up we suppress. Finish cleanup even if the worker returns late, so fresh clicks aren't swallowed forever.
 
-Normal click-to-fly waits for Up and for viewport capture to finish. Hold-to-fly is the only flight entry that starts while RMB is down.
-
-Held entry needs the hook's current pair and viewport. A held command name or physical Down alone is not ownership. `RunScript` may return before the command runs; keep permission for its matching invocation and recheck the pair before raw admission. Raw admission must also reject other buttons already held by Rhino.
-
-The hook records input and wakes the UI. No RhinoCommon or `RunScript` inside it.
+Click-to-fly waits for Up and for viewport capture to finish. Hold-to-fly is the intentional exception to waiting for Up.

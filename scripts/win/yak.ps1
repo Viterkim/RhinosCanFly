@@ -1,5 +1,3 @@
-#Requires -Version 7.4
-
 param(
     [int] $RhinoVersion = 0,
     [ValidateSet("None", "Test", "Production")]
@@ -121,7 +119,7 @@ if ($Publish -eq "Test") {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 elseif ($Publish -eq "Production") {
-    & (Join-Path $projectRoot 'tools\manual\check-runtime-payload.ps1')
+    & (Join-Path $projectRoot 'tools\manual\check-runtime-payload.ps1') -RhinoVersion $RhinoMajorVersion
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     & $YakPath push $yakPackage
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

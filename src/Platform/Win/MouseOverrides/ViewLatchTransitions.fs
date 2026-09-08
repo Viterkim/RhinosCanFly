@@ -37,6 +37,7 @@ let start
     (host: ViewportHostIdentity)
     (mode: ViewNavigationMode)
     (target: Rhino.Geometry.Point3d)
+    (rollback: unit -> Result<unit, string>)
     (completion: Action option)
     =
     let view = Rhino.Display.RhinoView.FromRuntimeSerialNumber host.view_serial_number
@@ -48,6 +49,7 @@ let start
             { host = host
               mode = mode
               pivot_center = target
+              startup_rollback = Some rollback
               completion = completion }
 
         if input_released () then
@@ -92,7 +94,13 @@ let current_mode (state: State) =
 
 let is_mode (state: State) (mode: ViewNavigationMode) = current_mode state = Some mode
 
-let start_or_switch (state: State) (host: ViewportHostIdentity) (mode: ViewNavigationMode) (completion: Action option) =
+let start_or_switch
+    (state: State)
+    (host: ViewportHostIdentity)
+    (mode: ViewNavigationMode)
+    (rollback: unit -> Result<unit, string>)
+    (completion: Action option)
+    =
     if state.lifecycle <> Available then
         Error "Mouse button overrides are unavailable."
     else
@@ -104,7 +112,7 @@ let start_or_switch (state: State) (host: ViewportHostIdentity) (mode: ViewNavig
             match state.routing.prepare_navigation host NavigationTargetPoint.ViewCenter mode can_apply with
             | _ when not (can_apply ()) -> Error "Navigation was cancelled during preparation."
             | Error error -> Error error
-            | Ok(struct (prepared, target)) -> start state prepared mode target completion
+            | Ok(struct (prepared, target)) -> start state prepared mode target rollback completion
         | Some _
         | None ->
             match MouseOverrideState.release_all state with
@@ -115,7 +123,7 @@ let start_or_switch (state: State) (host: ViewportHostIdentity) (mode: ViewNavig
                 match state.routing.prepare_navigation host NavigationTargetPoint.ViewCenter mode can_apply with
                 | _ when not (can_apply ()) -> Error "Navigation was cancelled during preparation."
                 | Error error -> Error error
-                | Ok(struct (prepared, target)) -> start state prepared mode target completion
+                | Ok(struct (prepared, target)) -> start state prepared mode target rollback completion
 
 let stop (state: State) (mode: ViewNavigationMode) =
     if state.lifecycle <> Available then

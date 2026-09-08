@@ -136,6 +136,7 @@ let apply_retarget_request (scope: RetargetScope) (mode: RetargetMode) (state: F
         if
             scope = RetargetScope.AllViews
             && (ValueOption.isSome outcome.source_target || not outcome.errors.IsEmpty)
+            && PlatformInput.viewport_host_is_active state.host_identity state.view
         then
             sync_camera_from_viewport outcome.source_target state
 

@@ -125,9 +125,13 @@ let backup_requirement (config_path: string) =
 let load_existing (config_path: string) =
     let content = File.ReadAllText config_path
 
-    match ConfigDocument.parse content with
-    | Ok json -> ConfigRepair.repair_document json
-    | Error _ -> Ok(ConfigRepair.reset_to_defaults "reset malformed settings to defaults")
+    let prepared =
+        match ConfigDocument.parse content with
+        | Ok json -> ConfigRepair.repair_document json
+        | Error _ -> Ok(ConfigRepair.reset_to_defaults "reset malformed settings to defaults")
+
+    prepared
+    |> Result.map (fun (repaired: ConfigRepair.RepairResult) -> struct (repaired, content))
 
 let mutable loaded_content: string option = None
 
@@ -136,28 +140,30 @@ let load_locked (config_path: string) =
 
     let prepared =
         if created then
-            Ok(ConfigRepair.reset_to_defaults $"created config at {config_path}")
+            Ok(struct (ConfigRepair.reset_to_defaults $"created config at {config_path}", ""))
         else
             load_existing config_path
 
     match prepared with
     | Error error -> Error error
-    | Ok repaired ->
+    | Ok struct (repaired, source_content) ->
         let messages = ResizeArray<string>(repaired.messages)
+        let mutable baseline = source_content
 
         if repaired.changed then
             if not created then
                 let backup_path = create_dated_backup config_path
                 messages.Add $"backed up previous config to {backup_path}"
 
-            write_atomic config_path (ConfigDocument.content repaired.document)
+            baseline <- ConfigDocument.content repaired.document
+            write_atomic config_path baseline
 
             try
                 prune_automatic_backups config_path
             with error ->
                 messages.Add $"could not prune old config backups: {error.Message}"
 
-        loaded_content <- Some(File.ReadAllText config_path)
+        loaded_content <- Some baseline
 
         Ok
             { config_file = repaired.config_file

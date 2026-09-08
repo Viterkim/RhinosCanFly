@@ -304,6 +304,8 @@ type RawInputReceiver(process_control: Action) as self =
 
     member _.RequestStop() = request_stop ()
 
+    member _.HasSession = Option.isSome active_session || Option.isSome session_finished
+
     member _.ReleaseSession() = release_session ()
 
     member _.ReleaseResources() = release_resources ()

@@ -172,7 +172,7 @@ let clamped_mouse_angle_deltas
     let allowed =
         if requested = 0. || radius <= limit then
             requested
-        elif abs a > limit && a * b * requested > 0. then
+        elif abs a >= limit - 1e-12 && a * b * requested > 0. then
             0.
         else
             let phase = Math.Atan2(a, b)
