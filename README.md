@@ -14,7 +14,7 @@ https://github.com/user-attachments/assets/52dc3237-e12b-4a54-8776-88f6b6475fac
 
 [McNeel / Rhino Forum Link](https://discourse.mcneel.com/t/rhinos-can-fly-wasd-game-engine-fly-camera-controls-for-rhino/220880)
 
-[Food 4 Rhino Link](https://www.food4rhino.com/en/app/rhinos-can-fly-rhinoscanfly-flying-custom-perspective-view)
+[Food 4 Rhino Link](https://www.food4rhino.com/en/app/rhinos-can-fly-wasdcustom-binds-perspectiveparallel-flying-view)
 
 [Building On Windows](./docs/building-on-windows.md)
 
