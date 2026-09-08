@@ -7,9 +7,9 @@ open RhinosCanFly.Platform.Win
 let wheel_delta = int64 Win32Native.WHEEL_DELTA
 
 let wheel_zoom_steps_per_delta =
-    let scrollLines = System.Windows.Forms.SystemInformation.MouseWheelScrollLines
-    let lineCount = if scrollLines > 0 then scrollLines else 1
-    float lineCount / float Win32Native.WHEEL_DELTA
+    let scroll_lines = System.Windows.Forms.SystemInformation.MouseWheelScrollLines
+    let line_count = if scroll_lines > 0 then scroll_lines else 1
+    float line_count / float Win32Native.WHEEL_DELTA
 
 let wheel_zoom_steps (delta: int64) =
     float delta * wheel_zoom_steps_per_delta
@@ -17,8 +17,7 @@ let wheel_zoom_steps (delta: int64) =
 let foreground_root_window () =
     RootWindow(Win32Native.GetForegroundWindow())
 
-let right_mouse_button_down () =
-    Win32Native.GetAsyncKeyState Win32Native.VK_RBUTTON < 0s
+let right_mouse_button_down () = Win32.key_down Win32Native.VK_RBUTTON
 
 let middle_mouse_button_down () =
     Win32Native.GetAsyncKeyState Win32Native.VK_MBUTTON < 0s
@@ -32,8 +31,8 @@ let mouse5_button_down () =
 let focus_view (view: RhinoView) =
     Win32Native.SetFocus view.Handle |> ignore
 
-let wait_for_input_for (timeoutMilliseconds: int) =
-    Win32.wait_for_input_for timeoutMilliseconds
+let wait_for_input_for (timeout_milliseconds: int) =
+    Win32.wait_for_input_for timeout_milliseconds
 
 let root_window (view: RhinoView) =
     let ancestor = Win32Native.GetAncestor(view.Handle, Win32Native.GA_ROOT)
@@ -48,7 +47,7 @@ let capture_viewport_host (view: RhinoView) =
       root_window = root_window view }
 
 let viewport_matches_identity (identity: ViewportHostIdentity) (view: RhinoView) =
-    let (ViewWindowHandle expectedHandle) = identity.view_window
+    let (ViewWindowHandle expected_handle) = identity.view_window
 
     if Object.ReferenceEquals(view, null) then
         false
@@ -58,44 +57,70 @@ let viewport_matches_identity (identity: ViewportHostIdentity) (view: RhinoView)
         not (Object.ReferenceEquals(document, null))
         && view.RuntimeSerialNumber = identity.view_serial_number
         && document.RuntimeSerialNumber = identity.document_serial_number
-        && expectedHandle <> nativeint 0
-        && Win32Native.IsWindow expectedHandle
-        && view.Handle = expectedHandle
+        && expected_handle <> nativeint 0
+        && Win32Native.IsWindow expected_handle
+        && view.Handle = expected_handle
+
+let try_find_host_viewport (identity: ViewportHostIdentity) =
+    try
+        let view = RhinoView.FromRuntimeSerialNumber identity.view_serial_number
+
+        if not (viewport_matches_identity identity view) then
+            None
+        elif view.MainViewport.Id = identity.viewport_id then
+            Some view.MainViewport
+        else
+            match view with
+            | :? RhinoPageView as page ->
+                let details = page.GetDetailViews()
+
+                if isNull details then
+                    None
+                else
+                    details
+                    |> Array.tryPick (fun (detail: Rhino.DocObjects.DetailViewObject) ->
+                        if not detail.IsDeleted && detail.Viewport.Id = identity.viewport_id then
+                            Some detail.Viewport
+                        else
+                            None)
+            | _ -> None
+    with _ ->
+        None
 
 let viewport_host_exists (identity: ViewportHostIdentity) (view: RhinoView) =
     try
         viewport_matches_identity identity view
-        && viewport_matches_identity identity (RhinoView.FromRuntimeSerialNumber identity.view_serial_number)
+        && Option.isSome (try_find_host_viewport identity)
     with _ ->
         false
 
 let viewport_host_is_active (identity: ViewportHostIdentity) (view: RhinoView) =
     try
-        let (ViewWindowHandle expectedHandle) = identity.view_window
+        let (ViewWindowHandle expected_handle) = identity.view_window
 
         if
             Object.ReferenceEquals(view, null)
-            || expectedHandle = nativeint 0
+            || expected_handle = nativeint 0
             || view.RuntimeSerialNumber <> identity.view_serial_number
-            || view.Handle <> expectedHandle
-            || not (Win32Native.IsWindow expectedHandle)
+            || view.Handle <> expected_handle
+            || not (Win32Native.IsWindow expected_handle)
         then
             false
         else
-            let activeDocument = Rhino.RhinoDoc.ActiveDoc
+            let active_document = Rhino.RhinoDoc.ActiveDoc
 
             if
-                Object.ReferenceEquals(activeDocument, null)
-                || activeDocument.RuntimeSerialNumber <> identity.document_serial_number
+                Object.ReferenceEquals(active_document, null)
+                || active_document.RuntimeSerialNumber <> identity.document_serial_number
             then
                 false
             else
-                let activeView = activeDocument.Views.ActiveView
+                let active_view = active_document.Views.ActiveView
 
-                not (Object.ReferenceEquals(activeView, null))
-                && activeView.RuntimeSerialNumber = identity.view_serial_number
-                && activeView.Handle = expectedHandle
-                && activeView.ActiveViewportID = identity.viewport_id
+                not (Object.ReferenceEquals(active_view, null))
+                && active_view.RuntimeSerialNumber = identity.view_serial_number
+                && active_view.Handle = expected_handle
+                && active_view.ActiveViewportID = identity.viewport_id
     with _ ->
         false
 
@@ -125,10 +150,10 @@ let restore_cursor_position_if_foreground (window: RootWindow) (position: Cursor
 let cursor_is_over_view (view: RhinoView) =
     match get_cursor_position () with
     | Ok(CursorPosition point) ->
-        let mutable nativePoint = Unchecked.defaultof<Win32Native.NativePoint>
-        nativePoint.x <- point.X
-        nativePoint.y <- point.Y
-        let window = Win32Native.WindowFromPoint nativePoint
+        let mutable native_point = Unchecked.defaultof<Win32Native.NativePoint>
+        native_point.x <- point.X
+        native_point.y <- point.Y
+        let window = Win32Native.WindowFromPoint native_point
 
         Ok(
             Win32Native.IsWindow view.Handle
@@ -139,9 +164,13 @@ let cursor_is_over_view (view: RhinoView) =
 
 let clear_mouse_hover (view: RhinoView) = Win32.clear_mouse_hover view.Handle
 
-let dismiss_native_tooltips (rootWindow: RootWindow) =
-    let (RootWindow window) = rootWindow
+let dismiss_native_tooltips (root_window: RootWindow) =
+    let (RootWindow window) = root_window
     Win32.dismiss_native_tooltips window
+
+let prepare_viewport_for_navigation (view: RhinoView) (root_window: RootWindow) =
+    clear_mouse_hover view
+    dismiss_native_tooltips root_window
 
 let update_window (view: RhinoView) = Win32.update_window view.Handle
 
@@ -152,13 +181,13 @@ let request_application_redraw () =
         ()
 
 let viewport_host_windows_exist (identity: ViewportHostIdentity) =
-    let (RootWindow rootWindow) = identity.root_window
-    let (ViewWindowHandle viewWindow) = identity.view_window
+    let (RootWindow root_window) = identity.root_window
+    let (ViewWindowHandle view_window) = identity.view_window
 
-    rootWindow <> nativeint 0
-    && viewWindow <> nativeint 0
-    && Win32Native.IsWindow rootWindow
-    && Win32Native.IsWindow viewWindow
+    root_window <> nativeint 0
+    && view_window <> nativeint 0
+    && Win32Native.IsWindow root_window
+    && Win32Native.IsWindow view_window
 
 let hide_cursor () = Win32Native.ShowCursor false |> ignore
 

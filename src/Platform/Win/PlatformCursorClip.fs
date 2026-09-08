@@ -43,14 +43,14 @@ let rec acquire (view: RhinoView) =
             match verification with
             | Ok current when current = rectangle -> Ok lease
             | _ ->
-                let verificationError =
+                let verification_error =
                     match verification with
                     | Ok _ -> "The cursor clip changed before it could be verified."
                     | Error error -> $"The cursor clip could not be verified: {error}"
 
                 match release lease with
-                | Ok() -> Error verificationError
-                | Error releaseError -> Error $"{verificationError}; cleanup failed: {releaseError}"
+                | Ok() -> Error verification_error
+                | Error release_error -> Error $"{verification_error}; cleanup failed: {release_error}"
 
 and release (lease: CursorClipLease) =
     if lease.relinquished then

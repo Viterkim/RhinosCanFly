@@ -31,9 +31,46 @@ let content (json: JsonObject) =
 
 let parse (source: string) =
     try
-        match JsonNode.Parse(source, Nullable<JsonNodeOptions>(), document_options) with
-        | :? JsonObject as json -> Ok json
-        | _ -> Error "the config root is not an object"
+        use document = JsonDocument.Parse(source, document_options)
+        let root = document.RootElement
+
+        if root.ValueKind <> JsonValueKind.Object then
+            Error "the config root is not an object"
+        else
+            let mutable future_version = 0
+
+            for property in root.EnumerateObject() do
+                if String.Equals(property.Name, "config_version", StringComparison.OrdinalIgnoreCase) then
+                    let mutable version = 0
+
+                    if
+                        property.Value.ValueKind = JsonValueKind.Number
+                        && property.Value.TryGetInt32(&version)
+                    then
+                        future_version <- max future_version version
+
+            if future_version > ConfigSchema.CURRENT_VERSION then
+                let protected_document = JsonObject()
+                protected_document["config_version"] <- JsonValue.Create future_version
+                Ok protected_document
+            else
+                let rec check_properties (element: JsonElement) =
+                    match element.ValueKind with
+                    | JsonValueKind.Object ->
+                        let names = Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+
+                        for property in element.EnumerateObject() do
+                            if not (names.Add property.Name) then
+                                raise (JsonException $"Duplicate config property: {property.Name}")
+
+                            check_properties property.Value
+                    | JsonValueKind.Array ->
+                        for item in element.EnumerateArray() do
+                            check_properties item
+                    | _ -> ()
+
+                check_properties root
+                Ok(JsonNode.Parse(source, Nullable<JsonNodeOptions>(), document_options).AsObject())
     with error ->
         Error error.Message
 

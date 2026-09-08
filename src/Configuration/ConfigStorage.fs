@@ -11,7 +11,7 @@ let AUTOMATIC_BACKUP_LIMIT = 2
 [<Literal>]
 let BACKUP_TIMESTAMP_FORMAT = "yyyyMMdd-HHmmss-fff"
 
-let mutable settingsRoot: string option = None
+let mutable settings_root: string option = None
 
 [<RequireQualifiedAccess>]
 type BackupRequirement =
@@ -20,92 +20,94 @@ type BackupRequirement =
 
 let initialize (directory: string) =
     Directory.CreateDirectory directory |> ignore
-    settingsRoot <- Some directory
+    settings_root <- Some directory
 
 let settings_directory () =
-    match settingsRoot with
+    match settings_root with
     | Some directory -> directory
     | None -> failwith "The RhinosCanFly settings directory has not been initialized."
 
 let path () =
     Path.Combine(settings_directory (), "rhinos-can-fly-config.json")
 
-let with_lock (configPath: string) (action: unit -> 'Value) =
-    let lockPath = configPath + ".lock"
+let with_lock (config_path: string) (action: unit -> 'Value) =
+    let lock_path = config_path + ".lock"
 
-    use _saveLock =
-        new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)
+    use _save_lock =
+        new FileStream(lock_path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)
 
     action ()
 
-let write_atomic (configPath: string) (content: string) =
-    let directory = Path.GetDirectoryName configPath
+let write_atomic (config_path: string) (content: string) =
+    let directory = Path.GetDirectoryName config_path
 
-    let temporaryPath =
-        Path.Combine(directory, $".{Path.GetFileName configPath}.{Guid.NewGuid():N}.tmp")
+    let temporary_path =
+        Path.Combine(directory, $".{Path.GetFileName config_path}.{Guid.NewGuid():N}.tmp")
 
     try
         let bytes = UTF8Encoding(false).GetBytes content
 
         do
             use stream =
-                new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None)
+                new FileStream(temporary_path, FileMode.CreateNew, FileAccess.Write, FileShare.None)
 
             stream.Write(bytes, 0, bytes.Length)
             stream.Flush true
 
-        if File.Exists configPath then
-            File.Replace(temporaryPath, configPath, null, true)
+        if File.Exists config_path then
+            File.Replace(temporary_path, config_path, null, true)
         else
-            File.Move(temporaryPath, configPath)
+            File.Move(temporary_path, config_path)
     finally
-        if File.Exists temporaryPath then
-            File.Delete temporaryPath
+        if File.Exists temporary_path then
+            File.Delete temporary_path
 
-let backup_pattern (configPath: string) =
-    $"{Path.GetFileNameWithoutExtension configPath}.backup-*.json"
+let backup_pattern (config_path: string) =
+    $"{Path.GetFileNameWithoutExtension config_path}.backup-*.json"
 
-let rec available_backup_path (directory: string) (baseName: string) (attempt: int) =
+let rec available_backup_path (directory: string) (base_name: string) (attempt: int) =
     let suffix = if attempt = 0 then "" else $"-{attempt}"
-    let candidate = Path.Combine(directory, $"{baseName}{suffix}.json")
+    let candidate = Path.Combine(directory, $"{base_name}{suffix}.json")
 
     if File.Exists candidate then
-        available_backup_path directory baseName (attempt + 1)
+        available_backup_path directory base_name (attempt + 1)
     else
         candidate
 
-let create_dated_backup (configPath: string) =
-    let directory = Path.GetDirectoryName configPath
+let create_dated_backup (config_path: string) =
+    let directory = Path.GetDirectoryName config_path
 
     let timestamp =
         DateTimeOffset.Now.ToString(BACKUP_TIMESTAMP_FORMAT, CultureInfo.InvariantCulture)
 
-    let baseName = $"{Path.GetFileNameWithoutExtension configPath}.backup-{timestamp}"
+    let base_name = $"{Path.GetFileNameWithoutExtension config_path}.backup-{timestamp}"
 
-    let backupPath = available_backup_path directory baseName 0
-    File.Copy(configPath, backupPath, false)
-    backupPath
+    let backup_path = available_backup_path directory base_name 0
+    File.Copy(config_path, backup_path, false)
+    backup_path
 
-let prune_automatic_backups (configPath: string) =
-    let directory = Path.GetDirectoryName configPath
+let prune_automatic_backups (config_path: string) =
+    let directory = Path.GetDirectoryName config_path
 
-    Directory.EnumerateFiles(directory, backup_pattern configPath)
+    Directory.EnumerateFiles(directory, backup_pattern config_path)
     |> Seq.sortWith (fun (left: string) (right: string) ->
-        let byCreation =
+        let by_creation =
             compare (File.GetCreationTimeUtc right) (File.GetCreationTimeUtc left)
 
-        if byCreation <> 0 then
-            byCreation
+        if by_creation <> 0 then
+            by_creation
         else
             StringComparer.Ordinal.Compare(right, left))
-    |> Seq.skip AUTOMATIC_BACKUP_LIMIT
-    |> Seq.iter File.Delete
+    |> Seq.indexed
+    |> Seq.iter (fun (index: int, path: string) ->
+        if index >= AUTOMATIC_BACKUP_LIMIT then
+            File.Delete path)
 
-let backup_requirement (configPath: string) =
-    if not (File.Exists configPath) then
+let backup_requirement (config_path: string) =
+    if not (File.Exists config_path) then
         Ok BackupRequirement.NotRequired
     else
-        let content = File.ReadAllText configPath
+        let content = File.ReadAllText config_path
 
         match ConfigDocument.parse content with
         | Error _ -> Ok BackupRequirement.Required
@@ -120,110 +122,141 @@ let backup_requirement (configPath: string) =
                         BackupRequirement.NotRequired
                 )
 
-let load_existing (configPath: string) =
-    let content = File.ReadAllText configPath
+let load_existing (config_path: string) =
+    let content = File.ReadAllText config_path
 
-    match ConfigDocument.parse content with
-    | Ok json -> ConfigRepair.repair_document json
-    | Error _ -> Ok(ConfigRepair.reset_to_defaults "reset malformed settings to defaults")
+    let prepared =
+        match ConfigDocument.parse content with
+        | Ok json -> ConfigRepair.repair_document json
+        | Error _ -> Ok(ConfigRepair.reset_to_defaults "reset malformed settings to defaults")
 
-let load_locked (configPath: string) =
-    let created = not (File.Exists configPath)
+    prepared
+    |> Result.map (fun (repaired: ConfigRepair.RepairResult) -> struct (repaired, content))
+
+let mutable loaded_content: string option = None
+
+let load_locked (config_path: string) =
+    let created = not (File.Exists config_path)
 
     let prepared =
         if created then
-            Ok(ConfigRepair.reset_to_defaults $"created config at {configPath}")
+            Ok(struct (ConfigRepair.reset_to_defaults $"created config at {config_path}", ""))
         else
-            load_existing configPath
+            load_existing config_path
 
     match prepared with
     | Error error -> Error error
-    | Ok repaired ->
+    | Ok struct (repaired, source_content) ->
         let messages = ResizeArray<string>(repaired.messages)
+        let mutable baseline = source_content
 
         if repaired.changed then
             if not created then
-                let backupPath = create_dated_backup configPath
-                messages.Add $"backed up previous config to {backupPath}"
+                let backup_path = create_dated_backup config_path
+                messages.Add $"backed up previous config to {backup_path}"
 
-            write_atomic configPath (ConfigDocument.content repaired.document)
+            baseline <- ConfigDocument.content repaired.document
+            write_atomic config_path baseline
 
             try
-                prune_automatic_backups configPath
+                prune_automatic_backups config_path
             with error ->
                 messages.Add $"could not prune old config backups: {error.Message}"
+
+        loaded_content <- Some baseline
 
         Ok
             { config_file = repaired.config_file
               config = repaired.config
               messages = List.ofSeq messages }
 
-let load () =
+// A competing Rhino may hold the sidecar briefly during startup or an atomic save.
+// Keep contention distinct from invalid data; callers decide when to retry.
+let try_load () =
     try
-        let configPath = path ()
-        with_lock configPath (fun () -> load_locked configPath)
-    with error ->
-        Error error.Message
+        let config_path = path ()
+        ValueSome(with_lock config_path (fun () -> load_locked config_path))
+    with
+    | :? IOException as error when error.HResult &&& 0xFFFF = 32 || error.HResult &&& 0xFFFF = 33 -> ValueNone
+    | error -> ValueSome(Error error.Message)
 
-let save_locked (configPath: string) (source: FlyConfigFile) (config: FlyConfig) =
-    match backup_requirement configPath with
+let load () =
+    match try_load () with
+    | ValueSome result -> result
+    | ValueNone -> Error "Settings are being written by another process. Try again shortly."
+
+let save_locked (config_path: string) (source: FlyConfigFile) (config: FlyConfig) =
+    match backup_requirement config_path with
     | Error error -> Error error
-    | Ok backupRequirement ->
-        let configFile =
+    | Ok backup_requirement ->
+        let config_file =
             { source with
                 config_version = ConfigSchema.CURRENT_VERSION }
 
-        let content = configFile |> ConfigDocument.to_object |> ConfigDocument.content
+        let content = config_file |> ConfigDocument.to_object |> ConfigDocument.content
 
         let existing =
-            if File.Exists configPath then
-                File.ReadAllText configPath
+            if File.Exists config_path then
+                File.ReadAllText config_path
             else
                 ""
 
         let messages = ResizeArray<string>()
 
-        if backupRequirement = BackupRequirement.Required then
-            let backupPath = create_dated_backup configPath
-            messages.Add $"backed up previous config to {backupPath}"
+        if backup_requirement = BackupRequirement.Required then
+            let backup_path = create_dated_backup config_path
+            messages.Add $"backed up previous config to {backup_path}"
 
         if existing <> content then
-            write_atomic configPath content
+            write_atomic config_path content
 
-        if backupRequirement = BackupRequirement.Required then
+        loaded_content <- Some content
+
+        if backup_requirement = BackupRequirement.Required then
             try
-                prune_automatic_backups configPath
+                prune_automatic_backups config_path
             with error ->
                 messages.Add $"could not prune old config backups: {error.Message}"
 
         Ok
-            { config_file = configFile
+            { config_file = config_file
               config = config
               messages = List.ofSeq messages }
 
 let save (source: FlyConfigFile) =
-    let normalizedSource = ConfigSchema.normalize source
+    let normalized_source = ConfigSchema.normalize source
 
-    match ConfigCompiler.compile normalizedSource with
+    match ConfigCompiler.compile normalized_source with
     | Error error -> Error error
     | Ok config ->
         try
-            let configPath = path ()
-            with_lock configPath (fun () -> save_locked configPath normalizedSource config)
+            let config_path = path ()
+
+            with_lock config_path (fun () ->
+                let current =
+                    if File.Exists config_path then
+                        File.ReadAllText config_path
+                    else
+                        ""
+
+                match loaded_content with
+                | Some previous when previous <> current ->
+                    Error "Settings changed on disk since they were loaded. Reopen Options to load them before saving."
+                | _ -> save_locked config_path normalized_source config)
         with error ->
             Error error.Message
 
 let read_raw () =
     try
-        let configPath = path ()
+        let config_path = path ()
 
-        with_lock configPath (fun () ->
+        with_lock config_path (fun () ->
             let content =
-                if File.Exists configPath then
-                    File.ReadAllText configPath
+                if File.Exists config_path then
+                    File.ReadAllText config_path
                 else
                     ""
 
-            Ok(configPath, content))
+            Ok(config_path, content))
     with error ->
         Error error.Message

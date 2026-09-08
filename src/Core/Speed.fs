@@ -11,16 +11,16 @@ module Speed =
     open System
     open System.Globalization
 
-    let allowed (range: SpeedRange) (requestedSpeed: float) =
-        let finiteSpeed =
-            if Double.IsNaN requestedSpeed || Double.IsNegativeInfinity requestedSpeed then
+    let allowed (range: SpeedRange) (requested_speed: float) =
+        let finite_speed =
+            if Double.IsNaN requested_speed || Double.IsNegativeInfinity requested_speed then
                 range.minimum
-            elif Double.IsPositiveInfinity requestedSpeed then
+            elif Double.IsPositiveInfinity requested_speed then
                 range.maximum
             else
-                requestedSpeed
+                requested_speed
 
-        finiteSpeed |> max range.minimum |> min range.maximum
+        finite_speed |> max range.minimum |> min range.maximum
 
     let try_parse (text: string) =
         if String.IsNullOrWhiteSpace text then

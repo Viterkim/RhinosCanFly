@@ -10,8 +10,38 @@ open System.Text
 open Microsoft.FSharp.NativeInterop
 open RhinosCanFly
 
-let win32_error (operation: string) (errorCode: int) =
-    Win32Exception(errorCode)
+let physical_mouse_key (swapped: bool) (virtual_key: int) =
+    if swapped then
+        match virtual_key with
+        | Win32Native.VK_LBUTTON -> Win32Native.VK_RBUTTON
+        | Win32Native.VK_RBUTTON -> Win32Native.VK_LBUTTON
+        | _ -> virtual_key
+    else
+        virtual_key
+
+let mouse_buttons_swapped () =
+    Win32Native.GetSystemMetrics Win32Native.SM_SWAPBUTTON <> 0
+
+let capture_mouse_buttons (swapped: bool) (is_down: int -> bool) =
+    let mutable buttons = 0
+
+    for key in Win32Native.VK_LBUTTON .. Win32Native.VK_XBUTTON2 do
+        if key <> Win32Native.VK_CANCEL && is_down (physical_mouse_key swapped key) then
+            buttons <- buttons ||| (1 <<< key)
+
+    buttons
+
+let key_down (virtual_key: int) =
+    let physical_key =
+        if virtual_key = Win32Native.VK_LBUTTON || virtual_key = Win32Native.VK_RBUTTON then
+            physical_mouse_key (mouse_buttons_swapped ()) virtual_key
+        else
+            virtual_key
+
+    Win32Native.GetAsyncKeyState physical_key < 0s
+
+let win32_error (operation: string) (error_code: int) =
+    Win32Exception(error_code)
     |> fun (error: Win32Exception) -> $"{operation} failed: {error.Message}"
 
 let last_error (operation: string) =
@@ -59,23 +89,33 @@ let clip_cursor (rectangle: Rectangle) =
         Error(last_error "ClipCursor")
 
 let clear_mouse_hover (window: nativeint) =
-    Win32Native.PostMessage(window, Win32Native.WM_MOUSELEAVE, nativeint 0, nativeint 0)
-    |> ignore
+    if window <> nativeint 0 then
+        let mutable track = Win32Native.TrackMouseEventData()
+        track.size <- uint32 (Marshal.SizeOf<Win32Native.TrackMouseEventData>())
+
+        track.flags <- Win32Native.TME_CANCEL ||| Win32Native.TME_HOVER ||| Win32Native.TME_LEAVE
+
+        track.track_window <- window
+        track.hover_time <- 0u
+        Win32Native.TrackMouseEventNative &track |> ignore
+
+        Win32Native.PostMessage(window, Win32Native.WM_MOUSELEAVE, nativeint 0, nativeint 0)
+        |> ignore
 
 let dismiss_native_tooltips (window: nativeint) =
-    let mutable processId = 0u
-    let threadId = Win32Native.GetWindowThreadProcessId(window, &processId)
+    let mutable process_id = 0u
+    let thread_id = Win32Native.GetWindowThreadProcessId(window, &process_id)
 
-    if threadId <> 0u then
+    if thread_id <> 0u then
         let callback =
             Win32Native.EnumThreadWindowCallback(fun (candidate: nativeint) (_state: nativeint) ->
                 if Win32Native.IsWindowVisible candidate then
-                    let className = StringBuilder(64)
+                    let class_name = StringBuilder(64)
 
                     if
-                        Win32Native.GetClassName(candidate, className, className.Capacity) > 0
+                        Win32Native.GetClassName(candidate, class_name, class_name.Capacity) > 0
                         && String.Equals(
-                            className.ToString(),
+                            class_name.ToString(),
                             Win32Native.TOOLTIP_WINDOW_CLASS,
                             StringComparison.OrdinalIgnoreCase
                         )
@@ -85,7 +125,7 @@ let dismiss_native_tooltips (window: nativeint) =
 
                 true)
 
-        Win32Native.EnumThreadWindows(threadId, callback, nativeint 0) |> ignore
+        Win32Native.EnumThreadWindows(thread_id, callback, nativeint 0) |> ignore
 
 let update_window (window: nativeint) =
     if not (Win32Native.UpdateWindow window) then
@@ -103,30 +143,30 @@ let request_window_tree_redraw (window: nativeint) =
         )
         |> ignore
 
-let request_application_redraw (mainWindow: nativeint) =
+let request_application_redraw (main_window: nativeint) =
     try
-        let foregroundWindow = Win32Native.GetForegroundWindow()
-        request_window_tree_redraw mainWindow
+        let foreground_window = Win32Native.GetForegroundWindow()
+        request_window_tree_redraw main_window
 
-        if foregroundWindow <> nativeint 0 && foregroundWindow <> mainWindow then
-            let mutable mainProcess = 0u
-            let mutable foregroundProcess = 0u
-            Win32Native.GetWindowThreadProcessId(mainWindow, &mainProcess) |> ignore
+        if foreground_window <> nativeint 0 && foreground_window <> main_window then
+            let mutable main_process = 0u
+            let mutable foreground_process = 0u
+            Win32Native.GetWindowThreadProcessId(main_window, &main_process) |> ignore
 
-            Win32Native.GetWindowThreadProcessId(foregroundWindow, &foregroundProcess)
+            Win32Native.GetWindowThreadProcessId(foreground_window, &foreground_process)
             |> ignore
 
-            if mainProcess <> 0u && foregroundProcess = mainProcess then
-                request_window_tree_redraw foregroundWindow
+            if main_process <> 0u && foreground_process = main_process then
+                request_window_tree_redraw foreground_window
     with _ ->
         ()
 
-let wait_for_input_for (timeoutMilliseconds: int) =
+let wait_for_input_for (timeout_milliseconds: int) =
     let result =
         Win32Native.MsgWaitForMultipleObjectsEx(
             0u,
             nativeint 0,
-            uint32 (max 0 timeoutMilliseconds),
+            uint32 (max 0 timeout_milliseconds),
             Win32Native.QS_ALLINPUT,
             Win32Native.MWMO_INPUTAVAILABLE
         )
@@ -143,36 +183,37 @@ type KeyboardHookEvent =
 [<Struct>]
 type MouseHookEvent =
     { message: int
+      nonclient: bool
       mouse_data: uint32
       hook_window: nativeint
       point_window: nativeint
       screen_point: System.Drawing.Point
       modifiers: MouseModifiers }
 
-let modifier_down (generalKey: int) (leftKey: int) (rightKey: int) =
-    Win32Native.GetAsyncKeyState generalKey < 0s
-    || Win32Native.GetAsyncKeyState leftKey < 0s
-    || Win32Native.GetAsyncKeyState rightKey < 0s
+let modifier_down (general_key: int) (left_key: int) (right_key: int) =
+    Win32Native.GetAsyncKeyState general_key < 0s
+    || Win32Native.GetAsyncKeyState left_key < 0s
+    || Win32Native.GetAsyncKeyState right_key < 0s
 
 let mouse_modifiers () =
     { shift = modifier_down Win32Native.VK_SHIFT Win32Native.VK_LSHIFT Win32Native.VK_RSHIFT
       alt = modifier_down Win32Native.VK_MENU Win32Native.VK_LMENU Win32Native.VK_RMENU
       control = modifier_down Win32Native.VK_CONTROL Win32Native.VK_LCONTROL Win32Native.VK_RCONTROL }
 
-let keyboard_physical_key (virtualKey: int) (eventData: int64) =
-    let extended = eventData &&& Win32Native.KEYBOARD_EXTENDED_KEY <> 0L
+let keyboard_physical_key (virtual_key: int) (event_data: int64) =
+    let extended = event_data &&& Win32Native.KEYBOARD_EXTENDED_KEY <> 0L
 
-    let scanCode =
+    let scan_code =
         int (
-            (eventData &&& Win32Native.KEYBOARD_SCAN_CODE_MASK)
+            (event_data &&& Win32Native.KEYBOARD_SCAN_CODE_MASK)
             >>> Win32Native.KEYBOARD_SCAN_CODE_SHIFT
         )
 
-    match virtualKey with
+    match virtual_key with
     | Win32Native.VK_LSHIFT -> Win32Native.VK_LSHIFT
     | Win32Native.VK_RSHIFT -> Win32Native.VK_RSHIFT
     | Win32Native.VK_SHIFT ->
-        if scanCode = Win32Native.RIGHT_SHIFT_SCAN_CODE then
+        if scan_code = Win32Native.RIGHT_SHIFT_SCAN_CODE then
             Win32Native.VK_RSHIFT
         else
             Win32Native.VK_LSHIFT
@@ -190,22 +231,22 @@ let keyboard_physical_key (virtualKey: int) (eventData: int64) =
             Win32Native.VK_RMENU
         else
             Win32Native.VK_LMENU
-    | _ -> virtualKey
+    | _ -> virtual_key
 
-let install_keyboard_hook (handleEvent: KeyboardHookEvent -> bool) =
+let install_keyboard_hook (handle_event: KeyboardHookEvent -> bool) =
     let mutable hook = nativeint 0
 
     let procedure =
         Win32Native.HookProcedure(fun (code: int) (wparam: nativeint) (lparam: nativeint) ->
-            let eventData = int64 lparam
-            let virtualKey = int wparam
+            let event_data = int64 lparam
+            let virtual_key = int wparam
 
             let event: KeyboardHookEvent =
-                { physical_key = keyboard_physical_key virtualKey eventData
-                  released = eventData &&& Win32Native.KEYBOARD_KEY_RELEASED <> 0L
-                  was_down = eventData &&& Win32Native.KEYBOARD_PREVIOUSLY_DOWN <> 0L }
+                { physical_key = keyboard_physical_key virtual_key event_data
+                  released = event_data &&& Win32Native.KEYBOARD_KEY_RELEASED <> 0L
+                  was_down = event_data &&& Win32Native.KEYBOARD_PREVIOUSLY_DOWN <> 0L }
 
-            if code = Win32Native.HC_ACTION && handleEvent event then
+            if code = Win32Native.HC_ACTION && handle_event event then
                 nativeint 1
             else
                 Win32Native.CallNextHookEx(hook, code, wparam, lparam))
@@ -216,20 +257,60 @@ let install_keyboard_hook (handleEvent: KeyboardHookEvent -> bool) =
     if hook = nativeint 0 then
         Error(last_error "SetWindowsHookEx(WH_KEYBOARD)")
     else
-        let keyboardHook: Win32Native.WindowsHook = { handle = hook; procedure = procedure }
+        let keyboard_hook: Win32Native.WindowsHook =
+            { handle = hook; procedure = procedure }
 
-        Ok keyboardHook
+        Ok keyboard_hook
 
-let install_mouse_hook (handleEvent: MouseHookEvent -> bool) =
+let client_button_message (message: int) =
+    match message with
+    | Win32Native.WM_NCLBUTTONDOWN -> Win32Native.WM_LBUTTONDOWN
+    | Win32Native.WM_NCLBUTTONUP -> Win32Native.WM_LBUTTONUP
+    | Win32Native.WM_NCLBUTTONDBLCLK -> Win32Native.WM_LBUTTONDBLCLK
+    | Win32Native.WM_NCRBUTTONDOWN -> Win32Native.WM_RBUTTONDOWN
+    | Win32Native.WM_NCRBUTTONUP -> Win32Native.WM_RBUTTONUP
+    | Win32Native.WM_NCRBUTTONDBLCLK -> Win32Native.WM_RBUTTONDBLCLK
+    | Win32Native.WM_NCMBUTTONDOWN -> Win32Native.WM_MBUTTONDOWN
+    | Win32Native.WM_NCMBUTTONUP -> Win32Native.WM_MBUTTONUP
+    | Win32Native.WM_NCMBUTTONDBLCLK -> Win32Native.WM_MBUTTONDBLCLK
+    | Win32Native.WM_NCXBUTTONDOWN -> Win32Native.WM_XBUTTONDOWN
+    | Win32Native.WM_NCXBUTTONUP -> Win32Native.WM_XBUTTONUP
+    | Win32Native.WM_NCXBUTTONDBLCLK -> Win32Native.WM_XBUTTONDBLCLK
+    | _ -> message
+
+let drain_legacy_button_messages () =
+    // Let WH_MOUSE settle pre-registration pairs before legacy delivery resumes.
+    let mutable message = Unchecked.defaultof<Win32Native.NativeMessage>
+    let mutable quitting = false
+
+    // QS_MOUSEBUTTON keeps client and nonclient transitions in queue order.
+    while not quitting
+          && Win32Native.PeekMessage(
+              &message,
+              nativeint 0,
+              0u,
+              0u,
+              Win32Native.PM_REMOVE ||| Win32Native.PM_MOUSEBUTTON
+          ) do
+        if message.message = Win32Native.WM_QUIT then
+            quitting <- true
+            Win32Native.PostQuitMessage(int message.wparam)
+        else
+            Win32Native.DispatchMessage(&message) |> ignore
+
+let install_mouse_hook (handle_event: MouseHookEvent -> bool) =
     let mutable hook = nativeint 0
 
     let procedure =
         Win32Native.HookProcedure(fun (code: int) (wparam: nativeint) (lparam: nativeint) ->
-            let message = int wparam
+            let message = client_button_message (int wparam)
 
             if
                 code = Win32Native.HC_ACTION
-                && (message = Win32Native.WM_RBUTTONDOWN
+                && (message = Win32Native.WM_LBUTTONDOWN
+                    || message = Win32Native.WM_LBUTTONUP
+                    || message = Win32Native.WM_LBUTTONDBLCLK
+                    || message = Win32Native.WM_RBUTTONDOWN
                     || message = Win32Native.WM_RBUTTONUP
                     || message = Win32Native.WM_RBUTTONDBLCLK
                     || message = Win32Native.WM_MBUTTONDOWN
@@ -240,17 +321,20 @@ let install_mouse_hook (handleEvent: MouseHookEvent -> bool) =
                     || message = Win32Native.WM_XBUTTONDBLCLK)
             then
                 let data = NativePtr.read (NativePtr.ofNativeInt<Win32Native.MouseHookData> lparam)
-                let pointWindow = Win32Native.WindowFromPoint data.point
+                let point_window = Win32Native.WindowFromPoint data.point
 
                 let event: MouseHookEvent =
                     { message = message
+                      nonclient = message <> int wparam
                       mouse_data = data.mouse_data
                       hook_window = data.window
-                      point_window = pointWindow
+                      point_window = point_window
                       screen_point = System.Drawing.Point(data.point.x, data.point.y)
                       modifiers = mouse_modifiers () }
 
-                if handleEvent event then
+                let swallowed = handle_event event
+
+                if swallowed then
                     nativeint 1
                 else
                     Win32Native.CallNextHookEx(hook, code, wparam, lparam)
@@ -262,9 +346,9 @@ let install_mouse_hook (handleEvent: MouseHookEvent -> bool) =
     if hook = nativeint 0 then
         Error(last_error "SetWindowsHookEx(WH_MOUSE)")
     else
-        let mouseHook: Win32Native.WindowsHook = { handle = hook; procedure = procedure }
+        let mouse_hook: Win32Native.WindowsHook = { handle = hook; procedure = procedure }
 
-        Ok mouseHook
+        Ok mouse_hook
 
 let remove_hook (hook: Win32Native.WindowsHook) =
     let removed = Win32Native.UnhookWindowsHookEx hook.handle

@@ -1,9 +1,12 @@
+#load "source-lexer.fsx"
+
 open System
 open System.IO
 open System.Text.RegularExpressions
+open SourceLexer
 
-let sourceRoot = fsi.CommandLineArgs |> Array.last |> Path.GetFullPath
-let platformRoot = Path.Combine(sourceRoot, "Platform") |> Path.GetFullPath
+let source_root = fsi.CommandLineArgs |> Array.last |> Path.GetFullPath
+let platform_root = Path.Combine(source_root, "Platform") |> Path.GetFullPath
 
 type Rule = { name: string; pattern: Regex }
 
@@ -22,7 +25,7 @@ let forbidden =
       rule "window handle" @"\.Handle\b"
       rule "screen rectangle" @"\.ScreenRectangle\b" ]
 
-let isInside (directory: string) (path: string) =
+let is_inside (directory: string) (path: string) =
     let prefix =
         directory.TrimEnd(Path.DirectorySeparatorChar)
         + string Path.DirectorySeparatorChar
@@ -30,16 +33,17 @@ let isInside (directory: string) (path: string) =
     path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
 
 let violations =
-    Directory.EnumerateFiles(sourceRoot, "*.fs", SearchOption.AllDirectories)
-    |> Seq.filter (isInside platformRoot >> not)
+    Directory.EnumerateFiles(source_root, "*.fs", SearchOption.AllDirectories)
+    |> Seq.filter (is_inside platform_root >> not)
     |> Seq.collect (fun (path: string) ->
-        File.ReadLines path
+        code_only (File.ReadAllText path)
+        |> fun (code: string) -> code.Replace("\r\n", "\n").Split '\n'
         |> Seq.mapi (fun (index: int) (line: string) -> index + 1, line)
-        |> Seq.collect (fun (lineNumber: int, line: string) ->
+        |> Seq.collect (fun (line_number: int, line: string) ->
             forbidden
             |> Seq.choose (fun (rule: Rule) ->
                 if rule.pattern.IsMatch line then
-                    Some $"{path}({lineNumber}): platform implementation detail '{rule.name}' escaped src/Platform"
+                    Some $"{path}({line_number}): platform implementation detail '{rule.name}' escaped src/Platform"
                 else
                     None)))
     |> Seq.toList

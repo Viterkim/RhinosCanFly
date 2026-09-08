@@ -18,32 +18,51 @@ let owner (button: SideButton) =
     | Mouse4 -> GestureOwner.Mouse4
     | Mouse5 -> GestureOwner.Mouse5
 
-let process_hook_events (state: State) =
-    let mutable processing = true
+let process_hook_events_with (handle: SideButtonHookEvent -> GestureNavigationTransitions.PressResult) (state: State) =
+    if not state.processing_side_buttons then
+        state.processing_side_buttons <- true
 
-    while processing
-          && state.lifecycle = Available
-          && state.pending_side_button_events.Count > 0 do
-        match state.pending_side_button_events.Peek() with
-        | ButtonDown(button, host, point) ->
-            match
-                GestureNavigationTransitions.press
-                    state
-                    (owner button)
-                    (MouseOverrideState.action_for state button)
-                    host
-                    point
-            with
-            | GestureNavigationTransitions.Applied _ -> state.pending_side_button_events.Dequeue() |> ignore
-            | GestureNavigationTransitions.Deferred -> processing <- false
-            | GestureNavigationTransitions.Failed error ->
-                Debug.WriteLine $"RhinosCanFly mouse action: {error}"
-                state.pending_side_button_events.Dequeue() |> ignore
-        | ButtonUp button ->
-            state.pending_side_button_events.Dequeue() |> ignore
-            GestureNavigationTransitions.release state (owner button)
+        try
+            let mutable processing = true
+
+            while processing
+                  && state.lifecycle = Available
+                  && state.pending_side_button_events.Count > 0 do
+                let node = state.pending_side_button_events.First
+                let result = handle node.Value
+
+                match result with
+                | GestureNavigationTransitions.Deferred -> processing <- false
+                | _ ->
+                    if not (isNull node.List) then
+                        state.pending_side_button_events.Remove node
+
+                    match result with
+                    | GestureNavigationTransitions.Failed error -> Debug.WriteLine $"RhinosCanFly mouse action: {error}"
+                    | _ -> ()
+        finally
+            state.processing_side_buttons <- false
 
     if state.pending_side_button_events.Count > 0 then
         MouseOverrideState.keep_timer_running state
     else
         MouseOverrideState.stop_timer_if_idle state
+
+let process_hook_events (state: State) =
+    if state.pending_side_button_events.Count = 0 then
+        MouseOverrideState.stop_timer_if_idle state
+    else
+        process_hook_events_with
+            (fun (event: SideButtonHookEvent) ->
+                match event with
+                | ButtonDown(button, host, point) ->
+                    GestureNavigationTransitions.press
+                        state
+                        (owner button)
+                        (MouseOverrideState.action_for state button)
+                        host
+                        point
+                | ButtonUp button ->
+                    GestureNavigationTransitions.release state (owner button)
+                    GestureNavigationTransitions.Applied)
+            state

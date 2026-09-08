@@ -3,6 +3,15 @@ module RhinosCanFly.Platform.Win.MouseOverrideState
 open RhinosCanFly
 open RhinosCanFly.Platform.Win.MouseOverrideTypes
 
+let apply_suspended_routing (state: State) (config: MouseOverrideConfig) =
+    match state.suspension_cleanup_error with
+    | Some error -> Error error
+    | None when state.suspension_ids.Count = 0 -> Error "Input is not suspended."
+    | None ->
+        state.routing <- config
+        state.lifecycle <- Suspended
+        Ok()
+
 let hook_button_ownership (state: State) (button: SideButton) =
     match button with
     | Middle -> state.side_button_hook_capture.middle
@@ -32,14 +41,24 @@ let hook_owns_any_button (state: State) =
     || hook_owns_button state Mouse4
     || hook_owns_button state Mouse5
 
+let raw_mouse_buttons_owned (state: State) (right_owned: bool) (is_down: int -> bool) =
+    not (is_down Win32Native.VK_LBUTTON)
+    && (not (is_down Win32Native.VK_RBUTTON) || right_owned)
+    && (not (is_down Win32Native.VK_MBUTTON)
+        || hook_button_ownership state Middle = Owned)
+    && (not (is_down Win32Native.VK_XBUTTON1)
+        || hook_button_ownership state Mouse4 = Owned)
+    && (not (is_down Win32Native.VK_XBUTTON2)
+        || hook_button_ownership state Mouse5 = Owned)
+
 let action_for (state: State) (button: SideButton) =
     match button with
     | Middle -> state.routing.actions.middle
     | Mouse4 -> state.routing.actions.mouse4
     | Mouse5 -> state.routing.actions.mouse5
 
-let capabilities_allowed (state: State) (viewportName: string) =
-    ViewportNameList.allows viewportName state.routing.actions.viewport_capabilities
+let capabilities_allowed (state: State) (viewport_name: string) =
+    ViewportNameList.allows viewport_name state.routing.actions.viewport_capabilities
 
 let side_button_routing_enabled (state: State) =
     ViewportNameList.has_allowed_viewports state.routing.actions.viewport_capabilities
@@ -58,14 +77,14 @@ let view_latch_engaged (state: State) =
     | WaitingForRelease _
     | ViewLatchActive _ -> true
 
-let exit_key_is_down (state: State) (virtualKey: int) =
-    if virtualKey = Win32Native.VK_RBUTTON then
+let exit_key_is_down (state: State) (virtual_key: int) =
+    if virtual_key = Win32Native.VK_RBUTTON then
         match state.view_latch with
         | WaitingForRelease _ -> false
         | NoViewLatch
-        | ViewLatchActive _ -> Win32Native.GetAsyncKeyState virtualKey < 0s
+        | ViewLatchActive _ -> Win32.key_down virtual_key
     else
-        Win32Native.GetAsyncKeyState virtualKey < 0s
+        Win32.key_down virtual_key
 
 let exit_keys_down (state: State) (keys: VirtualKey array) =
     let mutable index = 0
@@ -83,20 +102,20 @@ let exit_key_down (state: State) =
     | Some binding -> exit_keys_down state binding.virtual_keys
     | None -> false
 
-let binding_contains_key (virtualKey: int) (keys: VirtualKey array) =
+let binding_contains_key (virtual_key: int) (keys: VirtualKey array) =
     let mutable index = 0
     let mutable found = false
 
     while not found && index < keys.Length do
         let (VirtualKey key) = keys[index]
-        found <- key = virtualKey
+        found <- key = virtual_key
         index <- index + 1
 
     found
 
-let exit_binding_contains (state: State) (virtualKey: int) =
+let exit_binding_contains (state: State) (virtual_key: int) =
     match state.routing.exit_binding with
-    | Some binding -> binding_contains_key virtualKey binding.virtual_keys
+    | Some binding -> binding_contains_key virtual_key binding.virtual_keys
     | None -> false
 
 let right_mouse_exit_capture_needed (state: State) =
@@ -127,6 +146,15 @@ let same_host (left: ViewportHostIdentity) (right: ViewportHostIdentity) =
     && left.viewport_id = right.viewport_id
     && left.view_window = right.view_window
     && left.root_window = right.root_window
+
+let begin_action (state: State) =
+    state.navigation_revision <- state.navigation_revision + 1L
+    let revision = state.navigation_revision
+
+    fun () ->
+        state.lifecycle = Available
+        && not state.navigation_exit_requested
+        && state.navigation_revision = revision
 
 let keep_timer_running (state: State) =
     state.poll_timer.Interval <- POLL_TIMER_INTERVAL_MILLISECONDS
@@ -171,7 +199,6 @@ let try_bring_root_window_to_foreground (window: RootWindow) =
         && foreground_root_window () = window
 
 let navigation_host (state: State) =
-    // Keep these matches nested because reference tuples allocate.
     match state.gesture_navigation with
     | GestureNavigationActive session -> ValueSome session.host
     | NoGestureNavigation ->
@@ -180,32 +207,55 @@ let navigation_host (state: State) =
         | ViewLatchActive session -> ValueSome session.host
         | NoViewLatch -> ValueNone
 
-let view_latch_completion (latch: ViewLatch) =
-    match latch with
-    | NoViewLatch -> None
-    | WaitingForRelease session
-    | ViewLatchActive session -> session.completion
-
 let complete_view_latch (latch: ViewLatch) =
-    match view_latch_completion latch with
-    | None -> Ok()
-    | Some completion ->
-        try
-            completion.Invoke()
-            Ok()
-        with error ->
-            Error $"Could not restore the original view: {error.Message}"
+    let errors = ResizeArray<string>()
+
+    match latch with
+    | NoViewLatch -> ()
+    | WaitingForRelease session
+    | ViewLatchActive session ->
+        let rollback = session.startup_rollback
+        session.startup_rollback <- None
+
+        match rollback with
+        | Some restore ->
+            try
+                match restore () with
+                | Ok() -> ()
+                | Error error -> errors.Add error
+            with error ->
+                errors.Add error.Message
+        | None -> ()
+
+        match session.completion with
+        | Some completion ->
+            try
+                completion.Invoke()
+            with error ->
+                errors.Add $"Could not restore the original view: {error.Message}"
+        | None -> ()
+
+    if errors.Count = 0 then
+        Ok()
+    else
+        Error(String.concat "; " errors)
+
+let commit_view_latch (state: State) (host: ViewportHostIdentity) =
+    match state.view_latch with
+    | ViewLatchActive session when session.host = host -> session.startup_rollback <- None
+    | _ -> ()
 
 let clear_navigation (state: State) =
-    let previousViewLatch = state.view_latch
+    let previous_view_latch = state.view_latch
 
     state.gesture_navigation <- NoGestureNavigation
     state.view_latch <- NoViewLatch
     state.navigation_exit_requested <- false
     state.pending_side_button_events.Clear()
-    previousViewLatch
+    previous_view_latch
 
 let release_all (state: State) =
-    let previousViewLatch = clear_navigation state
+    state.navigation_revision <- state.navigation_revision + 1L
+    let previous_view_latch = clear_navigation state
     state.poll_timer.Stop()
-    complete_view_latch previousViewLatch
+    complete_view_latch previous_view_latch

@@ -23,9 +23,7 @@ type RhinosCanFlyPlugin() as self =
             | Ok() -> ()
             | Error error -> report $"RhinosCanFly raw-input worker unavailable: {error}"
 
-            match RuntimeSettings.load_and_apply () with
-            | Ok() -> ()
-            | Error error -> report $"RhinosCanFly settings unavailable: {error}"
+            RuntimeSettings.initialize ()
         with error ->
             report $"RhinosCanFly initialization failed: {error.Message}"
 

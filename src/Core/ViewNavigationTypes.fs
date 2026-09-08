@@ -7,6 +7,10 @@ type RetargetScope =
     | AllViews = 0
     | OtherViews = 1
 
+type ApplicationOutcome =
+    { source_target: Rhino.Geometry.Point3d voption
+      errors: string list }
+
 type ViewNavigationMode =
     | Pivot
     | Pan

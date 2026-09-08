@@ -48,13 +48,13 @@ module CameraState =
         && abs (Vector3d.Multiply(direction, up)) < 0.00000001
 
     let valid (camera: CameraState) =
-        let mutable targetDirection = camera.target - camera.position
+        let mutable target_direction = camera.target - camera.position
 
         camera.position.IsValid
         && camera.target.IsValid
         && valid_basis camera.direction camera.up
-        && targetDirection.Unitize()
-        && Vector3d.Multiply(targetDirection, camera.direction) > 0.999999
+        && target_direction.Unitize()
+        && Vector3d.Multiply(target_direction, camera.direction) > 0.999999
 
 [<RequireQualifiedAccess>]
 type ViewProjectionKind =
@@ -74,40 +74,40 @@ module ViewProjectionKind =
 type CameraSnapshot
     internal
     (
-        viewProjection: ViewportInfo,
+        view_projection: ViewportInfo,
         target: Point3d,
-        projectionKind: ViewProjectionKind,
-        perspectiveLensLength: PerspectiveLensLengthMm voption
+        projection_kind: ViewProjectionKind,
+        perspective_lens_length: PerspectiveLensLengthMm voption
     ) =
     let mutable disposed = false
 
-    member internal _.view_projection = viewProjection
+    member internal _.view_projection = view_projection
     member _.target = target
-    member _.projection = projectionKind
-    member _.perspective_lens_length = perspectiveLensLength
+    member _.projection = projection_kind
+    member _.perspective_lens_length = perspective_lens_length
     member _.is_disposed = disposed
 
     member _.dispose() =
         if not disposed then
             disposed <- true
-            viewProjection.Dispose()
+            view_projection.Dispose()
 
 module CameraSnapshot =
     let capture (viewport: Rhino.Display.RhinoViewport) =
         let projection = ViewProjectionKind.capture viewport
-        let viewProjection = new ViewportInfo(viewport)
+        let view_projection = new ViewportInfo(viewport)
 
         try
-            let perspectiveLensLength =
+            let perspective_lens_length =
                 match projection with
                 | ViewProjectionKind.Parallel -> ValueNone
                 | ViewProjectionKind.Perspective
                 | ViewProjectionKind.TwoPointPerspective ->
-                    ValueSome(PerspectiveLensLengthMm viewProjection.Camera35mmLensLength)
+                    ValueSome(PerspectiveLensLengthMm view_projection.Camera35mmLensLength)
 
-            CameraSnapshot(viewProjection, viewport.CameraTarget, projection, perspectiveLensLength)
+            CameraSnapshot(view_projection, viewport.CameraTarget, projection, perspective_lens_length)
         with _ ->
-            viewProjection.Dispose()
+            view_projection.Dispose()
             reraise ()
 
     let restore (viewport: Rhino.Display.RhinoViewport) (snapshot: CameraSnapshot) =

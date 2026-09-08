@@ -1,10 +1,6 @@
 # Building on Windows
 
-Install Rhino.
-
-Get the newest .NET SDK.
-
-[.NET SDK 10](https://dotnet.microsoft.com/en-us/download/dotnet/10.0)
+Install Rhino and the [.NET 10 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/10.0).
 
 Run (set your version)
 
@@ -15,15 +11,15 @@ Run (set your version)
 .\scripts\win\build-all.ps1
 ```
 
-Or for debugging / installing the build locally. `build-and-install.ps1` builds and registers a copy in `bin\RhinosCanFlyDev` as the current Windows user. Close Rhino, then the script builds, installs the addon and runs Rhino.
+For a local build, close Rhino and run:
 
 ```powershell
 .\build-and-install.ps1
 ```
 
-`build-and-install.ps1` defaults to Rhino 9 and skips formatting and source checks for a quicker edit/install loop. Pass `-RhinoVersion 7` or `-RhinoVersion 8` when needed. You can also set `$env:RCF_RHINO_VERSION = "8"` etc.
+It skips the checks, installs to `bin\RhinosCanFlyDev`, then starts Rhino. Add `-RhinoVersion 8` to choose a version.
 
-Uninstall the Package Manager version before using a dev registration. The dev installer overwrites Rhino's registration for the same plugin GUID, but a later Package Manager update or uninstall could replace or remove that registration.
+Uninstall the Package Manager version before using a dev build.
 
 ## Adding a command
 
@@ -31,19 +27,21 @@ Uninstall the Package Manager version before using a dev registration. The dev i
 .\scripts\win\add-command.ps1 -Name MyNewCommand
 ```
 
-Edit `src\Commands\MyNewCommand.fs`. The helper has already created the Rhino wrapper, GUID, and project entry.
+Then edit `src\Commands\MyNewCommand.fs`.
 
-## Yak package building and publishing (the built in package manager in rhino)
+## Yak packages
 
-First login
+Login:
 
 ```powershell
 $yak = "C:\Program Files\Rhino 8\System\yak.exe"
 & $yak login --source https://test.yak.rhino3d.com
 ```
 
-Then to build, this makes `dist`, if you add `-Publish Test` you push to the Yak test/staging servers, and `-Publish Production` pushes to the real production servers.
+Build a package in `dist`:
 
 ```powershell
 .\scripts\win\yak.ps1 -RhinoVersion 8
 ```
+
+Add `-Publish Test` for the test server or `-Publish Production` for the real one.

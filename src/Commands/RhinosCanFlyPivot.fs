@@ -5,4 +5,4 @@ open Rhino
 open Rhino.Commands
 
 let run (document: RhinoDoc) =
-    StandaloneNavigation.run StandaloneNavigation.Mode.Pivot document
+    StandaloneNavigation.run ViewNavigationMode.Pivot document

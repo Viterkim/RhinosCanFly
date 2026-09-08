@@ -22,17 +22,19 @@ type State =
       mutable create_subscribed: bool
       mutable destroy_subscribed: bool
       mutable application_initialized: EventHandler option
+      mutable viewport_changed: EventHandler<ViewEventArgs> option
+      mutable page_space_changed: EventHandler<PageViewSpaceChangeEventArgs> option
       mutable view_created: EventHandler<ViewEventArgs> option
       mutable view_destroyed: EventHandler<ViewEventArgs> option }
 
 let view_matches_host (host: ViewportHostIdentity) (view: RhinoView) =
-    let (ViewWindowHandle expectedWindow) = host.view_window
+    let (ViewWindowHandle expected_window) = host.view_window
     let document = view.Document
 
     not (Object.ReferenceEquals(document, null))
     && view.RuntimeSerialNumber = host.view_serial_number
     && document.RuntimeSerialNumber = host.document_serial_number
-    && view.Handle = expectedWindow
+    && view.Handle = expected_window
     && view.ActiveViewportID = host.viewport_id
     && MouseOverrideState.root_window view.Handle = host.root_window
 
@@ -100,10 +102,12 @@ let create (callbacks: Callbacks) =
           create_subscribed = false
           destroy_subscribed = false
           application_initialized = None
+          viewport_changed = None
+          page_space_changed = None
           view_created = None
           view_destroyed = None }
 
-    let applicationInitialized =
+    let application_initialized =
         EventHandler(fun (_: obj) (_: EventArgs) ->
             if callbacks.hook_installed () then
                 callbacks.ensure_ui_wake ()
@@ -112,7 +116,7 @@ let create (callbacks: Callbacks) =
                 | Ok() -> ()
                 | Error error -> Debug.WriteLine $"RhinosCanFly initialized viewport refresh: {error}")
 
-    let viewCreated =
+    let view_created =
         EventHandler<ViewEventArgs>(fun (_: obj) (event: ViewEventArgs) ->
             try
                 let view = event.View
@@ -122,16 +126,16 @@ let create (callbacks: Callbacks) =
             with error ->
                 callbacks.log_exception "viewport window created" error)
 
-    let viewDestroyed =
+    let view_destroyed =
         EventHandler<ViewEventArgs>(fun (_: obj) (event: ViewEventArgs) ->
             try
                 let view = event.View
 
                 if not (isNull view) then
-                    let serialNumber = view.RuntimeSerialNumber
+                    let serial_number = view.RuntimeSerialNumber
 
                     match callbacks.active_navigation_host () with
-                    | ValueSome host when host.view_serial_number = serialNumber ->
+                    | ValueSome host when host.view_serial_number = serial_number ->
                         callbacks.request_navigation_exit ()
                     | ValueSome _
                     | ValueNone -> ()
@@ -139,14 +143,35 @@ let create (callbacks: Callbacks) =
                     state.viewports <-
                         state.viewports
                         |> Array.filter (fun (candidate: RightClickTransitions.RightClickViewport) ->
-                            candidate.host.view_serial_number <> serialNumber)
+                            candidate.host.view_serial_number <> serial_number)
             with error ->
                 callbacks.log_exception "viewport window destroyed" error)
 
-    state.application_initialized <- Some applicationInitialized
-    state.view_created <- Some viewCreated
-    state.view_destroyed <- Some viewDestroyed
-    RhinoApp.Initialized.AddHandler applicationInitialized
+    let viewport_changed =
+        EventHandler<ViewEventArgs>(fun (_: obj) (event: ViewEventArgs) ->
+            if callbacks.hook_installed () then
+                view_created.Invoke(null, event))
+
+    let page_space_changed =
+        EventHandler<PageViewSpaceChangeEventArgs>(fun (_: obj) (event: PageViewSpaceChangeEventArgs) ->
+            if callbacks.hook_installed () then
+                try
+                    let view = event.PageView
+
+                    if not (isNull view) && not (isNull view.Document) && view.Handle <> nativeint 0 then
+                        update state view
+                with error ->
+                    callbacks.log_exception "layout detail refresh" error)
+
+    state.application_initialized <- Some application_initialized
+    state.viewport_changed <- Some viewport_changed
+    state.page_space_changed <- Some page_space_changed
+    state.view_created <- Some view_created
+    state.view_destroyed <- Some view_destroyed
+    RhinoApp.Initialized.AddHandler application_initialized
+    RhinoView.SetActive.AddHandler viewport_changed
+    RhinoView.Rename.AddHandler viewport_changed
+    RhinoPageView.PageViewSpaceChange.AddHandler page_space_changed
     state
 
 let subscribe (state: State) =
@@ -176,8 +201,8 @@ let subscribe (state: State) =
                 | None -> ()
 
                 state.create_subscribed <- false
-            with cleanupError ->
-                Debug.WriteLine $"RhinosCanFly Create subscription rollback: {cleanupError}"
+            with cleanup_error ->
+                Debug.WriteLine $"RhinosCanFly Create subscription rollback: {cleanup_error}"
 
         if state.destroy_subscribed then
             try
@@ -186,8 +211,8 @@ let subscribe (state: State) =
                 | None -> ()
 
                 state.destroy_subscribed <- false
-            with cleanupError ->
-                Debug.WriteLine $"RhinosCanFly Destroy subscription rollback: {cleanupError}"
+            with cleanup_error ->
+                Debug.WriteLine $"RhinosCanFly Destroy subscription rollback: {cleanup_error}"
 
         state.viewports <- Array.empty
         raise error
@@ -230,12 +255,12 @@ let try_viewport (state: State) (window: nativeint) =
 
     while index < state.viewports.Length && ValueOption.isNone result do
         let candidate = state.viewports[index]
-        let (ViewWindowHandle candidateWindow) = candidate.host.view_window
+        let (ViewWindowHandle candidate_window) = candidate.host.view_window
 
         if
-            Win32Native.IsWindow candidateWindow
-            && Win32Native.IsWindowEnabled candidateWindow
-            && (candidateWindow = window || Win32Native.IsChild(candidateWindow, window))
+            Win32Native.IsWindow candidate_window
+            && Win32Native.IsWindowEnabled candidate_window
+            && (candidate_window = window || Win32Native.IsChild(candidate_window, window))
         then
             result <- ValueSome candidate
 
@@ -243,9 +268,22 @@ let try_viewport (state: State) (window: nativeint) =
 
     result
 
-let remove_application_handler (state: State) =
+let remove_persistent_handlers (state: State) =
     match state.application_initialized with
     | Some handler ->
         RhinoApp.Initialized.RemoveHandler handler
         state.application_initialized <- None
+    | None -> ()
+
+    match state.viewport_changed with
+    | Some handler ->
+        RhinoView.SetActive.RemoveHandler handler
+        RhinoView.Rename.RemoveHandler handler
+        state.viewport_changed <- None
+    | None -> ()
+
+    match state.page_space_changed with
+    | Some handler ->
+        RhinoPageView.PageViewSpaceChange.RemoveHandler handler
+        state.page_space_changed <- None
     | None -> ()

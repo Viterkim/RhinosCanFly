@@ -40,13 +40,13 @@ type RoutedMouseAction =
     | Retarget of RetargetMode
 
 module RoutedMouseAction =
-    let create (action: MouseGestureAction) (retargetMode: RetargetMode) =
+    let create (action: MouseGestureAction) (retarget_mode: RetargetMode) =
         match action with
         | MouseGestureAction.TogglePivot -> RoutedMouseAction.TogglePivot
         | MouseGestureAction.HoldPivot -> RoutedMouseAction.HoldPivot
         | MouseGestureAction.TogglePan -> RoutedMouseAction.TogglePan
         | MouseGestureAction.HoldPan -> RoutedMouseAction.HoldPan
-        | MouseGestureAction.Retarget when retargetMode <> RetargetMode.Off -> RoutedMouseAction.Retarget retargetMode
+        | MouseGestureAction.Retarget when retarget_mode <> RetargetMode.Off -> RoutedMouseAction.Retarget retarget_mode
         | MouseGestureAction.Retarget
         | MouseGestureAction.Off
         | _ -> RoutedMouseAction.Off

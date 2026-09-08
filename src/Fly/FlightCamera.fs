@@ -6,49 +6,17 @@ open Rhino.ApplicationSettings
 open Rhino.Display
 open Rhino.Geometry
 
-let fallback_navigation_target (state: FlyState) =
-    let viewport = state.viewport
-    let cameraLocation = viewport.CameraLocation
-    let cameraTarget = viewport.CameraTarget
-    let mutable cameraDirection = viewport.CameraDirection
-
-    if ViewTarget.target_is_in_front viewport cameraTarget then
-        cameraTarget
-    else
-        if not (cameraDirection.Unitize()) then
-            cameraDirection <- state.camera.direction
-
-        let distance =
-            if RhinoMath.IsValidDouble state.speed && state.speed > RhinoMath.ZeroTolerance then
-                state.speed
-            else
-                1.
-
-        cameraLocation + cameraDirection * distance
-
 let navigation_target (state: FlyState) (mode: ViewNavigationMode) =
-    let viewport = state.viewport
+    let selection =
+        ViewTarget.resolve_navigation_target
+            state.config.behavior
+            state.hidden_gumball_plane
+            mode
+            state.view
+            state.viewport
+            (ViewTarget.viewport_center state.viewport)
 
-    let retargetMode =
-        match mode with
-        | ViewNavigationMode.Pivot -> state.config.behavior.retarget.on_pivot
-        | ViewNavigationMode.Pan -> state.config.behavior.retarget.on_pan
-
-    let prioritizedTarget =
-        match mode with
-        | ViewNavigationMode.Pivot -> state.prioritized_target
-        | ViewNavigationMode.Pan -> None
-
-    match prioritizedTarget with
-    | Some target when ViewTarget.target_is_in_front viewport target -> target
-    | Some _
-    | None ->
-        match
-            ViewTarget.selected_target state.config.behavior.retarget retargetMode state.speed state.view viewport
-        with
-        | Some target when ViewTarget.target_is_in_front viewport target -> target
-        | Some _
-        | None -> fallback_navigation_target state
+    selection.target
 
 let pan_units_per_radian (target: Point3d) (camera: CameraState) =
     let depth = Movement.target_depth target camera
@@ -59,25 +27,25 @@ let pan_units_per_radian (target: Point3d) (camera: CameraState) =
         MousePanUnitsPerRadian 1.
 
 let pivot_angle_scales (state: FlyState) =
-    let parallelProjection = state.config.movement.parallel_projection
+    let parallel_projection = state.config.movement.parallel_projection
 
-    let struct (sensitivity, pivotMultiplier) =
+    let struct (sensitivity, pivot_multiplier) =
         if state.projection = ViewProjectionKind.Parallel then
-            struct (parallelProjection.mouse_sensitivity, parallelProjection.mouse_pivot_multiplier)
+            struct (parallel_projection.mouse_sensitivity, parallel_projection.mouse_pivot_multiplier)
         else
             struct (state.config.mouse.sensitivity, state.config.mouse.pivot_multiplier)
 
-    let (MousePivotMultiplier multiplier) = pivotMultiplier
+    let (MousePivotMultiplier multiplier) = pivot_multiplier
 
     Movement.mouse_angle_scales state.config.mouse.x_mode state.config.mouse.y_mode sensitivity multiplier
 
 let create_pivot_drag (center: Point3d) (state: FlyState) =
-    let struct (horizontalScale, verticalScale) = pivot_angle_scales state
-    PivotOrbit.create center state.camera horizontalScale verticalScale
+    let struct (horizontal_scale, vertical_scale) = pivot_angle_scales state
+    PivotOrbit.create center state.camera horizontal_scale vertical_scale
 
 let reset_pivot_drag (center: Point3d) (drag: PivotDragState) (state: FlyState) =
-    let struct (horizontalScale, verticalScale) = pivot_angle_scales state
-    PivotOrbit.reset center state.camera horizontalScale verticalScale drag
+    let struct (horizontal_scale, vertical_scale) = pivot_angle_scales state
+    PivotOrbit.reset center state.camera horizontal_scale vertical_scale drag
 
 let rebase_active_pivot (state: FlyState) =
     match state.active_mouse_navigation with
@@ -92,101 +60,94 @@ let untilt (state: FlyState) =
     state.camera <- { previous with up = up }
     ViewChange.camera previous state.camera
 
-let sync_camera_from_viewport (state: FlyState) =
-    let viewport = state.viewport
-    let position = viewport.CameraLocation
+let sync_camera_from_viewport (accepted_target: Point3d voption) (state: FlyState) =
+    if FlyState.can_write_camera state then
+        try
+            let camera = ViewportNavigation.capture_camera state.viewport
 
-    let struct (direction, up) =
-        Movement.camera_basis viewport.CameraDirection viewport.CameraY
+            if FlyState.can_write_camera state then
+                state.camera <- camera
 
-    let target = Movement.target_on_camera_axis position viewport.CameraTarget direction
-
-    let camera =
-        { position = position
-          target = target
-          direction = direction
-          up = up }
-
-    if not (CameraState.valid camera) then
-        state.restore_camera_on_exit <- true
-        failwith "Projection conversion produced an invalid camera."
-
-    state.camera <- camera
-
-    match state.active_mouse_navigation with
-    | MousePivot drag -> reset_pivot_drag drag.center drag state
-    | MousePan(panTarget, _) ->
-        state.active_mouse_navigation <- MousePan(panTarget, pan_units_per_radian panTarget camera)
-    | MouseLook -> ()
+                match state.active_mouse_navigation with
+                | MousePivot drag -> reset_pivot_drag (ValueOption.defaultValue drag.center accepted_target) drag state
+                | MousePan(pan_target, _) ->
+                    let target = ValueOption.defaultValue pan_target accepted_target
+                    state.active_mouse_navigation <- MousePan(target, pan_units_per_radian target camera)
+                | MouseLook -> ()
+        with _ ->
+            state.restore_camera_on_exit <- true
+            reraise ()
 
 let redraw (state: FlyState) =
-    state.view.Redraw()
+    if FlyState.can_write_camera state then
+        state.view.Redraw()
 
-    if state.config.behavior.viewport_paint_mode = ViewportPaintMode.Immediate then
+    if
+        FlyState.can_write_camera state
+        && state.config.behavior.viewport_paint_mode = ViewportPaintMode.Immediate
+    then
         PlatformInput.update_window state.view
 
 let toggle_projection (state: FlyState) =
     let viewport = state.viewport
 
     let conversion =
-        if state.projection = ViewProjectionKind.Parallel then
+        if not (FlyState.can_write_camera state) then
+            struct (state.projection, false)
+        elif state.projection = ViewProjectionKind.Parallel then
             let (PerspectiveLensLengthMm lens) = state.perspective_lens_length
-            let targetDistance = Movement.target_distance state.camera
+            let target_distance = Movement.target_distance state.camera
 
             match state.perspective_projection with
             | ViewProjectionKind.TwoPointPerspective ->
                 struct (ViewProjectionKind.TwoPointPerspective,
-                        viewport.ChangeToTwoPointPerspectiveProjection(targetDistance, viewport.CameraY, lens))
+                        viewport.ChangeToTwoPointPerspectiveProjection(target_distance, viewport.CameraY, lens))
             | ViewProjectionKind.Parallel
             | ViewProjectionKind.Perspective ->
                 struct (ViewProjectionKind.Perspective,
-                        viewport.ChangeToPerspectiveProjection(targetDistance, false, lens))
+                        viewport.ChangeToPerspectiveProjection(target_distance, false, lens))
         else
             state.perspective_projection <- state.projection
             struct (ViewProjectionKind.Parallel, viewport.ChangeToParallelProjection false)
 
-    let struct (nextProjection, changed) = conversion
+    let struct (next_projection, changed) = conversion
 
-    if not changed then
+    if FlyState.can_write_camera state && not changed then
         state.restore_camera_on_exit <- true
         failwith "Rhino could not change the viewport projection."
 
-    state.projection <- nextProjection
-    sync_camera_from_viewport state
-    state.wheel_remainder <- 0L
-    redraw state
+    if FlyState.can_write_camera state then
+        state.projection <- next_projection
+        sync_camera_from_viewport ValueNone state
+        state.wheel_remainder <- 0L
+        redraw state
 
 let apply_retarget_request (scope: RetargetScope) (mode: RetargetMode) (state: FlyState) =
-    if mode = RetargetMode.Off then
-        ViewChange.none
-    else
-        match
-            ViewTarget.selected_selection_at
+    if mode <> RetargetMode.Off then
+        let outcome =
+            NavigationTarget.acquire_and_apply
+                (fun () -> FlyState.can_write_camera state)
                 state.config.behavior.retarget
+                scope
                 mode
-                state.speed
                 state.view
-                state.viewport
                 (ViewTarget.viewport_center state.viewport)
-        with
-        | None -> ViewChange.none
-        | Some selection ->
-            NavigationTarget.apply_selection state.config.behavior.retarget scope mode state.speed selection state.view
 
-            if scope = RetargetScope.AllViews then
-                sync_camera_from_viewport state
+        if
+            scope = RetargetScope.AllViews
+            && (ValueOption.isSome outcome.source_target || not outcome.errors.IsEmpty)
+            && PlatformInput.viewport_host_is_active state.host_identity state.view
+        then
+            sync_camera_from_viewport outcome.source_target state
 
-                match state.active_mouse_navigation with
-                | MousePivot drag -> reset_pivot_drag selection.target drag state
-                | MousePan _ ->
-                    state.active_mouse_navigation <-
-                        MousePan(selection.target, pan_units_per_radian selection.target state.camera)
-                | MouseLook -> ()
+        if not outcome.errors.IsEmpty then
+            let errors = String.concat "; " outcome.errors
+            RhinoApp.WriteLine $"Retarget: {errors}"
 
-            ViewChange.none
+    ViewChange.none
 
 let update_navigation_mode (state: FlyState) =
-    let requestedNavigation =
+    let requested_navigation =
         if state.keyboard_pan_held || state.mouse_pan_hold_buttons <> 0 then
             PanNavigation
         elif state.keyboard_pivot_held || state.mouse_pivot_hold_buttons <> 0 then
@@ -194,14 +155,14 @@ let update_navigation_mode (state: FlyState) =
         else
             state.latched_mouse_navigation
 
-    let previousNavigation =
+    let previous_navigation =
         match state.active_mouse_navigation with
         | MouseLook -> LookNavigation
         | MousePivot _ -> PivotNavigation
         | MousePan _ -> PanNavigation
 
-    state.active_mouse_navigation <-
-        match requestedNavigation with
+    let next_navigation =
+        match requested_navigation with
         | LookNavigation -> MouseLook
         | PivotNavigation ->
             match state.active_mouse_navigation with
@@ -209,19 +170,33 @@ let update_navigation_mode (state: FlyState) =
             | MouseLook
             | MousePan _ ->
                 let center = navigation_target state ViewNavigationMode.Pivot
-                MousePivot(create_pivot_drag center state)
+
+                if FlyState.can_write_camera state then
+                    MousePivot(create_pivot_drag center state)
+                else
+                    state.active_mouse_navigation
         | PanNavigation ->
             match state.active_mouse_navigation with
             | MousePan _ -> state.active_mouse_navigation
             | MouseLook
             | MousePivot _ ->
-                let panTarget = navigation_target state ViewNavigationMode.Pan
-                MousePan(panTarget, pan_units_per_radian panTarget state.camera)
+                let pan_target = navigation_target state ViewNavigationMode.Pan
 
-    if previousNavigation <> requestedNavigation then
+                if FlyState.can_write_camera state then
+                    MousePan(pan_target, pan_units_per_radian pan_target state.camera)
+                else
+                    state.active_mouse_navigation
+
+    let changed =
+        FlyState.can_write_camera state && previous_navigation <> requested_navigation
+
+    if FlyState.can_write_camera state then
+        state.active_mouse_navigation <- next_navigation
+
+    if changed then
         state.wheel_remainder <- 0L
 
-    previousNavigation <> requestedNavigation
+    changed
 
 let apply_navigation_wheel (steps: float) (state: FlyState) =
     if steps = 0. then
@@ -233,12 +208,15 @@ let apply_navigation_wheel (steps: float) (state: FlyState) =
             | MousePivot drag -> drag.center
             | MousePan(target, _) -> target
 
-        let zoomScale = ViewSettings.ZoomScale
+        let zoom_scale = ViewSettings.ZoomScale
 
-        if not (RhinoMath.IsValidDouble zoomScale) || zoomScale <= RhinoMath.ZeroTolerance then
+        if
+            not (RhinoMath.IsValidDouble zoom_scale)
+            || zoom_scale <= RhinoMath.ZeroTolerance
+        then
             ViewChange.none
         else
-            let magnification = System.Math.Pow(1. / zoomScale, steps)
+            let magnification = System.Math.Pow(1. / zoom_scale, steps)
 
             if
                 not (RhinoMath.IsValidDouble magnification)
@@ -246,9 +224,9 @@ let apply_navigation_wheel (steps: float) (state: FlyState) =
             then
                 ViewChange.none
             else
-                let previousCamera = state.camera
+                let previous_camera = state.camera
 
-                let parallelFlight = state.projection = ViewProjectionKind.Parallel
+                let parallel_flight = state.projection = ViewProjectionKind.Parallel
 
                 state.camera <- Movement.dolly_towards target magnification state.camera
 
@@ -256,49 +234,56 @@ let apply_navigation_wheel (steps: float) (state: FlyState) =
                     state.restore_camera_on_exit <- true
                     failwith "Mouse-wheel input produced an invalid camera state."
 
-                if state.camera <> previousCamera then
+                if state.camera <> previous_camera then
                     match state.active_mouse_navigation with
                     | MousePivot drag -> PivotOrbit.rebase state.camera drag
-                    | MousePan(panTarget, _) ->
+                    | MousePan(pan_target, _) ->
                         state.active_mouse_navigation <-
-                            MousePan(panTarget, pan_units_per_radian panTarget state.camera)
+                            MousePan(pan_target, pan_units_per_radian pan_target state.camera)
                     | MouseLook -> ()
 
-                { camera_changed = state.camera <> previousCamera
-                  parallel_magnification = if parallelFlight then magnification else 1. }
+                { camera_changed = state.camera <> previous_camera
+                  parallel_magnification = if parallel_flight then magnification else 1. }
 
 let apply_mouse_delta (dx: int64) (dy: int64) (state: FlyState) =
     if dx = 0L && dy = 0L then
         ViewChange.none
     else
         let previous = state.camera
-        let parallelProjection = state.config.movement.parallel_projection
+        let parallel_projection = state.config.movement.parallel_projection
 
-        let parallelFlight = state.projection = ViewProjectionKind.Parallel
+        let parallel_flight = state.projection = ViewProjectionKind.Parallel
 
-        let mouseSensitivity =
-            if parallelFlight then
-                parallelProjection.mouse_sensitivity
+        let mouse_sensitivity =
+            if parallel_flight then
+                parallel_projection.mouse_sensitivity
             else
                 state.config.mouse.sensitivity
 
-        let panMultiplier =
-            if parallelFlight then
-                parallelProjection.mouse_pan_multiplier
+        let pan_multiplier =
+            if parallel_flight then
+                parallel_projection.mouse_pan_multiplier
             else
                 state.config.mouse.pan_multiplier
 
         match state.active_mouse_navigation with
-        | MouseLook -> state.camera <- Movement.mouse_look state.config.mouse mouseSensitivity dx dy state.camera
+        | MouseLook -> state.camera <- Movement.mouse_look state.config.mouse mouse_sensitivity dx dy state.camera
         | MousePivot drag -> state.camera <- PivotOrbit.apply_delta dx dy drag
-        | MousePan(panTarget, unitsPerRadian) ->
+        | MousePan(pan_target, units_per_radian) ->
             state.camera <-
-                Movement.mouse_pan state.config.mouse mouseSensitivity panMultiplier unitsPerRadian dx dy state.camera
+                Movement.mouse_pan
+                    state.config.mouse
+                    mouse_sensitivity
+                    pan_multiplier
+                    units_per_radian
+                    dx
+                    dy
+                    state.camera
 
             let translation = state.camera.position - previous.position
 
             if not translation.IsZero then
-                state.active_mouse_navigation <- MousePan(panTarget + translation, unitsPerRadian)
+                state.active_mouse_navigation <- MousePan(pan_target + translation, units_per_radian)
 
         if CameraState.valid state.camera then
             ViewChange.camera previous state.camera
@@ -306,13 +291,13 @@ let apply_mouse_delta (dx: int64) (dy: int64) (state: FlyState) =
             state.restore_camera_on_exit <- true
             failwith "Mouse input produced an invalid camera state."
 
-let parallel_magnification_factor (state: FlyState) (forwardDistance: float) =
+let parallel_magnification_factor (state: FlyState) (forward_distance: float) =
     let viewport = state.viewport
-    let parallelProjection = state.config.movement.parallel_projection
+    let parallel_projection = state.config.movement.parallel_projection
 
     if
         state.projection <> ViewProjectionKind.Parallel
-        || abs forwardDistance <= RhinoMath.ZeroTolerance
+        || abs forward_distance <= RhinoMath.ZeroTolerance
     then
         1.
     else
@@ -320,17 +305,17 @@ let parallel_magnification_factor (state: FlyState) (forwardDistance: float) =
         let mutable right = 0.
         let mutable bottom = 0.
         let mutable top = 0.
-        let mutable nearDistance = 0.
-        let mutable farDistance = 0.
+        let mutable near_distance = 0.
+        let mutable far_distance = 0.
 
-        if viewport.GetFrustum(&left, &right, &bottom, &top, &nearDistance, &farDistance) then
+        if viewport.GetFrustum(&left, &right, &bottom, &top, &near_distance, &far_distance) then
             let width = right - left
 
             if RhinoMath.IsValidDouble width && width > RhinoMath.ZeroTolerance then
-                let requestedExponent =
-                    forwardDistance * parallelProjection.zoom_speed_multiplier / width
+                let requested_exponent =
+                    forward_distance * parallel_projection.zoom_speed_multiplier / width
 
-                let exponent = Movement.clamp -0.25 0.25 requestedExponent
+                let exponent = Movement.clamp -0.25 0.25 requested_exponent
                 let factor = Math.Exp exponent
 
                 if RhinoMath.IsValidDouble factor && factor > RhinoMath.ZeroTolerance then
@@ -342,15 +327,20 @@ let parallel_magnification_factor (state: FlyState) (forwardDistance: float) =
         else
             1.
 
-let apply (state: FlyState) (change: ViewChange) =
-    if change.camera_changed then
+// Update the camera now; redraw once after the input batch.
+let write_view (state: FlyState) (change: ViewChange) =
+    let camera_changed = change.camera_changed && FlyState.can_write_camera state
+
+    if camera_changed then
         state.viewport.SetCameraLocations(state.camera.target, state.camera.position)
-        state.viewport.CameraUp <- state.camera.up
 
-    let projectionRequested = change.parallel_magnification <> 1.
+        if FlyState.can_write_camera state then
+            state.viewport.CameraUp <- state.camera.up
 
-    let projectionChanged =
-        if not projectionRequested then
+    let projection_requested = change.parallel_magnification <> 1.
+
+    let projection_changed =
+        if not projection_requested || not (FlyState.can_write_camera state) then
             false
         elif
             RhinoMath.IsValidDouble change.parallel_magnification
@@ -362,8 +352,7 @@ let apply (state: FlyState) (change: ViewChange) =
             state.restore_camera_on_exit <- true
             failwith "Rhino could not magnify the parallel viewport."
 
-    if change.camera_changed || projectionChanged then
-        redraw state
+    camera_changed || projection_changed
 
 let entry_perspective_lens_changes (state: FlyState) =
     let lens = state.config.behavior.perspective_lens
@@ -373,23 +362,24 @@ let entry_perspective_lens_changes (state: FlyState) =
     && (Option.isSome lens.forced_on_flight_start || delta <> 0.)
 
 let apply_entry_perspective_lens (state: FlyState) =
-    let lensConfig = state.config.behavior.perspective_lens
+    let lens_config = state.config.behavior.perspective_lens
 
     if entry_perspective_lens_changes state then
-        let forcedOrOriginal =
-            match lensConfig.forced_on_flight_start with
-            | Some forcedLength -> forcedLength
+        let forced_or_original =
+            match lens_config.forced_on_flight_start with
+            | Some forced_length -> forced_length
             | None ->
                 match state.original_camera.perspective_lens_length with
-                | ValueSome originalLength -> originalLength
+                | ValueSome original_length -> original_length
                 | ValueNone -> failwith "The perspective viewport has no lens length."
 
-        let (PerspectiveLensLengthMm absoluteLens) = forcedOrOriginal
-        let (PerspectiveLensDeltaMm lensDelta) = lensConfig.delta_during_flight
-        let lens = absoluteLens + lensDelta
+        let (PerspectiveLensLengthMm absolute_lens) = forced_or_original
+        let (PerspectiveLensDeltaMm lens_delta) = lens_config.delta_during_flight
+        let lens = absolute_lens + lens_delta
 
         if not (RhinoMath.IsValidDouble lens) || lens <= 0. then
             failwith $"The configured lens adjustment produces an invalid lens length: {lens} mm"
 
-        state.viewport.Camera35mmLensLength <- lens
-        state.perspective_lens_length <- PerspectiveLensLengthMm lens
+        if FlyState.can_write_camera state then
+            state.viewport.Camera35mmLensLength <- lens
+            state.perspective_lens_length <- PerspectiveLensLengthMm lens

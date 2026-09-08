@@ -8,7 +8,8 @@ open RhinosCanFly.Platform.Win.MouseOverrideTypes
 
 [<Struct>]
 type PressResult =
-    | Applied of pointer_rebase_required: bool
+    | Applied
+    | Retargeted of outcome: ApplicationOutcome
     | Deferred
     | Failed of error: string
 
@@ -19,43 +20,40 @@ type ActionViewPreparation =
     | ActionViewUnavailable of error: string
 
 let prepare_action_view (host: ViewportHostIdentity) =
-    let foregroundReady =
+    let foreground_ready =
         MouseOverrideState.foreground_root_window () = host.root_window
         || MouseOverrideState.try_bring_root_window_to_foreground host.root_window
 
-    if not foregroundReady then
+    if not foreground_ready then
         ActionViewUnavailable "The navigation window could not be activated."
     else
         let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
         let document = if isNull view then null else view.Document
-        let activeDocument = RhinoDoc.ActiveDoc
-        let (ViewWindowHandle expectedWindow) = host.view_window
+        let active_document = RhinoDoc.ActiveDoc
+        let (ViewWindowHandle expected_window) = host.view_window
 
         if
             isNull view
             || isNull document
-            || isNull activeDocument
+            || isNull active_document
             || document.RuntimeSerialNumber <> host.document_serial_number
-            || activeDocument.RuntimeSerialNumber <> host.document_serial_number
-            || view.Handle <> expectedWindow
+            || active_document.RuntimeSerialNumber <> host.document_serial_number
+            || view.Handle <> expected_window
             || MouseOverrideState.root_window view.Handle <> host.root_window
+            || view.ActiveViewportID <> host.viewport_id
         then
             ActionViewUnavailable "The navigation viewport is unavailable."
         else
-            let activeView = document.Views.ActiveView
+            let active_view = document.Views.ActiveView
 
-            if isNull activeView || activeView.RuntimeSerialNumber <> view.RuntimeSerialNumber then
+            if
+                isNull active_view
+                || active_view.RuntimeSerialNumber <> view.RuntimeSerialNumber
+            then
                 document.Views.ActiveView <- view
                 ActionViewDeferred
             else
-                ActionViewReady(
-                    view,
-                    { document_serial_number = document.RuntimeSerialNumber
-                      view_serial_number = view.RuntimeSerialNumber
-                      viewport_id = view.ActiveViewportID
-                      view_window = ViewWindowHandle view.Handle
-                      root_window = MouseOverrideState.root_window view.Handle }
-                )
+                ActionViewReady(view, host)
 
 let complete_view_latch (state: State) =
     let previous = state.view_latch
@@ -69,9 +67,9 @@ let uses_cursor_outside_flight (state: State) (owner: GestureOwner) =
     | GestureOwner.Mouse4 -> state.routing.actions.outside_flight_cursor.mouse4
     | GestureOwner.Mouse5 -> state.routing.actions.outside_flight_cursor.mouse5
 
-let client_target_point (state: State) (owner: GestureOwner) (view: RhinoView) (screenPoint: Point) =
+let client_target_point (state: State) (owner: GestureOwner) (view: RhinoView) (screen_point: Point) =
     if uses_cursor_outside_flight state owner then
-        let point = view.ActiveViewport.ScreenToClient screenPoint
+        let point = view.ActiveViewport.ScreenToClient screen_point
         { x = point.X; y = point.Y }
     else
         let bounds = view.ActiveViewport.Bounds
@@ -83,21 +81,16 @@ let stop (state: State) =
     state.gesture_navigation <- NoGestureNavigation
     MouseOverrideState.stop_timer_if_idle state
 
-let restore_original_target (host: ViewportHostIdentity) (originalTarget: Rhino.Geometry.Point3d voption) =
-    match originalTarget with
+let restore_original_target (host: ViewportHostIdentity) (original_target: Rhino.Geometry.Point3d voption) =
+    match original_target with
     | ValueNone -> Ok()
     | ValueSome target ->
         try
-            let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
-
-            if
-                not (isNull view)
-                && not (isNull view.Document)
-                && view.Document.RuntimeSerialNumber = host.document_serial_number
-                && view.ActiveViewportID = host.viewport_id
-            then
-                view.ActiveViewport.SetCameraTarget(target, false)
-                view.Redraw()
+            match PlatformInput.try_find_host_viewport host with
+            | Some viewport ->
+                viewport.SetCameraTarget(target, false)
+                RhinoView.FromRuntimeSerialNumber(host.view_serial_number).Redraw()
+            | None -> ()
 
             Ok()
         with error ->
@@ -111,19 +104,29 @@ let rollback_start (state: State) =
 
     stop state
 
-    match session with
-    | ValueSome active -> restore_original_target active.host active.original_target
-    | ValueNone -> Ok()
+    let gesture_result =
+        match session with
+        | ValueSome active -> restore_original_target active.host active.original_target
+        | ValueNone -> Ok()
+
+    let latch_result = complete_view_latch state
+
+    match gesture_result, latch_result with
+    | Ok(), Ok() -> Ok()
+    | Error error, Ok()
+    | Ok(), Error error -> Error error
+    | Error gesture_error, Error latch_error -> Error $"{gesture_error}; {latch_error}"
 
 let begin_navigation
     (state: State)
+    (can_apply: unit -> bool)
     (owner: GestureOwner)
     (host: ViewportHostIdentity)
-    (screenPoint: Point)
+    (screen_point: Point)
     (mode: ViewNavigationMode)
     (lifetime: GestureLifetime)
     =
-    let mutable canStart = true
+    let mutable can_start = true
 
     match state.gesture_navigation with
     | GestureNavigationActive current when
@@ -132,11 +135,11 @@ let begin_navigation
         && current.lifetime = GestureLifetime.Toggle
         ->
         stop state
-        canStart <- false
+        can_start <- false
     | GestureNavigationActive _ -> stop state
     | NoGestureNavigation -> ()
 
-    if not canStart then
+    if not can_start then
         Ok()
     else
         match complete_view_latch state with
@@ -144,13 +147,13 @@ let begin_navigation
         | Ok() ->
             let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
 
-            let originalTarget =
+            let original_target =
                 if isNull view || isNull view.Document then
                     ValueNone
                 else
                     ValueSome view.ActiveViewport.CameraTarget
 
-            let targetPoint =
+            let target_point =
                 if
                     isNull view
                     || isNull view.Document
@@ -158,68 +161,106 @@ let begin_navigation
                 then
                     NavigationTargetPoint.ViewCenter
                 else
-                    NavigationTargetPoint.ClientPoint(client_target_point state owner view screenPoint)
+                    NavigationTargetPoint.ClientPoint(client_target_point state owner view screen_point)
 
-            match state.routing.prepare_navigation host targetPoint mode with
+            let result =
+                try
+                    match state.routing.prepare_navigation host target_point mode can_apply with
+                    | _ when not (can_apply ()) -> Error "Navigation was cancelled during preparation."
+                    | Error error -> Error error
+                    | Ok(struct (prepared, target)) ->
+                        let prepared_view = RhinoView.FromRuntimeSerialNumber prepared.view_serial_number
+
+                        if not (PlatformInput.viewport_host_is_active prepared prepared_view) then
+                            Error "The navigation viewport disappeared during startup."
+                        else
+                            MouseOverrideState.keep_timer_running state
+
+                            state.gesture_navigation <-
+                                GestureNavigationActive
+                                    { owner = owner
+                                      host = prepared
+                                      mode = mode
+                                      lifetime = lifetime
+                                      pivot_center = target
+                                      original_target = original_target }
+
+                            Ok()
+                with error ->
+                    Error error.Message
+
+            match result with
+            | Ok() -> Ok()
             | Error error ->
-                match restore_original_target host originalTarget with
+                match restore_original_target host original_target with
                 | Ok() -> Error error
-                | Error restoreError -> Error $"{error}; {restoreError}"
-            | Ok prepared ->
-                let preparedView = RhinoView.FromRuntimeSerialNumber prepared.view_serial_number
+                | Error restore_error -> Error $"{error}; {restore_error}"
 
-                if isNull preparedView || isNull preparedView.Document then
-                    match restore_original_target host originalTarget with
-                    | Ok() -> Error "The navigation viewport disappeared during startup."
-                    | Error restoreError -> Error $"The navigation viewport disappeared during startup; {restoreError}"
-                else
-                    state.gesture_navigation <-
-                        GestureNavigationActive
-                            { owner = owner
-                              host = prepared
-                              mode = mode
-                              lifetime = lifetime
-                              pivot_center = preparedView.ActiveViewport.CameraTarget
-                              original_target = originalTarget }
+let retarget (apply: unit -> ApplicationOutcome) (can_apply: unit -> bool) =
+    let outcome = apply ()
 
-                    MouseOverrideState.keep_timer_running state
-                    Ok()
+    for error in outcome.errors do
+        System.Diagnostics.Debug.WriteLine $"RhinosCanFly retarget: {error}"
+
+    Retargeted(
+        if can_apply () then
+            outcome
+        else
+            { outcome with
+                source_target = ValueNone }
+    )
 
 let press
     (state: State)
     (owner: GestureOwner)
     (action: RoutedMouseAction)
     (host: ViewportHostIdentity)
-    (screenPoint: Point)
+    (screen_point: Point)
     =
     match action with
-    | RoutedMouseAction.Off -> Applied false
+    | RoutedMouseAction.Off -> Applied
     | RoutedMouseAction.Retarget _
     | RoutedMouseAction.TogglePivot
     | RoutedMouseAction.HoldPivot
     | RoutedMouseAction.TogglePan
     | RoutedMouseAction.HoldPan ->
+        let can_apply = MouseOverrideState.begin_action state
+
         match prepare_action_view host with
+        | _ when not (can_apply ()) -> Failed "Navigation was cancelled during viewport activation."
         | ActionViewDeferred -> Deferred
         | ActionViewUnavailable error -> Failed error
-        | ActionViewReady(view, activeHost) ->
-            let result =
-                match action with
-                | RoutedMouseAction.Retarget mode ->
-                    state.routing.retarget activeHost (client_target_point state owner view screenPoint) mode
-                | RoutedMouseAction.TogglePivot ->
-                    begin_navigation state owner activeHost screenPoint ViewNavigationMode.Pivot GestureLifetime.Toggle
-                | RoutedMouseAction.HoldPivot ->
-                    begin_navigation state owner activeHost screenPoint ViewNavigationMode.Pivot GestureLifetime.Hold
-                | RoutedMouseAction.TogglePan ->
-                    begin_navigation state owner activeHost screenPoint ViewNavigationMode.Pan GestureLifetime.Toggle
-                | RoutedMouseAction.HoldPan ->
-                    begin_navigation state owner activeHost screenPoint ViewNavigationMode.Pan GestureLifetime.Hold
-                | RoutedMouseAction.Off -> Ok()
+        | ActionViewReady(view, active_host) ->
+            match action with
+            | RoutedMouseAction.Retarget mode ->
+                retarget
+                    (fun () ->
+                        state.routing.retarget
+                            active_host
+                            (client_target_point state owner view screen_point)
+                            mode
+                            can_apply)
+                    can_apply
+            | RoutedMouseAction.Off -> Applied
+            | RoutedMouseAction.TogglePivot
+            | RoutedMouseAction.HoldPivot
+            | RoutedMouseAction.TogglePan
+            | RoutedMouseAction.HoldPan ->
+                let mode =
+                    match action with
+                    | RoutedMouseAction.TogglePivot
+                    | RoutedMouseAction.HoldPivot -> ViewNavigationMode.Pivot
+                    | _ -> ViewNavigationMode.Pan
 
-            match result with
-            | Ok() -> Applied true
-            | Error error -> Failed error
+                let lifetime =
+                    if RoutedMouseAction.holds_pivot action || RoutedMouseAction.holds_pan action then
+                        GestureLifetime.Hold
+                    else
+                        GestureLifetime.Toggle
+
+                match begin_navigation state can_apply owner active_host screen_point mode lifetime with
+                | Ok() -> Applied
+                | Error error -> Failed error
 
 let release (state: State) (owner: GestureOwner) =
     match state.gesture_navigation with
@@ -246,7 +287,7 @@ let update_active_pivot_center (state: State) (host: ViewportHostIdentity) (targ
 
 let owner_button_down (owner: GestureOwner) =
     match owner with
-    | GestureOwner.ModifiedRightClick -> Win32Native.GetAsyncKeyState Win32Native.VK_RBUTTON < 0s
+    | GestureOwner.ModifiedRightClick -> Win32.key_down Win32Native.VK_RBUTTON
     | GestureOwner.Middle -> Win32Native.GetAsyncKeyState Win32Native.VK_MBUTTON < 0s
     | GestureOwner.Mouse4 -> Win32Native.GetAsyncKeyState Win32Native.VK_XBUTTON1 < 0s
     | GestureOwner.Mouse5 -> Win32Native.GetAsyncKeyState Win32Native.VK_XBUTTON2 < 0s

@@ -46,16 +46,16 @@ type ViewportNameList =
     | DisabledAll
 
 module ViewportNameList =
-    let listed (viewportName: string) (viewports: string array) =
+    let listed (viewport_name: string) (viewports: string array) =
         viewports
         |> Array.exists (fun (configured: string) ->
-            System.String.Equals(configured, viewportName, System.StringComparison.OrdinalIgnoreCase))
+            System.String.Equals(configured, viewport_name, System.StringComparison.OrdinalIgnoreCase))
 
-    let allows (viewportName: string) (mode: ViewportNameList) =
+    let allows (viewport_name: string) (mode: ViewportNameList) =
         match mode with
         | EnabledAll -> true
-        | EnabledSome viewports -> listed viewportName viewports
-        | DisabledSome viewports -> not (listed viewportName viewports)
+        | EnabledSome viewports -> listed viewport_name viewports
+        | DisabledSome viewports -> not (listed viewport_name viewports)
         | DisabledAll -> false
 
     let has_allowed_viewports (mode: ViewportNameList) =
@@ -136,24 +136,32 @@ type FlightSessionMode =
       movement_mode: FlightMovementMode }
 
 module FlightSessionMode =
-    let until_exit (flightMode: FlightMode) =
+    let until_exit (flight_mode: FlightMode) =
         { lifetime = FlightLifetime.UntilExit
-          flight_mode = flightMode
+          flight_mode = flight_mode
           movement_mode = FreeFlight }
 
-    let while_right_mouse_held (flightMode: FlightMode) =
+    let while_right_mouse_held (flight_mode: FlightMode) =
         { lifetime = FlightLifetime.WhileRightMouseHeld
-          flight_mode = flightMode
+          flight_mode = flight_mode
           movement_mode = FreeFlight }
 
-    let walk (eyeHeight: float) =
+    let walk (eye_height: float) =
         { lifetime = FlightLifetime.UntilExit
           flight_mode = FlightMode.Normal
-          movement_mode = CPlaneWalk eyeHeight }
+          movement_mode = CPlaneWalk eye_height }
 
 type ViewportPaintMode =
     | Immediate = 0
     | Queued = 1
+
+type CrosshairConfig =
+    { enabled: bool
+      arm_length: int
+      gap: int
+      red: int
+      green: int
+      blue: int }
 
 [<CLIMutable>]
 type FlyConfigFile =
@@ -194,6 +202,12 @@ type FlyConfigFile =
       mouse_x_mode: MouseAxisMode
       mouse_y_mode: MouseAxisMode
       normalize_diagonal_movement: bool
+      show_crosshair: bool
+      crosshair_arm_length: int
+      crosshair_gap: int
+      crosshair_red: int
+      crosshair_green: int
+      crosshair_blue: int
       hide_gumball_while_flying: bool
       prioritized_target: PrioritizedTarget
       save_speed_to_document: bool
@@ -222,6 +236,7 @@ type FlyConfigFile =
       retarget_on_pan: RetargetMode
       retarget_on_flight_exit: RetargetMode
       retarget_on_restored_flight_exit: RetargetMode
+      retarget_base_distance: float
       perspective_retarget_fallback_multiplier: float
       parallel_retarget_fallback_multiplier: float
       perspective_retarget_zoom_border: float

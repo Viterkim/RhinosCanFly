@@ -82,7 +82,7 @@ $beforeRelativePath =
         $beforePath.Substring($rootPrefix.Length).Replace('\', '/')
     }
 
-$compileMatches = [regex]::Matches($content, '(?m)^(?<indent>[ \t]*)<Compile\b[^>]*\/>[ \t]*$')
+$compileMatches = [regex]::Matches($content, '(?m)^(?<indent>[ \t]*)<Compile\b[^>]*\/>[ \t]*\r?$')
 
 if ($compileMatches.Count -eq 0) {
     throw "No compile list was found in '$project'."

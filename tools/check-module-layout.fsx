@@ -1,75 +1,78 @@
+#load "source-lexer.fsx"
+
 open System
 open System.IO
 open System.Text.RegularExpressions
+open SourceLexer
 
-let sourceRoot: string = fsi.CommandLineArgs |> Array.last
+let source_root: string = fsi.CommandLineArgs |> Array.last
 
 type LayoutViolation =
     { line_number: int
       namespace_name: string
       module_name: string }
 
-let namespacePattern =
+let namespace_pattern =
     Regex(@"^namespace\s+(?:rec\s+)?(?<name>[A-Za-z_][\w'.]*)\s*$", RegexOptions.Compiled)
 
-let boundModulePattern =
+let bound_module_pattern =
     Regex(@"^module\s+(?:(?:internal|public)\s+)?(?<name>[A-Za-z_][\w']*)\s*=", RegexOptions.Compiled)
 
-let namespaceValuePattern =
+let namespace_value_pattern =
     Regex(@"^(?:type|exception|let|do)\b", RegexOptions.Compiled)
 
-let layoutViolationsInSource (source: string) =
-    let lines = source.Replace("\r\n", "\n").Split '\n'
+let layout_violations_in_source (source: string) =
+    let lines = (code_only source).Replace("\r\n", "\n").Split '\n'
 
-    let namespaceName =
+    let namespace_name =
         lines
         |> Seq.tryPick (fun (line: string) ->
-            let matched = namespacePattern.Match line
+            let matched = namespace_pattern.Match line
 
             if matched.Success then
                 Some matched.Groups["name"].Value
             else
                 None)
 
-    let boundModules =
+    let bound_modules =
         lines
         |> Seq.mapi (fun (index: int) (line: string) -> index + 1, line)
-        |> Seq.choose (fun (lineNumber: int, line: string) ->
-            let matched = boundModulePattern.Match line
+        |> Seq.choose (fun (line_number: int, line: string) ->
+            let matched = bound_module_pattern.Match line
 
             if matched.Success then
-                Some(lineNumber, matched.Groups["name"].Value)
+                Some(line_number, matched.Groups["name"].Value)
             else
                 None)
         |> Seq.toList
 
-    let hasNamespaceValues = lines |> Seq.exists namespaceValuePattern.IsMatch
+    let has_namespace_values = lines |> Seq.exists namespace_value_pattern.IsMatch
 
-    match namespaceName, boundModules, hasNamespaceValues with
-    | Some name, [ lineNumber, moduleName ], false ->
-        [ { line_number = lineNumber
+    match namespace_name, bound_modules, has_namespace_values with
+    | Some name, [ line_number, module_name ], false ->
+        [ { line_number = line_number
             namespace_name = name
-            module_name = moduleName } ]
+            module_name = module_name } ]
     | _ -> []
 
-let checkerSelfTests =
+let checker_self_tests =
     [ "namespace Sample\n\nopen System\n\nmodule Worker =\n    let run () = ()", true
       "module Sample.Worker\n\nopen System\n\nlet run () = ()", false
       "namespace Sample\n\ntype State = Ready\n\nmodule State =\n    let ready = State.Ready", false
       "namespace Sample\n\nmodule Helpers =\n    let value = 1\n\ntype Runner() = class end", false
       "namespace Sample\n\nmodule One =\n    let value = 1\n\nmodule Two =\n    let value = 2", false ]
 
-for source, expectsViolation in checkerSelfTests do
-    let hasViolation = not (List.isEmpty (layoutViolationsInSource source))
+for source, expects_violation in checker_self_tests do
+    let has_violation = not (List.isEmpty (layout_violations_in_source source))
 
-    if hasViolation <> expectsViolation then
+    if has_violation <> expects_violation then
         failwith $"Module-layout lint self-test failed for: {source}"
 
 let violations =
-    Directory.EnumerateFiles(sourceRoot, "*.fs", SearchOption.AllDirectories)
+    Directory.EnumerateFiles(source_root, "*.fs", SearchOption.AllDirectories)
     |> Seq.collect (fun (path: string) ->
         File.ReadAllText path
-        |> layoutViolationsInSource
+        |> layout_violations_in_source
         |> Seq.map (fun (violation: LayoutViolation) -> path, violation))
     |> Seq.toList
 

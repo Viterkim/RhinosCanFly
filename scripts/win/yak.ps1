@@ -14,6 +14,7 @@ $buildScript = Join-Path $PSScriptRoot "build.ps1"
 $buildSetup = Join-Path $PSScriptRoot "build-setup.ps1"
 $manifest = Join-Path $projectRoot "manifest.yml"
 $dist = Join-Path $projectRoot "dist"
+$version = & (Join-Path $PSScriptRoot 'set-versions.ps1') -Check
 
 $setupParameters = @{ Quiet = $true }
 
@@ -48,7 +49,12 @@ if (-not (Test-Path -LiteralPath $YakPath)) {
 }
 
 $output = Join-Path $projectRoot "bin\rh$RhinoMajorVersion\Release\$TargetFramework"
-$stage = Join-Path $dist "stage-rh$RhinoMajorVersion"
+$stage = [IO.Path]::GetFullPath((Join-Path $dist "stage-rh$RhinoMajorVersion"))
+$stagePrefix = [IO.Path]::GetFullPath($dist).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+
+if (-not $stage.StartsWith($stagePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Refusing unexpected package stage '$stage'."
+}
 
 if (Test-Path -LiteralPath $stage) {
     Remove-Item -LiteralPath $stage -Recurse -Force
@@ -57,7 +63,6 @@ if (Test-Path -LiteralPath $stage) {
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 
 $packageFiles = @(
-    (Join-Path $output "RhinosCanFly.rhp")
     $manifest
     (Join-Path $projectRoot "icon.png")
     (Join-Path $projectRoot "README.md")
@@ -72,22 +77,9 @@ foreach ($file in $packageFiles) {
     Copy-Item -LiteralPath $file -Destination $stage
 }
 
-$dependencyFiles = @(
-    Get-ChildItem -LiteralPath $output -Filter "*.dll" |
-        Where-Object { $_.Name -notin @("RhinoCommon.dll", "Rhino.UI.dll", "Eto.dll", "Ed.Eto.dll") }
-)
+. (Join-Path $PSScriptRoot "runtime-payload.ps1")
+Copy-RuntimePayload -BuildOutput $output -Destination $stage -AssetsFile (Join-Path $projectRoot "obj\rh$RhinoMajorVersion\project.assets.json") -TargetFramework $TargetFramework
 
-foreach ($file in $dependencyFiles) {
-    Copy-Item -LiteralPath $file.FullName -Destination $stage
-}
-
-$versionMatch = Select-String -Path $manifest -Pattern '^\s*version:\s*([^\s#]+)' | Select-Object -First 1
-
-if ($null -eq $versionMatch) {
-    throw "Could not read the version from '$manifest'."
-}
-
-$version = $versionMatch.Matches[0].Groups[1].Value.Trim("'`"")
 $zip = Join-Path $dist "RhinosCanFly-$version-rh$RhinoMajorVersion-win.zip"
 
 if (Test-Path -LiteralPath $zip) {
@@ -121,10 +113,14 @@ $yakPackage = Join-Path $dist $yakPackages[0].Name
 Copy-Item -LiteralPath $yakPackages[0].FullName -Destination $yakPackage -Force
 
 if ($Publish -eq "Test") {
+    & (Join-Path $projectRoot 'tools\manual\check-runtime-payload.ps1') -RhinoVersion $RhinoMajorVersion
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     & $YakPath push --source "https://test.yak.rhino3d.com" $yakPackage
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 elseif ($Publish -eq "Production") {
+    & (Join-Path $projectRoot 'tools\manual\check-runtime-payload.ps1') -RhinoVersion $RhinoMajorVersion
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     & $YakPath push $yakPackage
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }

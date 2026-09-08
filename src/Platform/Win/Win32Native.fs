@@ -15,6 +15,15 @@ let WM_MOUSELEAVE = 0x02A3
 let TTM_POP = 0x041C
 
 [<Literal>]
+let TME_HOVER = 0x00000001u
+
+[<Literal>]
+let TME_LEAVE = 0x00000002u
+
+[<Literal>]
+let TME_CANCEL = 0x80000000u
+
+[<Literal>]
 let TOOLTIP_WINDOW_CLASS = "tooltips_class32"
 
 [<Literal>]
@@ -69,6 +78,15 @@ let KEYBOARD_SCAN_CODE_SHIFT = 16
 let RIGHT_SHIFT_SCAN_CODE = 0x36
 
 [<Literal>]
+let WM_LBUTTONDOWN = 0x0201
+
+[<Literal>]
+let WM_LBUTTONUP = 0x0202
+
+[<Literal>]
+let WM_LBUTTONDBLCLK = 0x0203
+
+[<Literal>]
 let WM_RBUTTONDOWN = 0x0204
 
 [<Literal>]
@@ -96,6 +114,51 @@ let WM_XBUTTONUP = 0x020C
 let WM_XBUTTONDBLCLK = 0x020D
 
 [<Literal>]
+let WM_NCLBUTTONDOWN = 0x00A1
+
+[<Literal>]
+let WM_NCLBUTTONUP = 0x00A2
+
+[<Literal>]
+let WM_NCLBUTTONDBLCLK = 0x00A3
+
+[<Literal>]
+let WM_NCRBUTTONDOWN = 0x00A4
+
+[<Literal>]
+let WM_NCRBUTTONUP = 0x00A5
+
+[<Literal>]
+let WM_NCRBUTTONDBLCLK = 0x00A6
+
+[<Literal>]
+let WM_NCMBUTTONDOWN = 0x00A7
+
+[<Literal>]
+let WM_NCMBUTTONUP = 0x00A8
+
+[<Literal>]
+let WM_NCMBUTTONDBLCLK = 0x00A9
+
+[<Literal>]
+let WM_NCXBUTTONDOWN = 0x00AB
+
+[<Literal>]
+let WM_NCXBUTTONUP = 0x00AC
+
+[<Literal>]
+let WM_NCXBUTTONDBLCLK = 0x00AD
+
+[<Literal>]
+let PM_REMOVE = 0x0001u
+
+[<Literal>]
+let PM_MOUSEBUTTON = 0x00040000u
+
+[<Literal>]
+let WM_QUIT = 0x0012u
+
+[<Literal>]
 let XBUTTON1 = 0x0001u
 
 [<Literal>]
@@ -103,6 +166,9 @@ let XBUTTON2 = 0x0002u
 
 [<Literal>]
 let VK_LBUTTON = 0x01
+
+[<Literal>]
+let VK_CANCEL = 0x03
 
 [<Literal>]
 let VK_RBUTTON = 0x02
@@ -147,6 +213,13 @@ let VK_LMENU = 0xA4
 let VK_RMENU = 0xA5
 
 [<Struct; StructLayout(LayoutKind.Sequential)>]
+type TrackMouseEventData =
+    val mutable size: uint32
+    val mutable flags: uint32
+    val mutable track_window: nativeint
+    val mutable hover_time: uint32
+
+[<Struct; StructLayout(LayoutKind.Sequential)>]
 type NativePoint =
     val mutable x: int
     val mutable y: int
@@ -157,6 +230,25 @@ type NativeRect =
     val mutable top: int
     val mutable right: int
     val mutable bottom: int
+
+[<Struct; StructLayout(LayoutKind.Sequential)>]
+type NativeMessage =
+    val mutable window: nativeint
+    val mutable message: uint32
+    val mutable wparam: unativeint
+    val mutable lparam: nativeint
+    val mutable time: uint32
+    val mutable point: NativePoint
+    val mutable private_data: uint32
+
+[<DllImport("user32.dll", EntryPoint = "PeekMessageW")>]
+extern bool PeekMessage(NativeMessage& message, nativeint window, uint32 first, uint32 last, uint32 flags)
+
+[<DllImport("user32.dll", EntryPoint = "DispatchMessageW")>]
+extern nativeint DispatchMessage(NativeMessage& message)
+
+[<DllImport("user32.dll")>]
+extern void PostQuitMessage(int exit_code)
 
 [<Struct; StructLayout(LayoutKind.Sequential)>]
 type MouseHookData =
@@ -178,8 +270,17 @@ type WindowsHook =
 [<DllImport("user32.dll")>]
 extern int16 GetAsyncKeyState(int virtual_key)
 
+[<DllImport("user32.dll")>]
+extern int GetSystemMetrics(int index)
+
+[<Literal>]
+let SM_SWAPBUTTON = 23
+
 [<DllImport("user32.dll", SetLastError = true)>]
 extern bool GetCursorPos(NativePoint& point)
+
+[<DllImport("user32.dll", SetLastError = true, EntryPoint = "TrackMouseEvent")>]
+extern bool TrackMouseEventNative(TrackMouseEventData& track)
 
 [<DllImport("user32.dll")>]
 extern nativeint WindowFromPoint(NativePoint point)

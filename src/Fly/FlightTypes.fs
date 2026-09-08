@@ -12,7 +12,8 @@ type FlyState =
       walking_plane: Plane voption
       original_cursor: CursorPosition
       original_camera: CameraSnapshot
-      prioritized_target: Point3d option
+      mutable hidden_gumball_plane: Plane voption
+      mutable camera_write_allowed: unit -> bool
       mutable key_pivot_target: Point3d
       mutable key_pivot_input_state: KeyPivotInputState
       mutable active_mouse_navigation: ActiveMouseNavigation
@@ -35,6 +36,9 @@ type FlyState =
 
 module FlyState =
     let is_running (state: FlyState) = Option.isNone state.exit_reason
+
+    let can_write_camera (state: FlyState) =
+        is_running state && state.camera_write_allowed ()
 
     let request_exit (reason: FlightExitReason) (state: FlyState) =
         if Option.isNone state.exit_reason then

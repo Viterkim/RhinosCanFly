@@ -54,6 +54,7 @@ type ViewLatchSession =
     { host: ViewportHostIdentity
       mode: ViewNavigationMode
       pivot_center: Rhino.Geometry.Point3d
+      mutable startup_rollback: (unit -> Result<unit, string>) option
       completion: Action option }
 
 type ViewLatch =
@@ -78,7 +79,9 @@ type State =
       mutable lifecycle: OverrideLifecycle
       mutable gesture_navigation: GestureNavigation
       mutable view_latch: ViewLatch
-      pending_side_button_events: Queue<SideButtonHookEvent>
+      pending_side_button_events: LinkedList<SideButtonHookEvent>
+      mutable processing_side_buttons: bool
+      mutable navigation_revision: int64
       side_button_hook_capture: SideButtonHookCapture
       mutable navigation_exit_requested: bool
       suspension_ids: HashSet<int64>
@@ -96,15 +99,21 @@ let empty_routing =
     { actions = MouseActionConfig.disabled
       exit_binding = None
       prepare_navigation =
-        fun (host: ViewportHostIdentity) (_: NavigationTargetPoint) (_: ViewNavigationMode) -> Ok host
-      retarget = fun (_: ViewportHostIdentity) (_: ViewportClientPoint) (_: RetargetMode) -> Ok() }
+        fun (host: ViewportHostIdentity) (_: NavigationTargetPoint) (_: ViewNavigationMode) (_: unit -> bool) ->
+            Ok(struct (host, Rhino.Geometry.Point3d.Unset))
+      retarget =
+        fun (_: ViewportHostIdentity) (_: ViewportClientPoint) (_: RetargetMode) (_: unit -> bool) ->
+            { source_target = ValueNone
+              errors = [] } }
 
 let create_state () =
     { routing = empty_routing
       lifecycle = Resuming
       gesture_navigation = NoGestureNavigation
       view_latch = NoViewLatch
-      pending_side_button_events = Queue<SideButtonHookEvent>(16)
+      pending_side_button_events = LinkedList<SideButtonHookEvent>()
+      processing_side_buttons = false
+      navigation_revision = 0L
       side_button_hook_capture =
         { middle = NotOwned
           mouse4 = NotOwned

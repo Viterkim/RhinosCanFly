@@ -1,8 +1,8 @@
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $buildSetup = Join-Path $PSScriptRoot "build-setup.ps1"
-$manifest = Join-Path $projectRoot "manifest.yml"
 $dist = Join-Path $projectRoot "dist"
+$version = & (Join-Path $PSScriptRoot 'set-versions.ps1') -Check
 
 . $buildSetup -Quiet
 
@@ -10,13 +10,6 @@ if (-not (Test-Path -LiteralPath $YakPath)) {
     throw "Yak.exe was not found at '$YakPath'."
 }
 
-$versionMatch = Select-String -Path $manifest -Pattern '^\s*version:\s*([^\s#]+)' | Select-Object -First 1
-
-if ($null -eq $versionMatch) {
-    throw "Could not read the version from '$manifest'."
-}
-
-$version = $versionMatch.Matches[0].Groups[1].Value.Trim("'`"")
 $packages = @()
 
 foreach ($rhinoVersion in $ReleaseRhinoVersions) {
@@ -29,6 +22,9 @@ foreach ($rhinoVersion in $ReleaseRhinoVersions) {
 
     $packages += $matches[0]
 }
+
+& (Join-Path $projectRoot 'tools\manual\check-runtime-payload.ps1')
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 foreach ($package in $packages) {
     Write-Host "Pushing to production: $($package.FullName)"
