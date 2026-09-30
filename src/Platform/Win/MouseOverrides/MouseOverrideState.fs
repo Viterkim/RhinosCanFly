@@ -148,6 +148,7 @@ let same_host (left: ViewportHostIdentity) (right: ViewportHostIdentity) =
     && left.root_window = right.root_window
 
 let begin_action (state: State) =
+    state.pending_flight_entry <- None
     state.navigation_revision <- state.navigation_revision + 1L
     let revision = state.navigation_revision
 
@@ -169,13 +170,18 @@ let keep_watchdog_running (state: State) =
         state.poll_timer.Start()
 
 let fast_poll_required (state: State) =
-    state.pending_side_button_events.Count > 0
+    Option.isSome state.pending_flight_entry
+    || state.pending_side_button_events.Count > 0
     || state.navigation_exit_requested
     || (state.lifecycle = Available
         && (gesture_navigation_engaged state || view_latch_engaged state))
 
 let stop_timer_if_idle (state: State) =
-    if not (gesture_navigation_engaged state) && not (view_latch_engaged state) then
+    if
+        not (gesture_navigation_engaged state)
+        && not (view_latch_engaged state)
+        && Option.isNone state.pending_flight_entry
+    then
         state.poll_timer.Stop()
 
 let root_window (window: nativeint) =
@@ -250,6 +256,7 @@ let clear_navigation (state: State) =
 
     state.gesture_navigation <- NoGestureNavigation
     state.view_latch <- NoViewLatch
+    state.pending_flight_entry <- None
     state.navigation_exit_requested <- false
     state.pending_side_button_events.Clear()
     previous_view_latch

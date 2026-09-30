@@ -220,6 +220,7 @@ let press
     match action with
     | RoutedMouseAction.Off -> Applied
     | RoutedMouseAction.Retarget _
+    | RoutedMouseAction.StartFlight _
     | RoutedMouseAction.TogglePivot
     | RoutedMouseAction.HoldPivot
     | RoutedMouseAction.TogglePan
@@ -241,6 +242,16 @@ let press
                             mode
                             can_apply)
                     can_apply
+            | RoutedMouseAction.StartFlight mode ->
+                state.pending_flight_entry <-
+                    Some
+                        { owner = owner
+                          host = active_host
+                          mode = mode
+                          released = false }
+
+                MouseOverrideState.keep_timer_running state
+                Applied
             | RoutedMouseAction.Off -> Applied
             | RoutedMouseAction.TogglePivot
             | RoutedMouseAction.HoldPivot
@@ -263,6 +274,10 @@ let press
                 | Error error -> Failed error
 
 let release (state: State) (owner: GestureOwner) =
+    match state.pending_flight_entry with
+    | Some entry when entry.owner = owner -> state.pending_flight_entry <- Some { entry with released = true }
+    | _ -> ()
+
     match state.gesture_navigation with
     | GestureNavigationActive current when current.owner = owner && current.lifetime = GestureLifetime.Hold ->
         stop state

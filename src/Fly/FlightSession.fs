@@ -683,8 +683,7 @@ let process_starting (starting: StartingSession) =
 
     PlatformFlightKeyboard.consume_escape_exit
         starting.session_mode.lifetime
-        starting.config.mouse.exit_on_left
-        starting.config.mouse.exit_on_right
+        starting.config.mouse.exit_buttons
         starting.raw_input
 
     match InputAccumulator.exit_reason starting.raw_input with

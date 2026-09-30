@@ -511,6 +511,43 @@ let activate_available () =
         activate_degraded message
         Error message
 
+let update_mouse_flight_entry () =
+    match state.pending_flight_entry with
+    | None -> ()
+    | Some entry when
+        state.lifecycle <> Available
+        || MouseOverrideState.foreground_root_window () <> entry.host.root_window
+        ->
+        state.pending_flight_entry <- None
+    | Some entry ->
+        let button_down = GestureNavigationTransitions.owner_button_down entry.owner
+
+        if entry.released && button_down then
+            state.pending_flight_entry <- None
+        elif not button_down then
+            match GestureNavigationTransitions.prepare_action_view entry.host with
+            | _ when state.pending_flight_entry <> Some entry -> ()
+            | GestureNavigationTransitions.ActionViewUnavailable _ -> state.pending_flight_entry <- None
+            | GestureNavigationTransitions.ActionViewDeferred -> ()
+            | GestureNavigationTransitions.ActionViewReady(view, _) ->
+                let viewport = view.ActiveViewport
+
+                if
+                    not (MouseOverrideState.capabilities_allowed state viewport.Name)
+                    || not (viewport.IsPerspectiveProjection || viewport.IsParallelProjection)
+                then
+                    state.pending_flight_entry <- None
+                elif not (view.MouseCaptured false) then
+                    state.pending_flight_entry <- None
+
+                    let command =
+                        match entry.mode with
+                        | FlightMode.Temporary -> "'_RhinosCanFlyTempFly"
+                        | _ -> "'_RhinosCanFly"
+
+                    if not (RhinoApp.RunScript(entry.host.document_serial_number, command, false)) then
+                        Debug.WriteLine "RhinosCanFly mouse flight command was rejected by Rhino."
+
 let maintain_navigation () =
     let raw_processing =
         match raw_navigation.session with
@@ -565,6 +602,8 @@ let maintain_navigation () =
                     match RawNavigationCoordinator.reconcile raw_navigation with
                     | Ok() -> ()
                     | Error error -> failwith error
+
+                    update_mouse_flight_entry ()
 
                 if
                     navigation_was_active
@@ -682,6 +721,7 @@ let keeps_navigation_active (command_name: string) =
 let command_began =
     EventHandler<CommandEventArgs>(fun (_: obj) (event: CommandEventArgs) ->
         command_depth <- command_depth + 1
+        state.pending_flight_entry <- None
 
         try
             RightClickTransitions.command_began right_click event.CommandEnglishName

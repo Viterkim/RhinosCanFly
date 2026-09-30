@@ -61,8 +61,7 @@ type FlyingMouseConfig =
       sensitivity: MouseRadiansPerCount
       x_mode: MouseAxisMode
       y_mode: MouseAxisMode
-      exit_on_left: bool
-      exit_on_right: bool
+      exit_buttons: MouseExitConfig
       middle_button: RoutedMouseAction
       mouse4: RoutedMouseAction
       mouse5: RoutedMouseAction }

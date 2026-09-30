@@ -235,6 +235,9 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     set_checked options.mouse5_uses_cursor_outside_flight config.mouse5_uses_cursor_outside_flight
     set_checked options.exit_on_mouse_left config.exit_on_mouse_left
     set_checked options.exit_on_mouse_right config.exit_on_mouse_right
+    set_checked options.exit_on_mouse_middle config.exit_on_mouse_middle
+    set_checked options.exit_on_mouse4 config.exit_on_mouse4
+    set_checked options.exit_on_mouse5 config.exit_on_mouse5
     set_checked options.commands_do_not_repeat config.commands_do_not_repeat
 
 let read (fields: SettingsFields.ConfigFields) =
@@ -326,6 +329,9 @@ let read (fields: SettingsFields.ConfigFields) =
                 is_checked options.wheel_changes_speed_during_flight_navigation
               exit_on_mouse_left = is_checked options.exit_on_mouse_left
               exit_on_mouse_right = is_checked options.exit_on_mouse_right
+              exit_on_mouse_middle = is_checked options.exit_on_mouse_middle
+              exit_on_mouse4 = is_checked options.exit_on_mouse4
+              exit_on_mouse5 = is_checked options.exit_on_mouse5
               middle_mouse_action_while_flying = is_checked options.middle_mouse_action_while_flying
               middle_mouse_uses_cursor_outside_flight = is_checked options.middle_mouse_uses_cursor_outside_flight
               mouse4_uses_cursor_outside_flight = is_checked options.mouse4_uses_cursor_outside_flight

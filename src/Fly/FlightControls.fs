@@ -167,7 +167,8 @@ let apply_mouse_action_down (button_bit: int) (action: RoutedMouseAction) (state
     | RoutedMouseAction.Retarget mode ->
         FlightCamera.apply_retarget_request RetargetScope.AllViews mode state
         |> InputEffect.rebase_pointer
-    | RoutedMouseAction.Off -> InputEffect.none
+    | RoutedMouseAction.Off
+    | RoutedMouseAction.StartFlight _ -> InputEffect.none
 
 let apply_mouse_action_up (button_bit: int) (action: RoutedMouseAction) (state: FlyState) =
     set_mouse_hold button_bit false action state
@@ -180,12 +181,7 @@ let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) (st
 
     let mutable effect =
         match
-            InputAccumulator.event_exit
-                state.session_mode.lifetime
-                mouse.exit_on_left
-                mouse.exit_on_right
-                keyboard_actions
-                transition.event
+            InputAccumulator.event_exit state.session_mode.lifetime mouse.exit_buttons keyboard_actions transition.event
         with
         | Some reason ->
             let reason =
@@ -256,11 +252,7 @@ let apply_wheel_delta (wheel_delta: int64) (state: FlyState) =
             FlightCamera.apply_navigation_wheel (PlatformInput.wheel_zoom_steps wheel_delta) state
 
 let update_state (now: float) (input: InputAccumulator.State) (state: FlyState) =
-    PlatformFlightKeyboard.consume_escape_exit
-        state.session_mode.lifetime
-        state.config.mouse.exit_on_left
-        state.config.mouse.exit_on_right
-        input
+    PlatformFlightKeyboard.consume_escape_exit state.session_mode.lifetime state.config.mouse.exit_buttons input
 
     let periodic_validation_due = now >= state.next_host_validation_at
 

@@ -38,7 +38,11 @@ let compile_detailed (source: FlyConfigFile) =
             slow_multiplier = defaults.slow_multiplier }
 
     let while_flying (enabled: bool) (action: MouseGestureAction) (retarget_mode: RetargetMode) =
-        if enabled then
+        if
+            enabled
+            && action <> MouseGestureAction.StartFlying
+            && action <> MouseGestureAction.StartTempFlying
+        then
             RoutedMouseAction.create action retarget_mode
         else
             RoutedMouseAction.Off
@@ -692,8 +696,12 @@ let compile_detailed (source: FlyConfigFile) =
                 |> MouseSensitivity.to_radians_per_count
               x_mode = source.mouse_x_mode
               y_mode = source.mouse_y_mode
-              exit_on_left = source.exit_on_mouse_left
-              exit_on_right = source.exit_on_mouse_right
+              exit_buttons =
+                { left = source.exit_on_mouse_left
+                  right = source.exit_on_mouse_right
+                  middle = source.exit_on_mouse_middle
+                  mouse4 = source.exit_on_mouse4
+                  mouse5 = source.exit_on_mouse5 }
               middle_button =
                 while_flying
                     source.middle_mouse_action_while_flying
