@@ -732,12 +732,7 @@ let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) =
     finally
         Monitor.Exit state.transition_gate
 
-let consume_escape_exit
-    (lifetime: FlightLifetime)
-    (exit_on_left: bool)
-    (exit_on_right: bool)
-    (input: InputAccumulator.State)
-    =
+let consume_escape_exit (lifetime: FlightLifetime) (exit_buttons: MouseExitConfig) (input: InputAccumulator.State) =
     if
         Volatile.Read(&input.escape_requested)
         && Option.isNone (InputAccumulator.exit_reason input)
@@ -763,7 +758,7 @@ let consume_escape_exit
                 else
                     RawMouseButtonEvent.None
 
-            reason <- InputAccumulator.event_exit lifetime exit_on_left exit_on_right actions button
+            reason <- InputAccumulator.event_exit lifetime exit_buttons actions button
 
             index <- index + 1
 

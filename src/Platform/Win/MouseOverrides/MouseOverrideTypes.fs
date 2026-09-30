@@ -50,6 +50,12 @@ type GestureNavigation =
     | NoGestureNavigation
     | GestureNavigationActive of GestureNavigationSession
 
+type MouseFlightEntry =
+    { owner: GestureOwner
+      host: ViewportHostIdentity
+      mode: FlightMode
+      released: bool }
+
 type ViewLatchSession =
     { host: ViewportHostIdentity
       mode: ViewNavigationMode
@@ -79,6 +85,7 @@ type State =
       mutable lifecycle: OverrideLifecycle
       mutable gesture_navigation: GestureNavigation
       mutable view_latch: ViewLatch
+      mutable pending_flight_entry: MouseFlightEntry option
       pending_side_button_events: LinkedList<SideButtonHookEvent>
       mutable processing_side_buttons: bool
       mutable navigation_revision: int64
@@ -111,6 +118,7 @@ let create_state () =
       lifecycle = Resuming
       gesture_navigation = NoGestureNavigation
       view_latch = NoViewLatch
+      pending_flight_entry = None
       pending_side_button_events = LinkedList<SideButtonHookEvent>()
       processing_side_buttons = false
       navigation_revision = 0L

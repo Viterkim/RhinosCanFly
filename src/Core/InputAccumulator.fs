@@ -59,8 +59,7 @@ type WorkRevision = WorkRevision of int64
 
 let event_exit
     (lifetime: FlightLifetime)
-    (exit_on_left: bool)
-    (exit_on_right: bool)
+    (exit_buttons: MouseExitConfig)
     (actions: KeyboardAction)
     (button: RawMouseButtonEvent)
     =
@@ -70,9 +69,12 @@ let event_exit
         Some ExplicitKeepCamera
     else
         match button with
-        | RawMouseButtonEvent.LeftUp when exit_on_left -> Some ExplicitKeepCamera
+        | RawMouseButtonEvent.LeftUp when exit_buttons.left -> Some ExplicitKeepCamera
         | RawMouseButtonEvent.RightUp when lifetime = FlightLifetime.WhileRightMouseHeld -> Some RightMouseReleased
-        | RawMouseButtonEvent.RightUp when exit_on_right -> Some ExplicitKeepCamera
+        | RawMouseButtonEvent.RightUp when exit_buttons.right -> Some ExplicitKeepCamera
+        | RawMouseButtonEvent.MiddleUp when exit_buttons.middle -> Some ExplicitKeepCamera
+        | RawMouseButtonEvent.Mouse4Up when exit_buttons.mouse4 -> Some ExplicitKeepCamera
+        | RawMouseButtonEvent.Mouse5Up when exit_buttons.mouse5 -> Some ExplicitKeepCamera
         | _ -> None
 
 let create () =

@@ -20,6 +20,8 @@ type MouseGestureAction =
     | TogglePan = 3
     | HoldPan = 4
     | Retarget = 5
+    | StartFlying = 6
+    | StartTempFlying = 7
 
 type RightClickEntryMode =
     | Off = 0
@@ -216,6 +218,9 @@ type FlyConfigFile =
       wheel_changes_speed_during_flight_navigation: bool
       exit_on_mouse_left: bool
       exit_on_mouse_right: bool
+      exit_on_mouse_middle: bool
+      exit_on_mouse4: bool
+      exit_on_mouse5: bool
       middle_mouse_action_while_flying: bool
       mouse4_action_while_flying: bool
       mouse5_action_while_flying: bool

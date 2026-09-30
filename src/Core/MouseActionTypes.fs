@@ -30,6 +30,13 @@ type RawMouseButtonTransition =
     { event: RawMouseButtonEvent
       modifiers: MouseModifiers }
 
+type MouseExitConfig =
+    { left: bool
+      right: bool
+      middle: bool
+      mouse4: bool
+      mouse5: bool }
+
 [<Struct; RequireQualifiedAccess>]
 type RoutedMouseAction =
     | Off
@@ -38,6 +45,7 @@ type RoutedMouseAction =
     | TogglePan
     | HoldPan
     | Retarget of RetargetMode
+    | StartFlight of flight_mode: FlightMode
 
 module RoutedMouseAction =
     let create (action: MouseGestureAction) (retarget_mode: RetargetMode) =
@@ -46,6 +54,8 @@ module RoutedMouseAction =
         | MouseGestureAction.HoldPivot -> RoutedMouseAction.HoldPivot
         | MouseGestureAction.TogglePan -> RoutedMouseAction.TogglePan
         | MouseGestureAction.HoldPan -> RoutedMouseAction.HoldPan
+        | MouseGestureAction.StartFlying -> RoutedMouseAction.StartFlight FlightMode.Normal
+        | MouseGestureAction.StartTempFlying -> RoutedMouseAction.StartFlight FlightMode.Temporary
         | MouseGestureAction.Retarget when retarget_mode <> RetargetMode.Off -> RoutedMouseAction.Retarget retarget_mode
         | MouseGestureAction.Retarget
         | MouseGestureAction.Off
@@ -58,6 +68,7 @@ module RoutedMouseAction =
         | RoutedMouseAction.HoldPivot
         | RoutedMouseAction.TogglePan
         | RoutedMouseAction.HoldPan
+        | RoutedMouseAction.StartFlight _
         | RoutedMouseAction.Retarget _ -> true
 
     let holds_pivot (action: RoutedMouseAction) =
@@ -67,6 +78,7 @@ module RoutedMouseAction =
         | RoutedMouseAction.TogglePivot
         | RoutedMouseAction.TogglePan
         | RoutedMouseAction.HoldPan
+        | RoutedMouseAction.StartFlight _
         | RoutedMouseAction.Retarget _ -> false
 
     let holds_pan (action: RoutedMouseAction) =
@@ -76,6 +88,7 @@ module RoutedMouseAction =
         | RoutedMouseAction.TogglePivot
         | RoutedMouseAction.HoldPivot
         | RoutedMouseAction.TogglePan
+        | RoutedMouseAction.StartFlight _
         | RoutedMouseAction.Retarget _ -> false
 
 [<Struct>]

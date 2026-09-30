@@ -68,23 +68,29 @@ type SettingsControl() as self =
         modes.mouse4_retarget.control.Enabled <- mouse4_enabled
         modes.mouse5_retarget.control.Enabled <- mouse5_enabled
 
-        options.middle_mouse_action_while_flying.Enabled <-
-            SettingsFields.selected_mode modes.middle_mouse_action <> MouseGestureAction.Off
+        let update_mouse_options (action: MouseGestureAction) (while_flying: CheckBox) (use_cursor: CheckBox) =
+            let enabled =
+                action <> MouseGestureAction.Off
+                && action <> MouseGestureAction.StartFlying
+                && action <> MouseGestureAction.StartTempFlying
 
-        options.middle_mouse_uses_cursor_outside_flight.Enabled <-
-            SettingsFields.selected_mode modes.middle_mouse_action <> MouseGestureAction.Off
+            while_flying.Enabled <- enabled
+            use_cursor.Enabled <- enabled
 
-        options.mouse4_action_while_flying.Enabled <-
-            SettingsFields.selected_mode modes.mouse4_action <> MouseGestureAction.Off
+        update_mouse_options
+            (SettingsFields.selected_mode modes.middle_mouse_action)
+            options.middle_mouse_action_while_flying
+            options.middle_mouse_uses_cursor_outside_flight
 
-        options.mouse4_uses_cursor_outside_flight.Enabled <-
-            SettingsFields.selected_mode modes.mouse4_action <> MouseGestureAction.Off
+        update_mouse_options
+            (SettingsFields.selected_mode modes.mouse4_action)
+            options.mouse4_action_while_flying
+            options.mouse4_uses_cursor_outside_flight
 
-        options.mouse5_action_while_flying.Enabled <-
-            SettingsFields.selected_mode modes.mouse5_action <> MouseGestureAction.Off
-
-        options.mouse5_uses_cursor_outside_flight.Enabled <-
-            SettingsFields.selected_mode modes.mouse5_action <> MouseGestureAction.Off
+        update_mouse_options
+            (SettingsFields.selected_mode modes.mouse5_action)
+            options.mouse5_action_while_flying
+            options.mouse5_uses_cursor_outside_flight
 
         let fallback_enabled =
             (shift_enabled
@@ -296,6 +302,9 @@ type SettingsControl() as self =
             2
             [ options.exit_on_mouse_right
               options.exit_on_mouse_left
+              options.exit_on_mouse4
+              options.exit_on_mouse5
+              options.exit_on_mouse_middle
               options.hide_gumball_while_flying ]
         |> SettingsLayout.full_width
         |> main_table.Rows.Add

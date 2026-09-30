@@ -103,6 +103,9 @@ type OptionFields =
       mouse5_uses_cursor_outside_flight: CheckBox
       exit_on_mouse_left: CheckBox
       exit_on_mouse_right: CheckBox
+      exit_on_mouse_middle: CheckBox
+      exit_on_mouse4: CheckBox
+      exit_on_mouse5: CheckBox
       commands_do_not_repeat: CheckBox }
 
 type CrosshairFields =
@@ -199,7 +202,9 @@ let create () =
            MouseGestureAction.HoldPivot, "Hold pivot"
            MouseGestureAction.TogglePan, "Toggle pan"
            MouseGestureAction.HoldPan, "Hold pan"
-           MouseGestureAction.Retarget, "Retarget" |]
+           MouseGestureAction.Retarget, "Retarget"
+           MouseGestureAction.StartFlying, "Start flying"
+           MouseGestureAction.StartTempFlying, "Start temp flying" |]
 
     let right_click_entry_modes =
         [| RightClickEntryMode.Off, "Off"
@@ -342,6 +347,9 @@ let create () =
               mouse5_uses_cursor_outside_flight = new CheckBox(Text = "Use cursor position outside flight")
               exit_on_mouse_left = new CheckBox(Text = "Left click exits flight / navigation")
               exit_on_mouse_right = new CheckBox(Text = "Right click exits flight / navigation")
+              exit_on_mouse_middle = new CheckBox(Text = "Middle mouse exits flight")
+              exit_on_mouse4 = new CheckBox(Text = "Mouse 4 exits flight")
+              exit_on_mouse5 = new CheckBox(Text = "Mouse 5 exits flight")
               commands_do_not_repeat = new CheckBox(Text = "Don't repeat flight commands") }
           viewport_capability_names = new TextBox()
           right_click_flight_entry_names = new TextBox() }
