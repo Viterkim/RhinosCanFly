@@ -271,6 +271,12 @@ type WindowsHook =
 extern int16 GetAsyncKeyState(int virtual_key)
 
 [<DllImport("user32.dll")>]
+extern int16 GetKeyState(int virtual_key)
+
+[<DllImport("user32.dll")>]
+extern int GetMessageTime()
+
+[<DllImport("user32.dll")>]
 extern int GetSystemMetrics(int index)
 
 [<Literal>]

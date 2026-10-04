@@ -112,6 +112,7 @@ let raw_navigation =
 let viewport_registry =
     ViewportRegistry.create
         { hook_installed = fun () -> MouseHook.installed mouse_hook
+          active_host_changed = MouseOverrideState.observe_active_host state
           ensure_ui_wake =
             fun () ->
                 match install_hook_ui_wake () with
@@ -266,7 +267,12 @@ let handle_routed_mouse_event (event: Win32.MouseHookEvent) =
                             MouseOverrideState.set_hook_button_ownership state button Owned
 
                             state.pending_side_button_events.AddLast(
-                                ButtonDown(button, point_viewport.host, event.screen_point)
+                                ButtonDown(
+                                    button,
+                                    point_viewport.host,
+                                    event.screen_point,
+                                    MouseOverrideState.create_admission state
+                                )
                             )
                             |> ignore
 
@@ -525,7 +531,7 @@ let update_mouse_flight_entry () =
         if entry.released && button_down then
             state.pending_flight_entry <- None
         elif not button_down then
-            match GestureNavigationTransitions.prepare_action_view entry.host with
+            match GestureNavigationTransitions.prepare_action_view state entry.host entry.admission with
             | _ when state.pending_flight_entry <> Some entry -> ()
             | GestureNavigationTransitions.ActionViewUnavailable _ -> state.pending_flight_entry <- None
             | GestureNavigationTransitions.ActionViewDeferred -> ()
@@ -537,7 +543,7 @@ let update_mouse_flight_entry () =
                     || not (viewport.IsPerspectiveProjection || viewport.IsParallelProjection)
                 then
                     state.pending_flight_entry <- None
-                elif not (view.MouseCaptured false) then
+                elif not (PlatformRawInput.recovery_pending ()) && not (view.MouseCaptured false) then
                     state.pending_flight_entry <- None
 
                     let command =
@@ -754,45 +760,48 @@ let command_ended =
 do Command.BeginCommand.AddHandler command_began
 do Command.EndCommand.AddHandler command_ended
 
-let start_view_latch (view: RhinoView) (mode: ViewNavigationMode) (completion: Action option) =
+let start_view_latch (view: RhinoView) (mode: ViewNavigationMode) (completion: Action<unit -> bool> option) =
     if isNull view || isNull view.Document || view.Handle = nativeint 0 then
         Error "The active viewport is unavailable."
     elif not (MouseOverrideState.capabilities_allowed state view.ActiveViewport.Name) then
         Error "RhinosCanFly capabilities are disabled for this viewport."
     else
         let host = ViewportRegistry.capture_host view
+        let revision = state.navigation_revision
+
+        let replacing =
+            (ViewLatchTransitions.current_mode state
+             |> Option.exists (fun (current: ViewNavigationMode) -> current <> mode))
+            || MouseOverrideState.gesture_navigation_engaged state
 
         let replacement_result =
-            match ViewLatchTransitions.current_mode state with
-            | Some current ->
-                if current = mode then
-                    Ok()
-                else
-                    RawNavigationCoordinator.release raw_navigation
-            | None ->
-                if MouseOverrideState.gesture_navigation_engaged state then
-                    RawNavigationCoordinator.release raw_navigation
-                else
-                    Ok()
+            if replacing then
+                RawNavigationCoordinator.release raw_navigation
+            else
+                Ok()
+
+        let expected_revision = if replacing then revision + 1L else revision
 
         match replacement_result with
         | Error error -> Error error
+        | Ok() when state.navigation_revision <> expected_revision -> Error "Navigation changed during cleanup."
         | Ok() ->
-            let original_target = view.ActiveViewport.CameraTarget
-            let mutable rollback_pending = true
-
-            let rollback () =
-                if rollback_pending then
-                    rollback_pending <- false
-                    GestureNavigationTransitions.restore_original_target host (ValueSome original_target)
-                else
-                    Ok()
+            let mutable installed: ViewLatchSession option = None
 
             let activation =
                 try
-                    match ViewLatchTransitions.start_or_switch state host mode rollback completion with
+                    match ViewLatchTransitions.start_or_switch state host mode completion with
                     | Error error -> Error error
-                    | Ok() ->
+                    | Ok(struct (session, false)) ->
+                        match session.completion, completion with
+                        | Some current, Some supplied when obj.ReferenceEquals(current, supplied) -> ()
+                        | _, Some supplied -> supplied.Invoke(fun () -> false)
+                        | _ -> ()
+
+                        Ok()
+                    | Ok(struct (session, true)) ->
+                        installed <- Some session
+
                         match RawNavigationCoordinator.reconcile raw_navigation with
                         | Error error -> Error error
                         | Ok() -> refresh_mouse_hook ()
@@ -806,28 +815,32 @@ let start_view_latch (view: RhinoView) (mode: ViewNavigationMode) (completion: A
             | Error activation_error ->
                 let mutable error = activation_error
 
-                try
-                    match ViewLatchTransitions.release state with
-                    | Ok() -> ()
-                    | Error cleanup_error -> error <- $"{error}; cleanup failed: {cleanup_error}"
-                with cleanup_error ->
-                    error <- $"{error}; cleanup failed: {cleanup_error.Message}"
+                let owns_latch =
+                    match installed, state.view_latch with
+                    | Some expected, WaitingForRelease current
+                    | Some expected, ViewLatchActive current -> obj.ReferenceEquals(expected, current)
+                    | _ -> false
 
-                try
-                    match RawNavigationCoordinator.reconcile raw_navigation with
-                    | Ok() -> ()
-                    | Error cleanup_error -> error <- $"{error}; raw cleanup failed: {cleanup_error}"
-                with cleanup_error ->
-                    error <- $"{error}; raw cleanup failed: {cleanup_error.Message}"
+                if owns_latch then
+                    try
+                        match ViewLatchTransitions.release state with
+                        | Ok() -> ()
+                        | Error cleanup_error -> error <- $"{error}; cleanup failed: {cleanup_error}"
+                    with cleanup_error ->
+                        error <- $"{error}; cleanup failed: {cleanup_error.Message}"
 
-                match rollback () with
-                | Ok() -> ()
-                | Error target_error -> error <- $"{error}; {target_error}"
+                    try
+                        match RawNavigationCoordinator.reconcile raw_navigation with
+                        | Ok() -> ()
+                        | Error cleanup_error -> error <- $"{error}; raw cleanup failed: {cleanup_error}"
+                    with cleanup_error ->
+                        error <- $"{error}; raw cleanup failed: {cleanup_error.Message}"
 
                 Error error
 
 let stop_view_latch (mode: ViewNavigationMode) =
     let was_active = ViewLatchTransitions.is_mode state mode
+    let revision = state.navigation_revision
 
     let raw_stop_result =
         if was_active then
@@ -835,7 +848,12 @@ let stop_view_latch (mode: ViewNavigationMode) =
         else
             Ok()
 
-    let navigation_result = ViewLatchTransitions.stop state mode
+    let navigation_result =
+        if state.navigation_revision = revision then
+            ViewLatchTransitions.stop state mode
+        else
+            Ok()
+
     let raw_reconcile_result = RawNavigationCoordinator.reconcile raw_navigation
     let errors = ResizeArray<string>()
 

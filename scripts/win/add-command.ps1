@@ -72,26 +72,30 @@ type $typeName() =
 
 $updatedRegistry = $registryContent.TrimEnd() + $newline + $newline + $registration.Trim() + $newline
 $utf8WithoutBom = [Text.UTF8Encoding]::new($false)
-$projectUpdated = $false
 
 try {
     [IO.File]::WriteAllText($commandPath, $source.Trim() + $newline, $utf8WithoutBom)
     & $addFileScript -Name $relativeCommandPath
-    $projectUpdated = $true
     [IO.File]::WriteAllText($registryPath, $updatedRegistry, $utf8WithoutBom)
 }
 catch {
-    if ($projectUpdated) {
-        [IO.File]::WriteAllText($project, $projectContent, $utf8WithoutBom)
+    $writeError = $_
+    foreach ($original in @(
+        @{ Path = $project; Content = $projectContent },
+        @{ Path = $registryPath; Content = $registryContent }
+    )) {
+        try { [IO.File]::WriteAllText($original.Path, $original.Content, $utf8WithoutBom) }
+        catch { Write-Warning "Could not restore '$($original.Path)': $_" -WarningAction Continue }
     }
 
-    [IO.File]::WriteAllText($registryPath, $registryContent, $utf8WithoutBom)
-
-    if (Test-Path -LiteralPath $commandPath) {
-        Remove-Item -LiteralPath $commandPath -Force
+    try {
+        if (Test-Path -LiteralPath $commandPath) {
+            Remove-Item -LiteralPath $commandPath -Force
+        }
     }
+    catch { Write-Warning "Could not remove '$commandPath': $_" -WarningAction Continue }
 
-    throw
+    throw $writeError
 }
 
 Write-Host "Created $relativeCommandPath"

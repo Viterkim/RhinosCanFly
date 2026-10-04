@@ -150,13 +150,22 @@ let set_mouse_hold (button_bit: int) (down: bool) (action: RoutedMouseAction) (s
         else
             state.mouse_pan_hold_buttons <- state.mouse_pan_hold_buttons &&& (~~~button_bit)
 
-let apply_mouse_action_down (button_bit: int) (action: RoutedMouseAction) (state: FlyState) =
+let apply_mouse_action_down
+    (binding_actions: InputAccumulator.KeyboardAction)
+    (button_bit: int)
+    (action: RoutedMouseAction)
+    (state: FlyState)
+    =
     match action with
-    | RoutedMouseAction.TogglePivot ->
+    | RoutedMouseAction.TogglePivot when
+        not (has_keyboard_action binding_actions InputAccumulator.KeyboardAction.PivotToggle)
+        ->
         state.latched_mouse_navigation <- MouseNavigationMode.toggle PivotNavigation state.latched_mouse_navigation
 
         InputEffect.none
-    | RoutedMouseAction.TogglePan ->
+    | RoutedMouseAction.TogglePan when
+        not (has_keyboard_action binding_actions InputAccumulator.KeyboardAction.PanToggle)
+        ->
         state.latched_mouse_navigation <- MouseNavigationMode.toggle PanNavigation state.latched_mouse_navigation
 
         InputEffect.none
@@ -165,8 +174,16 @@ let apply_mouse_action_down (button_bit: int) (action: RoutedMouseAction) (state
         set_mouse_hold button_bit true action state
         InputEffect.none
     | RoutedMouseAction.Retarget mode ->
-        FlightCamera.apply_retarget_request RetargetScope.AllViews mode state
-        |> InputEffect.rebase_pointer
+        if
+            has_keyboard_action binding_actions InputAccumulator.KeyboardAction.RetargetAllViews
+            && state.config.behavior.retarget.keyboard_all_views = mode
+        then
+            InputEffect.none
+        else
+            FlightCamera.apply_retarget_request RetargetScope.AllViews mode state
+            |> InputEffect.rebase_pointer
+    | RoutedMouseAction.TogglePivot
+    | RoutedMouseAction.TogglePan
     | RoutedMouseAction.Off
     | RoutedMouseAction.StartFlight _ -> InputEffect.none
 
@@ -197,13 +214,22 @@ let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) (st
     if FlyState.is_running state then
         match transition.event with
         | RawMouseButtonEvent.MiddleDown ->
-            effect <- InputEffect.combine effect (apply_mouse_action_down MIDDLE_BUTTON_BIT mouse.middle_button state)
+            effect <-
+                InputEffect.combine
+                    effect
+                    (apply_mouse_action_down keyboard_actions MIDDLE_BUTTON_BIT mouse.middle_button state)
         | RawMouseButtonEvent.MiddleUp -> apply_mouse_action_up MIDDLE_BUTTON_BIT mouse.middle_button state
         | RawMouseButtonEvent.Mouse4Down ->
-            effect <- InputEffect.combine effect (apply_mouse_action_down MOUSE4_BUTTON_BIT mouse.mouse4 state)
+            effect <-
+                InputEffect.combine
+                    effect
+                    (apply_mouse_action_down keyboard_actions MOUSE4_BUTTON_BIT mouse.mouse4 state)
         | RawMouseButtonEvent.Mouse4Up -> apply_mouse_action_up MOUSE4_BUTTON_BIT mouse.mouse4 state
         | RawMouseButtonEvent.Mouse5Down ->
-            effect <- InputEffect.combine effect (apply_mouse_action_down MOUSE5_BUTTON_BIT mouse.mouse5 state)
+            effect <-
+                InputEffect.combine
+                    effect
+                    (apply_mouse_action_down keyboard_actions MOUSE5_BUTTON_BIT mouse.mouse5 state)
         | RawMouseButtonEvent.Mouse5Up -> apply_mouse_action_up MOUSE5_BUTTON_BIT mouse.mouse5 state
         | RawMouseButtonEvent.None
         | RawMouseButtonEvent.LeftDown

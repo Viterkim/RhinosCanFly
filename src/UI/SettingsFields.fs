@@ -350,7 +350,12 @@ let create () =
               exit_on_mouse_middle = new CheckBox(Text = "Middle mouse exits flight")
               exit_on_mouse4 = new CheckBox(Text = "Mouse 4 exits flight")
               exit_on_mouse5 = new CheckBox(Text = "Mouse 5 exits flight")
-              commands_do_not_repeat = new CheckBox(Text = "Don't repeat flight commands") }
+              commands_do_not_repeat =
+                new CheckBox(
+                    Text = "Don't repeat flight commands in Rhino's custom list",
+                    ToolTip =
+                        "Flight commands use Rhino's do-not-repeat flag. This option applies when Rhino's custom never-repeat list is enabled."
+                ) }
           viewport_capability_names = new TextBox()
           right_click_flight_entry_names = new TextBox() }
       status =

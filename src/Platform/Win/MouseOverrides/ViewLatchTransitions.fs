@@ -9,12 +9,13 @@ let release (state: State) =
     match state.view_latch with
     | NoViewLatch -> Ok()
     | (WaitingForRelease _ | ViewLatchActive _) as active ->
+        let revision = state.navigation_revision
         state.view_latch <- NoViewLatch
         MouseOverrideState.stop_timer_if_idle state
-        MouseOverrideState.complete_view_latch active
+        MouseOverrideState.complete_view_latch state revision active
 
-let complete_or_log (latch: ViewLatch) =
-    match MouseOverrideState.complete_view_latch latch with
+let complete_or_log (state: State) (revision: int64) (latch: ViewLatch) =
+    match MouseOverrideState.complete_view_latch state revision latch with
     | Ok() -> ()
     | Error error -> Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
 
@@ -28,8 +29,8 @@ let activate (state: State) (session: ViewLatchSession) =
     if MouseOverrideState.gesture_navigation_engaged state then
         Error "Another view navigation mode is already active."
     else
-        state.view_latch <- ViewLatchActive session
         MouseOverrideState.keep_timer_running state
+        state.view_latch <- ViewLatchActive session
         Ok()
 
 let start
@@ -37,13 +38,16 @@ let start
     (host: ViewportHostIdentity)
     (mode: ViewNavigationMode)
     (target: Rhino.Geometry.Point3d)
-    (rollback: unit -> Result<unit, string>)
-    (completion: Action option)
+    (can_apply: unit -> bool)
+    (rollback: int64 -> Result<unit, string>)
+    (completion: Action<unit -> bool> option)
     =
     let view = Rhino.Display.RhinoView.FromRuntimeSerialNumber host.view_serial_number
 
-    if isNull view || isNull view.Document then
+    if not (PlatformInput.viewport_host_is_active host view) then
         Error "The navigation viewport is unavailable."
+    elif not (can_apply ()) then
+        Error "Navigation was cancelled during viewport validation."
     else
         let session =
             { host = host
@@ -53,27 +57,29 @@ let start
               completion = completion }
 
         if input_released () then
-            activate state session
+            activate state session |> Result.map (fun (_: unit) -> session)
         else
-            state.view_latch <- WaitingForRelease session
             MouseOverrideState.keep_timer_running state
-            Ok()
+            state.view_latch <- WaitingForRelease session
+            Ok session
 
 let update_with (foreground: RootWindow) (released: bool) (state: State) =
+    let revision = state.navigation_revision
+
     match state.view_latch with
     | NoViewLatch -> ()
     | WaitingForRelease pending ->
         if foreground <> pending.host.root_window then
             state.view_latch <- NoViewLatch
             MouseOverrideState.stop_timer_if_idle state
-            complete_or_log (WaitingForRelease pending)
+            complete_or_log state revision (WaitingForRelease pending)
         elif released then
             match activate state pending with
             | Ok() -> ()
             | Error error ->
                 state.view_latch <- NoViewLatch
                 MouseOverrideState.stop_timer_if_idle state
-                complete_or_log (WaitingForRelease pending)
+                complete_or_log state revision (WaitingForRelease pending)
                 Debug.WriteLine $"RhinosCanFly latched view manipulation: {error}"
     | ViewLatchActive session ->
         if foreground <> session.host.root_window then
@@ -94,36 +100,72 @@ let current_mode (state: State) =
 
 let is_mode (state: State) (mode: ViewNavigationMode) = current_mode state = Some mode
 
+let prepare_start
+    (state: State)
+    (host: ViewportHostIdentity)
+    (mode: ViewNavigationMode)
+    (completion: Action<unit -> bool> option)
+    =
+    let can_apply = MouseOverrideState.begin_action state
+    let revision = state.navigation_revision
+
+    let struct (record_change, rollback) =
+        GestureNavigationTransitions.target_rollback state host
+
+    let result =
+        try
+            match
+                state.routing.prepare_navigation host NavigationTargetPoint.ViewCenter mode can_apply record_change
+            with
+            | _ when not (can_apply ()) -> Error "Navigation was cancelled during preparation."
+            | Error error -> Error error
+            | Ok(struct (prepared, target)) -> start state prepared mode target can_apply rollback completion
+        with error ->
+            Error error.Message
+
+    match result with
+    | Ok session -> Ok session
+    | Error error ->
+        match rollback revision with
+        | Ok() -> Error error
+        | Error rollback_error -> Error $"{error}; {rollback_error}"
+
 let start_or_switch
     (state: State)
     (host: ViewportHostIdentity)
     (mode: ViewNavigationMode)
-    (rollback: unit -> Result<unit, string>)
-    (completion: Action option)
+    (completion: Action<unit -> bool> option)
     =
     if state.lifecycle <> Available then
         Error "Mouse button overrides are unavailable."
     else
         match current_mode state with
-        | Some current when current = mode -> Ok()
-        | None when not (MouseOverrideState.gesture_navigation_engaged state) ->
-            let can_apply = MouseOverrideState.begin_action state
+        | Some current when current = mode ->
+            match state.view_latch with
+            | WaitingForRelease session
+            | ViewLatchActive session -> Ok(struct (session, false))
+            | NoViewLatch -> Error "The navigation session disappeared."
+        | _ ->
+            let revision = state.navigation_revision
 
-            match state.routing.prepare_navigation host NavigationTargetPoint.ViewCenter mode can_apply with
-            | _ when not (can_apply ()) -> Error "Navigation was cancelled during preparation."
+            let replacing =
+                MouseOverrideState.view_latch_engaged state
+                || MouseOverrideState.gesture_navigation_engaged state
+
+            let released =
+                if replacing then
+                    MouseOverrideState.release_all state
+                else
+                    Ok()
+
+            let expected_revision = if replacing then revision + 1L else revision
+
+            match released with
             | Error error -> Error error
-            | Ok(struct (prepared, target)) -> start state prepared mode target rollback completion
-        | Some _
-        | None ->
-            match MouseOverrideState.release_all state with
-            | Error error -> Error error
+            | Ok() when state.navigation_revision <> expected_revision -> Error "Navigation changed during cleanup."
             | Ok() ->
-                let can_apply = MouseOverrideState.begin_action state
-
-                match state.routing.prepare_navigation host NavigationTargetPoint.ViewCenter mode can_apply with
-                | _ when not (can_apply ()) -> Error "Navigation was cancelled during preparation."
-                | Error error -> Error error
-                | Ok(struct (prepared, target)) -> start state prepared mode target rollback completion
+                prepare_start state host mode completion
+                |> Result.map (fun (session: ViewLatchSession) -> struct (session, true))
 
 let stop (state: State) (mode: ViewNavigationMode) =
     if state.lifecycle <> Available then

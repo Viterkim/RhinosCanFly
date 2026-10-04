@@ -11,6 +11,7 @@ open RhinosCanFly
 
 type Callbacks =
     { hook_installed: unit -> bool
+      active_host_changed: ViewportHostIdentity voption -> unit
       ensure_ui_wake: unit -> unit
       active_navigation_host: unit -> ViewportHostIdentity voption
       request_navigation_exit: unit -> unit
@@ -92,6 +93,11 @@ let refresh_active (state: State) =
 
             if not (isNull view) && view.Handle <> nativeint 0 then
                 update state view
+                state.callbacks.active_host_changed (ValueSome(capture_host view))
+            else
+                state.callbacks.active_host_changed ValueNone
+        else
+            state.callbacks.active_host_changed ValueNone
     with error ->
         state.callbacks.log_exception "active viewport refresh" error
 
@@ -150,7 +156,8 @@ let create (callbacks: Callbacks) =
     let viewport_changed =
         EventHandler<ViewEventArgs>(fun (_: obj) (event: ViewEventArgs) ->
             if callbacks.hook_installed () then
-                view_created.Invoke(null, event))
+                view_created.Invoke(null, event)
+                refresh_active state)
 
     let page_space_changed =
         EventHandler<PageViewSpaceChangeEventArgs>(fun (_: obj) (event: PageViewSpaceChangeEventArgs) ->
@@ -160,6 +167,7 @@ let create (callbacks: Callbacks) =
 
                     if not (isNull view) && not (isNull view.Document) && view.Handle <> nativeint 0 then
                         update state view
+                        refresh_active state
                 with error ->
                     callbacks.log_exception "layout detail refresh" error)
 
@@ -191,7 +199,7 @@ let subscribe (state: State) =
             | None -> failwith "The viewport Destroy handler is unavailable."
 
         match refresh state with
-        | Ok() -> ()
+        | Ok() -> refresh_active state
         | Error error -> failwith error
     with error ->
         if state.create_subscribed then

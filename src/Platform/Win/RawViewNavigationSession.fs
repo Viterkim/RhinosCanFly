@@ -90,6 +90,13 @@ type Session
                         this.NotifyFailure()
                         ValueNone
                     else
+                        if InputAccumulator.take_absolute_motion_warning input then
+                            try
+                                RhinoApp.WriteLine
+                                    "RhinosCanFly: absolute-position mouse motion is unsupported. Use a relative mouse; buttons and wheel still work."
+                            with error ->
+                                Debug.WriteLine $"RhinosCanFly absolute-input warning output failed: {error.Message}"
+
                         let struct (count, overflowed) = InputAccumulator.drain_timeline destination input
 
                         ValueSome
@@ -142,11 +149,12 @@ type Session
                     && outcome.registration_relinquished
                     && not outcome.previous_registration_lost
 
-                if not raw_input_clean then
-                    errors.Add "raw input did not shut down cleanly"
+                if not outcome.pending_only then
+                    if not raw_input_clean then
+                        errors.Add "raw input did not shut down cleanly"
 
-                for error in outcome.errors do
-                    errors.Add $"raw input: {error}")
+                    for error in outcome.errors do
+                        errors.Add $"raw input: {error}")
 
         if not cursor_restored then
             attempt "cursor position" (fun () ->

@@ -1,6 +1,7 @@
 module RhinosCanFly.Platform.Win.GestureNavigationTransitions
 
 open System.Drawing
+open System.Diagnostics
 open Rhino
 open Rhino.Display
 open RhinosCanFly
@@ -19,10 +20,17 @@ type ActionViewPreparation =
     | ActionViewDeferred
     | ActionViewUnavailable of error: string
 
-let prepare_action_view (host: ViewportHostIdentity) =
+let prepare_action_view (state: State) (host: ViewportHostIdentity) (admission: MouseAdmission) =
+    let now = Stopwatch.GetTimestamp()
+    MouseOverrideState.start_admission_deadline now admission
+    let foreground = MouseOverrideState.foreground_root_window ()
+    let activation_allowed = not admission.activation_attempted
+
     let foreground_ready =
-        MouseOverrideState.foreground_root_window () = host.root_window
-        || MouseOverrideState.try_bring_root_window_to_foreground host.root_window
+        MouseOverrideState.admission_is_current now foreground state host admission
+        && (foreground = host.root_window
+            || (activation_allowed
+                && MouseOverrideState.try_bring_root_window_to_foreground host.root_window))
 
     if not foreground_ready then
         ActionViewUnavailable "The navigation window could not be activated."
@@ -33,7 +41,15 @@ let prepare_action_view (host: ViewportHostIdentity) =
         let (ViewWindowHandle expected_window) = host.view_window
 
         if
-            isNull view
+            not (
+                MouseOverrideState.admission_is_current
+                    (Stopwatch.GetTimestamp())
+                    (MouseOverrideState.foreground_root_window ())
+                    state
+                    host
+                    admission
+            )
+            || isNull view
             || isNull document
             || isNull active_document
             || document.RuntimeSerialNumber <> host.document_serial_number
@@ -50,15 +66,32 @@ let prepare_action_view (host: ViewportHostIdentity) =
                 isNull active_view
                 || active_view.RuntimeSerialNumber <> view.RuntimeSerialNumber
             then
-                document.Views.ActiveView <- view
-                ActionViewDeferred
+                if activation_allowed then
+                    let revision = state.host_revision
+                    admission.activation_attempted <- true
+                    document.Views.ActiveView <- view
+
+                    if
+                        state.host_revision = revision
+                        || (state.host_revision = revision + 1L && state.active_host = ValueSome host)
+                    then
+                        MouseOverrideState.observe_active_host state (ValueSome host)
+                        admission.host_revision <- state.host_revision
+                        ActionViewDeferred
+                    else
+                        ActionViewUnavailable "Navigation was cancelled during viewport activation."
+                else
+                    ActionViewUnavailable "The navigation viewport changed."
             else
+                admission.activation_attempted <- true
+                admission.host_revision <- state.host_revision
                 ActionViewReady(view, host)
 
 let complete_view_latch (state: State) =
+    let revision = state.navigation_revision
     let previous = state.view_latch
     state.view_latch <- NoViewLatch
-    MouseOverrideState.complete_view_latch previous
+    MouseOverrideState.complete_view_latch state revision previous
 
 let uses_cursor_outside_flight (state: State) (owner: GestureOwner) =
     match owner with
@@ -78,44 +111,75 @@ let client_target_point (state: State) (owner: GestureOwner) (view: RhinoView) (
           y = bounds.Height / 2 }
 
 let stop (state: State) =
+    let revision = state.navigation_revision
+    let previous = state.gesture_navigation
     state.gesture_navigation <- NoGestureNavigation
     MouseOverrideState.stop_timer_if_idle state
 
-let restore_original_target (host: ViewportHostIdentity) (original_target: Rhino.Geometry.Point3d voption) =
-    match original_target with
-    | ValueNone -> Ok()
-    | ValueSome target ->
-        try
-            match PlatformInput.try_find_host_viewport host with
-            | Some viewport ->
-                viewport.SetCameraTarget(target, false)
-                RhinoView.FromRuntimeSerialNumber(host.view_serial_number).Redraw()
-            | None -> ()
+    match MouseOverrideState.complete_gesture_navigation revision previous with
+    | Ok() -> ()
+    | Error error -> Debug.WriteLine $"RhinosCanFly navigation cancellation: {error}"
 
-            Ok()
+let target_rollback (state: State) (host: ViewportHostIdentity) =
+    let revision = state.navigation_revision
+
+    let mutable change: struct (Rhino.Geometry.Point3d * Rhino.Geometry.Point3d) option =
+        None
+
+    let record_change (original: Rhino.Geometry.Point3d) (applied: Rhino.Geometry.Point3d) =
+        change <- Some(struct (original, applied))
+
+    let rollback (cleanup_revision: int64) =
+        let recorded = change
+        change <- None
+
+        try
+            match recorded with
+            | Some(struct (original, applied)) when
+                state.navigation_revision = cleanup_revision
+                // release_all advances the revision before completing its detached latch.
+                && (cleanup_revision = revision || cleanup_revision = revision + 1L)
+                && state.lifecycle <> ShutDown
+                ->
+                let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
+
+                if PlatformInput.viewport_host_is_foreground host view then
+                    let viewport = view.ActiveViewport
+
+                    if state.navigation_revision = cleanup_revision && viewport.CameraTarget = applied then
+                        viewport.SetCameraTarget(original, false)
+
+                        if
+                            state.navigation_revision = cleanup_revision
+                            && PlatformInput.viewport_host_is_foreground host view
+                        then
+                            view.Redraw()
+
+                Ok()
+            | _ -> Ok()
         with error ->
             Error $"Could not restore the navigation target: {error.Message}"
 
-let rollback_start (state: State) =
-    let session =
-        match state.gesture_navigation with
-        | GestureNavigationActive active -> ValueSome active
-        | NoGestureNavigation -> ValueNone
+    struct (record_change, rollback)
 
-    stop state
+let rollback_start (state: State) (revision: int64) =
+    if state.navigation_revision <> revision then
+        Ok()
+    else
+        let gesture = state.gesture_navigation
+        let latch = state.view_latch
+        state.gesture_navigation <- NoGestureNavigation
+        state.view_latch <- NoViewLatch
+        MouseOverrideState.stop_timer_if_idle state
 
-    let gesture_result =
-        match session with
-        | ValueSome active -> restore_original_target active.host active.original_target
-        | ValueNone -> Ok()
+        let gesture_result = MouseOverrideState.complete_gesture_navigation revision gesture
+        let latch_result = MouseOverrideState.complete_view_latch state revision latch
 
-    let latch_result = complete_view_latch state
-
-    match gesture_result, latch_result with
-    | Ok(), Ok() -> Ok()
-    | Error error, Ok()
-    | Ok(), Error error -> Error error
-    | Error gesture_error, Error latch_error -> Error $"{gesture_error}; {latch_error}"
+        match gesture_result, latch_result with
+        | Ok(), Ok() -> Ok()
+        | Error error, Ok()
+        | Ok(), Error error -> Error error
+        | Error gesture_error, Error latch_error -> Error $"{gesture_error}; {latch_error}"
 
 let begin_navigation
     (state: State)
@@ -141,17 +205,16 @@ let begin_navigation
 
     if not can_start then
         Ok()
+    elif not (can_apply ()) then
+        Error "Navigation was cancelled during gesture cleanup."
     else
         match complete_view_latch state with
         | Error error -> Error error
+        | Ok() when not (can_apply ()) -> Error "Navigation was cancelled during preparation."
         | Ok() ->
             let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
-
-            let original_target =
-                if isNull view || isNull view.Document then
-                    ValueNone
-                else
-                    ValueSome view.ActiveViewport.CameraTarget
+            let revision = state.navigation_revision
+            let struct (record_change, rollback) = target_rollback state host
 
             let target_point =
                 if
@@ -165,7 +228,7 @@ let begin_navigation
 
             let result =
                 try
-                    match state.routing.prepare_navigation host target_point mode can_apply with
+                    match state.routing.prepare_navigation host target_point mode can_apply record_change with
                     | _ when not (can_apply ()) -> Error "Navigation was cancelled during preparation."
                     | Error error -> Error error
                     | Ok(struct (prepared, target)) ->
@@ -173,6 +236,8 @@ let begin_navigation
 
                         if not (PlatformInput.viewport_host_is_active prepared prepared_view) then
                             Error "The navigation viewport disappeared during startup."
+                        elif not (can_apply ()) then
+                            Error "Navigation was cancelled during viewport validation."
                         else
                             MouseOverrideState.keep_timer_running state
 
@@ -183,7 +248,7 @@ let begin_navigation
                                       mode = mode
                                       lifetime = lifetime
                                       pivot_center = target
-                                      original_target = original_target }
+                                      startup_rollback = Some rollback }
 
                             Ok()
                 with error ->
@@ -192,7 +257,7 @@ let begin_navigation
             match result with
             | Ok() -> Ok()
             | Error error ->
-                match restore_original_target host original_target with
+                match rollback revision with
                 | Ok() -> Error error
                 | Error restore_error -> Error $"{error}; {restore_error}"
 
@@ -216,6 +281,7 @@ let press
     (action: RoutedMouseAction)
     (host: ViewportHostIdentity)
     (screen_point: Point)
+    (admission: MouseAdmission)
     =
     match action with
     | RoutedMouseAction.Off -> Applied
@@ -227,7 +293,7 @@ let press
     | RoutedMouseAction.HoldPan ->
         let can_apply = MouseOverrideState.begin_action state
 
-        match prepare_action_view host with
+        match prepare_action_view state host admission with
         | _ when not (can_apply ()) -> Failed "Navigation was cancelled during viewport activation."
         | ActionViewDeferred -> Deferred
         | ActionViewUnavailable error -> Failed error
@@ -243,11 +309,14 @@ let press
                             can_apply)
                     can_apply
             | RoutedMouseAction.StartFlight mode ->
+                admission.deadline <- 0L
+
                 state.pending_flight_entry <-
                     Some
                         { owner = owner
                           host = active_host
                           mode = mode
+                          admission = admission
                           released = false }
 
                 MouseOverrideState.keep_timer_running state
@@ -275,7 +344,9 @@ let press
 
 let release (state: State) (owner: GestureOwner) =
     match state.pending_flight_entry with
-    | Some entry when entry.owner = owner -> state.pending_flight_entry <- Some { entry with released = true }
+    | Some entry when entry.owner = owner ->
+        MouseOverrideState.start_admission_deadline (Stopwatch.GetTimestamp()) entry.admission
+        state.pending_flight_entry <- Some { entry with released = true }
     | _ -> ()
 
     match state.gesture_navigation with

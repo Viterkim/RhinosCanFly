@@ -22,17 +22,17 @@ type PluginCommand(run: RhinoDoc -> Result) =
     override _.RunCommand(document: RhinoDoc, _mode: RunMode) = run document
 
 [<Guid("D25AFA9B-C34C-49AC-8592-FB6A4B4061FE")>]
-[<CommandStyle(Style.Transparent)>]
+[<CommandStyle(Style.Transparent ||| Style.DoNotRepeat)>]
 type RhinosCanFlyCommand() =
     inherit PluginCommand(Commands.RhinosCanFly.run)
 
 [<Guid("38D5BD6A-334F-4038-A3C7-B374CBD760BB")>]
-[<CommandStyle(Style.Transparent)>]
+[<CommandStyle(Style.Transparent ||| Style.DoNotRepeat)>]
 type RhinosCanFlyTempFlyCommand() =
     inherit PluginCommand(Commands.RhinosCanFlyTempFly.run)
 
 [<Guid("75BD5B16-C069-4123-919B-FB5E5F912575")>]
-[<CommandStyle(Style.Transparent)>]
+[<CommandStyle(Style.Transparent ||| Style.DoNotRepeat)>]
 type RhinosCanWalkCommand() =
     inherit PluginCommand(Commands.RhinosCanWalk.run)
 
@@ -78,7 +78,7 @@ type RhinosCanFlyInputRecoverCommand() =
     inherit PluginCommand(Commands.RhinosCanFlyInputRecover.run)
 
 [<Guid("73C463C6-A091-4BC8-B6C7-E5311817F0F8")>]
-[<CommandStyle(Style.Transparent)>]
+[<CommandStyle(Style.Transparent ||| Style.DoNotRepeat)>]
 type RhinosCanFlyToggleEnableCommand() =
     inherit PluginCommand(Commands.RhinosCanFlyToggleEnable.run)
 

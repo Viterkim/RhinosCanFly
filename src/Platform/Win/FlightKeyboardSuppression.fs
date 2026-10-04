@@ -111,7 +111,7 @@ let try_request_plain_escape_exit () =
                 match state.input with
                 | Some input ->
                     // End publication here; earlier cancellation transitions still get consumed.
-                    InputAccumulator.add_keyboard_transition Win32Native.VK_ESCAPE true input
+                    InputAccumulator.add_keyboard_transition (Stopwatch.GetTimestamp()) Win32Native.VK_ESCAPE true input
                     Volatile.Write(&state.accept_new_keys, false)
                     Volatile.Write(&input.escape_requested, true)
                     true
@@ -221,7 +221,6 @@ let configure_with_snapshot
     (input: InputAccumulator.State)
     (input_available: Action)
     =
-    let released_keys = ResizeArray<int>()
     let bindings = config.bindings
     let retarget = config.behavior.retarget
 
@@ -236,14 +235,6 @@ let configure_with_snapshot
 
     System.Array.Clear(state.key_is_down, 0, state.key_is_down.Length)
     System.Array.Clear(state.observed_key_is_down, 0, state.observed_key_is_down.Length)
-
-    for physical_key in state.suppressed_keys_down do
-        if not (is_down physical_key) then
-            released_keys.Add physical_key
-
-    for physical_key in released_keys do
-        state.suppressed_keys_down.Remove physical_key |> ignore
-        state.key_is_down[physical_key] <- false
 
     clear_configured ()
     add_binding bindings.forward
@@ -553,7 +544,7 @@ let release_stale_key (physical_key: int) =
         state.passthrough_keys_down.Remove physical_key |> ignore
 
         match state.input with
-        | Some input -> InputAccumulator.add_keyboard_transition physical_key false input
+        | Some input -> InputAccumulator.add_keyboard_transition (Stopwatch.GetTimestamp()) physical_key false input
         | None -> ()
 
         true
@@ -561,10 +552,12 @@ let release_stale_key (physical_key: int) =
         false
 
 let reconcile_physical_keys () =
+    // Peek outside the input lock: Windows may dispatch sent messages here.
+    let keyboard_pending = ValueOption.isSome (Win32.queued_keyboard_timestamp ())
     Monitor.Enter state.transition_gate
 
     try
-        if Volatile.Read(&state.active) then
+        if Volatile.Read(&state.active) && not keyboard_pending then
             let mutable changed = false
 
             for physical_key in state.configured.exact do
@@ -634,6 +627,7 @@ let hook_event (event: Win32.KeyboardHookEvent) =
                 match state.input with
                 | Some input when not escape_requested ->
                     InputAccumulator.add_keyboard_transition
+                        event.timestamp
                         event.physical_key
                         state.observed_key_is_down[event.physical_key]
                         input
@@ -774,6 +768,17 @@ let consume_escape_exit (lifetime: FlightLifetime) (exit_buttons: MouseExitConfi
         InputAccumulator.request_exit final_reason input
 
 let revision () = Volatile.Read(&state.revision)
+
+let movement_boundary () =
+    let queued = Win32.queued_keyboard_timestamp ()
+    let frame = Stopwatch.GetTimestamp()
+
+    let boundary =
+        match queued with
+        | ValueSome timestamp -> min frame timestamp
+        | ValueNone -> frame
+
+    struct (frame, boundary)
 
 let allow_passthrough () =
     Volatile.Write(&state.accept_new_keys, false)

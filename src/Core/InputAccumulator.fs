@@ -1,6 +1,7 @@
 module RhinosCanFly.InputAccumulator
 
 open System
+open System.Diagnostics
 open System.Threading
 
 [<Literal>]
@@ -36,6 +37,7 @@ type TimelineEventKind =
 [<Struct>]
 type TimelineEvent =
     { kind: TimelineEventKind
+      timestamp: int64
       dx: int64
       dy: int64
       wheel: int64
@@ -52,6 +54,7 @@ type State =
       mutable timeline_overflow: int
       mutable exit_reason: FlightExitReason option
       mutable escape_requested: bool
+      mutable absolute_motion_warning: int
       mutable work_revision: int64 }
 
 [<Struct>]
@@ -86,10 +89,22 @@ let create () =
       timeline_overflow = 0
       exit_reason = None
       escape_requested = false
+      absolute_motion_warning = 0
       work_revision = 0L }
 
 let mark_work_available (state: State) =
     Interlocked.Increment(&state.work_revision) |> ignore
+
+let observe_absolute_motion (state: State) =
+    if Interlocked.CompareExchange(&state.absolute_motion_warning, 1, 0) = 0 then
+        mark_work_available state
+        true
+    else
+        false
+
+let take_absolute_motion_warning (state: State) =
+    // 0: unseen, 1: pending, 2: reported for this session.
+    Interlocked.CompareExchange(&state.absolute_motion_warning, 2, 1) = 1
 
 let pack_mouse (x: int32) (y: int32) =
     int64 (uint64 (uint32 x) ||| (uint64 (uint32 y) <<< 32))
@@ -127,6 +142,7 @@ let request_exit (reason: FlightExitReason) (state: State) =
 
 let movement_event (dx: int64) (dy: int64) =
     { kind = TimelineEventKind.Movement
+      timestamp = Stopwatch.GetTimestamp()
       dx = dx
       dy = dy
       wheel = 0L
@@ -136,6 +152,7 @@ let movement_event (dx: int64) (dy: int64) =
 
 let wheel_event (delta: int64) =
     { kind = TimelineEventKind.Wheel
+      timestamp = 0L
       dx = 0L
       dy = 0L
       wheel = delta
@@ -145,6 +162,7 @@ let wheel_event (delta: int64) =
 
 let raw_mouse_button_event (transition: RawMouseButtonTransition) =
     { kind = TimelineEventKind.RawMouseButton
+      timestamp = 0L
       dx = 0L
       dy = 0L
       wheel = 0L
@@ -157,7 +175,14 @@ let enqueue_locked (event: TimelineEvent) (state: State) =
         Interlocked.Exchange(&state.timeline_overflow, 1) |> ignore
     else
         let index = int (state.timeline_write % int64 state.timeline_events.Length)
-        state.timeline_events[index] <- event
+
+        state.timeline_events[index] <-
+            if event.timestamp = 0L then
+                { event with
+                    timestamp = Stopwatch.GetTimestamp() }
+            else
+                event
+
         state.timeline_write <- state.timeline_write + 1L
 
 let flush_movement_locked (state: State) =
@@ -185,9 +210,10 @@ let add_wheel (delta: int) (state: State) =
     if delta <> 0 then
         add_boundary_event (wheel_event (int64 delta)) state
 
-let add_keyboard_transition (key: int) (down: bool) (state: State) =
+let add_keyboard_transition (timestamp: int64) (key: int) (down: bool) (state: State) =
     add_boundary_event
         { kind = TimelineEventKind.KeyboardTransition
+          timestamp = timestamp
           dx = 0L
           dy = 0L
           wheel = 0L
@@ -239,6 +265,7 @@ let work_pending (state: State) =
     Volatile.Read(&state.escape_requested)
     || Option.isSome (Volatile.Read(&state.exit_reason))
     || Volatile.Read(&state.mouse_xy) <> 0L
+    || Volatile.Read(&state.absolute_motion_warning) = 1
     || timeline_pending state
     || Volatile.Read(&state.timeline_overflow) <> 0
 

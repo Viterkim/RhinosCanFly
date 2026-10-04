@@ -68,6 +68,10 @@ let sync_camera_from_viewport (accepted_target: Point3d voption) (state: FlyStat
             if FlyState.can_write_camera state then
                 state.camera <- camera
 
+                match accepted_target with
+                | ValueSome target -> state.key_pivot_target <- target
+                | ValueNone -> ()
+
                 match state.active_mouse_navigation with
                 | MousePivot drag -> reset_pivot_drag (ValueOption.defaultValue drag.center accepted_target) drag state
                 | MousePan(pan_target, _) ->
@@ -291,7 +295,44 @@ let apply_mouse_delta (dx: int64) (dy: int64) (state: FlyState) =
             state.restore_camera_on_exit <- true
             failwith "Mouse input produced an invalid camera state."
 
-let parallel_magnification_factor (state: FlyState) (forward_distance: float) =
+let parallel_zoom_factor (width: float) (forward_distance: float) (multiplier: float) (seconds: float) =
+    if
+        not (RhinoMath.IsValidDouble width)
+        || width <= RhinoMath.ZeroTolerance
+        || not (RhinoMath.IsValidDouble forward_distance)
+        || not (RhinoMath.IsValidDouble multiplier)
+        || multiplier < 0.
+        || not (RhinoMath.IsValidDouble seconds)
+        || seconds <= 0.
+    then
+        1.
+    else
+        // Bound zoom per second, including the transition into and out of the limit.
+        let maximum_rate = 15.
+        let rate = forward_distance / seconds / width * multiplier
+
+        if rate = 0. then
+            1.
+        elif rate >= maximum_rate then
+            Math.Exp(maximum_rate * seconds)
+        elif rate > 0. then
+            let until_limit = (1. - rate / maximum_rate) / rate
+
+            if seconds <= until_limit then
+                1. / (1. - rate * seconds)
+            else
+                maximum_rate / rate * Math.Exp(maximum_rate * (seconds - until_limit))
+        elif -rate <= maximum_rate then
+            1. / (1. - rate * seconds)
+        else
+            let until_limit = Math.Log(-rate / maximum_rate) / maximum_rate
+
+            if seconds <= until_limit then
+                Math.Exp(-maximum_rate * seconds)
+            else
+                maximum_rate / -rate / (1. + maximum_rate * (seconds - until_limit))
+
+let parallel_magnification_factor (state: FlyState) (forward_distance: float) (seconds: float) =
     let viewport = state.viewport
     let parallel_projection = state.config.movement.parallel_projection
 
@@ -312,11 +353,8 @@ let parallel_magnification_factor (state: FlyState) (forward_distance: float) =
             let width = right - left
 
             if RhinoMath.IsValidDouble width && width > RhinoMath.ZeroTolerance then
-                let requested_exponent =
-                    forward_distance * parallel_projection.zoom_speed_multiplier / width
-
-                let exponent = Movement.clamp -0.25 0.25 requested_exponent
-                let factor = Math.Exp exponent
+                let factor =
+                    parallel_zoom_factor width forward_distance parallel_projection.zoom_speed_multiplier seconds
 
                 if RhinoMath.IsValidDouble factor && factor > RhinoMath.ZeroTolerance then
                     factor
@@ -326,6 +364,55 @@ let parallel_magnification_factor (state: FlyState) (forward_distance: float) =
                 1.
         else
             1.
+
+let apply_movement (movement: FlightMovementInput) (seconds: float) (state: FlyState) =
+    if
+        seconds <= 0.
+        || not (FlightInput.movement_active movement)
+        || not (FlyState.can_write_camera state)
+    then
+        ViewChange.none
+    else
+        let previous = state.camera
+
+        let vertical_speed_multiplier =
+            if state.projection = ViewProjectionKind.Parallel then
+                state.config.movement.parallel_projection.up_down_multiplier
+            else
+                state.config.movement.vertical_speed_multiplier
+
+        let step =
+            Movement.step
+                state.config.movement
+                vertical_speed_multiplier
+                state.walking_plane
+                movement
+                state.key_pivot_target
+                seconds
+                previous
+
+        if not (CameraState.valid step.camera) then
+            state.restore_camera_on_exit <- true
+            failwith "Movement produced an invalid camera state."
+
+        let magnification =
+            parallel_magnification_factor state step.forward_distance seconds
+
+        match state.active_mouse_navigation with
+        | MousePivot drag ->
+            PivotOrbit.transform_for_flight_movement step.translation state.key_pivot_target step.key_pivot_angle drag
+        | MousePan(target, units_per_radian) ->
+            state.active_mouse_navigation <-
+                MousePan(
+                    Movement.orbit_point state.key_pivot_target step.key_pivot_angle (target + step.translation),
+                    units_per_radian
+                )
+        | MouseLook -> ()
+
+        state.camera <- step.camera
+
+        { camera_changed = step.camera <> previous
+          parallel_magnification = magnification }
 
 // Update the camera now; redraw once after the input batch.
 let write_view (state: FlyState) (change: ViewChange) =

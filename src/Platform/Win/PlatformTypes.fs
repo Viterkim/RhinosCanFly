@@ -38,5 +38,6 @@ type MouseOverrideConfig =
               -> NavigationTargetPoint
               -> ViewNavigationMode
               -> (unit -> bool)
+              -> (Rhino.Geometry.Point3d -> Rhino.Geometry.Point3d -> unit)
               -> Result<struct (ViewportHostIdentity * Rhino.Geometry.Point3d), string>
       retarget: ViewportHostIdentity -> ViewportClientPoint -> RetargetMode -> (unit -> bool) -> ApplicationOutcome }

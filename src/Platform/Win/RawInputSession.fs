@@ -20,6 +20,8 @@ module RawMouseButtons =
             tracked <- pending
             handoff <- true)
 
+    let end_raw_delivery () = lock gate (fun () -> handoff <- false)
+
     let finish_handoff () =
         lock gate (fun () ->
             handoff <- false
@@ -41,7 +43,7 @@ module RawMouseButtons =
 
                 struct (not released || owned, false)
             else
-                let owned = pending &&& bit <> 0
+                let owned = (pending ||| tracked) &&& bit <> 0
                 pending <- pending &&& ~~~bit
                 tracked <- tracked &&& ~~~bit
                 struct (released && owned, owned))
@@ -141,9 +143,12 @@ type RawInputSession
 
             button_added <- true
 
-        let mouse_moved =
-            mouse.flags &&& RawInputNative.MOUSE_MOVE_ABSOLUTE = 0us
-            && (mouse.last_x <> 0 || mouse.last_y <> 0)
+        let absolute_motion = mouse.flags &&& RawInputNative.MOUSE_MOVE_ABSOLUTE <> 0us
+
+        let motion_warning =
+            absolute_motion && InputAccumulator.observe_absolute_motion input
+
+        let mouse_moved = not absolute_motion && (mouse.last_x <> 0 || mouse.last_y <> 0)
 
         if mouse_moved then
             InputAccumulator.add_mouse mouse.last_x mouse.last_y input
@@ -179,7 +184,7 @@ type RawInputSession
             RawInputSessionEvents.add_button RawMouseButtonEvent.Mouse5Up modifiers input
             button_added <- true
 
-        mouse_moved || wheel_delta <> 0 || button_added
+        mouse_moved || wheel_delta <> 0 || button_added || motion_warning
 
     member _.SignalInputAvailable() = input_available.Invoke()
 

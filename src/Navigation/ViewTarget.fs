@@ -807,9 +807,16 @@ let resolve_navigation_target
         existing
 
 
-let apply (config: RetargetConfig) (mode: RetargetMode) (view: RhinoView) (viewport: RhinoViewport) =
+let apply
+    (config: RetargetConfig)
+    (mode: RetargetMode)
+    (view: RhinoView)
+    (viewport: RhinoViewport)
+    (can_apply: unit -> bool)
+    =
     match selected_target_at config mode view viewport (viewport_center viewport) with
-    | Some target -> viewport.SetCameraTarget(target, false)
+    | Some target when can_apply () -> viewport.SetCameraTarget(target, false)
+    | Some _
     | None -> ()
 
 let navigation_camera_target
@@ -833,6 +840,7 @@ let apply_for_navigation
     (viewport: RhinoViewport)
     (target_point: NavigationTargetPoint)
     (can_apply: unit -> bool)
+    (record_change: Point3d -> Point3d -> unit)
     =
     let point =
         match target_point with
@@ -846,7 +854,14 @@ let apply_for_navigation
         invalidOp "Navigation was cancelled during target acquisition."
 
     match navigation_camera_target navigation_mode selection viewport.CameraLocation viewport.CameraDirection with
-    | ValueSome target -> viewport.SetCameraTarget(target, false)
+    | ValueSome target ->
+        let original = viewport.CameraTarget
+
+        try
+            viewport.SetCameraTarget(target, false)
+        finally
+            if original <> target && viewport.CameraTarget = target then
+                record_change original target
     | ValueNone -> ()
 
     selection.target

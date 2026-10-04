@@ -82,6 +82,22 @@ let apply_pivot (viewport: RhinoViewport) (can_write: unit -> bool) (drag: Pivot
     else
         false
 
+let translated_pan_locations (target: Point3d) (location: Point3d) (translation: Vector3d) =
+    let next_target = target + translation
+    let next_location = location + translation
+    let separation = next_target - next_location
+
+    if
+        not translation.IsValid
+        || not next_target.IsValid
+        || not next_location.IsValid
+        || not separation.IsValid
+        || separation.IsZero
+    then
+        invalidOp "Pan input produced invalid camera locations."
+
+    struct (next_target, next_location)
+
 let apply_pan (viewport: RhinoViewport) (can_write: unit -> bool) (config: MouseConfig) (dx: int64) (dy: int64) =
     let (MousePanMultiplier multiplier) = config.pan_multiplier
 
@@ -111,8 +127,14 @@ let apply_pan (viewport: RhinoViewport) (can_write: unit -> bool) (config: Mouse
         if translation.IsZero || not (can_write ()) then
             false
         else
-            viewport.SetCameraLocations(target + translation, location + translation)
-            true
+            let struct (next_target, next_location) =
+                translated_pan_locations target location translation
+
+            if can_write () then
+                viewport.SetCameraLocations(next_target, next_location)
+                true
+            else
+                false
     else
         false
 

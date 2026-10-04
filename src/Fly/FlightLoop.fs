@@ -7,6 +7,31 @@ open Rhino
 [<Literal>]
 let MAXIMUM_FRAME_DELTA_SECONDS = 0.05
 
+let movement_interval (previous: int64) (frame: int64) (boundary: int64) (pauses: ResizeArray<struct (int64 * int64)>) =
+    let maximum_ticks = int64 (MAXIMUM_FRAME_DELTA_SECONDS * float Stopwatch.Frequency)
+    let start = max previous (frame - maximum_ticks)
+    let finish = max start (min frame boundary)
+    let mutable paused = 0L
+
+    for index = 0 to pauses.Count - 1 do
+        let struct (pause_start, pause_end) = pauses[index]
+        paused <- paused + max 0L (min finish pause_end - max start pause_start)
+
+    struct (finish, float (finish - start - paused) / float Stopwatch.Frequency)
+
+let movement_boundaries
+    (frame: int64)
+    (events: InputAccumulator.TimelineEvent array)
+    (count: int)
+    (destination: int64 array)
+    =
+    // A flush ahead of an older queued key must leave that key's held time available.
+    let mutable boundary = frame
+
+    for index = count - 1 downto 0 do
+        boundary <- min boundary events[index].timestamp
+        destination[index] <- boundary
+
 let run
     (input_wake: PlatformInputWake.State)
     (raw_input: InputAccumulator.State)
@@ -14,25 +39,90 @@ let run
     (state: FlyState)
     =
     let clock = Stopwatch.StartNew()
-    let mutable previous_frame_seconds = clock.Elapsed.TotalSeconds
+    let mutable movement_clock = Stopwatch.GetTimestamp()
     let mutable movement_active = false
     let mutable input_ready = true
     let mutable observed_raw_revision = InputAccumulator.work_revision raw_input
     let mutable observed_keyboard_revision = PlatformFlightKeyboard.revision ()
     let timeline = InputAccumulator.timeline_buffer ()
+    let movement_times = Array.zeroCreate<int64> timeline.Length
+    let mutable batch_end = movement_clock
+    let mutable redraw_required = false
+    let target_work = ResizeArray<struct (int64 * int64)>(4 * timeline.Length + 4)
+
+    let record_target_work (started: int64) =
+        let finished = Stopwatch.GetTimestamp()
+        target_work.Add(struct (started, finished))
+
+    let update_navigation_mode () =
+        let started = Stopwatch.GetTimestamp()
+        let changed = FlightCamera.update_navigation_mode state
+
+        if changed then
+            match state.active_mouse_navigation with
+            | MousePivot _ -> record_target_work started
+            | MousePan _ -> record_target_work started
+            | MouseLook -> ()
+
+        changed
 
     let discard_pointer_input () =
         FlightCamera.rebase_active_pivot state
         state.wheel_remainder <- 0L
         InputAccumulator.discard_pointer_input raw_input
 
+    let reset_movement_clock () =
+        movement_clock <- max movement_clock (Stopwatch.GetTimestamp())
+
+    let advance_movement (boundary: int64) =
+        let struct (next_clock, seconds) =
+            movement_interval movement_clock batch_end boundary target_work
+
+        movement_clock <- next_clock
+
+        let mutable completed = 0
+
+        while completed < target_work.Count
+              && (let struct (_, finished) = target_work[completed] in finished <= next_clock) do
+            completed <- completed + 1
+
+        if completed <> 0 then
+            target_work.RemoveRange(0, completed)
+
+        if FlyState.can_write_camera state then
+            let movement = FlightControls.read_movement state
+            let pivot_keys_down = movement.key_pivot_left || movement.key_pivot_right
+            let pivot_direction_active = movement.key_pivot_left <> movement.key_pivot_right
+
+            if pivot_direction_active && state.key_pivot_input_state = KeyPivotInputArmed then
+                let started = Stopwatch.GetTimestamp()
+                let target = FlightCamera.navigation_target state ViewNavigationMode.Pivot
+                record_target_work started
+
+                if FlyState.can_write_camera state then
+                    state.key_pivot_target <- target
+                    FlightCamera.rebase_active_pivot state
+                    state.key_pivot_input_state <- KeyPivotInputActive
+            elif not pivot_keys_down then
+                state.key_pivot_input_state <- KeyPivotInputArmed
+
+            if FlyState.is_running state then
+                let change = FlightCamera.apply_movement movement seconds state
+                redraw_required <- FlightCamera.write_view state change || redraw_required
+
     let step () =
         input_ready <- false
         let frame_seconds = clock.Elapsed.TotalSeconds
-        let mutable reset_movement_clock = false
-        let mutable redraw_required = false
+        redraw_required <- false
         observed_raw_revision <- InputAccumulator.work_revision raw_input
         observed_keyboard_revision <- PlatformFlightKeyboard.revision ()
+
+        if InputAccumulator.take_absolute_motion_warning raw_input then
+            try
+                RhinoApp.WriteLine
+                    "RhinosCanFly: absolute-position mouse motion is unsupported. Use a relative mouse; buttons and wheel still work."
+            with error ->
+                Debug.WriteLine $"RhinosCanFly absolute-input warning output failed: {error.Message}"
 
         if frame_seconds >= state.next_host_validation_at then
             match PlatformRawInput.registration_is_current raw with
@@ -46,12 +136,16 @@ let run
             PlatformFlightKeyboard.allow_passthrough ()
             InputAccumulator.discard_transient_input raw_input
         else
-            if FlightCamera.update_navigation_mode state then
+            if update_navigation_mode () then
                 FlightCamera.rebase_active_pivot state
-                reset_movement_clock <- true
+
+            let struct (frame, movement_end) = PlatformFlightKeyboard.movement_boundary ()
+            batch_end <- frame
 
             let struct (timeline_count, timeline_overflowed) =
                 InputAccumulator.drain_timeline timeline raw_input
+
+            movement_boundaries movement_end timeline timeline_count movement_times
 
             if timeline_overflowed then
                 FlyState.request_exit (SessionFailure "The input timeline overflowed.") state
@@ -61,6 +155,7 @@ let run
 
             while FlyState.is_running state && timeline_index < timeline_count do
                 let event = timeline[timeline_index]
+                advance_movement movement_times[timeline_index]
 
                 match event.kind with
                 | InputAccumulator.TimelineEventKind.Movement when not discard_remaining_pointer ->
@@ -74,16 +169,14 @@ let run
 
                     if FlyState.is_running state then
                         redraw_required <- FlightCamera.write_view state effect.view_change || redraw_required
-
-                        let navigation_changed = FlightCamera.update_navigation_mode state
+                        let navigation_changed = update_navigation_mode ()
 
                         if effect.pointer_rebase_required then
                             discard_pointer_input ()
                             discard_remaining_pointer <- true
-                            reset_movement_clock <- true
+                            reset_movement_clock ()
                         elif navigation_changed then
                             FlightCamera.rebase_active_pivot state
-                            reset_movement_clock <- true
                 | InputAccumulator.TimelineEventKind.KeyboardTransition ->
                     let actions =
                         PlatformFlightKeyboard.apply_keyboard_transition event.key event.key_down
@@ -92,135 +185,31 @@ let run
 
                     if FlyState.is_running state then
                         redraw_required <- FlightCamera.write_view state effect.view_change || redraw_required
-
-                        let navigation_changed = FlightCamera.update_navigation_mode state
+                        let navigation_changed = update_navigation_mode ()
 
                         if effect.pointer_rebase_required then
                             discard_pointer_input ()
                             discard_remaining_pointer <- true
-                            reset_movement_clock <- true
+                            reset_movement_clock ()
                         elif navigation_changed then
                             FlightCamera.rebase_active_pivot state
-                            reset_movement_clock <- true
                 | InputAccumulator.TimelineEventKind.Movement
                 | InputAccumulator.TimelineEventKind.Wheel -> ()
                 | _ -> failwith "The input timeline contains an unknown event."
 
                 timeline_index <- timeline_index + 1
 
-            if not (FlyState.is_running state) then
+            if FlyState.is_running state then
+                advance_movement movement_end
+                movement_active <- FlightControls.read_movement state |> FlightInput.movement_active
+            else
                 PlatformFlightKeyboard.allow_passthrough ()
                 InputAccumulator.discard_transient_input raw_input
 
         PlatformInputWake.acknowledge input_wake
 
-        if FlyState.is_running state then
-            let mutable view_change = ViewChange.none
-
-            let movement = FlightControls.read_movement state
-
-            let now = frame_seconds
-            let currently_moving = FlightInput.movement_active movement
-            let movement_starting = currently_moving && not movement_active
-            let pivot_keys_down = movement.key_pivot_left || movement.key_pivot_right
-            let pivot_direction_active = movement.key_pivot_left <> movement.key_pivot_right
-
-            let pivot_target_starting =
-                pivot_direction_active && state.key_pivot_input_state = KeyPivotInputArmed
-
-            if pivot_target_starting then
-                let target = FlightCamera.navigation_target state ViewNavigationMode.Pivot
-
-                if FlyState.can_write_camera state then
-                    state.key_pivot_target <- target
-                    discard_pointer_input ()
-                    state.key_pivot_input_state <- KeyPivotInputActive
-            elif not pivot_keys_down && state.key_pivot_input_state = KeyPivotInputActive then
-                state.key_pivot_input_state <- KeyPivotInputArmed
-
-            if currently_moving && FlyState.can_write_camera state then
-                let dt =
-                    if movement_starting then
-                        0.
-                    else
-                        min (now - previous_frame_seconds) MAXIMUM_FRAME_DELTA_SECONDS
-
-                let previous_camera = state.camera
-                let parallel_projection = state.config.movement.parallel_projection
-
-                let parallel_flight = state.projection = ViewProjectionKind.Parallel
-
-                let vertical_speed_multiplier =
-                    if parallel_flight then
-                        parallel_projection.up_down_multiplier
-                    else
-                        state.config.movement.vertical_speed_multiplier
-
-                let movement_step =
-                    Movement.step
-                        state.config.movement
-                        vertical_speed_multiplier
-                        state.walking_plane
-                        movement
-                        state.key_pivot_target
-                        dt
-                        previous_camera
-
-                let next_camera = movement_step.camera
-
-                let parallel_magnification =
-                    FlightCamera.parallel_magnification_factor state movement_step.forward_distance
-
-                if not (CameraState.valid next_camera) then
-                    state.restore_camera_on_exit <- true
-                    failwith "Movement produced an invalid camera state."
-
-                match state.active_mouse_navigation with
-                | MousePivot drag ->
-                    PivotOrbit.transform_for_flight_movement
-                        movement_step.translation
-                        state.key_pivot_target
-                        movement_step.key_pivot_angle
-                        drag
-                | MousePan(pan_target, units_per_radian) ->
-                    let translated_target = pan_target + movement_step.translation
-
-                    state.active_mouse_navigation <-
-                        MousePan(
-                            Movement.orbit_point state.key_pivot_target movement_step.key_pivot_angle translated_target,
-                            units_per_radian
-                        )
-                | MouseLook -> ()
-
-                state.camera <- next_camera
-
-                view_change <-
-                    ViewChange.combine
-                        view_change
-                        { camera_changed = next_camera <> previous_camera
-                          parallel_magnification = parallel_magnification }
-
-            previous_frame_seconds <-
-                if movement_starting || pivot_target_starting || reset_movement_clock then
-                    // Don't count target or projection work as movement or the next frame jumps.
-                    clock.Elapsed.TotalSeconds
-                else
-                    now
-
-            movement_active <- currently_moving
-
-            redraw_required <- FlightCamera.write_view state view_change || redraw_required
-
-            if redraw_required then
-                FlightCamera.redraw state
-
-            if
-                movement_starting
-                && not view_change.camera_changed
-                && view_change.parallel_magnification = 1.
-            then
-                // If the first step is zero there is no redraw to wake the loop.
-                PlatformInputWake.signal input_wake
+        if FlyState.is_running state && redraw_required then
+            FlightCamera.redraw state
 
     NavigationLoop.run
         (fun () -> FlyState.is_running state)
