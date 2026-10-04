@@ -221,7 +221,6 @@ let configure_with_snapshot
     (input: InputAccumulator.State)
     (input_available: Action)
     =
-    let released_keys = ResizeArray<int>()
     let bindings = config.bindings
     let retarget = config.behavior.retarget
 
@@ -236,14 +235,6 @@ let configure_with_snapshot
 
     System.Array.Clear(state.key_is_down, 0, state.key_is_down.Length)
     System.Array.Clear(state.observed_key_is_down, 0, state.observed_key_is_down.Length)
-
-    for physical_key in state.suppressed_keys_down do
-        if not (is_down physical_key) then
-            released_keys.Add physical_key
-
-    for physical_key in released_keys do
-        state.suppressed_keys_down.Remove physical_key |> ignore
-        state.key_is_down[physical_key] <- false
 
     clear_configured ()
     add_binding bindings.forward

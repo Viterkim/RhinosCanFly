@@ -91,11 +91,12 @@ if ($compileMatches.Count -eq 0) {
 $beforeMatches = @(
     $compileMatches |
         Where-Object {
-            $include = [regex]::Match($_.Value, 'Include="(?<path>[^"]+)"')
+            $entryXml = [xml]($_.Value.Trim())
+            $include = [string] $entryXml.Compile.Include
 
-            $include.Success -and
+            -not [string]::IsNullOrWhiteSpace($include) -and
             [string]::Equals(
-                $include.Groups["path"].Value.Replace('\', '/'),
+                $include.Replace('\', '/'),
                 $beforeRelativePath,
                 [StringComparison]::OrdinalIgnoreCase
             )

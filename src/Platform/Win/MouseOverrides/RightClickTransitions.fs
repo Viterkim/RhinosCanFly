@@ -445,7 +445,16 @@ let try_dispatch_entry (navigation: State) (state: RightClickState) (command_act
     if navigation.lifecycle <> Available then
         clear_action state
     else
+        let pair_id = state.pair_id
+        let pending_gesture = state.gesture
+
         match try_prepare_entry_view entry with
+        | _ when
+            state.pair_id <> pair_id
+            || state.gesture <> pending_gesture
+            || navigation.lifecycle <> Available
+            ->
+            ()
         | EntryUnavailable -> clear_action state
         | EntryDeferred -> ()
         | EntryReady view ->

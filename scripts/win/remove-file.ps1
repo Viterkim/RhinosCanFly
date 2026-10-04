@@ -44,11 +44,12 @@ $compileMatches = [regex]::Matches($content, '(?m)^(?<indent>[ \t]*)<Compile\b[^
 $sourceMatches = @(
     $compileMatches |
         Where-Object {
-            $include = [regex]::Match($_.Value, 'Include="(?<path>[^"]+)"')
+            $entryXml = [xml]($_.Value.Trim())
+            $include = [string] $entryXml.Compile.Include
 
-            $include.Success -and
+            -not [string]::IsNullOrWhiteSpace($include) -and
             [string]::Equals(
-                $include.Groups["path"].Value.Replace('\', '/'),
+                $include.Replace('\', '/'),
                 $relativePath,
                 [StringComparison]::OrdinalIgnoreCase
             )

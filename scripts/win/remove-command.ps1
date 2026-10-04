@@ -49,8 +49,8 @@ if ($registrationMatches.Count -ne 1) {
 }
 
 $newline = if ($registryContent.Contains("`r`n")) { "`r`n" } else { "`n" }
-$updatedProject = [regex]::Replace($projectContent, $compilePattern, "", 1)
-$updatedRegistry = [regex]::Replace($registryContent, $registrationPattern, "", 1).TrimEnd() + $newline
+$updatedProject = [regex]::new($compilePattern).Replace($projectContent, "", 1)
+$updatedRegistry = [regex]::new($registrationPattern).Replace($registryContent, "", 1).TrimEnd() + $newline
 $utf8WithoutBom = [Text.UTF8Encoding]::new($false)
 
 try {
@@ -59,14 +59,23 @@ try {
     Remove-Item -LiteralPath $commandPath -Force
 }
 catch {
-    [IO.File]::WriteAllText($project, $projectContent, $utf8WithoutBom)
-    [IO.File]::WriteAllText($registryPath, $registryContent, $utf8WithoutBom)
-
-    if (-not (Test-Path -LiteralPath $commandPath)) {
-        [IO.File]::WriteAllBytes($commandPath, $sourceBytes)
+    $writeError = $_
+    foreach ($original in @(
+        @{ Path = $project; Content = $projectContent },
+        @{ Path = $registryPath; Content = $registryContent }
+    )) {
+        try { [IO.File]::WriteAllText($original.Path, $original.Content, $utf8WithoutBom) }
+        catch { Write-Warning "Could not restore '$($original.Path)': $_" -WarningAction Continue }
     }
 
-    throw
+    try {
+        if (-not (Test-Path -LiteralPath $commandPath)) {
+            [IO.File]::WriteAllBytes($commandPath, $sourceBytes)
+        }
+    }
+    catch { Write-Warning "Could not restore '$commandPath': $_" -WarningAction Continue }
+
+    throw $writeError
 }
 
 Write-Host "Removed $($command.RelativePath)"

@@ -592,8 +592,7 @@ let start (state: State) (requested: DesiredNavigation) =
                         && (match state.session with
                             | Some(ActiveTransport current) -> obj.ReferenceEquals(current.transport, transport)
                             | _ -> false)
-                        && PlatformInput.viewport_id_matches requested.host transport.View
-                        && MouseOverrideState.foreground_root_window () = requested.host.root_window
+                        && PlatformInput.viewport_host_is_foreground requested.host transport.View
                   pointer_input_valid = true
                   pivot_drag = pivot_drag
                   parallel_zoom_exponent_remainder = 0.

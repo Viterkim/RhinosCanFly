@@ -612,8 +612,7 @@ let begin_active (starting: StartingSession) =
                 && owns_session ()
                 && Option.isNone (InputAccumulator.exit_reason session.raw_input)
                 && not (System.Threading.Volatile.Read(&session.raw_input.escape_requested))
-                && PlatformInput.viewport_id_matches state.host_identity state.view
-                && PlatformInput.foreground_root_window () = state.host_identity.root_window
+                && PlatformInput.viewport_host_is_foreground state.host_identity state.view
 
         if
             starting.session_mode.lifetime = FlightLifetime.WhileRightMouseHeld
