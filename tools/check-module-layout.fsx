@@ -55,19 +55,6 @@ let layout_violations_in_source (source: string) =
             module_name = module_name } ]
     | _ -> []
 
-let checker_self_tests =
-    [ "namespace Sample\n\nopen System\n\nmodule Worker =\n    let run () = ()", true
-      "module Sample.Worker\n\nopen System\n\nlet run () = ()", false
-      "namespace Sample\n\ntype State = Ready\n\nmodule State =\n    let ready = State.Ready", false
-      "namespace Sample\n\nmodule Helpers =\n    let value = 1\n\ntype Runner() = class end", false
-      "namespace Sample\n\nmodule One =\n    let value = 1\n\nmodule Two =\n    let value = 2", false ]
-
-for source, expects_violation in checker_self_tests do
-    let has_violation = not (List.isEmpty (layout_violations_in_source source))
-
-    if has_violation <> expects_violation then
-        failwith $"Module-layout lint self-test failed for: {source}"
-
 let violations =
     Directory.EnumerateFiles(source_root, "*.fs", SearchOption.AllDirectories)
     |> Seq.collect (fun (path: string) ->

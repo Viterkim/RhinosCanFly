@@ -116,14 +116,20 @@ let defaults: FlyConfigFile =
       perspective_lens_length_delta_during_flight_mm = 0.
       viewport_paint_mode = ViewportPaintMode.Queued }
 
-let normalize_number (value: float) =
-    let rounded = Math.Round(value, 12, MidpointRounding.AwayFromZero)
-
-    if rounded = 0. then 0. else rounded
+let normalize_number (value: float) = if value = 0. then 0. else value
 
 let format_number (value: float) =
     let normalized = normalize_number value
-    normalized.ToString("0.############", CultureInfo.InvariantCulture)
+    let text = normalized.ToString("G", CultureInfo.InvariantCulture)
+    let mutable parsed = 0.
+
+    if
+        Double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, &parsed)
+        && parsed = normalized
+    then
+        text
+    else
+        normalized.ToString("G17", CultureInfo.InvariantCulture)
 
 let normalize_viewport_name_list (fallback: unit -> ViewportNameListFile) (source: ViewportNameListFile) =
     if isNull (box source) then

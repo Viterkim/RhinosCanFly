@@ -55,13 +55,14 @@ let process_hook_events (state: State) =
         process_hook_events_with
             (fun (event: SideButtonHookEvent) ->
                 match event with
-                | ButtonDown(button, host, point) ->
+                | ButtonDown(button, host, point, admission) ->
                     GestureNavigationTransitions.press
                         state
                         (owner button)
                         (MouseOverrideState.action_for state button)
                         host
                         point
+                        admission
                 | ButtonUp button ->
                     GestureNavigationTransitions.release state (owner button)
                     GestureNavigationTransitions.Applied)

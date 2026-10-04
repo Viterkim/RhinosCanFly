@@ -19,12 +19,14 @@ module SettingsDialogPlacement =
     let mutable last_location: Point option = None
 
     let fit_size (minimum: Size) (working_area: RectangleF) =
-        let available_width = max minimum.Width (int working_area.Width - SCREEN_MARGIN * 2)
+        let available_width = max 1 (int working_area.Width - SCREEN_MARGIN * 2)
 
-        let available_height =
-            max minimum.Height (int working_area.Height - SCREEN_MARGIN * 2)
+        let available_height = max 1 (int working_area.Height - SCREEN_MARGIN * 2)
 
-        Size(min PREFERRED_WIDTH available_width, min PREFERRED_HEIGHT available_height)
+        Size(
+            min (max minimum.Width PREFERRED_WIDTH) available_width,
+            min (max minimum.Height PREFERRED_HEIGHT) available_height
+        )
 
     let centered_location (bounds: RectangleF) (size: Size) =
         Point(int bounds.X + (int bounds.Width - size.Width) / 2, int bounds.Y + (int bounds.Height - size.Height) / 2)
@@ -55,6 +57,7 @@ type RhinosCanFlySettingsDialog() as self =
     let cancel_button = new Button(Text = "Cancel")
     let window_icon = SettingsUi.load_icon ()
     let mutable resources_disposed = false
+    let mutable revision: string option = None
 
     do
         window_icon |> Option.iter (fun (icon: Icon) -> self.Icon <- icon)
@@ -85,8 +88,11 @@ type RhinosCanFlySettingsDialog() as self =
                 with error ->
                     Error $"Could not read settings: {error.Message}"
 
-            if Settings.save control edited |> Option.isSome then
-                self.Close())
+            match revision with
+            | Some revision when save_button.Enabled ->
+                if Settings.save revision control edited |> Option.isSome then
+                    self.Close()
+            | _ -> ())
 
         cancel_button.Click.Add(fun (_: EventArgs) -> self.Close())
 
@@ -96,7 +102,15 @@ type RhinosCanFlySettingsDialog() as self =
             SettingsDialogPlacement.last_location <- Some self.Location
             SettingsScrollPosition.command_dialog <- control.ReadScrollPosition())
 
-        Settings.load (RuntimeSettings.reload ()) control
+        let loaded = RuntimeSettings.reload ()
+
+        revision <-
+            loaded
+            |> Result.toOption
+            |> Option.map (fun (result: ConfigLoadResult) -> result.revision)
+
+        Settings.load loaded control
+        save_button.Enabled <- Result.isOk loaded
 
     override _.Dispose(disposing: bool) =
         if disposing && not resources_disposed then
@@ -128,7 +142,9 @@ type RhinosCanFlySettingsDialog() as self =
             | None -> parent_screen
 
         let working_area = screen.WorkingArea
-        self.Size <- SettingsDialogPlacement.fit_size self.MinimumSize working_area
+        let size = SettingsDialogPlacement.fit_size (Size(700, 550)) working_area
+        self.MinimumSize <- Size(min 700 size.Width, min 550 size.Height)
+        self.Size <- size
 
         let location =
             match SettingsDialogPlacement.last_location with
@@ -150,9 +166,11 @@ type RhinosCanFlyOptionsPage() =
 
     let mutable input_suspension: InputSuspensionLease option = None
     let mutable baseline: FlyConfigFile option = None
+    let mutable revision: string option = None
     let mutable committed = false
     let mutable displayed_config: FlyConfigFile option = None
     let mutable defaults_requested = false
+    let mutable draft_initialized = false
 
     let copy_viewport_list (source: ViewportNameListFile) =
         { source with
@@ -170,7 +188,9 @@ type RhinosCanFlyOptionsPage() =
     let capture_baseline (loaded: Result<ConfigLoadResult, string>) =
         if Option.isNone baseline && not committed then
             match loaded with
-            | Ok result -> baseline <- Some(snapshot result.config_file)
+            | Ok result ->
+                baseline <- Some(snapshot result.config_file)
+                revision <- Some result.revision
             | Error _ -> ()
 
     let save_scroll_position () =
@@ -215,23 +235,42 @@ type RhinosCanFlyOptionsPage() =
     override _.PageControl = control.Value
 
     override _.OnActivate(active: bool) =
-        if active then
+        if active && FlightSession.is_running () then
+            RhinoApp.WriteLine "Exit flight before opening RhinosCanFly Options."
+            false
+        elif active then
             match suspend_input () with
             | Error error ->
                 SettingsUi.report_error $"RhinosCanFly could not suspend input for Options: {error}"
                 false
             | Ok() ->
                 try
-                    let loaded =
-                        if Option.isNone baseline && not committed then
-                            RuntimeSettings.reload ()
-                        else
-                            RuntimeSettings.resolve ()
+                    if not draft_initialized then
+                        let preserve_draft = defaults_requested
 
-                    capture_baseline loaded
-                    Settings.load loaded control.Value
-                    displayed_config <- control.Value.ReadConfig() |> Result.toOption
-                    defaults_requested <- false
+                        let loaded =
+                            if Option.isNone baseline && not committed then
+                                RuntimeSettings.reload ()
+                            else
+                                RuntimeSettings.resolve ()
+
+                        capture_baseline loaded
+
+                        if preserve_draft then
+                            match loaded with
+                            | Ok result -> Settings.refresh_runtime result.config_file control.Value
+                            | Error error -> control.Value.ShowError $"Could not load configuration: {error}"
+                        else
+                            Settings.load loaded control.Value
+                            displayed_config <- control.Value.ReadConfig() |> Result.toOption
+                            defaults_requested <- false
+
+                        draft_initialized <- Result.isOk loaded
+                    else
+                        match RuntimeSettings.current () with
+                        | Ok result -> Settings.refresh_runtime result.config_file control.Value
+                        | Error error -> control.Value.ShowError error
+
                     control.Value.SetScrollPosition SettingsScrollPosition.rhino_options
                     true
                 with error ->
@@ -262,20 +301,19 @@ type RhinosCanFlyOptionsPage() =
                 | Ok edited when not (Settings.needs_save displayed_config defaults_requested edited) ->
                     resume_input_after_options ()
                 | edited ->
-                    if Option.isNone baseline && not committed then
-                        capture_baseline (RuntimeSettings.resolve ())
-
-                    if Option.isNone baseline then
+                    if Option.isNone baseline || Option.isNone revision then
                         control.Value.ShowError
                             "The original configuration is unavailable. Reopen this page to retry before saving."
 
                         false
                     else
-                        match Settings.save control.Value edited with
+                        match Settings.save revision.Value control.Value edited with
                         | Some saved ->
+                            revision <- Some saved.revision
                             committed <- true
                             defaults_requested <- false
                             displayed_config <- Some saved.config_file
+                            control.Value.ClearError()
                             resume_input_after_options ()
                         | None -> false
             else
@@ -298,22 +336,24 @@ type RhinosCanFlyOptionsPage() =
 
             try
                 if committed then
-                    match baseline with
-                    | Some original ->
+                    match baseline, revision with
+                    | Some original, Some expected_revision ->
                         let differs =
                             match RuntimeSettings.current () with
                             | Ok result -> result.config_file <> original
                             | Error _ -> true
 
                         if differs then
-                            match RuntimeSettings.save_and_apply original with
-                            | Ok _ -> committed <- false
+                            match RuntimeSettings.save_and_apply expected_revision original with
+                            | Ok saved ->
+                                revision <- Some saved.revision
+                                committed <- false
                             | Error error ->
                                 restored <- false
                                 SettingsUi.report_error $"RhinosCanFly could not restore settings on cancel: {error}"
                         else
                             committed <- false
-                    | None ->
+                    | _ ->
                         restored <- false
 
                         SettingsUi.report_error
@@ -325,6 +365,9 @@ type RhinosCanFlyOptionsPage() =
 
             if control.IsValueCreated && restored then
                 Settings.load (RuntimeSettings.current ()) control.Value
+                draft_initialized <- false
+                displayed_config <- None
+                defaults_requested <- false
         finally
             resume_input_after_options () |> ignore
 
@@ -334,5 +377,6 @@ type RhinosCanFlyOptionsPage() =
             control.Value.CancelBindingCapture()
             control.Value.LoadConfig ConfigSchema.defaults
             control.Value.ClearError()
+            draft_initialized <- Option.isSome baseline
         with error ->
             SettingsUi.report_error $"RhinosCanFly Options defaults failed: {error.Message}"

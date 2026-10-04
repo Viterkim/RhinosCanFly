@@ -11,6 +11,7 @@ type State =
     { focus_sink: Drawable
       side_button_timer: UITimer
       mutable active: Active option
+      mutable modifier_keys: Keys list
       mutable suppress_next_set_click: Button option
       mutable disposed: bool }
 
@@ -23,6 +24,7 @@ let stop (state: State) =
     | None -> ()
 
     state.active <- None
+    state.modifier_keys <- []
 
     if not state.disposed && state.side_button_timer.Started then
         state.side_button_timer.Stop()
@@ -45,6 +47,61 @@ let start (state: State) (field: TextBox) (button: Button) =
         button.Text <- "Press..."
         button.Focus()
         state.side_button_timer.Start()
+
+let record_modifiers (state: State) (key: Keys) (modifiers: Keys) =
+    let group (key: Keys) =
+        match key with
+        | Keys.LeftControl
+        | Keys.RightControl -> Keys.Control
+        | Keys.LeftAlt
+        | Keys.RightAlt -> Keys.Alt
+        | Keys.LeftShift
+        | Keys.RightShift -> Keys.Shift
+        | _ -> key
+
+    for modifier in [ Keys.Control; Keys.Alt; Keys.Shift ] do
+        if
+            modifiers &&& modifier = modifier
+            && not (
+                state.modifier_keys
+                |> List.exists (fun (recorded: Keys) -> group recorded = modifier)
+            )
+        then
+            state.modifier_keys <- state.modifier_keys @ [ modifier ]
+
+    let key = PlatformBindings.key_value key
+    let modifier = group key
+
+    if key <> modifier && List.contains modifier state.modifier_keys then
+        state.modifier_keys <-
+            state.modifier_keys
+            |> List.map (fun (recorded: Keys) -> if recorded = modifier then key else recorded)
+    elif
+        not (
+            state.modifier_keys
+            |> List.exists (fun (recorded: Keys) -> recorded = key || (key = modifier && group recorded = modifier))
+        )
+    then
+        state.modifier_keys <- state.modifier_keys @ [ key ]
+
+let key_down (state: State) (key: Keys) (modifiers: Keys) =
+    if PlatformBindings.is_modifier_key key then
+        record_modifiers state key modifiers
+
+        None
+    else
+        Some(PlatformBindings.binding_from_key key modifiers)
+
+let key_up (state: State) (key: Keys) (modifiers: Keys) =
+    if PlatformBindings.is_modifier_key key then
+        record_modifiers state key modifiers
+
+        state.modifier_keys
+        |> List.map PlatformBindings.key_name
+        |> String.concat "+"
+        |> Some
+    else
+        None
 
 let editor (state: State) (field: TextBox) (default_value: string) =
     let set_button = new Button(Text = "Set...", Width = 62, Height = 24)
@@ -71,8 +128,7 @@ let editor (state: State) (field: TextBox) (default_value: string) =
         | Some active when Object.ReferenceEquals(active.button, set_button) ->
             event.Handled <- true
 
-            if not (PlatformBindings.is_modifier_key event.Key) then
-                PlatformBindings.binding_from_key event.Key event.Modifiers |> complete state
+            key_down state event.Key event.Modifiers |> Option.iter (complete state)
         | _ -> ())
 
     set_button.KeyUp.Add(fun (event: KeyEventArgs) ->
@@ -80,8 +136,7 @@ let editor (state: State) (field: TextBox) (default_value: string) =
         | Some active when Object.ReferenceEquals(active.button, set_button) ->
             event.Handled <- true
 
-            if PlatformBindings.is_modifier_key event.Key then
-                PlatformBindings.key_name event.Key |> complete state
+            key_up state event.Key event.Modifiers |> Option.iter (complete state)
         | _ -> ())
 
     default_button.Click.Add(fun (_: EventArgs) -> field.Text <- default_value)
@@ -93,6 +148,7 @@ let is_editor_control (control: Control) =
     | :? TextArea
     | :? Button
     | :? CheckBox
+    | :? NumericStepper
     | :? DropDown -> true
     | _ -> false
 
@@ -129,6 +185,7 @@ let create () =
         { focus_sink = new Drawable(CanFocus = true, Size = Size(1, 1))
           side_button_timer = new UITimer(Interval = SIDE_BUTTON_POLL_INTERVAL_SECONDS)
           active = None
+          modifier_keys = []
           suppress_next_set_click = None
           disposed = false }
 

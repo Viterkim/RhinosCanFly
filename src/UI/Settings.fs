@@ -25,18 +25,21 @@ let current_speed (config: FlyConfigFile) =
 
     FlightSpeed.current document config.load_speed_from_document range config.base_speed
 
-let load (loaded: Result<ConfigLoadResult, string>) (control: SettingsControl) =
+let refresh_runtime (config: FlyConfigFile) (control: SettingsControl) =
     control.ShowRuntimeEnabled(RuntimeSettings.runtime_enabled ())
+    control.ShowRuntimeState(current_speed config, current_lens ())
+
+let load (loaded: Result<ConfigLoadResult, string>) (control: SettingsControl) =
 
     match loaded with
     | Error error ->
         control.LoadConfig ConfigSchema.defaults
-        control.ShowRuntimeState(current_speed ConfigSchema.defaults, current_lens ())
+        refresh_runtime ConfigSchema.defaults control
         control.ShowError $"Could not load configuration: {error}"
     | Ok result ->
         control.LoadConfig result.config_file
 
-        control.ShowRuntimeState(current_speed result.config_file, current_lens ())
+        refresh_runtime result.config_file control
 
         control.RefreshRawIfVisible()
 
@@ -54,7 +57,7 @@ let needs_save (displayed: FlyConfigFile option) (defaults_requested: bool) (edi
     || Option.map ConfigSchema.normalize displayed
        <> Some(ConfigSchema.normalize edited)
 
-let save (control: SettingsControl) (edited: Result<FlyConfigFile, string>) =
+let save (revision: string) (control: SettingsControl) (edited: Result<FlyConfigFile, string>) =
     try
         match edited with
         | Error error ->
@@ -62,7 +65,7 @@ let save (control: SettingsControl) (edited: Result<FlyConfigFile, string>) =
             SettingsUi.report_error $"RhinosCanFly settings were not saved: {error}"
             None
         | Ok config ->
-            match RuntimeSettings.save_and_apply config with
+            match RuntimeSettings.save_and_apply revision config with
             | Ok saved -> Some saved
             | Error error ->
                 control.ShowError error

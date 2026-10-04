@@ -36,6 +36,7 @@ type RightClickGesture =
 
 type RightClickState =
     { mutable gesture: RightClickGesture
+      mutable admission: MouseAdmission option
       mutable button_ownership: HookButtonOwnership
       mutable pair_id: int64
       mutable dispatched_entry: struct (FlyEntry * int64 * Guid * int64) option }
@@ -55,6 +56,7 @@ type RightClickViewport =
 
 let create () =
     { gesture = Idle
+      admission = None
       button_ownership = NotOwned
       pair_id = 0L
       dispatched_entry = None }
@@ -106,6 +108,7 @@ let action_pending (state: RightClickState) =
 
 let clear_action (state: RightClickState) =
     state.gesture <- Idle
+    state.admission <- None
     state.dispatched_entry <- None
 
 let owns_button (state: RightClickState) =
@@ -232,6 +235,10 @@ let rec handle_event
         clear_action state
         handle_event navigation state try_view command_active event
     elif is_up && owns_button state then
+        match state.admission with
+        | Some admission -> MouseOverrideState.start_admission_deadline (Stopwatch.GetTimestamp()) admission
+        | None -> ()
+
         state.button_ownership <- NotOwned
         state.dispatched_entry <- None
 
@@ -298,6 +305,13 @@ let rec handle_event
                     false
                 | ValueNone -> false
                 | ValueSome captured ->
+                    let admission = MouseOverrideState.create_admission navigation
+
+                    match captured with
+                    | EnterFlight entry when not (entry_while_held entry.entry_mode) -> admission.deadline <- 0L
+                    | _ -> MouseOverrideState.start_admission_deadline (Stopwatch.GetTimestamp()) admission
+
+                    state.admission <- Some admission
                     state.pair_id <- state.pair_id + 1L
                     state.button_ownership <- Owned
                     state.gesture <- ButtonDown captured
@@ -344,27 +358,16 @@ let try_entry_view (entry: FlyEntry) =
     else
         ValueSome view
 
-let try_prepare_entry_view (entry: FlyEntry) =
-    let foreground_ready =
-        MouseOverrideState.foreground_root_window () = entry.host.root_window
-        || MouseOverrideState.try_bring_root_window_to_foreground entry.host.root_window
+let prepare_action_view (navigation: State) (state: RightClickState) (host: ViewportHostIdentity) =
+    match state.admission with
+    | Some admission -> GestureNavigationTransitions.prepare_action_view navigation host admission
+    | None -> GestureNavigationTransitions.ActionViewUnavailable "The mouse request was cancelled."
 
-    if not foreground_ready then
-        EntryUnavailable
-    else
-        match try_entry_view entry with
-        | ValueNone -> EntryUnavailable
-        | ValueSome view ->
-            let active_view = view.Document.Views.ActiveView
-
-            if
-                isNull active_view
-                || active_view.RuntimeSerialNumber <> view.RuntimeSerialNumber
-            then
-                view.Document.Views.ActiveView <- view
-                EntryDeferred
-            else
-                EntryReady view
+let try_prepare_entry_view (navigation: State) (state: RightClickState) (entry: FlyEntry) =
+    match prepare_action_view navigation state entry.host with
+    | GestureNavigationTransitions.ActionViewReady(view, _) -> EntryReady view
+    | GestureNavigationTransitions.ActionViewDeferred -> EntryDeferred
+    | GestureNavigationTransitions.ActionViewUnavailable _ -> EntryUnavailable
 
 let dispatch_entry_with (dispatch: uint32 -> string -> bool) (state: RightClickState) (entry: FlyEntry) =
     let request_id = Guid.NewGuid()
@@ -430,9 +433,11 @@ let projection_allows_entry (navigation: State) (view: RhinoView) =
     right_click_flight_entry_allowed navigation viewport.Name
     && (viewport.IsPerspectiveProjection || viewport.IsParallelProjection)
 
-let apply_navigation_click (navigation: State) (click: NavigationClick) =
+let apply_navigation_click (navigation: State) (state: RightClickState) (click: NavigationClick) =
     if navigation.lifecycle <> Available then
         GestureNavigationTransitions.Failed "Mouse button overrides are unavailable."
+    elif Option.isNone state.admission then
+        GestureNavigationTransitions.Failed "The mouse request was cancelled."
     else
         GestureNavigationTransitions.press
             navigation
@@ -440,6 +445,7 @@ let apply_navigation_click (navigation: State) (click: NavigationClick) =
             click.action
             click.host
             click.screen_point
+            state.admission.Value
 
 let try_dispatch_entry (navigation: State) (state: RightClickState) (command_active: bool) (entry: FlyEntry) =
     if navigation.lifecycle <> Available then
@@ -448,7 +454,7 @@ let try_dispatch_entry (navigation: State) (state: RightClickState) (command_act
         let pair_id = state.pair_id
         let pending_gesture = state.gesture
 
-        match try_prepare_entry_view entry with
+        match try_prepare_entry_view navigation state entry with
         | _ when
             state.pair_id <> pair_id
             || state.gesture <> pending_gesture
@@ -465,7 +471,7 @@ let try_dispatch_entry (navigation: State) (state: RightClickState) (command_act
 
                 if not can_enter then
                     clear_action state
-                elif view.MouseCaptured false then
+                elif PlatformRawInput.recovery_pending () || view.MouseCaptured false then
                     ()
                 elif entry_while_held entry.entry_mode then
                     if Win32.key_down Win32Native.VK_RBUTTON then
@@ -493,7 +499,7 @@ let update (navigation: State) (state: RightClickState) (command_active: bool) =
         if navigation.lifecycle <> Available || invalid then
             clear_action state
     | ButtonDown(NavigateView click) ->
-        match apply_navigation_click navigation click with
+        match apply_navigation_click navigation state click with
         | GestureNavigationTransitions.Applied
         | GestureNavigationTransitions.Retargeted _ -> state.gesture <- ButtonDownHandled(NavigateView click)
         | GestureNavigationTransitions.Deferred -> ()
@@ -509,7 +515,7 @@ let update (navigation: State) (state: RightClickState) (command_active: bool) =
     | ButtonDownHandled(PanParallel _)
     | ButtonDownHandled(ZoomParallel _) when state.button_ownership = ReleaseObserved -> clear_action state
     | ButtonDown(PanParallel host) ->
-        match GestureNavigationTransitions.prepare_action_view host with
+        match prepare_action_view navigation state host with
         | GestureNavigationTransitions.ActionViewReady(_, active_host) ->
             state.gesture <- ButtonDownHandled(PanParallel active_host)
         | GestureNavigationTransitions.ActionViewDeferred -> ()
@@ -517,7 +523,7 @@ let update (navigation: State) (state: RightClickState) (command_active: bool) =
             Debug.WriteLine $"RhinosCanFly parallel pan: {error}"
             clear_action state
     | ButtonDown(ZoomParallel host) ->
-        match GestureNavigationTransitions.prepare_action_view host with
+        match prepare_action_view navigation state host with
         | GestureNavigationTransitions.ActionViewReady(_, active_host) ->
             state.gesture <- ButtonDownHandled(ZoomParallel active_host)
         | GestureNavigationTransitions.ActionViewDeferred -> ()
@@ -526,7 +532,7 @@ let update (navigation: State) (state: RightClickState) (command_active: bool) =
             clear_action state
     | ButtonDownHandled _ -> ()
     | ButtonReleasedBeforeHandling(NavigateView click) ->
-        match apply_navigation_click navigation click with
+        match apply_navigation_click navigation state click with
         | GestureNavigationTransitions.Applied
         | GestureNavigationTransitions.Retargeted _ ->
             GestureNavigationTransitions.release navigation GestureOwner.ModifiedRightClick

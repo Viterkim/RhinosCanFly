@@ -14,12 +14,20 @@ let apply
     (mode: ViewNavigationMode)
     (view: RhinoView)
     (can_apply: unit -> bool)
+    (record_change: Point3d -> Point3d -> unit)
     =
     try
         if isNull view || isNull view.Document then
             Error "The navigation viewport is unavailable."
         else
-            ViewTarget.apply_for_navigation loaded.config.behavior mode view view.ActiveViewport target_point can_apply
+            ViewTarget.apply_for_navigation
+                loaded.config.behavior
+                mode
+                view
+                view.ActiveViewport
+                target_point
+                can_apply
+                record_change
             |> Ok
     with error ->
         Error $"Could not set the navigation target: {error.Message}"
@@ -30,6 +38,7 @@ let prepare
     (target_point: NavigationTargetPoint)
     (mode: ViewNavigationMode)
     (can_apply: unit -> bool)
+    (record_change: Point3d -> Point3d -> unit)
     =
     try
         let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
@@ -60,7 +69,7 @@ let prepare
                         let permitted () =
                             can_apply () && PlatformInput.viewport_host_is_foreground host view
 
-                        match apply loaded target_point mode view permitted with
+                        match apply loaded target_point mode view permitted record_change with
                         | Ok target -> Ok(struct (current_host, target))
                         | Error error -> Error error
                     else

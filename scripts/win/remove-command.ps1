@@ -41,7 +41,7 @@ if ($compileMatches.Count -ne 1) {
 $escapedType = [regex]::Escape($command.TypeName)
 $escapedModule = [regex]::Escape($command.ModuleSuffix)
 $registrationPattern =
-    '(?ms)^[ \t]*\[<Guid\("[^"]+"\)>\][ \t]*\r?\n(?:[ \t]*\[<CommandStyle\(Style\.Transparent\)>\][ \t]*\r?\n)?[ \t]*type\s+{0}\(\)\s*=\s*\r?\n[ \t]+inherit\s+PluginCommand\({1}\.run\)[ \t]*(?:\r?\n(?:\r?\n)?)?' -f $escapedType, $escapedModule
+    '(?ms)^[ \t]*\[<Guid\("[^"]+"\)>\][ \t]*\r?\n(?:[ \t]*\[<CommandStyle\(Style\.Transparent(?:[ \t]*\|\|\|[ \t]*Style\.DoNotRepeat)?\)>\][ \t]*\r?\n)?[ \t]*type\s+{0}\(\)\s*=\s*\r?\n[ \t]+inherit\s+PluginCommand\({1}\.run\)[ \t]*(?:\r?\n(?:\r?\n)?)?' -f $escapedType, $escapedModule
 $registrationMatches = [regex]::Matches($registryContent, $registrationPattern)
 
 if ($registrationMatches.Count -ne 1) {

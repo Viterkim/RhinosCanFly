@@ -98,7 +98,7 @@ let apply_live (loaded: ConfigLoadResult) =
         match PlatformMouseActions.apply mouse_overrides with
         | Error error -> Error error
         | Ok() ->
-            RepeatBehavior.apply config.commands_do_not_repeat
+            RepeatBehavior.apply (runtime_enabled_for config && config.commands_do_not_repeat)
             Ok()
     with error ->
         Debug.WriteLine $"RhinosCanFly live settings: {error}"
@@ -175,7 +175,7 @@ let resume_input (lease: InputSuspensionLease) =
             Ok()
         | Error error -> Error error
 
-let candidate (config: FlyConfigFile) =
+let candidate (revision: string) (config: FlyConfigFile) =
     let source = ConfigSchema.normalize config
 
     match ConfigCompiler.compile source with
@@ -184,10 +184,11 @@ let candidate (config: FlyConfigFile) =
         Ok
             { config_file = source
               config = runtime
+              revision = revision
               messages = [] }
 
-let save_and_apply (config: FlyConfigFile) =
-    match candidate config with
+let save_and_apply (expected_revision: string) (config: FlyConfigFile) =
+    match candidate expected_revision config with
     | Error error -> Error error
     | Ok requested ->
         let previous =
@@ -212,7 +213,7 @@ let save_and_apply (config: FlyConfigFile) =
             match apply_live requested with
             | Error error -> rollback error
             | Ok() ->
-                match ConfigStorage.save requested.config_file with
+                match ConfigStorage.save expected_revision requested.config_file with
                 | Ok saved ->
                     loaded_config <- Some saved
                     activation_error <- None
@@ -233,7 +234,10 @@ let apply_loaded (result: Result<ConfigLoadResult, string>) =
             Error error
     | Error error -> Error error
 
-let reload () = ConfigStorage.load () |> apply_loaded
+let reload () =
+    let result = ConfigStorage.load ()
+    apply_loaded result |> ignore
+    result
 
 let complete_input_recovery () =
     if input_suspension_ids.Count > 0 then
@@ -304,3 +308,4 @@ let shutdown () =
     | None -> ()
 
     input_suspension_ids.Clear()
+    RepeatBehavior.shutdown ()

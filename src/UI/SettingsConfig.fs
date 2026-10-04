@@ -40,6 +40,27 @@ let format_viewport_names (names: string array) =
     else
         String.Join(", ", names)
 
+let parse_viewport_names (field_name: string) (text: string) =
+    let text = if isNull text then "" else text.Trim()
+
+    try
+        let names =
+            if text.StartsWith "[" then
+                JsonSerializer.Deserialize<string array> text
+            else
+                text.Split([| ',' |], StringSplitOptions.RemoveEmptyEntries)
+
+        if isNull names || Array.exists isNull names then
+            Error $"{field_name} must contain viewport names, without null values."
+        else
+            names
+            |> Array.map (fun (name: string) -> name.Trim())
+            |> Array.filter (String.IsNullOrWhiteSpace >> not)
+            |> Array.distinctBy (fun (name: string) -> name.ToUpperInvariant())
+            |> Ok
+    with :? JsonException ->
+        Error $"{field_name} must be comma-separated names or a JSON array of strings."
+
 let is_checked (control: CheckBox) = control.Checked.GetValueOrDefault()
 
 let set_checked (control: CheckBox) (value: bool) = control.Checked <- Nullable value
@@ -239,33 +260,24 @@ let load (fields: SettingsFields.ConfigFields) (config: FlyConfigFile) =
     set_checked options.exit_on_mouse4 config.exit_on_mouse4
     set_checked options.exit_on_mouse5 config.exit_on_mouse5
     set_checked options.commands_do_not_repeat config.commands_do_not_repeat
+    options.commands_do_not_repeat.Enabled <- Rhino.ApplicationSettings.NeverRepeatList.UseNeverRepeatList
 
 let read (fields: SettingsFields.ConfigFields) =
     let bindings = fields.bindings
     let modes = fields.modes
     let options = fields.options
 
-    let viewport_names (field: TextBox) =
-        let names =
-            (if field.Text.TrimStart().StartsWith "[" then
-                 JsonSerializer.Deserialize<string array> field.Text
-             else
-                 field.Text.Split([| ',' |], StringSplitOptions.RemoveEmptyEntries))
-            |> Array.map (fun (value: string) -> value.Trim())
-            |> Array.filter (String.IsNullOrWhiteSpace >> not)
-            |> Array.distinctBy (fun (value: string) -> value.ToUpperInvariant())
+    let viewport_names =
+        parse_viewport_names "Viewport capabilities" fields.viewport_capability_names.Text
 
-        field.Text <- format_viewport_names names
-        names
+    let right_click_names =
+        parse_viewport_names "Right-click flight entry" fields.right_click_flight_entry_names.Text
 
-    let viewport_capability_names = viewport_names fields.viewport_capability_names
-
-    let right_click_flight_entry_names =
-        viewport_names fields.right_click_flight_entry_names
-
-    match parse_numbers fields.numbers with
-    | Error error -> Error error
-    | Ok numbers ->
+    match viewport_names, right_click_names, parse_numbers fields.numbers with
+    | Error error, _, _
+    | _, Error error, _
+    | _, _, Error error -> Error error
+    | Ok viewport_capability_names, Ok right_click_flight_entry_names, Ok numbers ->
         Ok
             { config_version = ConfigSchema.CURRENT_VERSION
               enabled = is_checked options.enabled

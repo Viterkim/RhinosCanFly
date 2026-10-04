@@ -552,9 +552,7 @@ let stop (session: Session) =
             | Ok() -> ()
             | Error error -> errors.Add error
 
-            let terminated =
-                session.request.stopped_disposed
-                || session.request.stopped.Wait STOP_OBSERVATION_MS
+            let terminated = session.request.stopped_disposed || session.request.stopped.IsSet
 
             let cleanup_complete =
                 terminated && try_complete_registration_cleanup session.request.registration
@@ -634,6 +632,13 @@ let cleanup_result (session: Session) =
             )
         | _ -> None)
 
+let pending_cleanup () =
+    let sessions = lock recovery_gate (fun () -> recovery_sessions.ToArray())
+
+    match sessions with
+    | [| session |] when cleanup_result session = None -> Some session
+    | _ -> None
+
 let complete_finished_sessions () =
     let sessions = lock recovery_gate (fun () -> recovery_sessions.ToArray())
 
@@ -649,11 +654,20 @@ let complete_finished_sessions () =
                 System.Diagnostics.Debug.WriteLine $"RhinosCanFly raw cleanup: {error}"
 
 let start (buttons_swapped: bool) (admit: unit -> bool) (input: InputAccumulator.State) (input_available: Action) =
-    if recovery_pending () then
-        let message =
-            "A previous raw-input session still needs cleanup. Run RhinosCanFlyInputRecover or restart Rhino."
+    complete_finished_sessions ()
 
-        raise (StartFailureException(message, true, InvalidOperationException message))
+    if recovery_pending () then
+        let pending_cleanup = pending_cleanup ()
+
+        let message =
+            if Option.isSome pending_cleanup then
+                "A previous raw-input session is still cleaning up. Try again shortly."
+            else
+                "A previous raw-input session still needs cleanup. Run RhinosCanFlyInputRecover or restart Rhino."
+
+        raise (
+            StartFailureException(message, true, InvalidOperationException message, ?pending_cleanup = pending_cleanup)
+        )
 
     let reserved =
         lock session_gate (fun () ->

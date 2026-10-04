@@ -110,14 +110,16 @@ module CameraSnapshot =
             view_projection.Dispose()
             reraise ()
 
-    let restore (viewport: Rhino.Display.RhinoViewport) (snapshot: CameraSnapshot) =
+    let restore (viewport: Rhino.Display.RhinoViewport) (snapshot: CameraSnapshot) (can_restore: unit -> bool) =
         if snapshot.is_disposed then
             failwith "The camera snapshot has already been disposed."
 
-        if not (viewport.SetViewProjection(snapshot.view_projection, false)) then
-            failwith "Rhino could not restore the viewport projection."
+        if can_restore () then
+            if not (viewport.SetViewProjection(snapshot.view_projection, false)) then
+                failwith "Rhino could not restore the viewport projection."
 
-        viewport.SetCameraTarget(snapshot.target, false)
+            if can_restore () then
+                viewport.SetCameraTarget(snapshot.target, false)
 
     let dispose (snapshot: CameraSnapshot) = snapshot.dispose ()
 

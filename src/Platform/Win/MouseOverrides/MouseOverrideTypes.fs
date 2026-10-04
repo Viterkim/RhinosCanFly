@@ -11,9 +11,15 @@ type SideButton =
     | Mouse4
     | Mouse5
 
+type MouseAdmission =
+    { foreground: RootWindow
+      mutable host_revision: int64
+      mutable activation_attempted: bool
+      mutable deadline: int64 }
+
 [<Struct>]
 type SideButtonHookEvent =
-    | ButtonDown of button: SideButton * host: ViewportHostIdentity * screen_point: Point
+    | ButtonDown of button: SideButton * host: ViewportHostIdentity * screen_point: Point * admission: MouseAdmission
     | ButtonUp of button: SideButton
 
 type HookButtonOwnership =
@@ -44,7 +50,7 @@ type GestureNavigationSession =
       mode: ViewNavigationMode
       lifetime: GestureLifetime
       pivot_center: Rhino.Geometry.Point3d
-      original_target: Rhino.Geometry.Point3d voption }
+      mutable startup_rollback: (int64 -> Result<unit, string>) option }
 
 type GestureNavigation =
     | NoGestureNavigation
@@ -54,14 +60,15 @@ type MouseFlightEntry =
     { owner: GestureOwner
       host: ViewportHostIdentity
       mode: FlightMode
+      admission: MouseAdmission
       released: bool }
 
 type ViewLatchSession =
     { host: ViewportHostIdentity
       mode: ViewNavigationMode
       pivot_center: Rhino.Geometry.Point3d
-      mutable startup_rollback: (unit -> Result<unit, string>) option
-      completion: Action option }
+      mutable startup_rollback: (int64 -> Result<unit, string>) option
+      completion: Action<unit -> bool> option }
 
 type ViewLatch =
     | NoViewLatch
@@ -82,6 +89,8 @@ type PollRequirement =
 
 type State =
     { mutable routing: MouseOverrideConfig
+      mutable active_host: ViewportHostIdentity voption
+      mutable host_revision: int64
       mutable lifecycle: OverrideLifecycle
       mutable gesture_navigation: GestureNavigation
       mutable view_latch: ViewLatch
@@ -106,7 +115,12 @@ let empty_routing =
     { actions = MouseActionConfig.disabled
       exit_binding = None
       prepare_navigation =
-        fun (host: ViewportHostIdentity) (_: NavigationTargetPoint) (_: ViewNavigationMode) (_: unit -> bool) ->
+        fun
+            (host: ViewportHostIdentity)
+            (_: NavigationTargetPoint)
+            (_: ViewNavigationMode)
+            (_: unit -> bool)
+            (_: Rhino.Geometry.Point3d -> Rhino.Geometry.Point3d -> unit) ->
             Ok(struct (host, Rhino.Geometry.Point3d.Unset))
       retarget =
         fun (_: ViewportHostIdentity) (_: ViewportClientPoint) (_: RetargetMode) (_: unit -> bool) ->
@@ -115,6 +129,8 @@ let empty_routing =
 
 let create_state () =
     { routing = empty_routing
+      active_host = ValueNone
+      host_revision = 0L
       lifecycle = Resuming
       gesture_navigation = NoGestureNavigation
       view_latch = NoViewLatch

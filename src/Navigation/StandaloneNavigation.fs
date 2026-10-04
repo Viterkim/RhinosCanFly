@@ -25,16 +25,18 @@ let restored_view_completion (loaded: ConfigLoadResult) (view: RhinoView) =
             let mutable completed = false
 
             let completion =
-                Action(fun () ->
+                Action<unit -> bool>(fun (restore: unit -> bool) ->
                     if not completed then
                         completed <- true
 
                         try
-                            if PlatformInput.viewport_host_exists host view then
-                                CameraSnapshot.restore viewport snapshot
+                            let can_restore () =
+                                restore () && PlatformInput.viewport_host_is_foreground host view
 
-                                if PlatformInput.viewport_host_is_foreground host view then
-                                    view.Redraw()
+                            CameraSnapshot.restore viewport snapshot can_restore
+
+                            if can_restore () then
+                                view.Redraw()
                         finally
                             CameraSnapshot.dispose snapshot)
 
@@ -59,11 +61,15 @@ let start_navigation (mode: ViewNavigationMode) (loaded: ConfigLoadResult) (view
             match PlatformMouseActions.start_view_latch view mode completion with
             | Ok() -> Result.Success
             | Error error ->
-                completion |> Option.iter (fun (complete: Action) -> complete.Invoke())
+                completion
+                |> Option.iter (fun (complete: Action<unit -> bool>) -> complete.Invoke(fun () -> false))
+
                 RhinoApp.WriteLine $"{command_name} failed: {error}"
                 Result.Failure
         with error ->
-            completion |> Option.iter (fun (complete: Action) -> complete.Invoke())
+            completion
+            |> Option.iter (fun (complete: Action<unit -> bool>) -> complete.Invoke(fun () -> false))
+
             RhinoApp.WriteLine $"{command_name} failed: {error.Message}"
             Result.Failure
 

@@ -133,8 +133,6 @@ let load_existing (config_path: string) =
     prepared
     |> Result.map (fun (repaired: ConfigRepair.RepairResult) -> struct (repaired, content))
 
-let mutable loaded_content: string option = None
-
 let load_locked (config_path: string) =
     let created = not (File.Exists config_path)
 
@@ -163,11 +161,10 @@ let load_locked (config_path: string) =
             with error ->
                 messages.Add $"could not prune old config backups: {error.Message}"
 
-        loaded_content <- Some baseline
-
         Ok
             { config_file = repaired.config_file
               config = repaired.config
+              revision = baseline
               messages = List.ofSeq messages }
 
 // A competing Rhino may hold the sidecar briefly during startup or an atomic save.
@@ -210,8 +207,6 @@ let save_locked (config_path: string) (source: FlyConfigFile) (config: FlyConfig
         if existing <> content then
             write_atomic config_path content
 
-        loaded_content <- Some content
-
         if backup_requirement = BackupRequirement.Required then
             try
                 prune_automatic_backups config_path
@@ -221,9 +216,10 @@ let save_locked (config_path: string) (source: FlyConfigFile) (config: FlyConfig
         Ok
             { config_file = config_file
               config = config
+              revision = content
               messages = List.ofSeq messages }
 
-let save (source: FlyConfigFile) =
+let save (expected_revision: string) (source: FlyConfigFile) =
     let normalized_source = ConfigSchema.normalize source
 
     match ConfigCompiler.compile normalized_source with
@@ -239,10 +235,10 @@ let save (source: FlyConfigFile) =
                     else
                         ""
 
-                match loaded_content with
-                | Some previous when previous <> current ->
+                if expected_revision <> current then
                     Error "Settings changed on disk since they were loaded. Reopen Options to load them before saving."
-                | _ -> save_locked config_path normalized_source config)
+                else
+                    save_locked config_path normalized_source config)
         with error ->
             Error error.Message
 

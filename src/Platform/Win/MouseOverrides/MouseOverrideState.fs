@@ -1,7 +1,32 @@
 module RhinosCanFly.Platform.Win.MouseOverrideState
 
+open System.Diagnostics
 open RhinosCanFly
 open RhinosCanFly.Platform.Win.MouseOverrideTypes
+
+let observe_active_host (state: State) (host: ViewportHostIdentity voption) =
+    if state.active_host <> host then
+        state.active_host <- host
+        state.host_revision <- state.host_revision + 1L
+
+let start_admission_deadline (now: int64) (admission: MouseAdmission) =
+    if admission.deadline = 0L then
+        admission.deadline <- now + 2L * Stopwatch.Frequency
+
+let admission_is_current
+    (now: int64)
+    (foreground: RootWindow)
+    (state: State)
+    (host: ViewportHostIdentity)
+    (admission: MouseAdmission)
+    =
+    (admission.deadline = 0L || now < admission.deadline)
+    && (foreground = host.root_window
+        || (not admission.activation_attempted && foreground = admission.foreground))
+    && (state.host_revision = admission.host_revision
+        || (not admission.activation_attempted
+            && state.host_revision = admission.host_revision + 1L
+            && state.active_host = ValueSome host))
 
 let apply_suspended_routing (state: State) (config: MouseOverrideConfig) =
     match state.suspension_cleanup_error with
@@ -192,6 +217,12 @@ let root_window (window: nativeint) =
 let foreground_root_window () =
     RootWindow(Win32Native.GetForegroundWindow())
 
+let create_admission (state: State) =
+    { foreground = foreground_root_window ()
+      host_revision = state.host_revision
+      activation_attempted = false
+      deadline = Stopwatch.GetTimestamp() + 2L * Stopwatch.Frequency }
+
 let try_bring_root_window_to_foreground (window: RootWindow) =
     if foreground_root_window () = window then
         true
@@ -213,7 +244,21 @@ let navigation_host (state: State) =
         | ViewLatchActive session -> ValueSome session.host
         | NoViewLatch -> ValueNone
 
-let complete_view_latch (latch: ViewLatch) =
+let complete_gesture_navigation (revision: int64) (gesture: GestureNavigation) =
+    match gesture with
+    | NoGestureNavigation -> Ok()
+    | GestureNavigationActive session ->
+        let rollback = session.startup_rollback
+        session.startup_rollback <- None
+
+        try
+            match rollback with
+            | Some restore -> restore revision
+            | None -> Ok()
+        with error ->
+            Error $"Could not restore the navigation target: {error.Message}"
+
+let complete_view_latch (state: State) (revision: int64) (latch: ViewLatch) =
     let errors = ResizeArray<string>()
 
     match latch with
@@ -226,7 +271,7 @@ let complete_view_latch (latch: ViewLatch) =
         match rollback with
         | Some restore ->
             try
-                match restore () with
+                match restore revision with
                 | Ok() -> ()
                 | Error error -> errors.Add error
             with error ->
@@ -236,7 +281,12 @@ let complete_view_latch (latch: ViewLatch) =
         match session.completion with
         | Some completion ->
             try
-                completion.Invoke()
+                completion.Invoke(fun () ->
+                    Option.isNone rollback
+                    && state.navigation_revision = revision
+                    && not (view_latch_engaged state)
+                    && not (gesture_navigation_engaged state)
+                    && state.lifecycle <> ShutDown)
             with error ->
                 errors.Add $"Could not restore the original view: {error.Message}"
         | None -> ()
@@ -247,6 +297,10 @@ let complete_view_latch (latch: ViewLatch) =
         Error(String.concat "; " errors)
 
 let commit_view_latch (state: State) (host: ViewportHostIdentity) =
+    match state.gesture_navigation with
+    | GestureNavigationActive session when session.host = host -> session.startup_rollback <- None
+    | _ -> ()
+
     match state.view_latch with
     | ViewLatchActive session when session.host = host -> session.startup_rollback <- None
     | _ -> ()
@@ -263,6 +317,16 @@ let clear_navigation (state: State) =
 
 let release_all (state: State) =
     state.navigation_revision <- state.navigation_revision + 1L
+    let revision = state.navigation_revision
+    let previous_gesture = state.gesture_navigation
     let previous_view_latch = clear_navigation state
     state.poll_timer.Stop()
-    complete_view_latch previous_view_latch
+
+    let gesture_result = complete_gesture_navigation revision previous_gesture
+    let latch_result = complete_view_latch state revision previous_view_latch
+
+    match gesture_result, latch_result with
+    | Ok(), Ok() -> Ok()
+    | Error error, Ok()
+    | Ok(), Error error -> Error error
+    | Error gesture_error, Error latch_error -> Error $"{gesture_error}; {latch_error}"

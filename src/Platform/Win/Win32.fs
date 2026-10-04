@@ -5,6 +5,7 @@ module RhinosCanFly.Platform.Win.Win32
 open System
 open System.ComponentModel
 open System.Drawing
+open System.Diagnostics
 open System.Runtime.InteropServices
 open System.Text
 open Microsoft.FSharp.NativeInterop
@@ -177,6 +178,7 @@ let wait_for_input_for (timeout_milliseconds: int) =
 [<Struct>]
 type KeyboardHookEvent =
     { physical_key: int
+      timestamp: int64
       released: bool
       was_down: bool }
 
@@ -199,6 +201,31 @@ let mouse_modifiers () =
     { shift = modifier_down Win32Native.VK_SHIFT Win32Native.VK_LSHIFT Win32Native.VK_RSHIFT
       alt = modifier_down Win32Native.VK_MENU Win32Native.VK_LMENU Win32Native.VK_RMENU
       control = modifier_down Win32Native.VK_CONTROL Win32Native.VK_LCONTROL Win32Native.VK_RCONTROL }
+
+let queued_mouse_modifiers () =
+    { shift = Win32Native.GetKeyState Win32Native.VK_SHIFT < 0s
+      alt = Win32Native.GetKeyState Win32Native.VK_MENU < 0s
+      control = Win32Native.GetKeyState Win32Native.VK_CONTROL < 0s }
+
+let queued_timestamp (now: int64) (current_milliseconds: int) (message_milliseconds: int) =
+    let age = uint32 current_milliseconds - uint32 message_milliseconds
+
+    if age > uint32 Int32.MaxValue then
+        now
+    else
+        now - int64 age * Stopwatch.Frequency / 1000L
+
+let queued_keyboard_timestamp () =
+    let mutable message = Unchecked.defaultof<Win32Native.NativeMessage>
+
+    if
+        Win32Native.PeekMessage(&message, nativeint 0, 0x0100u, 0x0109u, 0u)
+        && message.message >= 0x0100u
+        && message.message <= 0x0109u
+    then
+        ValueSome(queued_timestamp (Stopwatch.GetTimestamp()) Environment.TickCount (int message.time))
+    else
+        ValueNone
 
 let keyboard_physical_key (virtual_key: int) (event_data: int64) =
     let extended = event_data &&& Win32Native.KEYBOARD_EXTENDED_KEY <> 0L
@@ -243,6 +270,8 @@ let install_keyboard_hook (handle_event: KeyboardHookEvent -> bool) =
 
             let event: KeyboardHookEvent =
                 { physical_key = keyboard_physical_key virtual_key event_data
+                  timestamp =
+                    queued_timestamp (Stopwatch.GetTimestamp()) Environment.TickCount (Win32Native.GetMessageTime())
                   released = event_data &&& Win32Native.KEYBOARD_KEY_RELEASED <> 0L
                   was_down = event_data &&& Win32Native.KEYBOARD_PREVIOUSLY_DOWN <> 0L }
 
@@ -330,7 +359,7 @@ let install_mouse_hook (handle_event: MouseHookEvent -> bool) =
                       hook_window = data.window
                       point_window = point_window
                       screen_point = System.Drawing.Point(data.point.x, data.point.y)
-                      modifiers = mouse_modifiers () }
+                      modifiers = queued_mouse_modifiers () }
 
                 let swallowed = handle_event event
 

@@ -30,7 +30,7 @@ https://github.com/user-attachments/assets/52dc3237-e12b-4a54-8776-88f6b6475fac
 
 Main focus is flying as a workflow for editing, which includes things like: teleporting / syncing other views via retarget, pivot/pan toggleable buttons, parallel/iso flying behaviour and toggle, retarget options, everything configurable and supports mouse 4/5 stuff.
 
-Walking is not the point of the project, and it won't have collision, the idea is more of a full workflow inspired by old editor workflows with shortcuts that makes things like retarget/zoom to target fast. The walk command does the bare minimum, if some people want a small variant for seeing something stuck to a specific height (uses the documents units).
+Walking is not the point of the project, and it won't have collision, the idea is more of a full workflow inspired by old editor workflows with shortcuts that makes things like retarget/zoom to target fast. The walk command starts at a given height in document units and keeps forward/sideways movement along the CPlane. Up/Down, pan and pivot still work normally.
 
 ## Extra Commands
 
@@ -38,7 +38,7 @@ Walking is not the point of the project, and it won't have collision, the idea i
 
 `RhinosCanFlySetSpeed` sets the current flying speed, you can also use a bind or the mousewheel up / down in settings.
 
-`RhinosCanWalk` very bare bones 'walk' command that just limits your mouse movement on an axis on the current CPlane. Set the CPlane to what you want the ground to be, height is in document units, and set an alias for something like `'_-RhinosCanWalk 1.75 _Enter`. It only supports the CPlane being 'somewhatfriendly' to the z axis from the world, or you become spiderman on the side of a wall.
+`RhinosCanWalk` very bare bones 'walk' command that keeps forward/sideways movement along the current CPlane. Set the CPlane to what you want the ground to be, the starting height is in document units, and set an alias for something like `'_-RhinosCanWalk 1.75 _Enter`. It only supports the CPlane being 'somewhatfriendly' to the z axis from the world, or you become spiderman on the side of a wall.
 
 `RhinosCanFlyPan` pans around via a toggle (extra, if you want the functionality Rhino doesn't provide).
 

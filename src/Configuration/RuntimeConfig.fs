@@ -105,4 +105,5 @@ type FlyConfig =
 type ConfigLoadResult =
     { config_file: FlyConfigFile
       config: FlyConfig
+      revision: string
       messages: string list }

@@ -62,14 +62,16 @@ type RawInputReceiver(process_control: Action) as self =
 
         work_added
 
-    let process_buffered_input (session: RawInputSession) =
+    let process_buffered_input (maximum_reads: int) (session: RawInputSession) =
         let mutable draining = true
         let mutable work_added = false
+        let mutable reads = 0
 
-        while draining do
+        while draining && reads < maximum_reads do
             let mutable buffer_bytes = 0u
             let mutable error_code = 0
             let count = RawInputNative.read_buffered input_buffer &buffer_bytes &error_code
+            reads <- reads + 1
 
             if count = 0u then
                 draining <- false
@@ -129,10 +131,14 @@ type RawInputReceiver(process_control: Action) as self =
             match active_session with
             | Some session ->
                 try
-                    process_buffered_input session |> ignore
+                    process_buffered_input Int32.MaxValue session |> ignore
                 with error ->
                     session.FailRuntime error
             | None -> ()
+
+            // Raw delivery has ended; fresh legacy presses can use normal routing.
+            if Option.isSome active_session || Option.isSome session_finished then
+                RawMouseButtons.end_raw_delivery ()
 
             match session_finished with
             | Some finished -> finished.Invoke()
@@ -169,6 +175,7 @@ type RawInputReceiver(process_control: Action) as self =
         if not (registration_relinquished ()) then
             invalidOp "The raw-input session cannot be released while mouse registration still belongs to it."
 
+        finish_session ()
         let release_error = registration_release_error
         active_session <- None
         registration_lease <- None
@@ -234,12 +241,13 @@ type RawInputReceiver(process_control: Action) as self =
 
     let process_input_message (raw_input: nativeint) =
         match active_session with
-        | Some session ->
+        | Some session when not session_finished_notified ->
             let current_added = process_current_input session raw_input
-            let buffered_added = process_buffered_input session
+            let buffered_added = process_buffered_input 8 session
 
             if current_added || buffered_added then
                 session.SignalInputAvailable()
+        | Some _
         | None -> ()
 
     let fail_runtime (error: exn) =
