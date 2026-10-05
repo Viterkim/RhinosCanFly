@@ -78,7 +78,7 @@ Gippity was a major contributor in this, even that is an understatement.
 
 Why F#? I chose microsoft ocaml over microsoft java.
 
-Why no Mac support? I don't have a mac and can't test / develop it, feel free to add mac support if you want it, all the raw input / windows native stuff will have to be redone, but it is split up in a way so it should be possible (with a lot of work).
+Mac support is being worked on for Rhino 8 and 9. No Rhino 7 on Mac. I don't have a Mac to test it. [Experimental Mac port](./docs/mac-port.md).
 
 ## Template from
 

@@ -107,7 +107,7 @@ let compile_detailed (source: FlyConfigFile) =
         | Error error ->
             add_issue name $"{name}: {error}" repair
 
-            { virtual_keys = Array.empty<VirtualKey> }
+            PlatformBindings.empty
 
     let optional (name: string) (value: string) (repair: FlyConfigFile -> FlyConfigFile) =
         if String.IsNullOrWhiteSpace value then

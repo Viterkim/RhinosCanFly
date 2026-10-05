@@ -4,6 +4,10 @@ open System
 open Rhino.Display
 open RhinosCanFly.Platform.Win
 
+let watch_entry_focus (host: ViewportHostIdentity) (invalidated: bool ref) =
+    let (RootWindow window) = host.root_window
+    Some(new EntryFocus.Watcher(window, invalidated) :> IDisposable)
+
 let wheel_delta = int64 Win32Native.WHEEL_DELTA
 
 let wheel_zoom_steps_per_delta =
@@ -16,6 +20,9 @@ let wheel_zoom_steps (delta: int64) =
 
 let foreground_root_window () =
     RootWindow(Win32Native.GetForegroundWindow())
+
+let viewport_application_is_foreground (identity: ViewportHostIdentity) =
+    foreground_root_window () = identity.root_window
 
 let right_mouse_button_down () = Win32.key_down Win32Native.VK_RBUTTON
 

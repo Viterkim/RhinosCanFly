@@ -663,7 +663,7 @@ let begin_active (starting: StartingSession) =
             let active_result =
                 try
                     match session.raw with
-                    | Some raw -> FlightLoop.run session.input_wake session.raw_input raw state
+                    | Some raw -> FlightLoopHost.run session.input_wake session.raw_input raw state
                     | None -> failwith "Flight has no raw-input session."
 
                     Ok()
@@ -815,6 +815,8 @@ let run (view: RhinoView) (config: FlyConfig) (session_mode: FlightSessionMode) 
     | Ready
     | AwaitingRawCleanup _ ->
         try
+            FlightBindingActions.validate config
+
             match PlatformMouseActions.suspend () with
             | Error error -> Error $"Could not suspend mouse button overrides: {error}"
             | Ok suspension ->

@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <PackageLicenseExpression>MIT-0</PackageLicenseExpression>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/Platform/RelativeMotion.fs" Link="RelativeMotion.fs" />
+    <Compile Include="../../src/Platform/Linux/WaylandInput.fs" Link="WaylandInput.fs" />
+  </ItemGroup>
+</Project>

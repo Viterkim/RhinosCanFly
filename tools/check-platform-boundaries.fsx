@@ -14,16 +14,30 @@ let rule (name: string) (pattern: string) =
     { name = name
       pattern = Regex(pattern, RegexOptions.Compiled) }
 
-let forbidden =
-    [ rule "System.Drawing" @"\bSystem\.Drawing\b"
-      rule "System.Windows.Forms" @"\bSystem\.Windows\.Forms\b"
-      rule "DllImport" @"\bDllImport\b"
+let windows_details =
+    [ rule "System.Windows.Forms" @"\bSystem\.Windows\.Forms\b"
       rule "Platform.Win" @"\bPlatform\.Win\b"
-      rule "Win32" @"\bWin32(?:Native)?\b"
+      rule "Win32" @"\bWin32(?:Native)?\b" ]
+
+let mac_details =
+    [ rule "Platform.Mac" @"\bPlatform\.Mac\b"
+      rule "MacNative" @"\bMacNative\b"
+      rule "MacNavigationInput" @"\bMacNavigationInput\b" ]
+
+let linux_details =
+    [ rule "Platform.Linux" @"\bPlatform\.Linux\b"
+      rule "WaylandInput" @"\bWaylandInput\b" ]
+
+let forbidden =
+    [ rule "System.Drawing" @"\bSystem\.Drawing\b(?!\.(?:Color|PointF?|RectangleF?|SizeF?)\b)"
+      rule "DllImport" @"\bDllImport\b"
       rule "nativeint" @"\bnativeint\b"
       rule "unativeint" @"\bunativeint\b"
       rule "window handle" @"\.Handle\b"
       rule "screen rectangle" @"\.ScreenRectangle\b" ]
+    @ windows_details
+    @ mac_details
+    @ linux_details
 
 let is_inside (directory: string) (path: string) =
     let prefix =
@@ -34,16 +48,27 @@ let is_inside (directory: string) (path: string) =
 
 let violations =
     Directory.EnumerateFiles(source_root, "*.fs", SearchOption.AllDirectories)
-    |> Seq.filter (is_inside platform_root >> not)
     |> Seq.collect (fun (path: string) ->
+        let rules =
+            if not (is_inside platform_root path) then
+                forbidden
+            elif is_inside (Path.Combine(platform_root, "Win")) path then
+                mac_details @ linux_details
+            elif is_inside (Path.Combine(platform_root, "Mac")) path then
+                windows_details @ linux_details
+            elif is_inside (Path.Combine(platform_root, "Linux")) path then
+                windows_details @ mac_details
+            else
+                windows_details @ mac_details @ linux_details
+
         code_only (File.ReadAllText path)
         |> fun (code: string) -> code.Replace("\r\n", "\n").Split '\n'
         |> Seq.mapi (fun (index: int) (line: string) -> index + 1, line)
         |> Seq.collect (fun (line_number: int, line: string) ->
-            forbidden
+            rules
             |> Seq.choose (fun (rule: Rule) ->
                 if rule.pattern.IsMatch line then
-                    Some $"{path}({line_number}): platform implementation detail '{rule.name}' escaped src/Platform"
+                    Some $"{path}({line_number}): platform implementation detail '{rule.name}' crossed its boundary"
                 else
                     None)))
     |> Seq.toList

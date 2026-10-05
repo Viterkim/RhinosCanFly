@@ -41,11 +41,14 @@ let prepare
     (record_change: Point3d -> Point3d -> unit)
     =
     try
+        PlatformBindings.execution_error loaded.config.bindings.exit_key
+        |> Option.iter (fun (error: string) -> invalidOp $"exit_key: {error}")
+
         let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
 
         if isNull view || isNull view.Document then
             Error "The navigation viewport is unavailable."
-        elif PlatformInput.foreground_root_window () <> host.root_window then
+        elif not (PlatformInput.viewport_application_is_foreground host) then
             Error "The navigation viewport is no longer active."
         else
             let document = view.Document
@@ -341,7 +344,7 @@ let retarget
 
         if
             not (PlatformInput.viewport_host_is_active host view)
-            || PlatformInput.foreground_root_window () <> host.root_window
+            || not (PlatformInput.viewport_application_is_foreground host)
         then
             invalidOp "The retarget viewport is no longer active."
 

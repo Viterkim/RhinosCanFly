@@ -1,5 +1,6 @@
 <Project>
   <PropertyGroup>
+    <RhinosCanFlyPlatform Condition="'$(RhinosCanFlyPlatform)' == '' And $([MSBuild]::IsOSPlatform('OSX'))">mac</RhinosCanFlyPlatform>
     <RhinosCanFlyPlatform Condition="'$(RhinosCanFlyPlatform)' == ''">win</RhinosCanFlyPlatform>
     <RhinoDefaultVersion>8</RhinoDefaultVersion>
     <RhinoSupportedVersions>7;8;9</RhinoSupportedVersions>
@@ -7,8 +8,10 @@
     <RhinoBuildVersions>$(RhinoSupportedVersions);$(RhinoExperimentalVersions)</RhinoBuildVersions>
     <RhinoReleaseVersions>$(RhinoSupportedVersions)</RhinoReleaseVersions>
     <RhinoMajorVersion Condition="'$(RhinoMajorVersion)' == ''">$(RhinoDefaultVersion)</RhinoMajorVersion>
-    <BaseOutputPath>bin\rh$(RhinoMajorVersion)\</BaseOutputPath>
-    <BaseIntermediateOutputPath>obj\rh$(RhinoMajorVersion)\</BaseIntermediateOutputPath>
+    <BaseOutputPath Condition="'$(RhinosCanFlyPlatform)' == 'win'">bin\rh$(RhinoMajorVersion)\</BaseOutputPath>
+    <BaseIntermediateOutputPath Condition="'$(RhinosCanFlyPlatform)' == 'win'">obj\rh$(RhinoMajorVersion)\</BaseIntermediateOutputPath>
+    <BaseOutputPath Condition="'$(RhinosCanFlyPlatform)' != 'win'">bin\$(RhinosCanFlyPlatform)\rh$(RhinoMajorVersion)\</BaseOutputPath>
+    <BaseIntermediateOutputPath Condition="'$(RhinosCanFlyPlatform)' != 'win'">obj\$(RhinosCanFlyPlatform)\rh$(RhinoMajorVersion)\</BaseIntermediateOutputPath>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(RhinoMajorVersion)' == '7'">
@@ -17,12 +20,14 @@
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(RhinoMajorVersion)' == '8'">
-    <TargetFramework Condition="'$(TargetFramework)' == ''">net8.0-windows</TargetFramework>
+    <TargetFramework Condition="'$(TargetFramework)' == '' And '$(RhinosCanFlyPlatform)' == 'win'">net8.0-windows</TargetFramework>
+    <TargetFramework Condition="'$(TargetFramework)' == '' And '$(RhinosCanFlyPlatform)' == 'mac'">net8.0</TargetFramework>
     <RhinoCommonPackageVersion Condition="'$(RhinoCommonPackageVersion)' == ''">8.34.26223.11001</RhinoCommonPackageVersion>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(RhinoMajorVersion)' == '9'">
-    <TargetFramework Condition="'$(TargetFramework)' == ''">net10.0-windows</TargetFramework>
+    <TargetFramework Condition="'$(TargetFramework)' == '' And '$(RhinosCanFlyPlatform)' == 'win'">net10.0-windows</TargetFramework>
+    <TargetFramework Condition="'$(TargetFramework)' == '' And '$(RhinosCanFlyPlatform)' == 'mac'">net10.0</TargetFramework>
     <RhinoCommonPackageVersion Condition="'$(RhinoCommonPackageVersion)' == ''">9.0.26272.12303-beta</RhinoCommonPackageVersion>
   </PropertyGroup>
 </Project>

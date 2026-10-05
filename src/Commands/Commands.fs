@@ -36,23 +36,13 @@ type RhinosCanFlyTempFlyCommand() =
 type RhinosCanWalkCommand() =
     inherit PluginCommand(Commands.RhinosCanWalk.run)
 
-[<Guid("D78B9DD9-30B0-45E5-9436-57C4253BA0C6")>]
+[<Guid("FF3BA0BD-75DD-4CCB-BD99-9F63639589AD")>]
 [<CommandStyle(Style.Hidden ||| Style.Transparent ||| Style.DoNotRepeat)>]
-type RhinosCanFlyHeldCommand() =
+type RhinosCanFlyMouseEntryCommand() =
     inherit Command()
-    override _.EnglishName = "RhinosCanFlyHeld"
+    override _.EnglishName = "RhinosCanFlyMouseEntry"
 
-    override _.RunCommand(document: RhinoDoc, mode: RunMode) =
-        Commands.RhinosCanFlyHeld.run document mode
-
-[<Guid("D06ECC7F-7346-4112-9367-F1E9D7B228F7")>]
-[<CommandStyle(Style.Hidden ||| Style.Transparent ||| Style.DoNotRepeat)>]
-type RhinosCanFlyTempFlyHeldCommand() =
-    inherit Command()
-    override _.EnglishName = "RhinosCanFlyTempFlyHeld"
-
-    override _.RunCommand(document: RhinoDoc, mode: RunMode) =
-        Commands.RhinosCanFlyTempFlyHeld.run document mode
+    override _.RunCommand(document: RhinoDoc, mode: RunMode) = FlightStart.run_mouse document mode
 
 [<Guid("06912096-2514-4F29-9E35-A00D0D436334")>]
 type RhinosCanFlyOptionsCommand() =

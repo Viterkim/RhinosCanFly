@@ -107,6 +107,10 @@ let action_pending (state: RightClickState) =
     | FlightDispatched -> true
 
 let clear_action (state: RightClickState) =
+    match state.dispatched_entry with
+    | Some(struct (_, _, id, _)) -> MouseFlightEntry.cancel id
+    | None -> ()
+
     state.gesture <- Idle
     state.admission <- None
     state.dispatched_entry <- None
@@ -240,14 +244,17 @@ let rec handle_event
         | None -> ()
 
         state.button_ownership <- NotOwned
-        state.dispatched_entry <- None
+
+        match state.dispatched_entry with
+        | Some(struct (entry, _, _, _)) when entry_while_held entry.entry_mode -> clear_action state
+        | _ -> ()
 
         match state.gesture with
         | ButtonDown(EnterFlight entry) when entry_while_held entry.entry_mode -> clear_action state
         | ButtonDown(EnterFlight _ as captured) -> state.gesture <- ButtonReleased captured
         | ButtonDown captured -> state.gesture <- ButtonReleasedBeforeHandling captured
         | ButtonDownHandled captured -> state.gesture <- ButtonReleased captured
-        | FlightDispatched -> clear_action state
+        | FlightDispatched -> ()
         | Idle
         | NativeModifiedGesture
         | ButtonReleasedBeforeHandling _
@@ -271,8 +278,11 @@ let rec handle_event
             state.button_ownership <- NotOwned
             clear_action state
             handle_event navigation state try_view command_active event
-        | ButtonDown _
-        | FlightDispatched ->
+        | FlightDispatched
+        | Idle ->
+            clear_action state
+            handle_event navigation state try_view command_active event
+        | ButtonDown _ ->
             state.pair_id <- state.pair_id + 1L
             state.button_ownership <- Owned
 
@@ -280,7 +290,6 @@ let rec handle_event
                 clear_action state
 
             true
-        | Idle
         | NativeModifiedGesture
         | ButtonDownHandled _ -> false
     elif
@@ -305,6 +314,7 @@ let rec handle_event
                     false
                 | ValueNone -> false
                 | ValueSome captured ->
+                    MouseFlightEntry.revoke ()
                     let admission = MouseOverrideState.create_admission navigation
 
                     match captured with
@@ -323,20 +333,6 @@ let rec handle_event
             | ValueSome _
             | ValueNone -> false
         | ValueNone -> false
-
-let entry_command (entry: FlyEntry) =
-    let flight_mode = DefaultFlightMode.flight_mode entry.default_flight_mode
-
-    if entry_while_held entry.entry_mode then
-        match flight_mode with
-        | FlightMode.Temporary -> "'_RhinosCanFlyTempFlyHeld"
-        | FlightMode.Normal
-        | _ -> "'_RhinosCanFlyHeld"
-    else
-        match flight_mode with
-        | FlightMode.Temporary -> "'_RhinosCanFlyTempFly"
-        | FlightMode.Normal
-        | _ -> "'_RhinosCanFly"
 
 let try_entry_view (entry: FlyEntry) =
     let view = RhinoView.FromRuntimeSerialNumber entry.host.view_serial_number
@@ -369,63 +365,69 @@ let try_prepare_entry_view (navigation: State) (state: RightClickState) (entry: 
     | GestureNavigationTransitions.ActionViewDeferred -> EntryDeferred
     | GestureNavigationTransitions.ActionViewUnavailable _ -> EntryUnavailable
 
-let dispatch_entry_with (dispatch: uint32 -> string -> bool) (state: RightClickState) (entry: FlyEntry) =
-    let request_id = Guid.NewGuid()
+let dispatch_entry_with
+    (dispatch: uint32 -> string -> bool)
+    (navigation: State)
+    (state: RightClickState)
+    (entry: FlyEntry)
+    =
     let pair_id = state.pair_id
-    state.gesture <- FlightDispatched
     let held = entry_while_held entry.entry_mode
+    let host_revision = navigation.host_revision
 
-    state.dispatched_entry <-
+    let deadline =
+        state.admission
+        |> Option.map (fun (admission: MouseAdmission) -> admission.deadline)
+        |> Option.defaultValue 0L
+
+    let held_entry =
         if held then
-            Some(struct (entry, state.pair_id, request_id, Stopwatch.GetTimestamp() + 2L * Stopwatch.Frequency))
+            let view = RhinoView.FromRuntimeSerialNumber entry.host.view_serial_number
+
+            Some(fun () ->
+                navigation.lifecycle <> ShutDown
+                && state.pair_id = pair_id
+                && state.button_ownership = Owned
+                && PlatformInput.viewport_host_is_foreground entry.host view
+                && Win32.key_down Win32Native.VK_RBUTTON)
         else
             None
 
-    let command =
-        if held then
-            let name = (entry_command entry).Replace("'_", "'_-")
-            $"{name} {request_id:N}"
-        else
-            entry_command entry
+    let request_id =
+        MouseFlightEntry.queue
+            entry.host
+            (DefaultFlightMode.flight_mode entry.default_flight_mode)
+            held_entry
+            deadline
+            (fun () ->
+                navigation.lifecycle = Available
+                && navigation.host_revision = host_revision
+                && state.pair_id = pair_id)
+
+    state.gesture <- FlightDispatched
+    state.dispatched_entry <- Some(struct (entry, pair_id, request_id, deadline))
+
+    let command = $"'_-RhinosCanFlyMouseEntry {request_id:N}"
 
     let clear_dispatched_request () =
         match state.dispatched_entry with
         | Some(struct (_, _, pending_id, _)) when pending_id = request_id -> clear_action state
-        | None when not held && state.pair_id = pair_id && state.gesture = FlightDispatched -> clear_action state
         | _ -> ()
 
     try
         if not (dispatch entry.host.document_serial_number command) then
             clear_dispatched_request ()
             Debug.WriteLine "RhinosCanFly right-click flight command was rejected by Rhino."
-        elif not held && state.gesture = FlightDispatched then
-            clear_dispatched_request ()
     with _ ->
         clear_dispatched_request ()
         reraise ()
 
-let dispatch_entry (state: RightClickState) (entry: FlyEntry) =
+let dispatch_entry (navigation: State) (state: RightClickState) (entry: FlyEntry) =
     dispatch_entry_with
         (fun (document: uint32) (command: string) -> RhinoApp.RunScript(document, command, false))
+        navigation
         state
         entry
-
-let consume_held_entry (state: RightClickState) (host: ViewportHostIdentity) (request_id: Guid) =
-    match state.dispatched_entry with
-    | Some(struct (entry, pair_id, pending_id, deadline)) when request_id = pending_id ->
-        clear_action state
-
-        if
-            entry.host = host
-            && pair_id = state.pair_id
-            && entry_while_held entry.entry_mode
-            && state.button_ownership = Owned
-            && Stopwatch.GetTimestamp() < deadline
-        then
-            Some pair_id
-        else
-            None
-    | _ -> None
 
 let projection_allows_entry (navigation: State) (view: RhinoView) =
     let viewport = view.ActiveViewport
@@ -475,11 +477,11 @@ let try_dispatch_entry (navigation: State) (state: RightClickState) (command_act
                     ()
                 elif entry_while_held entry.entry_mode then
                     if Win32.key_down Win32Native.VK_RBUTTON then
-                        dispatch_entry state entry
+                        dispatch_entry navigation state entry
                     else
                         clear_action state
                 else
-                    dispatch_entry state entry
+                    dispatch_entry navigation state entry
 
 let update (navigation: State) (state: RightClickState) (command_active: bool) =
     match state.gesture with
@@ -489,11 +491,14 @@ let update (navigation: State) (state: RightClickState) (command_active: bool) =
         let invalid =
             match state.dispatched_entry with
             | Some(struct (entry, pair_id, _, deadline)) ->
-                state.button_ownership <> Owned
+                (entry_while_held entry.entry_mode && state.button_ownership <> Owned)
                 || pair_id <> state.pair_id
                 || Stopwatch.GetTimestamp() >= deadline
                 || MouseOverrideState.foreground_root_window () <> entry.host.root_window
                 || ValueOption.isNone (try_entry_view entry)
+                || (state.admission
+                    |> Option.exists (fun (admission: MouseAdmission) ->
+                        navigation.host_revision <> admission.host_revision))
             | None -> true
 
         if navigation.lifecycle <> Available || invalid then
@@ -560,13 +565,8 @@ let update (navigation: State) (state: RightClickState) (command_active: bool) =
     | ButtonReleased(EnterFlight entry) -> try_dispatch_entry navigation state command_active entry
 
 let command_began (state: RightClickState) (command_name: string) =
-    let expected_held_command =
-        match state.dispatched_entry with
-        | Some(struct (entry, _, _, _)) -> entry_command entry = $"'_{command_name}"
-        | None -> false
-
     match state.gesture with
-    | _ when expected_held_command -> state.gesture <- Idle
+    | _ when command_name = "RhinosCanFlyMouseEntry" -> ()
     | ButtonDown(EnterFlight entry)
     | ButtonReleasedBeforeHandling(EnterFlight entry)
     | ButtonReleased(EnterFlight entry) when entry_during_commands entry.entry_mode -> ()
@@ -581,7 +581,10 @@ let command_began (state: RightClickState) (command_name: string) =
 let observe_physical_button (state: RightClickState) (down: bool) =
     if state.button_ownership = Owned && not down then
         state.button_ownership <- ReleaseObserved
-        state.dispatched_entry <- None
+
+        match state.dispatched_entry with
+        | Some(struct (entry, _, _, _)) when entry_while_held entry.entry_mode -> clear_action state
+        | _ -> ()
 
 let reconcile_physical_button (state: RightClickState) =
     observe_physical_button state (Win32.key_down Win32Native.VK_RBUTTON)

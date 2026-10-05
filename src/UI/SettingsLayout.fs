@@ -17,7 +17,9 @@ let row (cells: TableCell list) =
 let full_width (control: Control) = row [ new TableCell(control, true) ]
 
 let item (label: string) (control: Control) =
-    let caption = new Label(Text = label, Width = ITEM_LABEL_WIDTH)
+    let caption =
+        new Label(Text = label, Width = ITEM_LABEL_WIDTH, VerticalAlignment = VerticalAlignment.Center)
+
     let result = new TableLayout(Spacing = Size(8, 0))
 
     result.Rows.Add(row [ new TableCell(caption, false); new TableCell(control, true) ])
@@ -26,7 +28,9 @@ let item (label: string) (control: Control) =
 let fixed_item (label_width: int) (control_width: int) (label: string) (control: Control) =
     control.Width <- control_width
 
-    let caption = new Label(Text = label, Width = label_width)
+    let caption =
+        new Label(Text = label, Width = label_width, VerticalAlignment = VerticalAlignment.Center)
+
     let result = new TableLayout(Spacing = Size(8, 0))
 
     result.Rows.Add(row [ new TableCell(caption, false); new TableCell(control, false) ])

@@ -14,18 +14,14 @@ open RhinosCanFly.Platform.Win.MouseOverrideTypes
 let state = create_state ()
 let right_click = RightClickTransitions.create ()
 
-let consume_held_flight_entry (view: RhinoView) (request_id: Guid) =
-    let host = PlatformInput.capture_viewport_host view
+let consume_mouse_flight_entry (view: RhinoView) (request_id: Guid) =
+    let permission = MouseFlightEntry.consume view request_id
 
-    match RightClickTransitions.consume_held_entry right_click host request_id with
-    | Some pair_id ->
-        Some(fun () ->
-            state.lifecycle <> ShutDown
-            && right_click.pair_id = pair_id
-            && right_click.button_ownership = Owned
-            && PlatformInput.viewport_host_is_foreground host view
-            && Win32.key_down Win32Native.VK_RBUTTON)
-    | None -> None
+    match right_click.dispatched_entry with
+    | Some(struct (_, _, id, _)) when id = request_id -> RightClickTransitions.clear_action right_click
+    | _ -> ()
+
+    permission
 
 let raw_mouse_admission (swapped: bool) =
     let buttons =
@@ -264,6 +260,7 @@ let handle_routed_mouse_event (event: Win32.MouseHookEvent) =
                             && MouseOverrideState.capabilities_allowed state point_viewport.name
                             ->
                             swallow <- true
+                            MouseFlightEntry.revoke ()
                             MouseOverrideState.set_hook_button_ownership state button Owned
 
                             state.pending_side_button_events.AddLast(
@@ -452,8 +449,9 @@ let release_after_timer_error (error: exn) =
 
 let poll_requirement () =
     let right_click_work_pending =
-        RightClickTransitions.action_pending right_click
-        && right_click.button_ownership <> ReleaseObserved
+        MouseFlightEntry.has_pending ()
+        || (RightClickTransitions.action_pending right_click
+            && right_click.button_ownership <> ReleaseObserved)
 
     let button_release_poll_required =
         right_click.button_ownership = Owned
@@ -489,6 +487,7 @@ let apply_poll_requirement () =
             state.poll_timer.Stop()
 
 let activate_degraded (error: string) =
+    MouseFlightEntry.revoke ()
     state.lifecycle <- Degraded error
 
     match RawNavigationCoordinator.stop raw_navigation with
@@ -545,14 +544,27 @@ let update_mouse_flight_entry () =
                     state.pending_flight_entry <- None
                 elif not (PlatformRawInput.recovery_pending ()) && not (view.MouseCaptured false) then
                     state.pending_flight_entry <- None
+                    let host_revision = state.host_revision
 
-                    let command =
-                        match entry.mode with
-                        | FlightMode.Temporary -> "'_RhinosCanFlyTempFly"
-                        | _ -> "'_RhinosCanFly"
+                    let id =
+                        MouseFlightEntry.queue entry.host entry.mode None entry.admission.deadline (fun () ->
+                            state.lifecycle = Available && state.host_revision = host_revision)
 
-                    if not (RhinoApp.RunScript(entry.host.document_serial_number, command, false)) then
-                        Debug.WriteLine "RhinosCanFly mouse flight command was rejected by Rhino."
+                    try
+                        if
+                            not (
+                                RhinoApp.RunScript(
+                                    entry.host.document_serial_number,
+                                    $"'_-RhinosCanFlyMouseEntry {id:N}",
+                                    false
+                                )
+                            )
+                        then
+                            MouseFlightEntry.cancel id
+                            Debug.WriteLine "RhinosCanFly mouse flight command was rejected by Rhino."
+                    with _ ->
+                        MouseFlightEntry.cancel id
+                        reraise ()
 
 let maintain_navigation () =
     let raw_processing =
@@ -564,6 +576,7 @@ let maintain_navigation () =
     if not raw_processing then
         try
             PlatformRawInput.complete_finished_sessions ()
+            MouseFlightEntry.poll ()
 
             let navigation_was_active =
                 MouseOverrideState.gesture_navigation_engaged state
@@ -695,6 +708,7 @@ let process_ui_work () =
                         maintain_navigation ()
 
                 NavigationLoop.run
+                    PlatformInput.wait_for_input_for
                     (fun () ->
                         state.lifecycle = Available
                         && match raw_navigation.session with
@@ -727,13 +741,17 @@ let keeps_navigation_active (command_name: string) =
 let command_began =
     EventHandler<CommandEventArgs>(fun (_: obj) (event: CommandEventArgs) ->
         command_depth <- command_depth + 1
-        state.pending_flight_entry <- None
+
+        if event.CommandEnglishName <> "RhinosCanFlyMouseEntry" then
+            state.pending_flight_entry <- None
+            MouseFlightEntry.revoke ()
 
         try
             RightClickTransitions.command_began right_click event.CommandEnglishName
 
             if
                 not (keeps_navigation_active event.CommandEnglishName)
+                && event.CommandEnglishName <> "RhinosCanFlyMouseEntry"
                 && state.lifecycle = Available
                 && (state.pending_side_button_events.Count > 0
                     || MouseOverrideState.gesture_navigation_engaged state
@@ -889,6 +907,8 @@ let stop_view_latch (mode: ViewNavigationMode) =
 let view_latch_is (mode: ViewNavigationMode) = ViewLatchTransitions.is_mode state mode
 
 let apply (config: MouseOverrideConfig) =
+    MouseFlightEntry.revoke ()
+
     if state.lifecycle = ShutDown then
         Error "Mouse button overrides have already shut down."
     else
@@ -918,6 +938,8 @@ let apply (config: MouseOverrideConfig) =
                     Error message
 
 let suspend () =
+    MouseFlightEntry.revoke ()
+
     if state.lifecycle = ShutDown then
         Error "Mouse button overrides have already shut down."
     elif state.suspension_ids.Count > 0 then
@@ -1001,6 +1023,7 @@ let resume (lease: InputSuspensionLease) =
             Error message
 
 let retry_hook_cleanup () =
+    MouseFlightEntry.revoke ()
     let errors = ResizeArray<string>()
 
     let attempt (name: string) (action: unit -> unit) =
@@ -1036,6 +1059,8 @@ let retry_hook_cleanup () =
     List.ofSeq errors
 
 let shutdown () =
+    MouseFlightEntry.revoke ()
+
     if state.lifecycle <> ShutDown then
         let attempt (name: string) (action: unit -> unit) =
             try

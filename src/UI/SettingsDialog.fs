@@ -158,6 +158,9 @@ type RhinosCanFlySettingsDialog() as self =
 type RhinosCanFlyOptionsPage() =
     inherit OptionsDialogPage "RhinosCanFly"
 
+    let modeless =
+        System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.OSX)
+
     let control =
         lazy
             (let value = new SettingsControl()
@@ -171,6 +174,14 @@ type RhinosCanFlyOptionsPage() =
     let mutable displayed_config: FlyConfigFile option = None
     let mutable defaults_requested = false
     let mutable draft_initialized = false
+
+    let end_editing () =
+        baseline <- None
+        revision <- None
+        committed <- false
+        displayed_config <- None
+        defaults_requested <- false
+        draft_initialized <- false
 
     let copy_viewport_list (source: ViewportNameListFile) =
         { source with
@@ -245,6 +256,12 @@ type RhinosCanFlyOptionsPage() =
                 false
             | Ok() ->
                 try
+                    if modeless && draft_initialized then
+                        match control.Value.ReadConfig() with
+                        | Ok edited when not (Settings.needs_save displayed_config defaults_requested edited) ->
+                            end_editing ()
+                        | _ -> ()
+
                     if not draft_initialized then
                         let preserve_draft = defaults_requested
 
@@ -278,49 +295,70 @@ type RhinosCanFlyOptionsPage() =
                     SettingsUi.report_error $"RhinosCanFly Options activation failed: {error.Message}"
                     false
         else
-            save_scroll_position ()
             let mutable deactivated = true
 
             try
+                save_scroll_position ()
+
                 if control.IsValueCreated then
                     control.Value.CancelBindingCapture()
             with error ->
                 SettingsUi.report_error $"RhinosCanFly Options deactivation failed: {error.Message}"
                 deactivated <- false
 
+            if modeless then
+                deactivated <- resume_input_after_options () && deactivated
+
             deactivated
 
     override _.OnApply() =
         try
-            save_scroll_position ()
+            try
+                save_scroll_position ()
 
-            if control.IsValueCreated then
-                control.Value.CancelBindingCapture()
+                if
+                    control.IsValueCreated
+                    && (not modeless
+                        || draft_initialized
+                        || defaults_requested
+                        || Option.isSome displayed_config)
+                then
+                    control.Value.CancelBindingCapture()
 
-                match control.Value.ReadConfig() with
-                | Ok edited when not (Settings.needs_save displayed_config defaults_requested edited) ->
+                    match control.Value.ReadConfig() with
+                    | Ok edited when not (Settings.needs_save displayed_config defaults_requested edited) ->
+                        if modeless then
+                            end_editing ()
+
+                        resume_input_after_options ()
+                    | edited ->
+                        if Option.isNone baseline || Option.isNone revision then
+                            control.Value.ShowError
+                                "The original configuration is unavailable. Reopen this page to retry before saving."
+
+                            false
+                        else
+                            match Settings.save revision.Value control.Value edited with
+                            | Some saved ->
+                                revision <- Some saved.revision
+                                committed <- true
+                                defaults_requested <- false
+                                displayed_config <- Some saved.config_file
+                                control.Value.ClearError()
+
+                                if modeless then
+                                    end_editing ()
+
+                                resume_input_after_options ()
+                            | None -> false
+                else
                     resume_input_after_options ()
-                | edited ->
-                    if Option.isNone baseline || Option.isNone revision then
-                        control.Value.ShowError
-                            "The original configuration is unavailable. Reopen this page to retry before saving."
-
-                        false
-                    else
-                        match Settings.save revision.Value control.Value edited with
-                        | Some saved ->
-                            revision <- Some saved.revision
-                            committed <- true
-                            defaults_requested <- false
-                            displayed_config <- Some saved.config_file
-                            control.Value.ClearError()
-                            resume_input_after_options ()
-                        | None -> false
-            else
-                resume_input_after_options ()
-        with error ->
-            SettingsUi.report_error $"RhinosCanFly Options apply failed: {error.Message}"
-            false
+            with error ->
+                SettingsUi.report_error $"RhinosCanFly Options apply failed: {error.Message}"
+                false
+        finally
+            if modeless then
+                resume_input_after_options () |> ignore
 
     override _.OnCancel() =
         let mutable restored = true
@@ -365,9 +403,7 @@ type RhinosCanFlyOptionsPage() =
 
             if control.IsValueCreated && restored then
                 Settings.load (RuntimeSettings.current ()) control.Value
-                draft_initialized <- false
-                displayed_config <- None
-                defaults_requested <- false
+                end_editing ()
         finally
             resume_input_after_options () |> ignore
 

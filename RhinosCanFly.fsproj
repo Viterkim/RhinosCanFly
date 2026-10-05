@@ -34,6 +34,16 @@
     </Exec>
     <Error Condition="'$(SourceCheckExitCode)' != '0'" Code="RCF0001" Text="F# source checks failed." />
   </Target>
+  <Target Name="InvalidateMacBuildRecord" BeforeTargets="PrepareForBuild;CoreClean" Condition="'$(RhinosCanFlyPlatform)' == 'mac'">
+    <Delete Files="$(TargetDir).verified-build.json" Condition="'$(TargetDir)' != ''" />
+  </Target>
+  <Target Name="ValidatePlatform" BeforeTargets="_CheckForUnsupportedTargetFramework;Restore;PrepareForBuild">
+    <Error Condition="'$(RhinosCanFlyPlatform)' != 'win' And '$(RhinosCanFlyPlatform)' != 'mac'" Text="Unknown RhinosCanFlyPlatform '$(RhinosCanFlyPlatform)'. Use win or mac." />
+    <Error Condition="'$(RhinosCanFlyPlatform)' == 'mac' And '$(RhinoMajorVersion)' != '8' And '$(RhinoMajorVersion)' != '9'" Text="The experimental Mac profile targets Rhino 8 or 9." />
+    <Error Condition="'$(RhinosCanFlyPlatform)' == 'mac' And '$(RhinoMajorVersion)' == '8' And '$(TargetFramework)' != 'net8.0'" Text="The Rhino 8 Mac profile requires net8.0." />
+    <Error Condition="'$(RhinosCanFlyPlatform)' == 'mac' And '$(RhinoMajorVersion)' == '9' And '$(TargetFramework)' != 'net10.0'" Text="The Rhino 9 Mac profile requires net10.0." />
+    <Error Condition="'$(RhinosCanFlyPlatform)' == 'win' And '$(RhinoMajorVersion)' != '7' And '$(RhinoMajorVersion)' != '8' And '$(RhinoMajorVersion)' != '9'" Text="Unsupported Windows Rhino version '$(RhinoMajorVersion)'." />
+  </Target>
   <ItemGroup>
     <Compile Include="src/AssemblyInfo.fs" />
     <Compile Include="src/Configuration/ConfigTypes.fs" />
@@ -44,17 +54,32 @@
     <Compile Include="src/Core/MouseSensitivity.fs" />
     <Compile Include="src/Core/ViewNavigationTypes.fs" />
     <Compile Include="src/Core/MouseActionTypes.fs" />
+    <Compile Include="src/Core/BindingNames.fs" />
+    <Compile Include="src/Platform/RelativeMotion.fs" />
     <Compile Include="src/Platform/Win/BindingTypes.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
+    <Compile Include="src/Platform/Mac/BindingTypes.fs" Condition="'$(RhinosCanFlyPlatform)' == 'mac'" />
     <Compile Include="src/Core/InputAccumulator.fs" />
     <Compile Include="src/Platform/Win/PlatformTypes.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
+    <Compile Include="src/Platform/Mac/PlatformTypes.fs" Condition="'$(RhinosCanFlyPlatform)' == 'mac'" />
+    <Compile Include="src/Platform/NavigationContracts.fs" />
+    <Compile Include="src/Platform/Win/PlatformSupport.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
+    <Compile Include="src/Platform/Mac/PlatformSupport.fs" Condition="'$(RhinosCanFlyPlatform)' == 'mac'" />
     <Compile Include="src/Platform/Win/Win32Native.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/Win32.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
+    <Compile Include="src/Platform/Win/EntryFocus.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
+    <Compile Include="src/Platform/Mac/MacNative.fs" Condition="'$(RhinosCanFlyPlatform)' == 'mac'" />
     <Compile Include="src/Platform/Win/PlatformInput.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
+    <Compile Include="src/Platform/Mac/PlatformInput.fs" Condition="'$(RhinosCanFlyPlatform)' == 'mac'" />
+    <Compile Include="src/Navigation/MouseFlightEntry.fs" />
     <Compile Include="src/Platform/Win/PlatformCursorClip.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/RawInputNative.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/PlatformBindings.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
+    <Compile Include="src/Platform/Mac/PlatformBindings.fs" Condition="'$(RhinosCanFlyPlatform)' == 'mac'" />
     <Compile Include="src/Configuration/RuntimeConfig.fs" />
+    <Compile Include="src/Fly/FlightBindingActions.fs" />
     <Compile Include="src/Platform/Win/FlightKeyboardSuppression.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
+    <Compile Include="src/Platform/Mac/FlightKeyboard.fs" Condition="'$(RhinosCanFlyPlatform)' == 'mac'" />
+    <Compile Include="src/Platform/Mac/NavigationInput.fs" Condition="'$(RhinosCanFlyPlatform)' == 'mac'" />
     <Compile Include="src/Fly/FlightTypes.fs" />
     <Compile Include="src/Configuration/ConfigCompiler.fs" />
     <Compile Include="src/Configuration/ConfigDocument.fs" />
@@ -82,18 +107,24 @@
     <Compile Include="src/Platform/Win/MouseOverrides/ViewportRegistry.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/MouseOverrides/MouseHook.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/MouseOverrides/MouseButtonOverrides.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
+    <Compile Include="src/Platform/Mac/MouseActions.fs" Condition="'$(RhinosCanFlyPlatform)' == 'mac'" />
     <Compile Include="src/Navigation/ViewTarget.fs" />
     <Compile Include="src/Navigation/NavigationTarget.fs" />
     <Compile Include="src/Fly/FlightCamera.fs" />
     <Compile Include="src/Fly/FlightControls.fs" />
     <Compile Include="src/Fly/FlightState.fs" />
     <Compile Include="src/Fly/FlightLoop.fs" />
-    <Compile Include="src/Platform/Win/FlightCrosshair.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
-    <Compile Include="src/Fly/FlightSession.fs" />
+    <Compile Include="src/Platform/Win/FlightLoopHost.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
+    <Compile Include="src/Fly/FlightCrosshair.fs" />
+    <Compile Include="src/Platform/Win/FlightSession.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
+    <Compile Include="src/Platform/Mac/FlightSession.fs" Condition="'$(RhinosCanFlyPlatform)' == 'mac'" />
+    <Compile Include="src/Platform/Win/PlatformLifecycle.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Configuration/RuntimeSettings.fs" />
     <Compile Include="src/UI/SettingsUi.fs" />
     <Compile Include="src/UI/SettingsLayout.fs" />
     <Compile Include="src/UI/BindingCapture.fs" />
+    <Compile Include="src/Platform/Win/SettingsStyle.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
+    <Compile Include="src/Platform/Mac/SettingsStyle.fs" Condition="'$(RhinosCanFlyPlatform)' == 'mac'" />
     <Compile Include="src/UI/SettingsFields.fs" />
     <Compile Include="src/UI/SettingsConfig.fs" />
     <Compile Include="src/UI/SettingsControl.fs" />
@@ -102,15 +133,18 @@
     <Compile Include="src/Configuration/CurrentConfig.fs" />
     <Compile Include="src/Fly/FlightStart.fs" />
     <Compile Include="src/Fly/SpeedSelection.fs" />
-    <Compile Include="src/Navigation/StandaloneNavigation.fs" />
+    <Compile Include="src/Platform/Win/StandaloneNavigation.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
+    <Compile Include="src/Platform/Mac/StandaloneNavigation.fs" Condition="'$(RhinosCanFlyPlatform)' == 'mac'" />
+    <Compile Include="src/Platform/Mac/MouseDispatch.fs" Condition="'$(RhinosCanFlyPlatform)' == 'mac'" />
+    <Compile Include="src/Platform/Mac/PlatformLifecycle.fs" Condition="'$(RhinosCanFlyPlatform)' == 'mac'" />
     <Compile Include="src/UI/Options.fs" />
     <Compile Include="src/Platform/Win/InputRecovery.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
+    <Compile Include="src/Platform/Mac/InputRecovery.fs" Condition="'$(RhinosCanFlyPlatform)' == 'mac'" />
+    <Compile Include="src/Platform/Mac/InputDiagnostics.fs" Condition="'$(RhinosCanFlyPlatform)' == 'mac'" />
     <Compile Include="src/Plugin/Plugin.fs" />
     <Compile Include="src/Commands/RhinosCanFly.fs" />
     <Compile Include="src/Commands/RhinosCanFlyTempFly.fs" />
     <Compile Include="src/Commands/RhinosCanWalk.fs" />
-    <Compile Include="src/Commands/RhinosCanFlyHeld.fs" />
-    <Compile Include="src/Commands/RhinosCanFlyTempFlyHeld.fs" />
     <Compile Include="src/Commands/RhinosCanFlyOptions.fs" />
     <Compile Include="src/Commands/RhinosCanFlySetSpeed.fs" />
     <Compile Include="src/Commands/RhinosCanFlyPivot.fs" />

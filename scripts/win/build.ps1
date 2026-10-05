@@ -52,6 +52,7 @@ try {
     }
 
     $properties = @(
+        "-p:RhinosCanFlyPlatform=win"
         "-p:RhinoMajorVersion=$RhinoMajorVersion"
         "-p:TargetFramework=$TargetFramework"
         "-p:RhinoCommonPackageVersion=$RhinoCommonPackageVersion"

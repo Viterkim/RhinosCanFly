@@ -138,20 +138,25 @@ let apply_pan (viewport: RhinoViewport) (can_write: unit -> bool) (config: Mouse
     else
         false
 
-let parallel_zoom_exponent (dy: int64) =
-    let zoom_scale = ViewSettings.ZoomScale
+let parallel_zoom_steps (zoom_scale: float) (dy: int64) =
+    let exponent =
+        if
+            dy <> 0L
+            && not (Double.IsNaN zoom_scale)
+            && not (Double.IsInfinity zoom_scale)
+            && zoom_scale > 0.
+            && zoom_scale <> 1.
+        then
+            let steps = float -dy / 12.
+            steps * Math.Log(1. / zoom_scale)
+        else
+            0.
 
-    if
-        dy <> 0L
-        && not (Double.IsNaN zoom_scale)
-        && not (Double.IsInfinity zoom_scale)
-        && zoom_scale > 0.
-        && zoom_scale <> 1.
-    then
-        let steps = float -dy / 12.
-        steps * Math.Log(1. / zoom_scale)
-    else
-        0.
+    if Double.IsNaN exponent || abs exponent > 700. then
+        invalidOp "Parallel zoom exceeds the finite magnification range."
+
+    let steps = int (Math.Ceiling(abs exponent / 0.25))
+    struct (steps, if steps = 0 then 1. else Math.Exp(exponent / float steps))
 
 let wheel_magnification (steps: float) =
     let zoom_scale = ViewSettings.ZoomScale

@@ -3,6 +3,7 @@ module RhinosCanFly.Platform.Win.RawNavigationCoordinator
 open System
 open System.Diagnostics
 open Rhino
+open Rhino.ApplicationSettings
 open Rhino.Geometry
 open RhinosCanFly
 open RhinosCanFly.Platform.Win.MouseOverrideTypes
@@ -369,20 +370,15 @@ let apply_motion (state: State) (active: ActiveNavigation) (dx: int64) (dy: int6
         | ViewportNavigation.Operation.ParallelPan ->
             ViewportNavigation.apply_pan active.transport.Viewport active.can_write_camera active.mouse_config dx dy
         | ViewportNavigation.Operation.ParallelZoom ->
-            let requested_exponent = ViewportNavigation.parallel_zoom_exponent dy
+            let struct (steps, factor) =
+                ViewportNavigation.parallel_zoom_steps ViewSettings.ZoomScale dy
 
-            if Double.IsNaN requested_exponent || abs requested_exponent > 700. then
-                invalidOp "Parallel zoom exceeds the finite magnification range."
-
-            let steps = int (Math.Ceiling(abs requested_exponent / 0.25))
             let mutable index = 0
             let mutable changed = false
 
             // Finish this packet before a release; at most 2800 bounded camera writes.
             while index < steps && validate_host state active do
-                let exponent = requested_exponent / float steps
-
-                if active.transport.Viewport.Magnify(Math.Exp exponent, true) then
+                if active.transport.Viewport.Magnify(factor, true) then
                     changed <- true
                     index <- index + 1
                 else

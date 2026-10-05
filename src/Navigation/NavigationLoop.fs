@@ -3,12 +3,18 @@ module RhinosCanFly.NavigationLoop
 open Rhino
 
 // Process ready input before pumping Rhino.
-let run (is_running: unit -> bool) (work_pending: unit -> bool) (wait_timeout: unit -> int) (step: unit -> unit) =
+let run
+    (wait_for_input: int -> unit)
+    (is_running: unit -> bool)
+    (work_pending: unit -> bool)
+    (wait_timeout: unit -> int)
+    (step: unit -> unit)
+    =
     while is_running () do
         let mutable pump_after_input = work_pending ()
 
         if not pump_after_input then
-            PlatformInput.wait_for_input_for (wait_timeout ())
+            wait_for_input (wait_timeout ())
             pump_after_input <- work_pending ()
 
         if not pump_after_input then

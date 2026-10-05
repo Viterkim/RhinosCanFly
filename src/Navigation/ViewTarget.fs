@@ -10,7 +10,9 @@ open Rhino.Geometry
 open Rhino.Input.Custom
 
 [<Struct>]
-type FallbackDistances = { perspective: float; parallel: float }
+type FallbackDistances =
+    { perspective: float
+      parallel_projection: float }
 
 [<Struct>]
 type RetargetSelection =
@@ -543,11 +545,11 @@ let resolve_distances (config: RetargetConfig) =
         distance
 
     { perspective = scaled config.perspective_fallback_multiplier
-      parallel = scaled config.parallel_fallback_multiplier }
+      parallel_projection = scaled config.parallel_fallback_multiplier }
 
 let projection_distance (distances: FallbackDistances) (is_parallel: bool) =
     if is_parallel then
-        distances.parallel
+        distances.parallel_projection
     else
         distances.perspective
 
