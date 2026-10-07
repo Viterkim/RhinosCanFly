@@ -22,6 +22,9 @@ static RcfRelativeMotionHandler receiver;
 static _Atomic uint64_t generation;
 static _Atomic uint32_t discovered, rejected;
 static _Atomic uint64_t motion_count;
+enum { RCF_RAW_NONE, RCF_RAW_GCMOUSE, RCF_RAW_POINTER };
+static _Atomic uint32_t motion_source;
+static double started_at;
 
 static bool foreign_handlers(GCMouseInput *input) {
     if (input.valueDidChangeHandler || input.scroll.valueChangedHandler) return true;
@@ -40,7 +43,8 @@ static bool foreign_handlers(GCMouseInput *input) {
 }
 
 static void attach_mouse(GCMouse *mouse) {
-    if (!receiver || !atomic_load_explicit(&accepting, memory_order_acquire)) return;
+    if (!receiver || !atomic_load_explicit(&accepting, memory_order_acquire) ||
+        atomic_load(&motion_source) == RCF_RAW_POINTER) return;
     for (RcfMouse *item in attached) if (item.mouse == mouse) return;
     ++discovered;
     // GCMouse handlers are shared with the host; leave occupied devices alone.
@@ -78,12 +82,34 @@ static void detach_mouse(RcfMouse *item) {
 }
 
 uint32_t rcf_mac_raw_available(void) {
-    return atomic_load_explicit(&accepting, memory_order_acquire) ? atomic_load(&count) : 0;
+    if (!atomic_load_explicit(&accepting, memory_order_acquire)) return 0;
+    return atomic_load(&motion_source) == RCF_RAW_POINTER ? 1 : atomic_load(&count);
 }
 
+uint32_t rcf_mac_raw_source(void) { return atomic_load(&motion_source); }
 uint32_t rcf_mac_raw_discovered(void) { return atomic_load(&discovered); }
 uint32_t rcf_mac_raw_rejected(void) { return atomic_load(&rejected); }
 uint64_t rcf_mac_raw_motion_count(void) { return atomic_load_explicit(&motion_count, memory_order_relaxed); }
+
+void rcf_mac_raw_motion(NSEvent *event) {
+    if (![NSThread isMainThread] || !receiver ||
+        !atomic_load_explicit(&accepting, memory_order_acquire) ||
+        atomic_load(&motion_source) != RCF_RAW_POINTER || event.timestamp < started_at) return;
+    CGEventRef native_event = event.CGEvent;
+    if (!native_event) {
+        atomic_store_explicit(&accepting, false, memory_order_release);
+        return;
+    }
+    // CoreGraphics supplies unaccelerated deltas, including trackpad pointer motion.
+    RcfRelativeMotion motion = {
+        event.timestamp,
+        (double)CGEventGetIntegerValueField(native_event, kCGEventUnacceleratedPointerMovementX),
+        (double)CGEventGetIntegerValueField(native_event, kCGEventUnacceleratedPointerMovementY)
+    };
+    if (!motion.dx && !motion.dy) return;
+    atomic_fetch_add_explicit(&motion_count, 1, memory_order_relaxed);
+    receiver(&motion);
+}
 
 uint32_t rcf_mac_raw_validate(void) {
     if (!atomic_load_explicit(&accepting, memory_order_acquire)) return 0;
@@ -141,6 +167,8 @@ int32_t rcf_mac_raw_begin(RcfRelativeMotionHandler handler) {
             atomic_store(&discovered, 0);
             atomic_store(&rejected, 0);
             atomic_store(&motion_count, 0);
+            atomic_store(&motion_source, RCF_RAW_NONE);
+            started_at = NSProcessInfo.processInfo.systemUptime;
             receiver = handler;
             atomic_store_explicit(&accepting, true, memory_order_release);
             uint64_t session_generation = ++generation;
@@ -168,7 +196,9 @@ int32_t rcf_mac_raw_begin(RcfRelativeMotionHandler handler) {
                     }
                 }];
             for (GCMouse *mouse in GCMouse.mice) attach_mouse(mouse);
-            return (int32_t)attached.count;
+            // Keep one source for the session so AppKit and GCMouse never count a move twice.
+            atomic_store(&motion_source, attached.count ? RCF_RAW_GCMOUSE : RCF_RAW_POINTER);
+            return (int32_t)rcf_mac_raw_available();
         } @catch (NSException *exception) { (void)exception; rcf_mac_raw_end(); return -1; }
     }
     return 0;

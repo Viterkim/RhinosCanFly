@@ -6,7 +6,7 @@ open System.Runtime.InteropServices
 open RhinosCanFly
 
 [<Literal>]
-let BRIDGE_ABI = 10u
+let BRIDGE_ABI = 11u
 
 [<Literal>]
 let CORE_GRAPHICS = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
@@ -121,6 +121,7 @@ type Api =
       raw_begin: RawBegin
       raw_end: RawEnd
       raw_available: Size
+      raw_source: Size
       raw_validate: Size
       raw_discovered: Size
       raw_rejected: Size
@@ -170,6 +171,7 @@ let load () =
                   raw_begin = export<RawBegin> library "rcf_mac_raw_begin"
                   raw_end = export<RawEnd> library "rcf_mac_raw_end"
                   raw_available = export<Size> library "rcf_mac_raw_available"
+                  raw_source = export<Size> library "rcf_mac_raw_source"
                   raw_validate = export<Size> library "rcf_mac_raw_validate"
                   raw_discovered = export<Size> library "rcf_mac_raw_discovered"
                   raw_rejected = export<Size> library "rcf_mac_raw_rejected"

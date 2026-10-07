@@ -34,7 +34,7 @@ static RcfMacHandler callback;
 
 uint32_t rcf_mac_event_size(void) { return (uint32_t)sizeof(RcfMacEvent); }
 uint32_t rcf_mac_motion_size(void) { return (uint32_t)sizeof(RcfRelativeMotion); }
-uint32_t rcf_mac_abi(void) { return 10; }
+uint32_t rcf_mac_abi(void) { return 11; }
 double rcf_mac_uptime(void) { return NSProcessInfo.processInfo.systemUptime; }
 
 uint32_t rcf_mac_capture_key(void) {
@@ -172,8 +172,12 @@ int32_t rcf_mac_monitor_begin(RcfMacHandler handler, void *expected_window) {
             switch (event.type) {
                 case NSEventTypeMouseMoved: case NSEventTypeLeftMouseDragged:
                 case NSEventTypeRightMouseDragged: case NSEventTypeOtherMouseDragged:
-                    return window && event.window == window && rcf_mac_foreground_window() == (__bridge void *)window &&
-                        rcf_mac_raw_available() ? nil : event;
+                    if (window && event.window == window &&
+                        rcf_mac_foreground_window() == (__bridge void *)window && rcf_mac_raw_available()) {
+                        rcf_mac_raw_motion(event);
+                        return nil;
+                    }
+                    return event;
                 default: break;
             }
             RcfMacEvent value = {0};

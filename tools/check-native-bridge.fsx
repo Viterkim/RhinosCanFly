@@ -72,6 +72,7 @@ match fsi.CommandLineArgs |> Array.skip 1 with
               "rcf_mac_raw_begin"
               "rcf_mac_raw_end"
               "rcf_mac_raw_available"
+              "rcf_mac_raw_source"
               "rcf_mac_raw_validate"
               "rcf_mac_raw_discovered"
               "rcf_mac_raw_rejected"

@@ -22,8 +22,16 @@ module MacInputDiagnostics =
             let native = MacNative.load ()
             RhinoApp.WriteLine $"Bridge ABI: {MacNative.BRIDGE_ABI} (loaded and verified)"
 
+            let source =
+                match native.raw_source.Invoke() with
+                | 1u -> "GCMouse"
+                | 2u -> "CoreGraphics (unaccelerated pointer)"
+                | _ -> "none"
+
+            RhinoApp.WriteLine $"Last motion source: {source}"
+
             RhinoApp.WriteLine
-                $"Last raw acquisition: {native.raw_discovered.Invoke()} discovered, {native.raw_rejected.Invoke()} occupied, {native.raw_available.Invoke()} available"
+                $"Last mouse acquisition: {native.raw_discovered.Invoke()} discovered, {native.raw_rejected.Invoke()} occupied; motion available={native.raw_available.Invoke() > 0u}"
 
             RhinoApp.WriteLine $"Raw movement callbacks: {native.raw_motion_count.Invoke()}"
             let view = if isNull document then null else document.Views.ActiveView

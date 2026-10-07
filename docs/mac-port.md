@@ -2,7 +2,7 @@
 
 Rhino 8/9, macOS 14+. No Rhino 7. Rhino 9 needs Apple silicon and an arm64 .NET SDK. The Rhino 8 build includes Intel too.
 
-I don't have a Mac, so ye someone still needs to try this. The managed code builds here, the native stuff hasn't been compiled against Apple's SDK or run in Rhino yet.
+Is built and tried flying with a mouse on macOS 15, Rhino 8/9. The new trackpad path still needs a Mac build and test. For now unplug the mouse before entering flight to use it.
 
 Get the SDK from `global.json` and Xcode command-line tools. Close Rhino, then run this from the repo folder:
 

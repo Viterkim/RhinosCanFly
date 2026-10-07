@@ -31,7 +31,13 @@ int32_t rcf_mac_monitor_window(void *expected_window);
 int32_t rcf_mac_raw_begin(RcfRelativeMotionHandler handler);
 int32_t rcf_mac_raw_end(void);
 uint32_t rcf_mac_raw_available(void);
+uint32_t rcf_mac_raw_source(void);
 uint32_t rcf_mac_raw_validate(void);
 uint32_t rcf_mac_raw_discovered(void);
 uint32_t rcf_mac_raw_rejected(void);
 uint64_t rcf_mac_raw_motion_count(void);
+
+#ifdef __OBJC__
+@class NSEvent;
+void rcf_mac_raw_motion(NSEvent *event);
+#endif

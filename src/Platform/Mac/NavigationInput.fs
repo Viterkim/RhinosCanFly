@@ -404,8 +404,7 @@ let start
         raw_handler <- Some raw
 
         if native.raw_begin.Invoke raw <= 0 then
-            failwith
-                "Mac raw input needs an available GCMouse device on macOS 14 or later. No accelerated input is used."
+            failwith "Mac unaccelerated pointer input could not start."
 
         session
     with _ ->
