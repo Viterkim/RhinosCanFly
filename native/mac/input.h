@@ -31,6 +31,8 @@ int32_t rcf_mac_monitor_window(void *expected_window);
 int32_t rcf_mac_raw_begin(RcfRelativeMotionHandler handler);
 int32_t rcf_mac_raw_end(void);
 uint32_t rcf_mac_raw_available(void);
+// Native-only: feeds AppKit mouse deltas to the session when no GCMouse was acquired.
+uint32_t rcf_mac_raw_fallback_motion(double timestamp, double dx, double dy);
 uint32_t rcf_mac_raw_validate(void);
 uint32_t rcf_mac_raw_discovered(void);
 uint32_t rcf_mac_raw_rejected(void);

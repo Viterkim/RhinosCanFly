@@ -14,4 +14,6 @@ Use `9` for Rhino 9. Add `--rhino-app "/Applications/RhinoWIP.app"` if it can't 
 
 Replacing an installed version add `--replace --rollback-package /path/to/previous.yak`. You need the old Mac package so it can recover if installing goes wrong.
 
+Trackpads don't show up as a GCMouse. With no GCMouse connected the flight falls back to AppKit's accelerated pointer deltas, so the trackpad works but feels different from a raw mouse. Connect the mouse before starting a flight to get raw motion.
+
 If it breaks, run `RhinosCanFlyInputInfo` and send the output.

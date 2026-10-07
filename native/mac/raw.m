@@ -22,6 +22,8 @@ static RcfRelativeMotionHandler receiver;
 static _Atomic uint64_t generation;
 static _Atomic uint32_t discovered, rejected;
 static _Atomic uint64_t motion_count;
+// No GCMouse (trackpads never appear as one): AppKit deltas from the event monitor drive the session.
+static _Atomic bool fallback;
 
 static bool foreign_handlers(GCMouseInput *input) {
     if (input.valueDidChangeHandler || input.scroll.valueChangedHandler) return true;
@@ -41,6 +43,8 @@ static bool foreign_handlers(GCMouseInput *input) {
 
 static void attach_mouse(GCMouse *mouse) {
     if (!receiver || !atomic_load_explicit(&accepting, memory_order_acquire)) return;
+    // One motion source per session; a mouse connected mid-fallback waits for the next start.
+    if (atomic_load_explicit(&fallback, memory_order_acquire)) return;
     for (RcfMouse *item in attached) if (item.mouse == mouse) return;
     ++discovered;
     // GCMouse handlers are shared with the host; leave occupied devices alone.
@@ -78,7 +82,20 @@ static void detach_mouse(RcfMouse *item) {
 }
 
 uint32_t rcf_mac_raw_available(void) {
-    return atomic_load_explicit(&accepting, memory_order_acquire) ? atomic_load(&count) : 0;
+    if (!atomic_load_explicit(&accepting, memory_order_acquire)) return 0;
+    return atomic_load_explicit(&fallback, memory_order_acquire) ? 1 : atomic_load(&count);
+}
+
+uint32_t rcf_mac_raw_fallback_motion(double timestamp, double dx, double dy) {
+    if (![NSThread isMainThread] || !atomic_load_explicit(&fallback, memory_order_acquire) ||
+        !atomic_load_explicit(&accepting, memory_order_acquire) || !receiver) return 0;
+    // AppKit deltas are accelerated points with y already pointing down.
+    RcfRelativeMotion event = {0};
+    event.timestamp = timestamp;
+    event.dx = dx; event.dy = dy;
+    atomic_fetch_add_explicit(&motion_count, 1, memory_order_relaxed);
+    receiver(&event);
+    return 1;
 }
 
 uint32_t rcf_mac_raw_discovered(void) { return atomic_load(&discovered); }
@@ -121,6 +138,7 @@ int32_t rcf_mac_raw_end(void) {
         while (attached.count) detach_mouse(attached.lastObject);
         // The managed delegate stays rooted until queued callbacks have returned.
         if (input_queue) dispatch_sync(input_queue, ^{});
+        atomic_store_explicit(&fallback, false, memory_order_release);
         receiver = NULL;
         attached = nil;
         return 0;
@@ -141,6 +159,7 @@ int32_t rcf_mac_raw_begin(RcfRelativeMotionHandler handler) {
             atomic_store(&discovered, 0);
             atomic_store(&rejected, 0);
             atomic_store(&motion_count, 0);
+            atomic_store_explicit(&fallback, false, memory_order_release);
             receiver = handler;
             atomic_store_explicit(&accepting, true, memory_order_release);
             uint64_t session_generation = ++generation;
@@ -168,7 +187,9 @@ int32_t rcf_mac_raw_begin(RcfRelativeMotionHandler handler) {
                     }
                 }];
             for (GCMouse *mouse in GCMouse.mice) attach_mouse(mouse);
-            return (int32_t)attached.count;
+            if (attached.count) return (int32_t)attached.count;
+            atomic_store_explicit(&fallback, true, memory_order_release);
+            return 1;
         } @catch (NSException *exception) { (void)exception; rcf_mac_raw_end(); return -1; }
     }
     return 0;

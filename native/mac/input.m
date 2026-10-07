@@ -172,8 +172,10 @@ int32_t rcf_mac_monitor_begin(RcfMacHandler handler, void *expected_window) {
             switch (event.type) {
                 case NSEventTypeMouseMoved: case NSEventTypeLeftMouseDragged:
                 case NSEventTypeRightMouseDragged: case NSEventTypeOtherMouseDragged:
-                    return window && event.window == window && rcf_mac_foreground_window() == (__bridge void *)window &&
-                        rcf_mac_raw_available() ? nil : event;
+                    if (!(window && event.window == window &&
+                        rcf_mac_foreground_window() == (__bridge void *)window && rcf_mac_raw_available())) return event;
+                    rcf_mac_raw_fallback_motion(event.timestamp, event.deltaX, event.deltaY);
+                    return nil;
                 default: break;
             }
             RcfMacEvent value = {0};
