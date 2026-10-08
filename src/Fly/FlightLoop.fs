@@ -74,6 +74,7 @@ let create
     let discard_pointer_input () =
         FlightCamera.rebase_active_pivot state
         state.wheel_remainder <- 0L
+        PlatformFlightKeyboard.discard_pointer_input ()
         InputAccumulator.discard_pointer_input raw_input
 
     let reset_movement_clock () =

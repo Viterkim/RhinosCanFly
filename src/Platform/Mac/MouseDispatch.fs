@@ -49,6 +49,7 @@ let dispatch (request: Request) =
                             loaded
                             { navigation = Some operation
                               target_point = target_point
+                              valid = fun () -> suspended.Count = 0 && pairs[request.button] = request.pair
                               held = if hold_button then Some(fun () -> held request) else None }
                     with
                     | Ok() -> Rhino.Commands.Result.Success

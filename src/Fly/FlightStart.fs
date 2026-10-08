@@ -38,7 +38,12 @@ let run_with_permission
                 RhinoApp.WriteLine "RhinosCanFly is disabled for this viewport."
                 Result.Cancel
             else
-                match FlightSession.run view loaded.config session_mode held_entry with
+                let authorized () =
+                    valid ()
+                    && not (RuntimeSettings.input_suspended ())
+                    && RuntimeSettings.runtime_enabled ()
+
+                match FlightSession.run view loaded.config session_mode held_entry authorized with
                 | Ok() -> Result.Success
                 | Error error ->
                     RhinoApp.WriteLine $"RhinosCanFly failed: {error}"

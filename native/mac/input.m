@@ -1,5 +1,7 @@
 #import <AppKit/AppKit.h>
+#include <CoreFoundation/CoreFoundation.h>
 #include <dlfcn.h>
+#include <stdbool.h>
 #include "input.h"
 
 _Static_assert(sizeof(RcfMacEvent) == 96, "Mac event ABI must remain 96 bytes");
@@ -27,14 +29,31 @@ static id monitor;
 static id observer;
 static id window_observer, close_observer;
 static id sleep_observer, session_observer;
+static CFRunLoopObserverRef tracking_observer;
 static uint64_t monitor_generation;
 static NSWindow *window;
 static BOOL previous_mouse_moved;
 static RcfMacHandler callback;
 
+void rcf_mac_raw_release(uint32_t code, double timestamp) {
+    RcfMacEvent value = {0};
+    value.kind = 7; value.code = code; value.timestamp = timestamp;
+    if (callback) callback(&value);
+}
+
+static void tracking_began(CFRunLoopObserverRef sender, CFRunLoopActivity activity, void *context) {
+    (void)sender; (void)activity; (void)context;
+    uint32_t state = rcf_mac_raw_state();
+    if (callback && (state == RCF_RAW_RUNNING || state == RCF_RAW_STARTING) && (NSApp.modalWindow ||
+        [NSRunLoop.currentRunLoop.currentMode isEqualToString:NSEventTrackingRunLoopMode])) {
+        RcfMacEvent value = {0}; value.kind = 6;
+        callback(&value);
+    }
+}
+
 uint32_t rcf_mac_event_size(void) { return (uint32_t)sizeof(RcfMacEvent); }
 uint32_t rcf_mac_motion_size(void) { return (uint32_t)sizeof(RcfRelativeMotion); }
-uint32_t rcf_mac_abi(void) { return 1; }
+uint32_t rcf_mac_abi(void) { return 2; }
 double rcf_mac_uptime(void) { return NSProcessInfo.processInfo.systemUptime; }
 
 uint32_t rcf_mac_capture_key(void) {
@@ -119,6 +138,11 @@ int32_t rcf_mac_monitor_end(void) {
     ++monitor_generation;
     @try {
         if (monitor) { [NSEvent removeMonitor:monitor]; monitor = nil; }
+        if (tracking_observer) {
+            CFRunLoopObserverInvalidate(tracking_observer);
+            CFRelease(tracking_observer);
+            tracking_observer = NULL;
+        }
         if (observer) {
             [[NSNotificationCenter defaultCenter] removeObserver:observer];
             observer = nil;
@@ -156,7 +180,7 @@ int32_t rcf_mac_monitor_window(void *expected_window) {
 
 int32_t rcf_mac_monitor_begin(RcfMacHandler handler, void *expected_window) {
     if (![NSThread isMainThread] || !handler) return 1;
-    if (monitor || observer || window_observer || close_observer || sleep_observer || session_observer || callback ||
+    if (monitor || tracking_observer || observer || window_observer || close_observer || sleep_observer || session_observer || callback ||
         (expected_window && rcf_mac_foreground_window() != expected_window)) return 2;
     @try {
         if (rcf_mac_monitor_window(expected_window) != 0) return rcf_mac_monitor_end() == 0 ? 4 : 5;
@@ -169,6 +193,9 @@ int32_t rcf_mac_monitor_begin(RcfMacHandler handler, void *expected_window) {
             NSEventMaskOtherMouseUp | NSEventMaskScrollWheel;
         monitor = [NSEvent addLocalMonitorForEventsMatchingMask:mask handler:^NSEvent *(NSEvent *event) {
             if (monitor_generation != generation) return event;
+            int32_t disposition = 0;
+            if (window && (!event.window || event.window == window) &&
+                rcf_mac_foreground_window() == (__bridge void *)window) disposition = rcf_mac_raw_before_event(event);
             switch (event.type) {
                 case NSEventTypeMouseMoved: case NSEventTypeLeftMouseDragged:
                 case NSEventTypeRightMouseDragged: case NSEventTypeOtherMouseDragged:
@@ -188,6 +215,7 @@ int32_t rcf_mac_monitor_begin(RcfMacHandler handler, void *expected_window) {
             switch (event.type) {
                 case NSEventTypeScrollWheel:
                     value.kind = 2; value.wheel = event.scrollingDeltaY;
+                    if (disposition > 0) value.wheel = 0;
                     value.precise = event.hasPreciseScrollingDeltas;
                     value.inverted = event.isDirectionInvertedFromDevice; break;
                 case NSEventTypeKeyDown: case NSEventTypeKeyUp:
@@ -222,6 +250,11 @@ int32_t rcf_mac_monitor_begin(RcfMacHandler handler, void *expected_window) {
             return callback && callback(&value) ? nil : event;
         }];
         if (!monitor) return rcf_mac_monitor_end() == 0 ? 3 : 5;
+        tracking_observer = CFRunLoopObserverCreate(NULL, kCFRunLoopEntry, true, 0, tracking_began, NULL);
+        if (!tracking_observer) return rcf_mac_monitor_end() == 0 ? 4 : 5;
+        CFRunLoopAddObserver(CFRunLoopGetMain(), tracking_observer, kCFRunLoopCommonModes);
+        CFRunLoopAddObserver(CFRunLoopGetMain(), tracking_observer, (__bridge CFStringRef)NSModalPanelRunLoopMode);
+
         void (^lost_focus)(NSNotification *) = ^(NSNotification *notification) {
             (void)notification;
             RcfMacEvent value = {0}; value.kind = 6;

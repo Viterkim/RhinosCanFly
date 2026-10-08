@@ -72,7 +72,16 @@ match fsi.CommandLineArgs |> Array.skip 1 with
               "rcf_mac_raw_begin"
               "rcf_mac_raw_end"
               "rcf_mac_raw_available"
-              "rcf_mac_raw_validate" ] do
+              "rcf_mac_raw_validate"
+              "rcf_mac_raw_state"
+              "rcf_mac_raw_drain"
+              "rcf_mac_raw_pending"
+              "rcf_mac_raw_boundary"
+              "rcf_mac_raw_discard"
+              "rcf_mac_raw_reconcile"
+              "rcf_mac_raw_initial_key"
+              "rcf_mac_raw_error"
+              "rcf_mac_raw_started_at" ] do
             NativeLibrary.GetExport(library, symbol) |> ignore
 
         printfn "Mac bridge loads; managed/native layouts and exports match."

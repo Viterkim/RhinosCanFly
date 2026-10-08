@@ -13,6 +13,11 @@ typedef struct {
 } RcfMacEvent;
 
 typedef uint32_t (*RcfMacHandler)(const RcfMacEvent *event);
+typedef void (*RcfMacNotify)(void);
+
+enum { RCF_RAW_AUTO, RCF_RAW_GCMOUSE, RCF_RAW_POINTER, RCF_RAW_WORKER };
+enum { RCF_RAW_STOPPED, RCF_RAW_RUNNING, RCF_RAW_STOPPING, RCF_RAW_STARTING, RCF_RAW_FAILED };
+enum { RCF_INPUT_EMPTY, RCF_INPUT_ELIGIBLE, RCF_INPUT_BOUNDARY, RCF_INPUT_FAILED };
 
 uint32_t rcf_mac_event_size(void);
 uint32_t rcf_mac_motion_size(void);
@@ -28,12 +33,25 @@ void *rcf_mac_window_from_handle(void *handle);
 int32_t rcf_mac_monitor_begin(RcfMacHandler handler, void *expected_window);
 int32_t rcf_mac_monitor_end(void);
 int32_t rcf_mac_monitor_window(void *expected_window);
-int32_t rcf_mac_raw_begin(RcfRelativeMotionHandler handler);
+int32_t rcf_mac_raw_begin(RcfRelativeMotionHandler handler, RcfMacNotify notify, uint32_t backend);
+// 0: complete, -1: still stopping, positive: cleanup failed, roots must stay alive.
 int32_t rcf_mac_raw_end(void);
 uint32_t rcf_mac_raw_available(void);
 uint32_t rcf_mac_raw_validate(void);
+uint32_t rcf_mac_raw_state(void);
+uint32_t rcf_mac_raw_drain(void);
+uint32_t rcf_mac_raw_pending(void);
+double rcf_mac_raw_boundary(void);
+void rcf_mac_raw_discard(void);
+void rcf_mac_raw_reconcile(uint32_t code);
+uint32_t rcf_mac_raw_initial_key(uint32_t code);
+uint32_t rcf_mac_raw_error(void);
+double rcf_mac_raw_started_at(void);
 
 #ifdef __OBJC__
 @class NSEvent;
 void rcf_mac_raw_motion(NSEvent *event);
+// -1: ordering failure, 0: accepted, 1: acknowledge but discard wheel payload.
+int32_t rcf_mac_raw_before_event(NSEvent *event);
+void rcf_mac_raw_release(uint32_t code, double timestamp);
 #endif

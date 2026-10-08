@@ -50,6 +50,16 @@ let start (view: Rhino.Display.RhinoView) (loaded: ConfigLoadResult) (entry: Fli
     if toggled_off then
         Ok()
     else
+        let requested_entry = entry
+
+        let entry =
+            { requested_entry with
+                valid =
+                    fun () ->
+                        requested_entry.valid ()
+                        && not (RuntimeSettings.input_suspended ())
+                        && RuntimeSettings.runtime_enabled () }
+
         FlightSession.run_session
             view
             (navigation_config loaded.config)
@@ -102,6 +112,7 @@ let run (mode: ViewNavigationMode) (document: RhinoDoc) =
                         loaded
                         { navigation = Some operation
                           target_point = NavigationTargetPoint.ClientPoint { x = int point.X; y = int point.Y }
+                          valid = fun () -> true
                           held = None }
                 with
                 | Ok() -> Result.Success

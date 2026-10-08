@@ -12,11 +12,13 @@ open RhinosCanFly.Platform.Mac
 type Entry =
     { navigation: ViewportNavigation.Operation option
       target_point: NavigationTargetPoint
+      valid: unit -> bool
       held: (unit -> bool) option }
 
 let flight_entry =
     { navigation = None
       target_point = NavigationTargetPoint.ViewCenter
+      valid = fun () -> true
       held = None }
 
 type Session =
@@ -25,6 +27,7 @@ type Session =
       original_gumball: bool
       entry: Entry
       mutable transport: MacNavigationInput.Session option
+      mutable wake: MacInputWake.Connection option
       mutable loop: FlightLoop.State option
       mutable crosshair: FlightCrosshair option
       mutable gumball_changed: bool
@@ -33,10 +36,16 @@ type Session =
       mutable entered: bool
       mutable finalizing: bool }
 
+type PendingStart =
+    { view: RhinoView
+      navigation: ViewportNavigation.Operation option
+      start: unit -> unit }
+
 let mutable current: Session option = None
 let mutable timer: UITimer option = None
 let mutable processing = false
 let mutable shutting_down = false
+let mutable pending_start: PendingStart option = None
 
 let is_running () = Option.isSome current
 
@@ -91,6 +100,7 @@ let direct_loop (session: Session) (operation: ViewportNavigation.Operation) : F
                 FlightCamera.rebase_active_pivot state
                 state.wheel_remainder <- 0L
                 InputAccumulator.discard_pointer_input session.input
+                PlatformFlightKeyboard.discard_pointer_input ()
                 discard_remaining_pointer <- true
 
             changed
@@ -164,7 +174,13 @@ let direct_loop (session: Session) (operation: ViewportNavigation.Operation) : F
         // Drain packets before observing a missing physical Up.
         session.entry.held
         |> Option.iter (fun (held: unit -> bool) ->
-            if (MacNative.load ()).keyboard_boundary.Invoke() = 0. && not (held ()) then
+            let native = MacNative.load ()
+
+            if
+                native.keyboard_boundary.Invoke() = 0.
+                && native.raw_pending.Invoke() = 0u
+                && not (held ())
+            then
                 request_exit RightMouseReleased session)
 
         if changed && can_write () then
@@ -196,6 +212,12 @@ let finish (session: Session) =
         session.transport
         |> Option.iter (fun (transport: MacNavigationInput.Session) ->
             cleanup "input" (fun () -> MacNavigationInput.stop transport reason |> Option.iter failwith))
+
+        session.wake
+        |> Option.iter (fun (wake: MacInputWake.Connection) ->
+            cleanup "input wake" (fun () -> (wake :> IDisposable).Dispose()))
+
+        session.wake <- None
 
         PlatformFlightKeyboard.stop ()
 
@@ -291,7 +313,126 @@ let finish (session: Session) =
             with error ->
                 Debug.WriteLine error
 
+let activate (session: Session) (transport: MacNavigationInput.Session) =
+    let state = session.state
+    let view = state.view
+    let host = state.host_identity
+    let config = state.config
+    let mode = state.session_mode
+    let entry = session.entry
+    let wake = session.wake |> Option.get
+
+    state.camera_write_allowed <-
+        fun () ->
+            not session.finalizing
+            && MacNavigationInput.is_current transport
+            && Option.isNone (InputAccumulator.exit_reason session.input)
+            && PlatformInput.viewport_host_is_foreground host view
+
+    let ensure_entry () =
+        if not (FlyState.is_running state && FlyState.can_write_camera state) then
+            invalidOp "The navigation entry was cancelled."
+
+    ensure_entry ()
+
+    let navigation = config.bindings.mouse_navigation
+    state.keyboard_pivot_held <- FlightControls.is_optional_down navigation.pivot.hold
+    state.keyboard_pan_held <- FlightControls.is_optional_down navigation.pan.hold
+
+    entry.navigation
+    |> Option.iter (fun (operation: ViewportNavigation.Operation) ->
+        let navigation_mode =
+            if operation = ViewportNavigation.Operation.Pivot then
+                ViewNavigationMode.Pivot
+            else
+                ViewNavigationMode.Pan
+
+        state.latched_mouse_navigation <-
+            if operation = ViewportNavigation.Operation.Pivot then
+                PivotNavigation
+            else
+                PanNavigation
+
+        if
+            operation = ViewportNavigation.Operation.Pivot
+            || operation = ViewportNavigation.Operation.Pan
+        then
+            let target =
+                ViewTarget.apply_for_navigation
+                    config.behavior
+                    navigation_mode
+                    view
+                    state.viewport
+                    entry.target_point
+                    state.camera_write_allowed
+                    (fun (_original: Rhino.Geometry.Point3d) (target: Rhino.Geometry.Point3d) ->
+                        FlightCamera.sync_camera_from_viewport (ValueSome target) state)
+
+            state.active_mouse_navigation <-
+                if operation = ViewportNavigation.Operation.Pivot then
+                    MousePivot(FlightCamera.create_pivot_drag target state)
+                else
+                    MousePan(target, FlightCamera.pan_units_per_radian target state.camera))
+
+    ensure_entry ()
+
+    if config.behavior.hide_gumball && session.original_gumball then
+        state.hidden_gumball_plane <- ViewTarget.gumball_plane view
+        session.gumball_changed <- true
+        ModelAidSettings.AutoGumballEnabled <- false
+
+    ensure_entry ()
+
+    if Option.isNone entry.navigation && config.behavior.crosshair.enabled then
+        let crosshair = FlightCrosshair state
+        session.crosshair <- Some crosshair
+        crosshair.Enabled <- true
+
+    ensure_entry ()
+
+    if Option.isNone entry.navigation then
+        session.lens_changed <- FlightCamera.entry_perspective_lens_changes state
+        FlightCamera.apply_entry_perspective_lens state
+
+    ensure_entry ()
+
+    if ValueOption.isSome state.walking_plane then
+        FlightCamera.write_view
+            state
+            { camera_changed = true
+              parallel_magnification = 1. }
+        |> ignore
+
+    ensure_entry ()
+
+    session.loop <-
+        match entry.navigation with
+        | Some ViewportNavigation.Operation.ParallelPan ->
+            Some(direct_loop session ViewportNavigation.Operation.ParallelPan)
+        | Some ViewportNavigation.Operation.ParallelZoom ->
+            Some(direct_loop session ViewportNavigation.Operation.ParallelZoom)
+        | _ ->
+            Some(
+                FlightLoop.create
+                    (fun () ->
+                        // Intentional transport stop leaves its exit reason for the shared controls.
+                        Ok(
+                            Option.isSome (InputAccumulator.exit_reason session.input)
+                            || MacNavigationInput.is_current transport
+                        ))
+                    ignore
+                    session.input
+                    state
+            )
+
+    session.entered <- true
+    view.Redraw()
+    wake.Request()
+
+
 let stop (reason: FlightExitReason) =
+    pending_start <- None
+
     match current with
     | Some session ->
         request_exit reason session
@@ -311,32 +452,107 @@ let pulse () =
     if not processing then
         processing <- true
 
+        let active_wake =
+            match current with
+            | Some session -> session.wake
+            | None -> None
+
+        let mutable began = false
+        let mutable continue_work = false
+        let mutable wait_for_key = false
+
         try
             match current with
-            | Some session when session.entered && not session.finalizing ->
+            | Some session when
+                not session.finalizing
+                && (match active_wake with
+                    | Some wake -> wake.TryBegin()
+                    | None -> false)
+                ->
+                began <- true
+
                 try
-                    InputAccumulator.exit_reason session.input
-                    |> Option.iter (fun (reason: FlightExitReason) -> request_exit reason session)
+                    match InputAccumulator.exit_reason session.input with
+                    | Some reason -> request_exit reason session
+                    | None -> ()
+
+                    let native = MacNative.load ()
+
+                    if not session.entered && FlyState.is_running session.state then
+                        let startup =
+                            session.transport
+                            |> Option.map MacNavigationInput.complete_start
+                            |> Option.defaultValue 0u
+
+                        match startup with
+                        | 1u when
+                            not (session.entry.valid ())
+                            || (session.entry.held |> Option.exists (fun (held: unit -> bool) -> not (held ())))
+                            ->
+                            request_exit ExplicitKeepCamera session
+                        | 1u -> activate session (Option.get session.transport)
+                        | 3u -> ()
+                        | _ ->
+                            let detail =
+                                match native.raw_error.Invoke() with
+                                | 1u -> "event tap enumeration failed"
+                                | 2u -> "event tap acquisition failed (check Accessibility permission)"
+                                | 3u -> "the event tap lacks the required keyboard or mouse events"
+                                | _ -> "the worker run loop could not start"
+
+                            request_exit (SessionFailure $"Mac pointer startup failed: {detail}.") session
+
+                    let native_work = native.raw_drain.Invoke()
+
+                    if native_work = 3u then
+                        let detail =
+                            match native.raw_error.Invoke() with
+                            | 5u -> "AppKit changed or skipped a queued input event"
+                            | 6u -> "an AppKit input event has no Quartz counterpart"
+                            | 7u -> "a queued input event never reached AppKit's monitor"
+                            | 8u -> "the host entered modal or control tracking"
+                            | 9u -> "a released control could not be recovered in input order"
+                            | 10u -> "delayed input crossed an applied release or arrived out of order"
+                            | 11u -> "the native input queue overflowed"
+                            | _ -> "the pointer worker failed"
+
+                        request_exit (SessionFailure $"Mac input stopped: {detail}.") session
 
                     let work_due =
-                        session.loop
-                        |> Option.exists (fun (loop: FlightLoop.State) ->
-                            loop.work_pending () || loop.wait_timeout () = 0)
+                        match session.loop with
+                        | Some loop -> loop.work_pending () || loop.wait_timeout () = 0
+                        | None -> false
 
                     let now = Stopwatch.GetTimestamp()
 
-                    if work_due || now - session.inspected_at >= Stopwatch.Frequency / 120L then
+                    if session.entered && native.raw_available.Invoke() = 0u then
+                        request_exit (SessionFailure "The Mac raw mouse source is no longer available.") session
+
+                    if session.entered && now - session.inspected_at >= Stopwatch.Frequency / 120L then
                         session.inspected_at <- now
 
-                        if (MacNative.load ()).raw_validate.Invoke() = 0u then
-                            request_exit (SessionFailure "The Mac raw mouse source is no longer available.") session
+                        match session.entry.navigation with
+                        | Some ViewportNavigation.Operation.ParallelPan
+                        | Some ViewportNavigation.Operation.ParallelZoom ->
+                            PlatformFlightKeyboard.reconcile_physical_keys ()
+                        | _ -> ()
 
-                        if
-                            not (
-                                PlatformInput.viewport_host_is_foreground session.state.host_identity session.state.view
-                            )
-                        then
-                            request_exit FocusLost session
+                        if native.raw_validate.Invoke() = 0u then
+                            let detail =
+                                match native.raw_error.Invoke() with
+                                | 7u -> "A queued input event never reached AppKit's monitor."
+                                | 8u -> "The host entered modal or control tracking."
+                                | 9u -> "A released control could not be recovered in input order."
+                                | 10u -> "Delayed input crossed an applied release or arrived out of order."
+                                | 11u -> "The native input queue overflowed."
+                                | _ -> "The Mac raw mouse source is no longer available."
+
+                            request_exit (SessionFailure detail) session
+
+                    if
+                        not (PlatformInput.viewport_host_is_foreground session.state.host_identity session.state.view)
+                    then
+                        request_exit FocusLost session
 
                     match session.entry.navigation with
                     | Some ViewportNavigation.Operation.ParallelPan
@@ -350,16 +566,46 @@ let pulse () =
                     | Some loop when work_due || not (FlyState.is_running session.state) -> loop.step ()
                     | _ -> ()
 
-                    session.entry.held
-                    |> Option.iter (fun (held: unit -> bool) ->
-                        if (MacNative.load ()).keyboard_boundary.Invoke() = 0. && not (held ()) then
-                            request_exit RightMouseReleased session)
+                    match session.entry.held with
+                    | Some held when
+                        native.keyboard_boundary.Invoke() = 0.
+                        && native.raw_pending.Invoke() = 0u
+                        && native_work <> 1u
+                        && not (held ())
+                        ->
+                        request_exit RightMouseReleased session
+                    | _ -> ()
 
                     match session.entry.navigation with
                     | Some ViewportNavigation.Operation.Pivot
-                    | Some ViewportNavigation.Operation.Pan when session.state.latched_mouse_navigation = LookNavigation ->
+                    | Some ViewportNavigation.Operation.Pan when
+                        session.entered && session.state.latched_mouse_navigation = LookNavigation
+                        ->
                         request_exit ExplicitKeepCamera session
                     | _ -> ()
+
+                    let native_pending = native.raw_pending.Invoke()
+
+                    let pending_key =
+                        native_pending = 2u
+                        || (native_pending <> 1u && native.keyboard_boundary.Invoke() <> 0.)
+
+                    if
+                        session.entered
+                        && not session.finalizing
+                        && FlyState.is_running session.state
+                        && (match current with
+                            | Some active -> obj.ReferenceEquals(active, session)
+                            | None -> false)
+                    then
+                        wait_for_key <- pending_key
+
+                        continue_work <-
+                            not pending_key
+                            && (native_pending = 1u
+                                || (match session.loop with
+                                    | Some loop -> loop.work_pending ()
+                                    | None -> false))
                 with error ->
                     request_exit (SessionFailure error.Message) session
 
@@ -371,6 +617,17 @@ let pulse () =
             |> Option.iter (fun (error: string) -> Debug.WriteLine error)
 
             if Option.isNone current && not (MacNavigationInput.pending_cleanup ()) then
+                match pending_start with
+                | Some request ->
+                    pending_start <- None
+
+                    try
+                        request.start ()
+                    with error ->
+                        Debug.WriteLine error
+                | None -> ()
+
+            if Option.isNone current && not (MacNavigationInput.pending_cleanup ()) then
                 match timer with
                 | Some running ->
                     running.Stop()
@@ -378,8 +635,14 @@ let pulse () =
                     timer <- None
                 | None -> ()
         finally
+            if began then
+                match active_wake with
+                | Some wake -> wake.Complete(continue_work, wait_for_key)
+                | None -> ()
+
             processing <- false
 
+// MainLoop also covers pumps that skip beforeWaiting.
 let main_loop = EventHandler(fun (_: obj) (_: EventArgs) -> pulse ())
 
 let command_began =
@@ -422,11 +685,13 @@ let shutdown () =
         timer <- None
     | None -> ()
 
-let run_session (view: RhinoView) (config: FlyConfig) (mode: FlightSessionMode) (entry: Entry) =
+let start_session (view: RhinoView) (config: FlyConfig) (mode: FlightSessionMode) (entry: Entry) =
     finish_pending_exit ()
 
     if shutting_down then
         Error "RhinosCanFly is shutting down."
+    elif not (entry.valid ()) then
+        Ok()
     elif is_running () then
         stop ExplicitKeepCamera
         Ok()
@@ -464,6 +729,7 @@ let run_session (view: RhinoView) (config: FlyConfig) (mode: FlightSessionMode) 
                   original_gumball = original_gumball
                   entry = entry
                   transport = None
+                  wake = None
                   loop = None
                   crosshair = None
                   gumball_changed = false
@@ -475,117 +741,36 @@ let run_session (view: RhinoView) (config: FlyConfig) (mode: FlightSessionMode) 
             current <- Some session
 
             try
+                let wake =
+                    MacInputWake.create
+                        (fun () ->
+                            if
+                                current
+                                |> Option.exists (fun (active: Session) -> obj.ReferenceEquals(active, session))
+                            then
+                                pulse ())
+                        (fun (error: exn) -> InputAccumulator.request_exit (SessionFailure error.Message) session.input)
+
+                session.wake <- Some wake
+
                 let transport =
-                    MacNavigationInput.start host.window config mode.lifetime session.input (Option.isNone entry.held)
+                    MacNavigationInput.start
+                        host.window
+                        config
+                        mode.lifetime
+                        session.input
+                        (Option.isNone entry.held)
+                        wake.Request
+                        wake.RequestMotion
 
                 session.transport <- Some transport
 
-                state.camera_write_allowed <-
-                    fun () ->
-                        not session.finalizing
-                        && MacNavigationInput.is_current transport
-                        && Option.isNone (InputAccumulator.exit_reason session.input)
-                        && PlatformInput.viewport_host_is_foreground host view
-
-                let ensure_entry () =
-                    if not (FlyState.is_running state && FlyState.can_write_camera state) then
-                        invalidOp "The navigation entry was cancelled."
-
-                ensure_entry ()
-
-                let navigation = config.bindings.mouse_navigation
-                state.keyboard_pivot_held <- FlightControls.is_optional_down navigation.pivot.hold
-                state.keyboard_pan_held <- FlightControls.is_optional_down navigation.pan.hold
-
-                entry.navigation
-                |> Option.iter (fun (operation: ViewportNavigation.Operation) ->
-                    let navigation_mode =
-                        if operation = ViewportNavigation.Operation.Pivot then
-                            ViewNavigationMode.Pivot
-                        else
-                            ViewNavigationMode.Pan
-
-                    state.latched_mouse_navigation <-
-                        if operation = ViewportNavigation.Operation.Pivot then
-                            PivotNavigation
-                        else
-                            PanNavigation
-
-                    if
-                        operation = ViewportNavigation.Operation.Pivot
-                        || operation = ViewportNavigation.Operation.Pan
-                    then
-                        let target =
-                            ViewTarget.apply_for_navigation
-                                config.behavior
-                                navigation_mode
-                                view
-                                state.viewport
-                                entry.target_point
-                                state.camera_write_allowed
-                                (fun (_original: Rhino.Geometry.Point3d) (target: Rhino.Geometry.Point3d) ->
-                                    FlightCamera.sync_camera_from_viewport (ValueSome target) state)
-
-                        state.active_mouse_navigation <-
-                            if operation = ViewportNavigation.Operation.Pivot then
-                                MousePivot(FlightCamera.create_pivot_drag target state)
-                            else
-                                MousePan(target, FlightCamera.pan_units_per_radian target state.camera))
-
-                ensure_entry ()
-
-                if config.behavior.hide_gumball && session.original_gumball then
-                    state.hidden_gumball_plane <- ViewTarget.gumball_plane view
-                    session.gumball_changed <- true
-                    ModelAidSettings.AutoGumballEnabled <- false
-
-                ensure_entry ()
-
-                if Option.isNone entry.navigation && config.behavior.crosshair.enabled then
-                    let crosshair = FlightCrosshair state
-                    session.crosshair <- Some crosshair
-                    crosshair.Enabled <- true
-
-                ensure_entry ()
-
-                if Option.isNone entry.navigation then
-                    session.lens_changed <- FlightCamera.entry_perspective_lens_changes state
-                    FlightCamera.apply_entry_perspective_lens state
-
-                ensure_entry ()
-
-                if ValueOption.isSome state.walking_plane then
-                    FlightCamera.write_view
-                        state
-                        { camera_changed = true
-                          parallel_magnification = 1. }
-                    |> ignore
-
-                ensure_entry ()
-
-                session.loop <-
-                    match entry.navigation with
-                    | Some ViewportNavigation.Operation.ParallelPan ->
-                        Some(direct_loop session ViewportNavigation.Operation.ParallelPan)
-                    | Some ViewportNavigation.Operation.ParallelZoom ->
-                        Some(direct_loop session ViewportNavigation.Operation.ParallelZoom)
-                    | _ ->
-                        Some(
-                            FlightLoop.create
-                                (fun () ->
-                                    // Intentional transport stop leaves its exit reason for the shared controls.
-                                    Ok(
-                                        Option.isSome (InputAccumulator.exit_reason session.input)
-                                        || MacNavigationInput.is_current transport
-                                    ))
-                                ignore
-                                session.input
-                                state
-                        )
-
                 ensure_scheduler ()
-                session.entered <- true
-                view.Redraw()
+
+                if MacNavigationInput.complete_start transport = 1u then
+                    activate session transport
+
+                wake.Request()
                 Ok()
             with error ->
                 request_exit (SessionFailure error.Message) session
@@ -595,7 +780,64 @@ let run_session (view: RhinoView) (config: FlyConfig) (mode: FlightSessionMode) 
         with error ->
             Error error.Message
 
-let run (view: RhinoView) (config: FlyConfig) (mode: FlightSessionMode) (held_entry: (unit -> bool) option) =
-    run_session view config mode { flight_entry with held = held_entry }
+let run_session (view: RhinoView) (config: FlyConfig) (mode: FlightSessionMode) (entry: Entry) =
+    let toggled_off =
+        match pending_start with
+        | Some request -> obj.ReferenceEquals(request.view, view) && request.navigation = entry.navigation
+        | None -> false
+
+    pending_start <- None
+    finish_pending_exit ()
+
+    if shutting_down then
+        Error "RhinosCanFly is shutting down."
+    elif not (entry.valid ()) then
+        Ok()
+    elif toggled_off || is_running () then
+        stop ExplicitKeepCamera
+        Ok()
+    else
+        match MacNavigationInput.complete_cleanup () with
+        | Some error -> Error error
+        | None when MacNavigationInput.pending_cleanup () ->
+            let host = PlatformInput.capture_viewport_host view
+            let revision = MacNavigationInput.lifecycle_revision
+
+            pending_start <-
+                Some
+                    { view = view
+                      navigation = entry.navigation
+                      start =
+                        fun () ->
+                            if
+                                revision = MacNavigationInput.lifecycle_revision
+                                && not shutting_down
+                                && entry.valid ()
+                                && PlatformInput.viewport_host_exists host view
+                                && PlatformInput.viewport_host_is_foreground host view
+                                && (entry.held |> Option.forall (fun (held: unit -> bool) -> held ()))
+                            then
+                                match start_session view config mode entry with
+                                | Ok() -> ()
+                                | Error error -> RhinoApp.WriteLine $"RhinosCanFly: {error}" }
+
+            ensure_scheduler ()
+            Ok()
+        | None -> start_session view config mode entry
+
+let run
+    (view: RhinoView)
+    (config: FlyConfig)
+    (mode: FlightSessionMode)
+    (held_entry: (unit -> bool) option)
+    (valid: unit -> bool)
+    =
+    run_session
+        view
+        config
+        mode
+        { flight_entry with
+            held = held_entry
+            valid = valid }
 
 let recovery_completed () = pulse ()

@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdatomic.h>
 #include "input.h"
+#include "pointer-worker.h"
 
 @interface RcfMouse : NSObject
 @property(nonatomic, strong) GCMouse *mouse;
@@ -20,8 +21,10 @@ static _Atomic bool accepting;
 static _Atomic uint32_t count;
 static RcfRelativeMotionHandler receiver;
 static _Atomic uint64_t generation;
-enum { RCF_RAW_NONE, RCF_RAW_GCMOUSE, RCF_RAW_POINTER };
 static _Atomic uint32_t motion_source;
+static _Atomic bool queue_drained;
+static bool drain_requested;
+static RcfPointerWorker *pointer_worker;
 static double started_at;
 
 static bool foreign_handlers(GCMouseInput *input) {
@@ -42,7 +45,7 @@ static bool foreign_handlers(GCMouseInput *input) {
 
 static void attach_mouse(GCMouse *mouse) {
     if (!receiver || !atomic_load_explicit(&accepting, memory_order_acquire) ||
-        atomic_load(&motion_source) == RCF_RAW_POINTER) return;
+        atomic_load(&motion_source) != RCF_RAW_GCMOUSE) return;
     for (RcfMouse *item in attached) if (item.mouse == mouse) return;
     // GCMouse handlers are shared with the host; leave occupied devices alone.
     GCMouseInput *input = mouse.mouseInput;
@@ -79,7 +82,61 @@ static void detach_mouse(RcfMouse *item) {
 
 uint32_t rcf_mac_raw_available(void) {
     if (!atomic_load_explicit(&accepting, memory_order_acquire)) return 0;
+    if (pointer_worker) {
+        uint32_t state = rcf_pointer_state(pointer_worker);
+        return state == RCF_RAW_RUNNING;
+    }
     return atomic_load(&motion_source) == RCF_RAW_POINTER ? 1 : atomic_load(&count);
+}
+
+uint32_t rcf_mac_raw_state(void) {
+    if (!atomic_load_explicit(&accepting, memory_order_acquire)) return RCF_RAW_STOPPED;
+    return pointer_worker ? rcf_pointer_state(pointer_worker) :
+        rcf_mac_raw_available() ? RCF_RAW_RUNNING : RCF_RAW_FAILED;
+}
+
+uint32_t rcf_mac_raw_drain(void) {
+    if (![NSThread isMainThread]) return RCF_INPUT_FAILED;
+    if (!pointer_worker) return RCF_INPUT_EMPTY;
+    if (!receiver || !atomic_load_explicit(&accepting, memory_order_acquire)) return RCF_INPUT_FAILED;
+    return rcf_pointer_pump(pointer_worker, receiver, rcf_mac_raw_release);
+}
+
+double rcf_mac_raw_boundary(void) {
+    return pointer_worker ? rcf_pointer_boundary(pointer_worker) : 0;
+}
+
+uint32_t rcf_mac_raw_pending(void) {
+    return pointer_worker ? rcf_pointer_pending(pointer_worker) : RCF_INPUT_EMPTY;
+}
+
+void rcf_mac_raw_discard(void) {
+    if ([NSThread isMainThread] && pointer_worker) rcf_pointer_discard(pointer_worker);
+}
+
+void rcf_mac_raw_reconcile(uint32_t code) {
+    if ([NSThread isMainThread] && pointer_worker) rcf_pointer_reconcile(pointer_worker, code);
+}
+
+uint32_t rcf_mac_raw_initial_key(uint32_t code) {
+    return pointer_worker ? rcf_pointer_initial_key(pointer_worker, code) : 0;
+}
+
+uint32_t rcf_mac_raw_error(void) {
+    return pointer_worker ? rcf_pointer_error(pointer_worker) : 0;
+}
+
+double rcf_mac_raw_started_at(void) {
+    return pointer_worker ? rcf_pointer_started_at(pointer_worker) : started_at;
+}
+
+int32_t rcf_mac_raw_before_event(NSEvent *event) {
+    if (![NSThread isMainThread] || !pointer_worker || !receiver ||
+        !atomic_load_explicit(&accepting, memory_order_acquire) || event.timestamp < started_at) return 0;
+    int32_t result = rcf_pointer_drain(pointer_worker, event.CGEvent, receiver, rcf_mac_raw_release);
+    if (result < 0)
+        atomic_store_explicit(&accepting, false, memory_order_release);
+    return result;
 }
 
 void rcf_mac_raw_motion(NSEvent *event) {
@@ -104,6 +161,10 @@ void rcf_mac_raw_motion(NSEvent *event) {
 uint32_t rcf_mac_raw_validate(void) {
     if (!atomic_load_explicit(&accepting, memory_order_acquire)) return 0;
     @try {
+        if ([NSThread isMainThread] && pointer_worker)
+            return rcf_pointer_validate(pointer_worker, NSProcessInfo.processInfo.systemUptime,
+                NSApp.modalWindow || [NSRunLoop.currentRunLoop.currentMode isEqualToString:NSEventTrackingRunLoopMode]);
+
         if ([NSThread isMainThread]) {
             for (RcfMouse *item in attached) {
                 GCMouseInput *input = item.mouse.mouseInput;
@@ -125,8 +186,7 @@ uint32_t rcf_mac_raw_validate(void) {
 
 int32_t rcf_mac_raw_end(void) {
     if (![NSThread isMainThread]) return 1;
-    atomic_store_explicit(&accepting, false, memory_order_release);
-    ++generation;
+    if (atomic_exchange_explicit(&accepting, false, memory_order_acq_rel)) ++generation;
     @try {
         if (connected) {
             [[NSNotificationCenter defaultCenter] removeObserver:connected]; connected = nil;
@@ -135,16 +195,32 @@ int32_t rcf_mac_raw_end(void) {
             [[NSNotificationCenter defaultCenter] removeObserver:disconnected]; disconnected = nil;
         }
         while (attached.count) detach_mouse(attached.lastObject);
-        // The managed delegate stays rooted until queued callbacks have returned.
-        if (input_queue) dispatch_sync(input_queue, ^{});
+
+        if (pointer_worker) {
+            if (rcf_pointer_end(pointer_worker) != 0) return -1;
+            pointer_worker = NULL;
+        }
+
+        if (receiver && atomic_load(&motion_source) == RCF_RAW_GCMOUSE && input_queue) {
+            if (!drain_requested) {
+                drain_requested = true;
+                dispatch_async(input_queue, ^{
+                    atomic_store_explicit(&queue_drained, true, memory_order_release);
+                });
+            }
+            if (!atomic_load_explicit(&queue_drained, memory_order_acquire)) return -1;
+        }
+
         receiver = NULL;
         attached = nil;
+        atomic_store(&motion_source, RCF_RAW_AUTO);
+        drain_requested = false;
         return 0;
     } @catch (NSException *exception) { (void)exception; return 2; }
 }
 
-int32_t rcf_mac_raw_begin(RcfRelativeMotionHandler handler) {
-    if (![NSThread isMainThread] || !handler || receiver) return -1;
+int32_t rcf_mac_raw_begin(RcfRelativeMotionHandler handler, RcfMacNotify notify, uint32_t backend) {
+    if (![NSThread isMainThread] || !handler || receiver || pointer_worker || backend > RCF_RAW_WORKER) return -1;
     // SDL also avoids the broken GCMouse delivery on macOS 12/13.
     if (@available(macOS 14.0, *)) {
         @try {
@@ -154,11 +230,21 @@ int32_t rcf_mac_raw_begin(RcfRelativeMotionHandler handler) {
                 dispatch_set_target_queue(input_queue, dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE, 0));
             }
             attached = [NSMutableArray new];
-            atomic_store(&motion_source, RCF_RAW_NONE);
+            atomic_store(&motion_source, backend == RCF_RAW_AUTO ? RCF_RAW_GCMOUSE : backend);
+            atomic_store(&queue_drained, false);
             started_at = NSProcessInfo.processInfo.systemUptime;
             receiver = handler;
-            atomic_store_explicit(&accepting, true, memory_order_release);
             uint64_t session_generation = ++generation;
+            atomic_store_explicit(&accepting, true, memory_order_release);
+
+            if (backend == RCF_RAW_WORKER) {
+                pointer_worker = rcf_pointer_begin(notify);
+                if (!pointer_worker) { rcf_mac_raw_end(); return -1; }
+                return RCF_RAW_WORKER;
+            }
+
+            if (backend == RCF_RAW_POINTER) return RCF_RAW_POINTER;
+
             NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
             connected = [center addObserverForName:GCMouseDidConnectNotification object:nil
                 queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
@@ -184,7 +270,7 @@ int32_t rcf_mac_raw_begin(RcfRelativeMotionHandler handler) {
                 }];
             for (GCMouse *mouse in GCMouse.mice) attach_mouse(mouse);
             // Keep one source for the session so AppKit and GCMouse never count a move twice.
-            atomic_store(&motion_source, attached.count ? RCF_RAW_GCMOUSE : RCF_RAW_POINTER);
+            if (backend == RCF_RAW_AUTO && !attached.count) atomic_store(&motion_source, RCF_RAW_POINTER);
             return (int32_t)rcf_mac_raw_available();
         } @catch (NSException *exception) { (void)exception; rcf_mac_raw_end(); return -1; }
     }

@@ -10,11 +10,16 @@ type Session =
       input: InputAccumulator.State
       window: nativeint
       timestamp_offset: int64
-      started_at: float
+      mutable started_at: float
+      config: FlyConfig
+      entry_buttons: uint32
+      worker: bool
       wheel_points_per_line: float
       lifetime: FlightLifetime
       exit_buttons: MouseExitConfig
+      notify: unit -> unit
       mutable active: bool
+      mutable ready: bool
       mutable wheel_remainder: float }
 
 let owned = Array.zeroCreate<bool> 133
@@ -32,6 +37,38 @@ let mutable outside_event: MacNative.InputEvent -> uint32 =
     fun (_event: MacNative.InputEvent) -> 0u
 
 let mutable raw_handler: RelativeMotion.Handler option = None
+let mutable raw_notify: MacNative.Notify option = None
+let mutable lifecycle_revision = 0L
+
+let complete_start (session: Session) =
+    let owned =
+        match current with
+        | Some active -> obj.ReferenceEquals(active, session)
+        | None -> false
+
+    if not owned || not session.active then
+        0u
+    elif session.ready then
+        1u
+    else
+        let native = MacNative.load ()
+        let state = native.raw_state.Invoke()
+
+        if state = 1u then
+            if session.worker then
+                session.started_at <- native.raw_started_at.Invoke()
+
+                PlatformFlightKeyboard.configure
+                    session.config
+                    session.input
+                    session.timestamp_offset
+                    session.entry_buttons
+                    true
+                    (fun (code: int) -> native.raw_initial_key.Invoke(uint32 code) <> 0u)
+
+            session.ready <- true
+
+        state
 
 let restore_pointer () =
     cleanup_error <- None
@@ -53,6 +90,8 @@ let restore_pointer () =
             cleanup_error <- Some $"CoreGraphics cursor visibility failed ({result})."
 
 let request_stop (reason: FlightExitReason) =
+    lifecycle_revision <- lifecycle_revision + 1L
+
     match current with
     | Some session when session.active ->
         Volatile.Write(&session.active, false)
@@ -63,6 +102,11 @@ let request_stop (reason: FlightExitReason) =
             |> Option.defaultValue reason
 
         InputAccumulator.request_exit accepted session.input
+
+        try
+            session.notify ()
+        with _ ->
+            ()
     | _ -> ()
 
     restore_pointer ()
@@ -98,7 +142,11 @@ let handle_event (event: MacNative.InputEvent) =
     let was_owned = paired && owned[code]
 
     try
+        current
+        |> Option.iter (fun (session: Session) -> complete_start session |> ignore)
+
         if event.kind = 6u then
+            request_stop FocusLost
             outside_event event |> ignore
 
         let held =
@@ -107,8 +155,40 @@ let handle_event (event: MacNative.InputEvent) =
             else
                 event.down <> 0u
 
+        match current with
+        | Some session when
+            session.active
+            && session.ready
+            && session.worker
+            && paired
+            && event.timestamp >= session.started_at
+            && (not was_owned || owned_session[code] = session.id || owned_session[code] = 0L)
+            ->
+            PlatformFlightKeyboard.prepare_transition code held (event.repeated <> 0u)
+        | _ -> ()
+
         // Consume owned Ups even after focus loss or flight exit.
-        if was_owned && not held then
+        if event.kind = 7u then
+            match current with
+            | Some session when session.active && code >= 0 && code < owned.Length ->
+                let timestamp =
+                    session.timestamp_offset + int64 (event.timestamp * float Stopwatch.Frequency)
+
+                // Repair the navigation state, but keep ownership for the real Up.
+                if code >= 128 then
+                    PlatformFlightKeyboard.observe_mouse
+                        timestamp
+                        { event = enum<RawMouseButtonEvent> (2 * (code - 128) + 2)
+                          modifiers = MouseModifiers.none }
+                else
+                    PlatformFlightKeyboard.observe timestamp code false
+
+                PlatformFlightKeyboard.binding_exit session.lifetime session.exit_buttons session.input
+                |> Option.iter request_stop
+
+                1u
+            | _ -> 0u
+        elif was_owned && not held then
             owned[code] <- false
 
             match current with
@@ -186,11 +266,14 @@ let handle_event (event: MacNative.InputEvent) =
                             code
                             held
 
-                    PlatformFlightKeyboard.binding_exit session.lifetime session.exit_buttons session.input
+                    (if session.ready then
+                         PlatformFlightKeyboard.binding_exit session.lifetime session.exit_buttons session.input
+                     else
+                         PlatformFlightKeyboard.resolve_pending_exit session.lifetime session.exit_buttons session.input)
                     |> Option.iter request_stop
 
                     if held && configured then 1u else 0u
-                elif event.kind = 2u then
+                elif event.kind = 2u && session.ready then
                     // AppKit already applies the user's natural-scroll setting.
                     let scale =
                         if event.precise <> 0u then
@@ -237,7 +320,19 @@ let handle_event (event: MacNative.InputEvent) =
         if paired && (was_owned || owned[code]) then 1u else 0u
 
 let handler =
-    MacNative.Handler(fun (event: byref<MacNative.InputEvent>) -> handle_event event)
+    MacNative.Handler(fun (event: byref<MacNative.InputEvent>) ->
+        let session = current
+
+        try
+            handle_event event
+        finally
+            match session with
+            | Some active ->
+                try
+                    active.notify ()
+                with error ->
+                    InputAccumulator.request_exit (SessionFailure error.Message) active.input
+            | None -> ())
 
 let ensure_monitor () =
     if monitor_cleanup_pending then
@@ -276,7 +371,8 @@ let complete_cleanup () =
 
             if result = 0 then
                 raw_handler <- None
-            else
+                raw_notify <- None
+            elif result <> -1 then
                 cleanup_error <- Some $"Mac raw-input cleanup failed ({result})."
 
         if installed_window <> 0n then
@@ -319,14 +415,26 @@ let start
     (lifetime: FlightLifetime)
     (input: InputAccumulator.State)
     (consume_entry_release: bool)
+    (notify: unit -> unit)
+    (notify_motion: unit -> unit)
     =
     if current |> Option.exists (fun (session: Session) -> session.active) then
         invalidOp "Mac navigation is already active."
 
     complete_cleanup () |> Option.iter invalidOp
 
-    if detached || hidden then
+    if detached || hidden || Option.isSome raw_handler then
         invalidOp "The previous Mac pointer cleanup is unfinished."
+
+    let backend =
+        match Environment.GetEnvironmentVariable "RCF_MAC_INPUT" with
+        | null
+        | ""
+        | "worker" -> 3u
+        | "auto" -> 0u
+        | "gcmouse" -> 1u
+        | "appkit" -> 2u
+        | _ -> invalidOp "RCF_MAC_INPUT must be auto, gcmouse, appkit or worker."
 
     for code = 128 to owned.Length - 1 do
         if
@@ -345,7 +453,7 @@ let start
             if owned[code] && owned_session[code] = 0L then
                 entry_buttons <- entry_buttons ||| (1u <<< (code - 128))
 
-    PlatformFlightKeyboard.configure config input offset entry_buttons
+    PlatformFlightKeyboard.configure config input offset entry_buttons (backend = 3u) PlatformBindings.physical_key_down
     next_session_id <- next_session_id + 1L
 
     let session =
@@ -354,10 +462,15 @@ let start
           window = window
           timestamp_offset = offset
           started_at = uptime
+          config = config
+          entry_buttons = entry_buttons
+          worker = backend = 3u
           wheel_points_per_line = MacNative.wheel_points_per_line ()
           lifetime = lifetime
           exit_buttons = config.mouse.exit_buttons
+          notify = notify
           active = false
+          ready = false
           wheel_remainder = 0. }
 
     current <- Some session
@@ -398,14 +511,34 @@ let start
 
                         if movement.dx <> 0L || movement.dy <> 0L then
                             InputAccumulator.add_timed_mouse movement.timestamp movement.dx movement.dy session.input
+                            notify_motion ()
                 with error ->
-                    InputAccumulator.request_exit (SessionFailure error.Message) session.input)
+                    InputAccumulator.request_exit (SessionFailure error.Message) session.input
+
+                    try
+                        session.notify ()
+                    with _ ->
+                        ())
 
         raw_handler <- Some raw
 
-        if native.raw_begin.Invoke raw <= 0 then
-            failwith "Mac unaccelerated pointer input could not start."
+        let notification =
+            MacNative.Notify(fun () ->
+                try
+                    if Volatile.Read(&session.active) then
+                        notify_motion ()
+                with error ->
+                    InputAccumulator.request_exit (SessionFailure error.Message) session.input)
 
+        raw_notify <- Some notification
+
+        if native.raw_begin.Invoke(raw, notification, backend) <= 0 then
+            if backend = 3u then
+                failwith "The experimental Mac pointer worker could not create its thread or session."
+            else
+                failwith "Mac unaccelerated pointer input could not start."
+
+        complete_start session |> ignore
         session
     with _ ->
         request_stop (SessionFailure "Mac input startup failed.")
@@ -418,6 +551,7 @@ let is_current (session: Session) =
     | Some active ->
         obj.ReferenceEquals(active, session)
         && session.active
+        && session.ready
         && (MacNative.load ()).raw_available.Invoke() > 0u
     | None -> false
 

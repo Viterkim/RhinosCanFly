@@ -4,6 +4,8 @@ Rhino 8/9, macOS 14+. No Rhino 7. Rhino 9 needs Apple silicon and an arm64 .NET 
 
 Mouse and trackpad flying have been tested on Apple silicon, macOS 15, Rhino 8/9. Intel is untested.
 
+This test build uses the new pointer worker by default. It passes events unchanged, but needs keyboard coverage to keep movement in order, so Rhino may need Accessibility permission. Try the trackpad with a mouse still connected too. Setting `RCF_MAC_INPUT=auto` in Rhino's environment brings back the released GCMouse/AppKit input path for comparison. `bash scripts/mac/check-pointer-worker.sh` checks the queue and shutdown, then opens a test window without installing anything. Permission-dependent checks report when they're skipped.
+
 Get the SDK from `global.json` and Xcode command-line tools. Close Rhino, then run this from the repo folder:
 
 ```sh

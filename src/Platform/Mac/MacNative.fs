@@ -6,7 +6,7 @@ open System.Runtime.InteropServices
 open RhinosCanFly
 
 [<Literal>]
-let BRIDGE_ABI = 1u
+let BRIDGE_ABI = 2u
 
 [<Literal>]
 let CORE_GRAPHICS = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
@@ -91,7 +91,10 @@ type NativeWindow = delegate of nativeint -> nativeint
 type SetWindow = delegate of nativeint -> int32
 
 [<UnmanagedFunctionPointer(CallingConvention.Cdecl)>]
-type RawBegin = delegate of RelativeMotion.Handler -> int32
+type Notify = delegate of unit -> unit
+
+[<UnmanagedFunctionPointer(CallingConvention.Cdecl)>]
+type RawBegin = delegate of RelativeMotion.Handler * Notify * uint32 -> int32
 
 [<UnmanagedFunctionPointer(CallingConvention.Cdecl)>]
 type RawEnd = delegate of unit -> int32
@@ -108,6 +111,15 @@ type Size = delegate of unit -> uint32
 [<UnmanagedFunctionPointer(CallingConvention.Cdecl)>]
 type Time = delegate of unit -> float
 
+[<UnmanagedFunctionPointer(CallingConvention.Cdecl)>]
+type Discard = delegate of unit -> unit
+
+[<UnmanagedFunctionPointer(CallingConvention.Cdecl)>]
+type InitialKey = delegate of uint32 -> uint32
+
+[<UnmanagedFunctionPointer(CallingConvention.Cdecl)>]
+type Reconcile = delegate of uint32 -> unit
+
 type Api =
     { foreground_window: Window
       view_window: ViewWindow
@@ -119,6 +131,15 @@ type Api =
       raw_end: RawEnd
       raw_available: Size
       raw_validate: Size
+      raw_state: Size
+      raw_drain: Size
+      raw_pending: Size
+      raw_boundary: Time
+      raw_discard: Discard
+      raw_reconcile: Reconcile
+      raw_initial_key: InitialKey
+      raw_error: Size
+      raw_started_at: Time
       uptime: Time
       keyboard_boundary: Time
       capture_key: Size
@@ -165,6 +186,15 @@ let load () =
                   raw_end = export<RawEnd> library "rcf_mac_raw_end"
                   raw_available = export<Size> library "rcf_mac_raw_available"
                   raw_validate = export<Size> library "rcf_mac_raw_validate"
+                  raw_state = export<Size> library "rcf_mac_raw_state"
+                  raw_drain = export<Size> library "rcf_mac_raw_drain"
+                  raw_pending = export<Size> library "rcf_mac_raw_pending"
+                  raw_boundary = export<Time> library "rcf_mac_raw_boundary"
+                  raw_discard = export<Discard> library "rcf_mac_raw_discard"
+                  raw_reconcile = export<Reconcile> library "rcf_mac_raw_reconcile"
+                  raw_initial_key = export<InitialKey> library "rcf_mac_raw_initial_key"
+                  raw_error = export<Size> library "rcf_mac_raw_error"
+                  raw_started_at = export<Time> library "rcf_mac_raw_started_at"
                   uptime = export<Time> library "rcf_mac_uptime"
                   keyboard_boundary = export<Time> library "rcf_mac_keyboard_boundary"
                   capture_key = export<Size> library "rcf_mac_capture_key"

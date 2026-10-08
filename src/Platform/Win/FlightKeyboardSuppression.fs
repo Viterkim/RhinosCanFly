@@ -636,6 +636,8 @@ let start (config: FlyConfig) (input: InputAccumulator.State) (input_available: 
             stop ()
             Error error.Message
 
+let discard_pointer_input () = ()
+
 let shutdown () =
     stop ()
 

@@ -795,7 +795,13 @@ let ensure_main_loop_handler () =
         RhinoApp.MainLoop.AddHandler main_loop_handler
         main_loop_handler_installed <- true
 
-let run (view: RhinoView) (config: FlyConfig) (session_mode: FlightSessionMode) (held_entry: (unit -> bool) option) =
+let run
+    (view: RhinoView)
+    (config: FlyConfig)
+    (session_mode: FlightSessionMode)
+    (held_entry: (unit -> bool) option)
+    (valid: unit -> bool)
+    =
     match session_state with
     | AwaitingRawCleanup raw when not shutting_down ->
         PlatformRawInput.complete_finished_sessions ()
@@ -808,6 +814,7 @@ let run (view: RhinoView) (config: FlyConfig) (session_mode: FlightSessionMode) 
 
     match session_state with
     | _ when shutting_down -> Error "Rhino is shutting down."
+    | _ when not (valid ()) -> Ok()
     | Starting _
     | Flying _
     | Finishing -> Error "Fly mode is already running."
