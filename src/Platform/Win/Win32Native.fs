@@ -9,6 +9,15 @@ open System.Text
 let WM_NULL = 0x0000
 
 [<Literal>]
+let WM_ACTIVATE = 0x0006
+
+[<Literal>]
+let WM_ACTIVATEAPP = 0x001C
+
+[<Literal>]
+let WM_NCDESTROY = 0x0082
+
+[<Literal>]
 let WM_MOUSELEAVE = 0x02A3
 
 [<Literal>]

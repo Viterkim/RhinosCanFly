@@ -1,7 +1,6 @@
 namespace RhinosCanFly
 
 open System
-open System.Drawing
 open Rhino.Display
 
 module Crosshair =
@@ -28,13 +27,18 @@ module Crosshair =
 
         let outer =
             match arm with
-            | 0 -> Rectangle(x - negative_gap - outer_length, y - width / 2, outer_length, width)
-            | 1 -> Rectangle(x + positive_gap, y - width / 2, outer_length, width)
-            | 2 -> Rectangle(x - width / 2, y - negative_gap - outer_length, width, outer_length)
-            | _ -> Rectangle(x - width / 2, y + positive_gap, width, outer_length)
+            | 0 -> System.Drawing.Rectangle(x - negative_gap - outer_length, y - width / 2, outer_length, width)
+            | 1 -> System.Drawing.Rectangle(x + positive_gap, y - width / 2, outer_length, width)
+            | 2 -> System.Drawing.Rectangle(x - width / 2, y - negative_gap - outer_length, width, outer_length)
+            | _ -> System.Drawing.Rectangle(x - width / 2, y + positive_gap, width, outer_length)
 
         let inner =
-            Rectangle(outer.X + border, outer.Y + border, outer.Width - 2 * border, outer.Height - 2 * border)
+            System.Drawing.Rectangle(
+                outer.X + border,
+                outer.Y + border,
+                outer.Width - 2 * border,
+                outer.Height - 2 * border
+            )
 
         struct (outer, inner)
 
@@ -42,7 +46,7 @@ type FlightCrosshair(state: FlyState) =
     inherit DisplayConduit()
 
     let config = state.config.behavior.crosshair
-    let color = Color.FromArgb(config.red, config.green, config.blue)
+    let color = System.Drawing.Color.FromArgb(config.red, config.green, config.blue)
 
     override _.DrawForeground(event: DrawEventArgs) =
         if FlyState.is_running state && event.Viewport.Id = state.host_identity.viewport_id then
@@ -58,5 +62,5 @@ type FlightCrosshair(state: FlyState) =
                     let struct (outer, inner) =
                         Crosshair.arm_rectangles arm length gap border point.x point.y
 
-                    event.Display.Draw2dRectangle(outer, Color.Black, 0, Color.Black)
+                    event.Display.Draw2dRectangle(outer, System.Drawing.Color.Black, 0, System.Drawing.Color.Black)
                     event.Display.Draw2dRectangle(inner, color, 0, color)

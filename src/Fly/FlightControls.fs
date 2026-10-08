@@ -32,18 +32,8 @@ let current_mouse_hold_buttons (matches: RoutedMouseAction -> bool) (mouse: Flyi
     buttons
 
 let speed_step (state: FlyState) (steps: SpeedStepCount) =
-    state.speed <- FlightSpeed.step state.config.movement state.speed steps
-
-let speed_steps (state: FlyState) (steps: int64) =
-    let mutable remaining = steps
-
-    while remaining > 0L do
-        speed_step state (SpeedStepCount 1.)
-        remaining <- remaining - 1L
-
-    while remaining < 0L do
-        speed_step state (SpeedStepCount -1.)
-        remaining <- remaining + 1L
+    let movement = state.config.movement
+    state.speed <- Speed.step movement.speed_range movement.speed_step_multiplier state.speed steps
 
 let has_keyboard_action (actions: InputAccumulator.KeyboardAction) (action: InputAccumulator.KeyboardAction) =
     int actions &&& int action <> 0
@@ -265,12 +255,12 @@ let apply_wheel_delta (wheel_delta: int64) (state: FlyState) =
                 | MousePan _ -> state.config.movement.wheel_changes_speed_during_flight_navigation
 
         if change_speed then
-            let wheel = state.wheel_remainder + wheel_delta
+            let wheel = Checked.(+) state.wheel_remainder wheel_delta
             let wheel_steps = wheel / PlatformInput.wheel_delta
             state.wheel_remainder <- wheel - wheel_steps * PlatformInput.wheel_delta
 
             if wheel_steps <> 0L then
-                speed_steps state (direction * wheel_steps)
+                speed_step state (SpeedStepCount(float (direction * wheel_steps)))
 
             ViewChange.none
         else
@@ -297,7 +287,7 @@ let update_state (now: float) (input: InputAccumulator.State) (state: FlyState) 
                 Some HostInvalid
             elif not (PlatformInput.viewport_id_matches state.host_identity state.view) then
                 Some HostInvalid
-            elif PlatformInput.foreground_root_window () <> state.host_identity.root_window then
+            elif not (PlatformInput.viewport_application_is_foreground state.host_identity) then
                 Some FocusLost
             else if periodic_validation_due then
                 if PlatformInput.viewport_host_is_active state.host_identity state.view then

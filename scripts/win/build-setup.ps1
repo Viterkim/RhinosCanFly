@@ -16,6 +16,7 @@ function Get-RhinoBuildProperties {
         $project
         "-nologo"
         "-verbosity:quiet"
+        "-p:RhinosCanFlyPlatform=win"
         "-getProperty:RhinoMajorVersion"
         "-getProperty:RhinoSupportedVersions"
         "-getProperty:RhinoExperimentalVersions"

@@ -36,6 +36,13 @@ let cancel (state: State) =
 let complete (state: State) (binding: string) =
     match state.active with
     | Some active ->
+        if String.IsNullOrWhiteSpace binding then
+            invalidOp "No usable input was captured."
+
+        match PlatformBindings.parse binding with
+        | Error error -> invalidOp error
+        | Ok parsed -> PlatformBindings.execution_error parsed |> Option.iter invalidOp
+
         active.field.Text <- binding
         stop state
     | None -> ()
@@ -45,21 +52,14 @@ let start (state: State) (field: TextBox) (button: Button) =
         stop state
         state.active <- Some { field = field; button = button }
         button.Text <- "Press..."
+        button.ToolTip <- ""
         button.Focus()
         state.side_button_timer.Start()
 
 let record_modifiers (state: State) (key: Keys) (modifiers: Keys) =
-    let group (key: Keys) =
-        match key with
-        | Keys.LeftControl
-        | Keys.RightControl -> Keys.Control
-        | Keys.LeftAlt
-        | Keys.RightAlt -> Keys.Alt
-        | Keys.LeftShift
-        | Keys.RightShift -> Keys.Shift
-        | _ -> key
+    let group = PlatformBindings.capture_names.modifier_group
 
-    for modifier in [ Keys.Control; Keys.Alt; Keys.Shift ] do
+    for modifier in PlatformBindings.capture_names.modifiers do
         if
             modifiers &&& modifier = modifier
             && not (
@@ -69,7 +69,7 @@ let record_modifiers (state: State) (key: Keys) (modifiers: Keys) =
         then
             state.modifier_keys <- state.modifier_keys @ [ modifier ]
 
-    let key = PlatformBindings.key_value key
+    let key = BindingNames.key_value key
     let modifier = group key
 
     if key <> modifier && List.contains modifier state.modifier_keys then
@@ -85,25 +85,59 @@ let record_modifiers (state: State) (key: Keys) (modifiers: Keys) =
         state.modifier_keys <- state.modifier_keys @ [ key ]
 
 let key_down (state: State) (key: Keys) (modifiers: Keys) =
-    if PlatformBindings.is_modifier_key key then
+    let key = PlatformBindings.capture_key_value key
+
+    if BindingNames.is_modifier_key PlatformBindings.capture_names key then
         record_modifiers state key modifiers
 
         None
     else
-        Some(PlatformBindings.binding_from_key key modifiers)
+        Some(BindingNames.binding_from_key PlatformBindings.capture_names key modifiers)
 
 let key_up (state: State) (key: Keys) (modifiers: Keys) =
-    if PlatformBindings.is_modifier_key key then
+    let key = PlatformBindings.capture_key_value key
+
+    if BindingNames.is_modifier_key PlatformBindings.capture_names key then
         record_modifiers state key modifiers
 
         state.modifier_keys
-        |> List.map PlatformBindings.key_name
+        |> List.map PlatformBindings.capture_names.key_name
         |> String.concat "+"
         |> Some
     else
         None
 
+let capture_key (state: State) (read_binding: unit -> string option) =
+    let result =
+        try
+            read_binding () |> Option.iter (complete state)
+            Ok()
+        with error ->
+            Error error.Message
+
+    match result with
+    | Ok() -> ()
+    | Error error ->
+        let button = state.active |> Option.map (fun (active: Active) -> active.button)
+        cancel state
+
+        button
+        |> Option.iter (fun (button: Button) -> button.ToolTip <- $"Binding capture failed: {error}")
+
+        SettingsUi.report_error $"Binding capture failed: {error}"
+
 let editor (state: State) (field: TextBox) (default_value: string) =
+    let update_support () =
+        field.ToolTip <-
+            if String.IsNullOrWhiteSpace field.Text then
+                ""
+            else
+                match PlatformBindings.parse field.Text with
+                | Ok binding -> PlatformBindings.execution_error binding |> Option.defaultValue ""
+                | Error error -> error
+
+    update_support ()
+    field.TextChanged.Add(fun (_: EventArgs) -> update_support ())
     let set_button = new Button(Text = "Set...", Width = 62, Height = 24)
     let default_button = new Button(Text = "Default", Width = 66, Height = 24)
     let panel = new TableLayout(Spacing = Size(6, 0))
@@ -128,7 +162,7 @@ let editor (state: State) (field: TextBox) (default_value: string) =
         | Some active when Object.ReferenceEquals(active.button, set_button) ->
             event.Handled <- true
 
-            key_down state event.Key event.Modifiers |> Option.iter (complete state)
+            capture_key state (fun () -> key_down state event.Key event.Modifiers)
         | _ -> ())
 
     set_button.KeyUp.Add(fun (event: KeyEventArgs) ->
@@ -136,7 +170,7 @@ let editor (state: State) (field: TextBox) (default_value: string) =
         | Some active when Object.ReferenceEquals(active.button, set_button) ->
             event.Handled <- true
 
-            key_up state event.Key event.Modifiers |> Option.iter (complete state)
+            capture_key state (fun () -> key_up state event.Key event.Modifiers)
         | _ -> ())
 
     default_button.Click.Add(fun (_: EventArgs) -> field.Text <- default_value)
@@ -153,15 +187,25 @@ let is_editor_control (control: Control) =
     | _ -> false
 
 let try_capture_mouse (state: State) (source: Control) (event: MouseEventArgs) =
-    match state.active, PlatformBindings.binding_from_mouse event.Buttons event.Modifiers with
-    | Some _, Some binding ->
+    match state.active with
+    | Some _ ->
+        let mutable primary = event.Buttons = MouseButtons.Primary
+        let mutable captured = false
+
+        capture_key state (fun () ->
+            let struct (binding, physical_primary) =
+                PlatformBindings.capture_mouse event.Buttons event.Modifiers
+
+            primary <- physical_primary
+            captured <- Option.isSome binding
+            binding)
+
         match source with
-        | :? Button as button when event.Buttons = MouseButtons.Primary -> state.suppress_next_set_click <- Some button
+        | :? Button as button when primary -> state.suppress_next_set_click <- Some button
         | _ -> ()
 
-        complete state binding
-        true
-    | _ -> false
+        captured || Option.isNone state.active
+    | None -> false
 
 let attach_mouse_handler (state: State) (control: Control) =
     control.MouseDown.Add(fun (event: MouseEventArgs) ->
@@ -192,8 +236,7 @@ let create () =
     state.side_button_timer.Elapsed.Add(fun (_: EventArgs) ->
         try
             match state.active with
-            | Some active when active.button.HasFocus ->
-                PlatformBindings.try_side_mouse_binding () |> Option.iter (complete state)
+            | Some active when active.button.HasFocus -> capture_key state PlatformBindings.try_side_mouse_binding
             | _ -> cancel state
         with error ->
             Debug.WriteLine $"RhinosCanFly binding capture timer: {error}"

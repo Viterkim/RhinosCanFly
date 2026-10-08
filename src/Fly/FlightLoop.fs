@@ -32,10 +32,15 @@ let movement_boundaries
         boundary <- min boundary events[index].timestamp
         destination[index] <- boundary
 
-let run
-    (input_wake: PlatformInputWake.State)
+type State =
+    { step: unit -> unit
+      work_pending: unit -> bool
+      wait_timeout: unit -> int }
+
+let create
+    (validate_input: unit -> Result<bool, string>)
+    (acknowledge_input: unit -> unit)
     (raw_input: InputAccumulator.State)
-    (raw: PlatformRawInput.Session)
     (state: FlyState)
     =
     let clock = Stopwatch.StartNew()
@@ -125,9 +130,9 @@ let run
                 Debug.WriteLine $"RhinosCanFly absolute-input warning output failed: {error.Message}"
 
         if frame_seconds >= state.next_host_validation_at then
-            match PlatformRawInput.registration_is_current raw with
+            match validate_input () with
             | Ok true -> ()
-            | Ok false -> FlyState.request_exit (SessionFailure "Raw mouse registration changed owners.") state
+            | Ok false -> FlyState.request_exit (SessionFailure "The navigation input session lost ownership.") state
             | Error error -> FlyState.request_exit (SessionFailure error) state
 
         FlightControls.update_state frame_seconds raw_input state
@@ -206,21 +211,21 @@ let run
                 PlatformFlightKeyboard.allow_passthrough ()
                 InputAccumulator.discard_transient_input raw_input
 
-        PlatformInputWake.acknowledge input_wake
+        acknowledge_input ()
 
         if FlyState.is_running state && redraw_required then
             FlightCamera.redraw state
 
-    NavigationLoop.run
-        (fun () -> FlyState.is_running state)
-        (fun () ->
+    { step = step
+      work_pending =
+        fun () ->
             movement_active
             || input_ready
             || InputAccumulator.work_pending_since observed_raw_revision raw_input
-            || PlatformFlightKeyboard.revision () <> observed_keyboard_revision)
-        (fun () ->
+            || PlatformFlightKeyboard.revision () <> observed_keyboard_revision
+      wait_timeout =
+        fun () ->
             let remaining_seconds =
                 max 0. (state.next_host_validation_at - clock.Elapsed.TotalSeconds)
 
-            int (Math.Ceiling(remaining_seconds * 1000.)))
-        step
+            int (Math.Ceiling(remaining_seconds * 1000.)) }

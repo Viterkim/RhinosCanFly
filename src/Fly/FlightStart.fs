@@ -6,10 +6,17 @@ open Rhino.Commands
 open Rhino.Input
 open Rhino.Input.Custom
 
-let run_authorized (held_entry: (unit -> bool) option) (session_mode: FlightSessionMode) (document: RhinoDoc) =
+let run_with_permission
+    (valid: unit -> bool)
+    (held_entry: (unit -> bool) option)
+    (session_mode: FlightSessionMode)
+    (document: RhinoDoc)
+    =
     let view = document.Views.ActiveView
 
-    if RuntimeSettings.input_suspended () then
+    if not (valid ()) then
+        Result.Cancel
+    elif RuntimeSettings.input_suspended () then
         RhinoApp.WriteLine "RhinosCanFly is unavailable while an Options dialog is open."
         Result.Cancel
     elif isNull view then
@@ -22,7 +29,9 @@ let run_authorized (held_entry: (unit -> bool) option) (session_mode: FlightSess
         Result.Cancel
     else
         CurrentConfig.with_loaded (fun (loaded: ConfigLoadResult) ->
-            if not (RuntimeSettings.runtime_enabled ()) then
+            if not (valid ()) then
+                Result.Cancel
+            elif not (RuntimeSettings.runtime_enabled ()) then
                 RhinoApp.WriteLine "RhinosCanFly is disabled."
                 Result.Cancel
             elif not (ViewportNameList.allows view.ActiveViewport.Name loaded.config.viewport_access.capabilities) then
@@ -36,9 +45,9 @@ let run_authorized (held_entry: (unit -> bool) option) (session_mode: FlightSess
                     Result.Failure)
 
 let run (session_mode: FlightSessionMode) (document: RhinoDoc) =
-    run_authorized None session_mode document
+    run_with_permission (fun () -> true) None session_mode document
 
-let run_held (flight_mode: FlightMode) (document: RhinoDoc) (run_mode: RunMode) =
+let run_mouse (document: RhinoDoc) (run_mode: RunMode) =
     if run_mode <> RunMode.Scripted then
         Result.Cancel
     else
@@ -62,7 +71,13 @@ let run_held (flight_mode: FlightMode) (document: RhinoDoc) (run_mode: RunMode) 
         elif isNull document.Views.ActiveView then
             Result.Cancel
         else
-            let permission =
-                PlatformMouseActions.consume_held_flight_entry document.Views.ActiveView request_id
+            match PlatformMouseActions.consume_mouse_flight_entry document.Views.ActiveView request_id with
+            | None -> Result.Cancel
+            | Some permission ->
+                let mode =
+                    if Option.isSome permission.held then
+                        FlightSessionMode.while_right_mouse_held permission.mode
+                    else
+                        FlightSessionMode.until_exit permission.mode
 
-            run_authorized permission (FlightSessionMode.while_right_mouse_held flight_mode) document
+                run_with_permission permission.valid permission.held mode document

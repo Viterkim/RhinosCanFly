@@ -65,6 +65,7 @@ let check_plugin (path: string) (name: string) (version: string) (framework: str
     then
         failwith $"Packaged plugin version mismatch; expected {version} ({version}.0)."
 
-match fsi.CommandLineArgs |> Array.skip 1 with
-| [| path; name; version; framework; rhino; guid |] -> check_plugin path name version framework rhino guid
-| _ -> failwith "Expected plugin path, assembly name, version, framework, RhinoCommon version and plug-in GUID."
+if Path.GetFileName fsi.CommandLineArgs[0] = "check-plugin-metadata.fsx" then
+    match fsi.CommandLineArgs |> Array.skip 1 with
+    | [| path; name; version; framework; rhino; guid |] -> check_plugin path name version framework rhino guid
+    | _ -> failwith "Expected plugin path, assembly name, version, framework, RhinoCommon version and plug-in GUID."

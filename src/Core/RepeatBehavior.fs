@@ -42,8 +42,7 @@ let apply_required (required: string array) =
         owned_names <- [||]
 
 let apply (do_not_repeat: bool) =
-    let internal_commands =
-        [| "RhinosCanFlyHeld"; "RhinosCanFlyTempFlyHeld"; "RhinosCanFlyInputRecover" |]
+    let internal_commands = [| "RhinosCanFlyMouseEntry"; "RhinosCanFlyInputRecover" |]
 
     apply_required (
         if do_not_repeat then

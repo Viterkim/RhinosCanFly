@@ -173,6 +173,7 @@ let same_host (left: ViewportHostIdentity) (right: ViewportHostIdentity) =
     && left.root_window = right.root_window
 
 let begin_action (state: State) =
+    MouseFlightEntry.revoke ()
     state.pending_flight_entry <- None
     state.navigation_revision <- state.navigation_revision + 1L
     let revision = state.navigation_revision

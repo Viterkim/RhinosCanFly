@@ -3,6 +3,7 @@ module RhinosCanFly.ConfigStorage
 open System
 open System.Globalization
 open System.IO
+open System.Runtime.InteropServices
 open System.Text
 
 [<Literal>]
@@ -30,13 +31,28 @@ let settings_directory () =
 let path () =
     Path.Combine(settings_directory (), "rhinos-can-fly-config.json")
 
+let lock_is_busy (error: IOException) =
+    let code = error.HResult &&& 0xFFFF
+
+    if RuntimeInformation.IsOSPlatform OSPlatform.Windows then
+        code = 32 || code = 33
+    elif RuntimeInformation.IsOSPlatform OSPlatform.OSX then
+        code = 35
+    else
+        code = 11
+
+let acquire_lock (config_path: string) =
+    try
+        ValueSome(new FileStream(config_path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+    with :? IOException as error when lock_is_busy error ->
+        ValueNone
+
 let with_lock (config_path: string) (action: unit -> 'Value) =
-    let lock_path = config_path + ".lock"
-
-    use _save_lock =
-        new FileStream(lock_path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)
-
-    action ()
+    match acquire_lock config_path with
+    | ValueNone -> invalidOp "Settings are being written by another process. Try again shortly."
+    | ValueSome save_lock ->
+        use _save_lock = save_lock
+        action ()
 
 let write_atomic (config_path: string) (content: string) =
     let directory = Path.GetDirectoryName config_path
@@ -167,15 +183,17 @@ let load_locked (config_path: string) =
               revision = baseline
               messages = List.ofSeq messages }
 
-// A competing Rhino may hold the sidecar briefly during startup or an atomic save.
-// Keep contention distinct from invalid data; callers decide when to retry.
 let try_load () =
     try
         let config_path = path ()
-        ValueSome(with_lock config_path (fun () -> load_locked config_path))
-    with
-    | :? IOException as error when error.HResult &&& 0xFFFF = 32 || error.HResult &&& 0xFFFF = 33 -> ValueNone
-    | error -> ValueSome(Error error.Message)
+
+        match acquire_lock config_path with
+        | ValueNone -> ValueNone
+        | ValueSome save_lock ->
+            use _save_lock = save_lock
+            ValueSome(load_locked config_path)
+    with error ->
+        ValueSome(Error error.Message)
 
 let load () =
     match try_load () with

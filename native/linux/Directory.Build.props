@@ -1,0 +1,7 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <BaseOutputPath>../../bin/linux/</BaseOutputPath>
+    <BaseIntermediateOutputPath>../../obj/linux/</BaseIntermediateOutputPath>
+  </PropertyGroup>
+</Project>

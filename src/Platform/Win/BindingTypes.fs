@@ -3,4 +3,6 @@ namespace RhinosCanFly
 [<Struct>]
 type VirtualKey = VirtualKey of int
 
-type KeyBinding = { virtual_keys: VirtualKey array }
+type KeyBinding =
+    { virtual_keys: VirtualKey array
+      unsupported: BindingToken option }

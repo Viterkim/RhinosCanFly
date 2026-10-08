@@ -202,6 +202,37 @@ let add_boundary_event (event: TimelineEvent) (state: State) =
 
     mark_work_available state
 
+let add_timed_mouse (timestamp: int64) (dx: int64) (dy: int64) (state: State) =
+    if dx <> 0L || dy <> 0L then
+        Monitor.Enter state.timeline_gate
+
+        try
+            flush_movement_locked state
+
+            let capacity = int64 state.timeline_events.Length
+            let previous_index = int ((state.timeline_write - 1L + capacity) % capacity)
+
+            if
+                state.timeline_write > state.timeline_read
+                && state.timeline_events[previous_index].kind = TimelineEventKind.Movement
+            then
+                let previous = state.timeline_events[previous_index]
+
+                state.timeline_events[previous_index] <-
+                    { previous with
+                        timestamp = max previous.timestamp timestamp
+                        dx = Checked.(+) previous.dx dx
+                        dy = Checked.(+) previous.dy dy }
+            else
+                enqueue_locked
+                    { movement_event dx dy with
+                        timestamp = timestamp }
+                    state
+        finally
+            Monitor.Exit state.timeline_gate
+
+        mark_work_available state
+
 let add_raw_mouse_button_transition (transition: RawMouseButtonTransition) (state: State) =
     if transition.event <> RawMouseButtonEvent.None then
         add_boundary_event (raw_mouse_button_event transition) state

@@ -199,6 +199,11 @@ type SettingsControl() as self =
 
     do
         main_table.Rows.Add(SettingsLayout.full_width (title_row ()))
+
+        PlatformSupport.settings_notice
+        |> Option.iter (fun (message: string) ->
+            main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.note message)))
+
         main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "General behaviour"))
 
         SettingsLayout.grid

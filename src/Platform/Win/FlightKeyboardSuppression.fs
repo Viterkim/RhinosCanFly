@@ -23,24 +23,7 @@ type State =
       observed_key_is_down: bool array
       mouse_key_configured: bool array
       mutable bindings: FlightBindings option
-      mutable boost_mode: KeyActivationMode
-      mutable slow_mode: KeyActivationMode
-      mutable retarget_all_views_binding: KeyBinding option
-      mutable retarget_other_views_binding: KeyBinding option
-      mutable pivot_toggle_down: bool
-      mutable pan_toggle_down: bool
-      mutable pivot_hold_down: bool
-      mutable pan_hold_down: bool
-      mutable boost_down: bool
-      mutable slow_down: bool
-      mutable speed_increase_down: bool
-      mutable speed_decrease_down: bool
-      mutable projection_toggle_down: bool
-      mutable retarget_all_views_down: bool
-      mutable retarget_other_views_down: bool
-      mutable untilt_view_down: bool
-      mutable exit_down: bool
-      mutable cancel_and_restore_down: bool
+      mutable actions: FlightBindingActions.State option
       mutable input: InputAccumulator.State option
       mutable input_available: Action option
       mutable revision: int64
@@ -60,24 +43,7 @@ let state =
       observed_key_is_down = Array.zeroCreate 256
       mouse_key_configured = Array.zeroCreate 256
       bindings = None
-      boost_mode = KeyActivationMode.Hold
-      slow_mode = KeyActivationMode.Hold
-      retarget_all_views_binding = None
-      retarget_other_views_binding = None
-      pivot_toggle_down = false
-      pan_toggle_down = false
-      pivot_hold_down = false
-      pan_hold_down = false
-      boost_down = false
-      slow_down = false
-      speed_increase_down = false
-      speed_decrease_down = false
-      projection_toggle_down = false
-      retarget_all_views_down = false
-      retarget_other_views_down = false
-      untilt_view_down = false
-      exit_down = false
-      cancel_and_restore_down = false
+      actions = None
       input = None
       input_available = None
       revision = 0L
@@ -284,26 +250,8 @@ let configure_with_snapshot
         seed_held_key Win32Native.VK_RMENU (is_down Win32Native.VK_RMENU)
 
     state.bindings <- Some bindings
-    state.boost_mode <- config.movement.boost_mode
-    state.slow_mode <- config.movement.slow_mode
-    state.retarget_all_views_binding <- retarget_all_views_binding
-    state.retarget_other_views_binding <- retarget_other_views_binding
-    // Seed action edges from the same snapshot used by movement.
     Volatile.Write(&state.active, true)
-    state.pivot_toggle_down <- is_optional_binding_down bindings.mouse_navigation.pivot.toggle
-    state.pan_toggle_down <- is_optional_binding_down bindings.mouse_navigation.pan.toggle
-    state.pivot_hold_down <- is_optional_binding_down bindings.mouse_navigation.pivot.hold
-    state.pan_hold_down <- is_optional_binding_down bindings.mouse_navigation.pan.hold
-    state.boost_down <- binding_is_down bindings.boost
-    state.slow_down <- binding_is_down bindings.slow
-    state.speed_increase_down <- is_optional_binding_down bindings.speed_increase
-    state.speed_decrease_down <- is_optional_binding_down bindings.speed_decrease
-    state.projection_toggle_down <- is_optional_binding_down bindings.toggle_projection
-    state.retarget_all_views_down <- is_optional_binding_down retarget_all_views_binding
-    state.retarget_other_views_down <- is_optional_binding_down retarget_other_views_binding
-    state.untilt_view_down <- is_optional_binding_down bindings.untilt_view
-    state.exit_down <- binding_is_down bindings.exit_key
-    state.cancel_and_restore_down <- binding_is_down bindings.cancel_flight_and_restore
+    state.actions <- Some(FlightBindingActions.create config binding_is_down)
     state.input <- Some input
     state.input_available <- Some input_available
     Volatile.Write(&state.accept_new_keys, true)
@@ -328,24 +276,7 @@ let stop_core () =
     state.input <- None
     state.input_available <- None
     state.bindings <- None
-    state.boost_mode <- KeyActivationMode.Hold
-    state.slow_mode <- KeyActivationMode.Hold
-    state.retarget_all_views_binding <- None
-    state.retarget_other_views_binding <- None
-    state.pivot_toggle_down <- false
-    state.pan_toggle_down <- false
-    state.pivot_hold_down <- false
-    state.pan_hold_down <- false
-    state.boost_down <- false
-    state.slow_down <- false
-    state.speed_increase_down <- false
-    state.speed_decrease_down <- false
-    state.projection_toggle_down <- false
-    state.retarget_all_views_down <- false
-    state.retarget_other_views_down <- false
-    state.untilt_view_down <- false
-    state.exit_down <- false
-    state.cancel_and_restore_down <- false
+    state.actions <- None
     clear_configured ()
     state.passthrough_keys_down.Clear()
     System.Array.Clear(state.key_is_down, 0, state.key_is_down.Length)
@@ -397,125 +328,10 @@ let handle_event (event: Win32.KeyboardHookEvent) =
     else
         classify_fresh_key_down physical_key
 
-let add_action (current: InputAccumulator.KeyboardAction) (added: InputAccumulator.KeyboardAction) =
-    enum<InputAccumulator.KeyboardAction> (int current ||| int added)
-
 let collect_actions () =
-    match state.bindings with
+    match state.actions with
+    | Some actions -> FlightBindingActions.collect binding_is_down actions
     | None -> InputAccumulator.KeyboardAction.None
-    | Some bindings ->
-        let mutable actions = InputAccumulator.KeyboardAction.None
-
-        let pivot_toggle = is_optional_binding_down bindings.mouse_navigation.pivot.toggle
-
-        if pivot_toggle && not state.pivot_toggle_down then
-            actions <- add_action actions InputAccumulator.KeyboardAction.PivotToggle
-
-        state.pivot_toggle_down <- pivot_toggle
-
-        let pan_toggle = is_optional_binding_down bindings.mouse_navigation.pan.toggle
-
-        if pan_toggle && not state.pan_toggle_down then
-            actions <- add_action actions InputAccumulator.KeyboardAction.PanToggle
-
-        state.pan_toggle_down <- pan_toggle
-
-        let pivot_hold = is_optional_binding_down bindings.mouse_navigation.pivot.hold
-
-        if pivot_hold <> state.pivot_hold_down then
-            actions <-
-                add_action
-                    actions
-                    (if pivot_hold then
-                         InputAccumulator.KeyboardAction.PivotHoldStarted
-                     else
-                         InputAccumulator.KeyboardAction.PivotHoldEnded)
-
-        state.pivot_hold_down <- pivot_hold
-
-        let pan_hold = is_optional_binding_down bindings.mouse_navigation.pan.hold
-
-        if pan_hold <> state.pan_hold_down then
-            actions <-
-                add_action
-                    actions
-                    (if pan_hold then
-                         InputAccumulator.KeyboardAction.PanHoldStarted
-                     else
-                         InputAccumulator.KeyboardAction.PanHoldEnded)
-
-        state.pan_hold_down <- pan_hold
-
-        let boost = binding_is_down bindings.boost
-
-        if boost && not state.boost_down && state.boost_mode = KeyActivationMode.Toggle then
-            actions <- add_action actions InputAccumulator.KeyboardAction.BoostToggle
-
-        state.boost_down <- boost
-
-        let slow = binding_is_down bindings.slow
-
-        if slow && not state.slow_down && state.slow_mode = KeyActivationMode.Toggle then
-            actions <- add_action actions InputAccumulator.KeyboardAction.SlowToggle
-
-        state.slow_down <- slow
-
-        let speed_increase = is_optional_binding_down bindings.speed_increase
-
-        if speed_increase && not state.speed_increase_down then
-            actions <- add_action actions InputAccumulator.KeyboardAction.SpeedIncrease
-
-        state.speed_increase_down <- speed_increase
-
-        let speed_decrease = is_optional_binding_down bindings.speed_decrease
-
-        if speed_decrease && not state.speed_decrease_down then
-            actions <- add_action actions InputAccumulator.KeyboardAction.SpeedDecrease
-
-        state.speed_decrease_down <- speed_decrease
-
-        let projection_toggle = is_optional_binding_down bindings.toggle_projection
-
-        if projection_toggle && not state.projection_toggle_down then
-            actions <- add_action actions InputAccumulator.KeyboardAction.ProjectionToggle
-
-        state.projection_toggle_down <- projection_toggle
-
-        let retarget_all = is_optional_binding_down state.retarget_all_views_binding
-
-        if retarget_all && not state.retarget_all_views_down then
-            actions <- add_action actions InputAccumulator.KeyboardAction.RetargetAllViews
-
-        state.retarget_all_views_down <- retarget_all
-
-        let retarget_other = is_optional_binding_down state.retarget_other_views_binding
-
-        if retarget_other && not state.retarget_other_views_down then
-            actions <- add_action actions InputAccumulator.KeyboardAction.RetargetOtherViews
-
-        state.retarget_other_views_down <- retarget_other
-
-        let untilt_view = is_optional_binding_down bindings.untilt_view
-
-        if untilt_view && not state.untilt_view_down then
-            actions <- add_action actions InputAccumulator.KeyboardAction.UntiltView
-
-        state.untilt_view_down <- untilt_view
-
-        let exit = binding_is_down bindings.exit_key
-
-        if exit && not state.exit_down then
-            actions <- add_action actions InputAccumulator.KeyboardAction.Exit
-
-        state.exit_down <- exit
-
-        let cancel_and_restore = binding_is_down bindings.cancel_flight_and_restore
-
-        if cancel_and_restore && not state.cancel_and_restore_down then
-            actions <- add_action actions InputAccumulator.KeyboardAction.CancelAndRestore
-
-        state.cancel_and_restore_down <- cancel_and_restore
-        actions
 
 let admit_mouse_bindings (buttons: int) =
     Monitor.Enter state.transition_gate
