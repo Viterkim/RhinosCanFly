@@ -7,6 +7,7 @@ configuration=Release
 rhino_version="${RCF_RHINO_VERSION:-}"
 clean=false
 rhino_app=
+yak=
 replace=false
 rollback_package=
 preflight=false
@@ -19,7 +20,7 @@ fail() {
 read_options() {
     while [ "$#" -gt 0 ]; do
         case "$1" in
-            --configuration|--rhino-version|--rhino-app|--rollback-package)
+            --configuration|--rhino-version|--rhino-app|--rollback-package|--yak)
                 [ "$#" -ge 2 ] && [ -n "$2" ] || fail "Missing value for $1"
 
                 case "$1" in
@@ -32,6 +33,10 @@ read_options() {
                     --rhino-app)
                         [ "${install_options:-false}" = true ] || fail "Unknown option: $1"
                         rhino_app=$2
+                        ;;
+                    --yak)
+                        [ "${package_options:-false}" = true ] || fail "Unknown option: $1"
+                        yak=$2
                         ;;
                     --rollback-package)
                         [ "${install_options:-false}" = true ] || fail "Unknown option: $1"
@@ -65,6 +70,10 @@ read_options() {
 
                 if [ "${install_options:-false}" = true ]; then
                     printf '       [--rhino-app "/Applications/Rhino 8.app"] [--replace --rollback-package previous.yak]\n'
+                fi
+
+                if [ "${package_options:-false}" = true ]; then
+                    printf '       --yak /path/to/yak\n'
                 fi
 
                 printf '%s\n' "${description:-}"

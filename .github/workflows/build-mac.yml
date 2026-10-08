@@ -1,0 +1,43 @@
+name: Build Mac packages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - name: Download Yak
+        run: |
+          curl --fail --location --retry 3 https://files.mcneel.com/yak/tools/0.19.1/osx-arm64/yak -o "$RUNNER_TEMP/yak"
+          chmod +x "$RUNNER_TEMP/yak"
+
+      - name: Build and package Rhino 8 and 9
+        run: |
+          bash scripts/mac/build-all.sh --clean
+
+          for version in 8 9; do
+            bash scripts/mac/package.sh --rhino-version "$version" --yak "$RUNNER_TEMP/yak"
+          done
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: RhinosCanFly-mac-${{ github.sha }}
+          path: |
+            dist/*-mac.zip
+            dist/*-mac.yak
+          if-no-files-found: error
+          retention-days: 7

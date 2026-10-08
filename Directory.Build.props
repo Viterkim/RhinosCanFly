@@ -28,6 +28,6 @@
   <PropertyGroup Condition="'$(RhinoMajorVersion)' == '9'">
     <TargetFramework Condition="'$(TargetFramework)' == '' And '$(RhinosCanFlyPlatform)' == 'win'">net10.0-windows</TargetFramework>
     <TargetFramework Condition="'$(TargetFramework)' == '' And '$(RhinosCanFlyPlatform)' == 'mac'">net10.0</TargetFramework>
-    <RhinoCommonPackageVersion Condition="'$(RhinoCommonPackageVersion)' == ''">9.0.26272.12303-beta</RhinoCommonPackageVersion>
+    <RhinoCommonPackageVersion Condition="'$(RhinoCommonPackageVersion)' == ''">9.0.26279.6303-beta</RhinoCommonPackageVersion>
   </PropertyGroup>
 </Project>

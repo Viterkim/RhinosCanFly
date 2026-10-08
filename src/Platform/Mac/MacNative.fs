@@ -6,7 +6,7 @@ open System.Runtime.InteropServices
 open RhinosCanFly
 
 [<Literal>]
-let BRIDGE_ABI = 11u
+let BRIDGE_ABI = 1u
 
 [<Literal>]
 let CORE_GRAPHICS = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
@@ -106,9 +106,6 @@ type End = delegate of unit -> int32
 type Size = delegate of unit -> uint32
 
 [<UnmanagedFunctionPointer(CallingConvention.Cdecl)>]
-type Count = delegate of unit -> uint64
-
-[<UnmanagedFunctionPointer(CallingConvention.Cdecl)>]
 type Time = delegate of unit -> float
 
 type Api =
@@ -121,11 +118,7 @@ type Api =
       raw_begin: RawBegin
       raw_end: RawEnd
       raw_available: Size
-      raw_source: Size
       raw_validate: Size
-      raw_discovered: Size
-      raw_rejected: Size
-      raw_motion_count: Count
       uptime: Time
       keyboard_boundary: Time
       capture_key: Size
@@ -171,11 +164,7 @@ let load () =
                   raw_begin = export<RawBegin> library "rcf_mac_raw_begin"
                   raw_end = export<RawEnd> library "rcf_mac_raw_end"
                   raw_available = export<Size> library "rcf_mac_raw_available"
-                  raw_source = export<Size> library "rcf_mac_raw_source"
                   raw_validate = export<Size> library "rcf_mac_raw_validate"
-                  raw_discovered = export<Size> library "rcf_mac_raw_discovered"
-                  raw_rejected = export<Size> library "rcf_mac_raw_rejected"
-                  raw_motion_count = export<Count> library "rcf_mac_raw_motion_count"
                   uptime = export<Time> library "rcf_mac_uptime"
                   keyboard_boundary = export<Time> library "rcf_mac_keyboard_boundary"
                   capture_key = export<Size> library "rcf_mac_capture_key"

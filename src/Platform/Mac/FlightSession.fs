@@ -391,8 +391,7 @@ let command_began =
         | "RhinosCanFlyMouseEntry"
         | "RhinosCanFlyPivot"
         | "RhinosCanFlyPan"
-        | "RhinosCanFlyInputRecover"
-        | "RhinosCanFlyInputInfo" -> ()
+        | "RhinosCanFlyInputRecover" -> ()
         | _ ->
             try
                 stop ExplicitKeepCamera

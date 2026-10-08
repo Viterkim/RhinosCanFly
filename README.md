@@ -78,7 +78,7 @@ Gippity was a major contributor in this, even that is an understatement.
 
 Why F#? I chose microsoft ocaml over microsoft java.
 
-Mac support is being worked on for Rhino 8 and 9. No Rhino 7 on Mac. I don't have a Mac to test it. [Experimental Mac port](./docs/mac-port.md).
+Mac supports Rhino 8/9 on macOS 14+. Mouse and trackpad flying have been tested on Apple silicon. Intel Rhino 8 is untested. [Mac build/install](./docs/mac-port.md).
 
 ## Template from
 

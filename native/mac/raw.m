@@ -20,8 +20,6 @@ static _Atomic bool accepting;
 static _Atomic uint32_t count;
 static RcfRelativeMotionHandler receiver;
 static _Atomic uint64_t generation;
-static _Atomic uint32_t discovered, rejected;
-static _Atomic uint64_t motion_count;
 enum { RCF_RAW_NONE, RCF_RAW_GCMOUSE, RCF_RAW_POINTER };
 static _Atomic uint32_t motion_source;
 static double started_at;
@@ -46,10 +44,9 @@ static void attach_mouse(GCMouse *mouse) {
     if (!receiver || !atomic_load_explicit(&accepting, memory_order_acquire) ||
         atomic_load(&motion_source) == RCF_RAW_POINTER) return;
     for (RcfMouse *item in attached) if (item.mouse == mouse) return;
-    ++discovered;
     // GCMouse handlers are shared with the host; leave occupied devices alone.
     GCMouseInput *input = mouse.mouseInput;
-    if (!input || input.mouseMovedHandler || foreign_handlers(input)) { ++rejected; return; }
+    if (!input || input.mouseMovedHandler || foreign_handlers(input)) return;
 
     RcfMouse *item = [RcfMouse new];
     item.mouse = mouse;
@@ -63,7 +60,6 @@ static void attach_mouse(GCMouse *mouse) {
         RcfRelativeMotion event = {0};
         event.timestamp = NSProcessInfo.processInfo.systemUptime;
         event.dx = dx; event.dy = -dy;
-        atomic_fetch_add_explicit(&motion_count, 1, memory_order_relaxed);
         if (receiver) receiver(&event);
     };
     [attached addObject:item];
@@ -86,11 +82,6 @@ uint32_t rcf_mac_raw_available(void) {
     return atomic_load(&motion_source) == RCF_RAW_POINTER ? 1 : atomic_load(&count);
 }
 
-uint32_t rcf_mac_raw_source(void) { return atomic_load(&motion_source); }
-uint32_t rcf_mac_raw_discovered(void) { return atomic_load(&discovered); }
-uint32_t rcf_mac_raw_rejected(void) { return atomic_load(&rejected); }
-uint64_t rcf_mac_raw_motion_count(void) { return atomic_load_explicit(&motion_count, memory_order_relaxed); }
-
 void rcf_mac_raw_motion(NSEvent *event) {
     if (![NSThread isMainThread] || !receiver ||
         !atomic_load_explicit(&accepting, memory_order_acquire) ||
@@ -107,7 +98,6 @@ void rcf_mac_raw_motion(NSEvent *event) {
         (double)CGEventGetIntegerValueField(native_event, kCGEventUnacceleratedPointerMovementY)
     };
     if (!motion.dx && !motion.dy) return;
-    atomic_fetch_add_explicit(&motion_count, 1, memory_order_relaxed);
     receiver(&motion);
 }
 
@@ -164,9 +154,6 @@ int32_t rcf_mac_raw_begin(RcfRelativeMotionHandler handler) {
                 dispatch_set_target_queue(input_queue, dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE, 0));
             }
             attached = [NSMutableArray new];
-            atomic_store(&discovered, 0);
-            atomic_store(&rejected, 0);
-            atomic_store(&motion_count, 0);
             atomic_store(&motion_source, RCF_RAW_NONE);
             started_at = NSProcessInfo.processInfo.systemUptime;
             receiver = handler;

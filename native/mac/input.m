@@ -34,7 +34,7 @@ static RcfMacHandler callback;
 
 uint32_t rcf_mac_event_size(void) { return (uint32_t)sizeof(RcfMacEvent); }
 uint32_t rcf_mac_motion_size(void) { return (uint32_t)sizeof(RcfRelativeMotion); }
-uint32_t rcf_mac_abi(void) { return 11; }
+uint32_t rcf_mac_abi(void) { return 1; }
 double rcf_mac_uptime(void) { return NSProcessInfo.processInfo.systemUptime; }
 
 uint32_t rcf_mac_capture_key(void) {

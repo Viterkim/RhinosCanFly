@@ -39,7 +39,7 @@
   </Target>
   <Target Name="ValidatePlatform" BeforeTargets="_CheckForUnsupportedTargetFramework;Restore;PrepareForBuild">
     <Error Condition="'$(RhinosCanFlyPlatform)' != 'win' And '$(RhinosCanFlyPlatform)' != 'mac'" Text="Unknown RhinosCanFlyPlatform '$(RhinosCanFlyPlatform)'. Use win or mac." />
-    <Error Condition="'$(RhinosCanFlyPlatform)' == 'mac' And '$(RhinoMajorVersion)' != '8' And '$(RhinoMajorVersion)' != '9'" Text="The experimental Mac profile targets Rhino 8 or 9." />
+    <Error Condition="'$(RhinosCanFlyPlatform)' == 'mac' And '$(RhinoMajorVersion)' != '8' And '$(RhinoMajorVersion)' != '9'" Text="The Mac profile targets Rhino 8 or 9." />
     <Error Condition="'$(RhinosCanFlyPlatform)' == 'mac' And '$(RhinoMajorVersion)' == '8' And '$(TargetFramework)' != 'net8.0'" Text="The Rhino 8 Mac profile requires net8.0." />
     <Error Condition="'$(RhinosCanFlyPlatform)' == 'mac' And '$(RhinoMajorVersion)' == '9' And '$(TargetFramework)' != 'net10.0'" Text="The Rhino 9 Mac profile requires net10.0." />
     <Error Condition="'$(RhinosCanFlyPlatform)' == 'win' And '$(RhinoMajorVersion)' != '7' And '$(RhinoMajorVersion)' != '8' And '$(RhinoMajorVersion)' != '9'" Text="Unsupported Windows Rhino version '$(RhinoMajorVersion)'." />
@@ -140,7 +140,6 @@
     <Compile Include="src/UI/Options.fs" />
     <Compile Include="src/Platform/Win/InputRecovery.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Mac/InputRecovery.fs" Condition="'$(RhinosCanFlyPlatform)' == 'mac'" />
-    <Compile Include="src/Platform/Mac/InputDiagnostics.fs" Condition="'$(RhinosCanFlyPlatform)' == 'mac'" />
     <Compile Include="src/Plugin/Plugin.fs" />
     <Compile Include="src/Commands/RhinosCanFly.fs" />
     <Compile Include="src/Commands/RhinosCanFlyTempFly.fs" />

@@ -1,6 +1,8 @@
 #load "mac-runtime-payload.fsx"
+#load "check-plugin-metadata.fsx"
 
 open ``Mac-runtime-payload``
+open ``Check-plugin-metadata``
 open System
 open System.Collections.Generic
 open System.IO
@@ -109,6 +111,62 @@ let check_recovery (path: string) =
         if Directory.Exists temporary then
             Directory.Delete(temporary, true)
 
+let check_release
+    (root: string)
+    (version: string)
+    (framework: string)
+    (rhino_package: string)
+    (zip: string)
+    (package: string)
+    =
+    let rhino_version = rhino_package.Split('-')[0]
+    let parts = rhino_version.Split('.')
+    let distribution = $"rh{parts[0]}_{parts[1]}-mac"
+    let expected_package = $"rhinoscanfly-{version}-{distribution}.yak"
+
+    if Path.GetFileName package <> expected_package then
+        failwith $"Expected Mac Yak filename {expected_package}."
+
+    let temporary =
+        Path.Combine(Path.GetTempPath(), "rcf-release-" + Guid.NewGuid().ToString("N"))
+
+    try
+        use archive = ZipFile.OpenRead zip
+        archive_entries archive |> ignore
+        ZipFile.ExtractToDirectory(zip, temporary)
+        check_archive temporary zip
+        check_archive temporary package
+
+        use yak = ZipFile.OpenRead package
+
+        if manifest_value (read_entry (yak.GetEntry "manifest.yml")) "platform" <> "mac" then
+            failwith "Yak manifest does not target Mac."
+
+        let manifest = File.ReadAllText(Path.Combine(temporary, "manifest.yml"))
+
+        if
+            manifest_value manifest "name" <> "RhinosCanFly"
+            || manifest_value manifest "version" <> version
+        then
+            failwith "Mac manifest does not match this release."
+
+        let assembly_info = File.ReadAllText(Path.Combine(root, "src", "AssemblyInfo.fs"))
+        let guid = Regex.Match(assembly_info, "assembly: Guid\\(\"([^\"]+)\"\\)")
+
+        if not guid.Success then
+            failwith "Missing plug-in GUID in AssemblyInfo.fs."
+
+        check_plugin
+            (Path.Combine(temporary, "RhinosCanFly.rhp"))
+            "RhinosCanFly"
+            version
+            ($".NETCoreApp,Version=v{framework.Substring(3)}")
+            rhino_version
+            guid.Groups[1].Value
+    finally
+        if Directory.Exists temporary then
+            Directory.Delete(temporary, true)
+
 match fsi.CommandLineArgs |> Array.skip 1 with
 | [| "archive"; stage; path |] ->
     check_archive stage path
@@ -119,4 +177,9 @@ match fsi.CommandLineArgs |> Array.skip 1 with
 | [| "recovery"; path |] ->
     check_recovery path
     printfn "Recovery archive contains the complete Mac payload."
-| _ -> failwith "Expected archive stage package, installed package version-directory, or recovery package."
+| [| "release"; root; version; framework; rhino_package; zip; package |] ->
+    check_release root version framework rhino_package zip package
+    printfn "Mac release file sets, hashes and plugin metadata passed."
+| _ ->
+    failwith
+        "Expected archive stage package, installed package version-directory, recovery package, or release root version framework RhinoCommon ZIP Yak."
