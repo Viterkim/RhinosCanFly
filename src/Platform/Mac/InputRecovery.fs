@@ -5,6 +5,7 @@ open Rhino.Commands
 
 let run () =
     try
+        MacNavigationInput.request_stop ExplicitKeepCamera
         FlightSession.stop ExplicitKeepCamera
 
         match MacNavigationInput.complete_cleanup () with

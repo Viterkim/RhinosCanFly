@@ -26,6 +26,7 @@ type KeyboardAction =
     | Exit = 8192
     | CancelAndRestore = 16384
     | UntiltView = 32768
+    | DeferredExit = 65536
 
 [<RequireQualifiedAccess>]
 type TimelineEventKind =
@@ -33,6 +34,11 @@ type TimelineEventKind =
     | Wheel = 1
     | RawMouseButton = 2
     | KeyboardTransition = 3
+    | BeginSession = 4
+    | ExitKeepCamera = 5
+    | ExitRestoreCamera = 6
+    | ExitHeldRelease = 7
+    | ExitCancelledEntry = 8
 
 [<Struct>]
 type TimelineEvent =
@@ -43,7 +49,8 @@ type TimelineEvent =
       wheel: int64
       button: RawMouseButtonTransition
       key: int
-      key_down: bool }
+      key_down: bool
+      terminal: bool }
 
 type State =
     { mutable mouse_xy: int64
@@ -80,10 +87,10 @@ let event_exit
         | RawMouseButtonEvent.Mouse5Up when exit_buttons.mouse5 -> Some ExplicitKeepCamera
         | _ -> None
 
-let create () =
+let create_with_capacity (capacity: int) =
     { mouse_xy = 0L
       timeline_gate = obj ()
-      timeline_events = Array.zeroCreate TIMELINE_EVENT_CAPACITY
+      timeline_events = Array.zeroCreate capacity
       timeline_write = 0L
       timeline_read = 0L
       timeline_overflow = 0
@@ -91,6 +98,9 @@ let create () =
       escape_requested = false
       absolute_motion_warning = 0
       work_revision = 0L }
+
+let create () =
+    create_with_capacity TIMELINE_EVENT_CAPACITY
 
 let mark_work_available (state: State) =
     Interlocked.Increment(&state.work_revision) |> ignore
@@ -148,7 +158,8 @@ let movement_event (dx: int64) (dy: int64) =
       wheel = 0L
       button = Unchecked.defaultof<RawMouseButtonTransition>
       key = 0
-      key_down = false }
+      key_down = false
+      terminal = false }
 
 let wheel_event (delta: int64) =
     { kind = TimelineEventKind.Wheel
@@ -158,7 +169,8 @@ let wheel_event (delta: int64) =
       wheel = delta
       button = Unchecked.defaultof<RawMouseButtonTransition>
       key = 0
-      key_down = false }
+      key_down = false
+      terminal = false }
 
 let raw_mouse_button_event (transition: RawMouseButtonTransition) =
     { kind = TimelineEventKind.RawMouseButton
@@ -168,7 +180,8 @@ let raw_mouse_button_event (transition: RawMouseButtonTransition) =
       wheel = 0L
       button = transition
       key = 0
-      key_down = false }
+      key_down = false
+      terminal = false }
 
 let enqueue_locked (event: TimelineEvent) (state: State) =
     if state.timeline_write - state.timeline_read >= int64 state.timeline_events.Length then
@@ -209,25 +222,10 @@ let add_timed_mouse (timestamp: int64) (dx: int64) (dy: int64) (state: State) =
         try
             flush_movement_locked state
 
-            let capacity = int64 state.timeline_events.Length
-            let previous_index = int ((state.timeline_write - 1L + capacity) % capacity)
-
-            if
-                state.timeline_write > state.timeline_read
-                && state.timeline_events[previous_index].kind = TimelineEventKind.Movement
-            then
-                let previous = state.timeline_events[previous_index]
-
-                state.timeline_events[previous_index] <-
-                    { previous with
-                        timestamp = max previous.timestamp timestamp
-                        dx = Checked.(+) previous.dx dx
-                        dy = Checked.(+) previous.dy dy }
-            else
-                enqueue_locked
-                    { movement_event dx dy with
-                        timestamp = timestamp }
-                    state
+            enqueue_locked
+                { movement_event dx dy with
+                    timestamp = timestamp }
+                state
         finally
             Monitor.Exit state.timeline_gate
 
@@ -241,7 +239,7 @@ let add_wheel (delta: int) (state: State) =
     if delta <> 0 then
         add_boundary_event (wheel_event (int64 delta)) state
 
-let add_keyboard_transition (timestamp: int64) (key: int) (down: bool) (state: State) =
+let add_keyboard_transition_with_terminal (timestamp: int64) (key: int) (down: bool) (terminal: bool) (state: State) =
     add_boundary_event
         { kind = TimelineEventKind.KeyboardTransition
           timestamp = timestamp
@@ -250,8 +248,12 @@ let add_keyboard_transition (timestamp: int64) (key: int) (down: bool) (state: S
           wheel = 0L
           button = Unchecked.defaultof<RawMouseButtonTransition>
           key = key
-          key_down = down }
+          key_down = down
+          terminal = terminal }
         state
+
+let add_keyboard_transition (timestamp: int64) (key: int) (down: bool) (state: State) =
+    add_keyboard_transition_with_terminal timestamp key down false state
 
 let drain_timeline (destination: TimelineEvent array) (state: State) =
     Monitor.Enter state.timeline_gate
@@ -288,6 +290,9 @@ let drain_timeline (destination: TimelineEvent array) (state: State) =
 
 let timeline_buffer () =
     Array.zeroCreate<TimelineEvent> (TIMELINE_EVENT_CAPACITY + 1)
+
+let timeline_buffer_for (state: State) =
+    Array.zeroCreate<TimelineEvent> (state.timeline_events.Length + 1)
 
 let timeline_pending (state: State) =
     Volatile.Read(&state.timeline_read) < Volatile.Read(&state.timeline_write)

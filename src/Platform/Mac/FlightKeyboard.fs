@@ -6,6 +6,10 @@ open System.Diagnostics
 let down = Array.zeroCreate<bool> 133
 let observed = Array.zeroCreate<bool> 133
 let configured = Array.zeroCreate<bool> 133
+let initial_observation = Array.zeroCreate<bool> 133
+let initial_transition_correction = Array.zeroCreate<bool> 133
+let mutable initial_action_seen: bool array = Array.empty
+let mutable initial_action_rebase: bool array = Array.empty
 let mutable actions: FlightBindingActions.State option = None
 let mutable bindings: FlightBindings option = None
 let mutable input: InputAccumulator.State option = None
@@ -15,6 +19,55 @@ let mutable timestamp_offset = 0L
 let mutable entry_releases = 0u
 let mutable cancel_observed = false
 let mutable exit_observed = false
+let mutable ordered_releases = false
+let mutable worker_timeline = false
+let mutable long_pauses = 0
+let record_long_pause () = long_pauses <- long_pauses + 1
+let mutable camera_publications = 0
+let mutable redraws = 0
+let mutable pointer_discards = 0
+let mutable entry_report = "entry=none"
+let mutable exit_report = "exit=none"
+let mutable cleanup_report = "cleanup=none"
+let mutable last_failure_report = ""
+
+let record_camera_publication () =
+    camera_publications <- camera_publications + 1
+
+let record_redraw () = redraws <- redraws + 1
+
+let input_status () =
+    let bytes = Array.zeroCreate<byte> 4096
+
+    let count =
+        (Platform.Mac.MacNative.load ()).raw_diagnostics.Invoke(bytes, uint32 bytes.Length)
+
+    let native =
+        System.Text.Encoding.UTF8.GetString(bytes, 0, min (int count) (bytes.Length - 1))
+
+    let build =
+        typeof<Platform.Mac.MacNative.Api>.Assembly.ManifestModule.ModuleVersionId
+
+    $"build={build} {native} {entry_report} {exit_report} {cleanup_report} {last_failure_report} pauses={long_pauses} pointer-discards={pointer_discards} camera-publications={camera_publications} redraws={redraws}"
+
+let mutable pending_entry: struct (bool * Platform.Mac.MacNative.InputEvent option) =
+    struct (false, None)
+
+let prepare_entry (mouse: bool) =
+    let mutable event = Unchecked.defaultof<Platform.Mac.MacNative.InputEvent>
+
+    let context =
+        if not mouse && (Platform.Mac.MacNative.load ()).entry_context.Invoke(&event) <> 0u then
+            Some event
+        else
+            None
+
+    pending_entry <- struct (mouse, context)
+
+let take_entry () =
+    let entry = pending_entry
+    pending_entry <- struct (false, None)
+    entry
 
 let key_state (keys: bool array) (code: int) =
     match code with
@@ -41,18 +94,49 @@ let binding_matches (state: bool array) (binding: KeyBinding) =
 
 let binding_is_down (binding: KeyBinding) = binding_matches down binding
 
+let binding_uses_key (code: int) (binding: KeyBinding) =
+    let mutable affected = false
+
+    for key in binding.native_keys do
+        affected <-
+            affected
+            || (match key with
+                | 36 -> code = 36 || code = 52 || code = 76
+                | 133 -> code = 56 || code = 60
+                | 134 -> code = 59 || code = 62
+                | 135 -> code = 58 || code = 61
+                | 136 -> code = 55 || code = 54
+                | key -> key = code)
+
+    affected
+
 let collect_actions () =
     match actions with
-    | Some actions -> FlightBindingActions.collect binding_is_down actions
+    | Some actions ->
+        let collected = FlightBindingActions.collect binding_is_down actions
+
+        FlightBindingActions.arbitrate_terminal worker_timeline collected
     | None -> InputAccumulator.KeyboardAction.None
 
-let configure (config: FlyConfig) (accumulator: InputAccumulator.State) (offset: int64) (entry_buttons: uint32) =
+let ordered_exit_protocol () = worker_timeline
+
+let configure
+    (config: FlyConfig)
+    (accumulator: InputAccumulator.State)
+    (offset: int64)
+    (entry_buttons: uint32)
+    (ordered: bool)
+    (initial_key: int -> bool)
+    =
     FlightBindingActions.validate config
     Array.Clear down
     Array.Clear observed
     Array.Clear configured
+    Array.Clear initial_observation
+    Array.Clear initial_transition_correction
     timestamp_offset <- offset
     entry_releases <- entry_buttons
+    ordered_releases <- ordered
     let keys = config.bindings
 
     let add (binding: KeyBinding) =
@@ -80,15 +164,19 @@ let configure (config: FlyConfig) (accumulator: InputAccumulator.State) (offset:
 
     for code = 0 to down.Length - 1 do
         if configured[code] || code >= 128 then
-            let held = PlatformBindings.physical_key_down code
+            let held = initial_key code
             down[code] <- held
             observed[code] <- held
+            initial_observation[code] <- ordered
 
     bindings <- Some keys
     cancel_observed <- binding_matches observed keys.cancel_flight_and_restore
     exit_observed <- binding_matches observed keys.exit_key
     input <- Some accumulator
-    actions <- Some(FlightBindingActions.create config binding_is_down)
+    let state = FlightBindingActions.create config binding_is_down
+    actions <- Some state
+    initial_action_seen <- Array.zeroCreate state.bindings.Length
+    initial_action_rebase <- Array.zeroCreate state.bindings.Length
     accept_new_keys <- true
 
 let configured_key (code: int) =
@@ -112,17 +200,63 @@ let modifier_is_down (code: int) (flags: uint64) =
 
     flags &&& mask <> 0UL
 
-let observe (timestamp: int64) (code: int) (held: bool) =
+let prepare_transition (code: int) (held: bool) (repeated: bool) =
+    if code >= 0 && code < observed.Length && initial_observation[code] then
+        initial_observation[code] <- false
+
+        let correction = not repeated && observed[code] = held
+
+        if correction then
+            // The startup sample may already include this edge.
+            observed[code] <- not held
+            initial_transition_correction[code] <- true
+
+        if not repeated then
+            match actions with
+            | Some actions ->
+                for index = 0 to actions.bindings.Length - 1 do
+                    let binding = actions.bindings[index]
+
+                    if binding_uses_key code binding && not initial_action_seen[index] then
+                        initial_action_seen[index] <- true
+                        initial_action_rebase[index] <- correction
+
+                        // Normalize the whole binding once. Its next startup key mustn't rearm a toggle.
+                        if correction then
+                            match actions.down_actions[index] with
+                            | InputAccumulator.KeyboardAction.CancelAndRestore ->
+                                cancel_observed <- binding_matches observed binding
+                            | InputAccumulator.KeyboardAction.Exit -> exit_observed <- binding_matches observed binding
+                            | _ -> ()
+            | None -> ()
+
+let observe_event (timestamp: int64) (code: int) (held: bool) (terminal: bool) =
+    prepare_transition code held false
+
     if code >= 0 && code < observed.Length && observed[code] <> held then
         observed[code] <- held
         key_revision <- key_revision + 1L
 
         match input with
-        | Some input -> InputAccumulator.add_keyboard_transition timestamp code held input
+        | Some input -> InputAccumulator.add_keyboard_transition_with_terminal timestamp code held terminal input
         | None -> ()
+
+let observe (timestamp: int64) (code: int) (held: bool) = observe_event timestamp code held false
 
 let apply_keyboard_transition (key: int) (held: bool) =
     if key >= 0 && key < down.Length then
+        if initial_transition_correction[key] then
+            initial_transition_correction[key] <- false
+            down[key] <- not held
+
+            match actions with
+            | Some actions ->
+                for index = 0 to actions.bindings.Length - 1 do
+                    if initial_action_rebase[index] && binding_uses_key key actions.bindings[index] then
+                        actions.was_down[index] <- binding_is_down actions.bindings[index]
+                        initial_action_rebase[index] <- false
+            | None -> ()
+
         down[key] <- held
 
     collect_actions ()
@@ -132,11 +266,9 @@ let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) =
 
     if event >= 1 && event <= 10 then
         let code = 128 + (event - 1) / 2
-        down[code] <- event % 2 = 1
-
-    collect_actions ()
-
-let terminal_timeline = InputAccumulator.timeline_buffer ()
+        apply_keyboard_transition code (event % 2 = 1)
+    else
+        collect_actions ()
 
 let resolve_pending_exit
     (lifetime: FlightLifetime)
@@ -145,6 +277,8 @@ let resolve_pending_exit
     =
     match input with
     | Some input when obj.ReferenceEquals(input, accumulator) ->
+        let terminal_timeline = InputAccumulator.timeline_buffer_for input
+
         let struct (count, overflowed) =
             InputAccumulator.drain_timeline terminal_timeline input
 
@@ -191,12 +325,13 @@ let binding_exit (lifetime: FlightLifetime) (exit_buttons: MouseExitConfig) (acc
             None
     | None -> None
 
-let observe_mouse (timestamp: int64) (transition: RawMouseButtonTransition) =
+let observe_mouse_event (timestamp: int64) (transition: RawMouseButtonTransition) (terminal: bool) =
     let event = int transition.event
 
     if event >= 1 && event <= 10 then
         let code = 128 + (event - 1) / 2
         let held = event % 2 = 1
+        prepare_transition code held false
         let entry_release = not held && entry_releases &&& (1u <<< (code - 128)) <> 0u
 
         entry_releases <- entry_releases &&& ~~~(1u <<< (code - 128))
@@ -205,7 +340,8 @@ let observe_mouse (timestamp: int64) (transition: RawMouseButtonTransition) =
             observed[code] <- held
 
             match input with
-            | Some input when entry_release -> InputAccumulator.add_keyboard_transition timestamp code false input
+            | Some input when entry_release ->
+                InputAccumulator.add_keyboard_transition_with_terminal timestamp code false terminal input
             | Some input ->
                 InputAccumulator.add_boundary_event
                     { kind = InputAccumulator.TimelineEventKind.RawMouseButton
@@ -215,12 +351,24 @@ let observe_mouse (timestamp: int64) (transition: RawMouseButtonTransition) =
                       wheel = 0L
                       button = transition
                       key = 0
-                      key_down = false }
+                      key_down = false
+                      terminal = terminal }
                     input
             | None -> ()
 
+let observe_mouse (timestamp: int64) (transition: RawMouseButtonTransition) =
+    observe_mouse_event timestamp transition false
+
 let reconcile_physical_keys () =
-    if (Platform.Mac.MacNative.load ()).keyboard_boundary.Invoke() = 0. then
+    let native = Platform.Mac.MacNative.load ()
+
+    if worker_timeline then
+        ()
+    elif ordered_releases then
+        for code = 0 to observed.Length - 1 do
+            if observed[code] then
+                native.raw_reconcile.Invoke(uint32 code)
+    elif native.keyboard_boundary.Invoke() = 0. && native.raw_pending.Invoke() = 0u then
         for code = 0 to 127 do
             if observed[code] && not (PlatformBindings.physical_key_down code) then
                 observe (Stopwatch.GetTimestamp()) code false
@@ -244,24 +392,43 @@ let consume_escape_exit (_lifetime: FlightLifetime) (_exit_buttons: MouseExitCon
 let revision () = key_revision
 
 let movement_boundary () =
-    let pending = (Platform.Mac.MacNative.load ()).keyboard_boundary.Invoke()
+    let native = Platform.Mac.MacNative.load ()
+    let keyboard = native.keyboard_boundary.Invoke()
+    let transport = native.raw_boundary.Invoke()
+
+    let pending =
+        if worker_timeline || keyboard = 0. then transport
+        elif transport = 0. then keyboard
+        else min keyboard transport
+
     let now = Stopwatch.GetTimestamp()
 
     let boundary =
         if pending > 0. then
             min now (timestamp_offset + int64 (pending * float Stopwatch.Frequency))
+        elif worker_timeline then
+            timestamp_offset
         else
             now
 
     struct (now, boundary)
 
+let discard_pointer_input () =
+    pointer_discards <- pointer_discards + 1
+    (Platform.Mac.MacNative.load ()).raw_discard.Invoke()
+
 let allow_passthrough () = accept_new_keys <- false
 
 let stop () =
+    worker_timeline <- false
     accept_new_keys <- false
     entry_releases <- 0u
     actions <- None
     bindings <- None
     input <- None
+    initial_action_seen <- Array.empty
+    initial_action_rebase <- Array.empty
     Array.Clear down
     Array.Clear observed
+    Array.Clear initial_observation
+    Array.Clear initial_transition_correction

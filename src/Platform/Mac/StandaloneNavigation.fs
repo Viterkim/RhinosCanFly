@@ -50,6 +50,16 @@ let start (view: Rhino.Display.RhinoView) (loaded: ConfigLoadResult) (entry: Fli
     if toggled_off then
         Ok()
     else
+        let requested_entry = entry
+
+        let entry =
+            { requested_entry with
+                valid =
+                    fun () ->
+                        requested_entry.valid ()
+                        && not (RuntimeSettings.input_suspended ())
+                        && RuntimeSettings.runtime_enabled () }
+
         FlightSession.run_session
             view
             (navigation_config loaded.config)
@@ -57,6 +67,9 @@ let start (view: Rhino.Display.RhinoView) (loaded: ConfigLoadResult) (entry: Fli
             entry
 
 let run (mode: ViewNavigationMode) (document: RhinoDoc) =
+    PlatformFlightKeyboard.prepare_entry false
+    let struct (mouse, context) = PlatformFlightKeyboard.take_entry ()
+
     if RuntimeSettings.input_suspended () || not (RuntimeSettings.runtime_enabled ()) then
         Result.Cancel
     elif isNull document.Views.ActiveView then
@@ -102,7 +115,12 @@ let run (mode: ViewNavigationMode) (document: RhinoDoc) =
                         loaded
                         { navigation = Some operation
                           target_point = NavigationTargetPoint.ClientPoint { x = int point.X; y = int point.Y }
-                          held = None }
+                          valid = fun () -> true
+                          held = None
+                          held_buttons = 0u
+                          entry_press = None
+                          mouse_entry = mouse
+                          context = context }
                 with
                 | Ok() -> Result.Success
                 | Error error ->

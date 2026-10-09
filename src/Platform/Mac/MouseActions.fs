@@ -20,6 +20,7 @@ type Request =
       point: ViewportClientPoint
       button: int
       pair: int64
+      entry_press: MouseEntryPress
       mutable deadline: int64
       action: Action
       use_cursor: bool }
@@ -54,7 +55,10 @@ let mutable navigation_running: unit -> bool = fun () -> false
 let held (request: Request) =
     pairs[request.button] = request.pair
     && not released[request.button]
-    && MacNative.mouse_down request.button
+    && (match MacNavigationInput.current with
+        | Some session when session.active && session.begun && session.worker ->
+            PlatformFlightKeyboard.key_is_down (128 + request.button)
+        | _ -> MacNative.mouse_down request.button)
 
 let clear_pending () =
     Array.fill pending 0 pending.Length None
@@ -260,6 +264,10 @@ let observe (event: MacNative.InputEvent) =
                                 { host = cached.host
                                   button = button
                                   pair = pairs[button]
+                                  entry_press =
+                                    { button = button
+                                      id = event.press_id
+                                      source_time = event.source_time }
                                   deadline =
                                     match action with
                                     | Flight(_, false) -> 0L
@@ -284,6 +292,14 @@ let pending_is_current (request: Request) =
         |> Option.exists (fun (current: Request) -> obj.ReferenceEquals(current, request)))
 
 let pulse () =
+    let cleanup_error =
+        try
+            MacNavigationInput.complete_cleanup ()
+        with error ->
+            Some error.Message
+
+    cleanup_error |> Option.iter (fun (error: string) -> Debug.WriteLine error)
+
     try
         MouseFlightEntry.poll ()
 
@@ -324,6 +340,12 @@ let pulse () =
                     elif ready then
                         let still_held = held request
 
+                        let cleanup_pending =
+                            match request.action, MacNavigationInput.current with
+                            | Retarget _, _ -> false
+                            | _, Some session when not session.active -> MacNavigationInput.pending_cleanup ()
+                            | _ -> false
+
                         let requires_hold =
                             match request.action with
                             | Flight(_, true)
@@ -332,6 +354,8 @@ let pulse () =
 
                         if requires_hold && not still_held then
                             pending[button] <- None
+                        elif cleanup_pending then
+                            ()
                         elif not (request.host.view.MouseCaptured false) && pending_is_current request then
                             pending[button] <- None
                             dispatch request
@@ -342,14 +366,6 @@ let pulse () =
             RhinoApp.WriteLine $"RhinosCanFly mouse action failed: {error.Message}"
         with output ->
             Debug.WriteLine output
-
-    let cleanup_error =
-        try
-            MacNavigationInput.complete_cleanup ()
-        with error ->
-            Some error.Message
-
-    cleanup_error |> Option.iter (fun (error: string) -> Debug.WriteLine error)
 
 let main_loop = EventHandler(fun (_: obj) (_: EventArgs) -> pulse ())
 

@@ -33,6 +33,7 @@ match fsi.CommandLineArgs |> Array.skip 1 with
 
         for symbol, type_name in
             [ "rcf_mac_event_size", "RhinosCanFly.Platform.Mac.MacNative+InputEvent"
+              "rcf_mac_capture_config_size", "RhinosCanFly.Platform.Mac.MacNative+CaptureConfig"
               "rcf_mac_motion_size", "RhinosCanFly.RelativeMotion+Packet" ] do
             if read_size symbol <> uint32 (Marshal.SizeOf(plugin.GetType(type_name, true))) then
                 failwith $"Native/managed layout mismatch: {type_name}."
@@ -54,7 +55,39 @@ match fsi.CommandLineArgs |> Array.skip 1 with
               "screen_x", 72
               "screen_y", 80
               "buttons", 88
-              "content", 92 ]
+              "content", 92
+              "source_time", 96
+              "sequence", 104
+              "session", 112
+              "routing", 120
+              "phase", 124
+              "momentum", 128
+              "reserved", 132
+              "target_window", 136
+              "navigation_modifiers", 144
+              "press_id", 152 ]
+
+        check_offsets
+            (plugin.GetType("RhinosCanFly.Platform.Mac.MacNative+CaptureConfig", true))
+            [ "session", 0
+              "window", 8
+              "exit_buttons", 12
+              "terminal_count", 16
+              "entry_buttons", 20
+              "command_count", 24
+              "configured", 28
+              "command_keys", 161
+              "quarantine", 294
+              "appkit_owned", 427
+              "terminal", 560
+              "command", 2736
+              "held_buttons", 4912
+              "entry_code", 4916
+              "entry_source_time", 4920
+              "entry_modifiers", 4928
+              "entry_mouse_button", 4936
+              "entry_mouse_press_id", 4944
+              "entry_mouse_source_time", 4952 ]
 
         check_offsets (plugin.GetType("RhinosCanFly.RelativeMotion+Packet", true)) [ "timestamp", 0; "dx", 8; "dy", 16 ]
 
@@ -72,7 +105,22 @@ match fsi.CommandLineArgs |> Array.skip 1 with
               "rcf_mac_raw_begin"
               "rcf_mac_raw_end"
               "rcf_mac_raw_available"
-              "rcf_mac_raw_validate" ] do
+              "rcf_mac_raw_validate"
+              "rcf_mac_raw_state"
+              "rcf_mac_raw_drain"
+              "rcf_mac_raw_pending"
+              "rcf_mac_raw_boundary"
+              "rcf_mac_raw_discard"
+              "rcf_mac_raw_reconcile"
+              "rcf_mac_raw_initial_key"
+              "rcf_mac_raw_error"
+              "rcf_mac_raw_started_at"
+              "rcf_mac_raw_activate"
+              "rcf_mac_raw_finish"
+              "rcf_mac_raw_revoke"
+              "rcf_mac_entry_context"
+              "rcf_mac_raw_diagnostics"
+              "rcf_mac_raw_guards_pending" ] do
             NativeLibrary.GetExport(library, symbol) |> ignore
 
         printfn "Mac bridge loads; managed/native layouts and exports match."

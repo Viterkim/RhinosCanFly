@@ -168,7 +168,7 @@ mkdir -p "$package_dir"
 package="$package_dir/$(basename -- "${packages[0]}")"
 
 install_package() {
-    local installed rollback_dir manifest retain_rollback=false
+    local installed rollback_dir manifest candidate retain_rollback=false
 
     dotnet fsi "$root/tools/mac-build-record.fsx" -- check "$root" "$output" "$sdk_version" "$stage"
     yak_listing || fail "Could not read Yak's installed package directory. Existing package is untouched."
@@ -176,7 +176,21 @@ install_package() {
     rollback=
 
     if [ -n "$previous_version" ]; then
-        [ "$replace" = true ] || fail "RhinosCanFly is already installed. Use --replace with --rollback-package."
+        [ "$replace" = true ] || fail "RhinosCanFly is already installed. Use --replace."
+
+        if [ -z "$rollback_package" ]; then
+            while IFS= read -r -d '' candidate; do
+                case "$(basename -- "$candidate")" in
+                    rhinoscanfly-"$previous_version"-rh"$rhino_version"-mac.yak|rhinoscanfly-"$previous_version"-rh"$rhino_version"_*-mac.yak)
+                        if installed_matches "$candidate" "$previous_version"; then
+                            rollback_package=$candidate
+                            break
+                        fi
+                        ;;
+                esac
+            done < <(find "$package_root" -type f -name '*.yak' -print0)
+        fi
+
         [ -f "$rollback_package" ] || fail "Keep the existing install: supply its Mac Yak archive with --rollback-package."
 
         case "$(basename -- "$rollback_package")" in

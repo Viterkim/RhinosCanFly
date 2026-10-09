@@ -508,15 +508,18 @@ type SettingsControl() as self =
         |> SettingsLayout.full_width
         |> main_table.Rows.Add
 
-        main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Other"))
+        if PlatformSupport.supports_immediate_paint then
+            main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Other"))
 
-        main_table.Rows.Add(
-            SettingsLayout.full_width (SettingsLayout.item "Redraw mode" modes.viewport_paint_mode.control)
-        )
+            main_table.Rows.Add(
+                SettingsLayout.full_width (SettingsLayout.item "Redraw mode" modes.viewport_paint_mode.control)
+            )
 
-        main_table.Rows.Add(
-            SettingsLayout.full_width (SettingsLayout.note "Try an alternative mode only if fly mode is not smooth.")
-        )
+            main_table.Rows.Add(
+                SettingsLayout.full_width (
+                    SettingsLayout.note "Try an alternative mode only if fly mode is not smooth."
+                )
+            )
 
         main_table.Rows.Add(SettingsLayout.full_width (SettingsLayout.heading "Status"))
         refresh_status ()
