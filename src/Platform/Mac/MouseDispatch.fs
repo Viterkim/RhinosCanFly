@@ -24,6 +24,8 @@ let dispatch (request: Request) =
                         request.host
                         mode
                         (if held_entry then Some(fun () -> held request) else None)
+                        (if held_entry then 1u <<< request.button else 0u)
+                        (Some request.entry_press)
                         request.deadline
                         (fun () -> suspended.Count = 0 && pairs[request.button] = request.pair)
 
@@ -50,7 +52,11 @@ let dispatch (request: Request) =
                             { navigation = Some operation
                               target_point = target_point
                               valid = fun () -> suspended.Count = 0 && pairs[request.button] = request.pair
-                              held = if hold_button then Some(fun () -> held request) else None }
+                              held = if hold_button then Some(fun () -> held request) else None
+                              held_buttons = if hold_button then 1u <<< request.button else 0u
+                              entry_press = Some request.entry_press
+                              mouse_entry = true
+                              context = None }
                     with
                     | Ok() -> Rhino.Commands.Result.Success
                     | Error error ->

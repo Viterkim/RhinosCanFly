@@ -45,7 +45,9 @@ let explicit_exit_reason (state: FlyState) =
         ExplicitKeepCamera
 
 let apply_keyboard_actions (actions: InputAccumulator.KeyboardAction) (state: FlyState) =
-    if has_keyboard_action actions InputAccumulator.KeyboardAction.CancelAndRestore then
+    if has_keyboard_action actions InputAccumulator.KeyboardAction.DeferredExit then
+        InputEffect.none
+    elif has_keyboard_action actions InputAccumulator.KeyboardAction.CancelAndRestore then
         FlyState.request_exit ExplicitRestoreCamera state
         InputEffect.rebase_pointer ViewChange.none
     elif has_keyboard_action actions InputAccumulator.KeyboardAction.Exit then
@@ -180,15 +182,31 @@ let apply_mouse_action_down
 let apply_mouse_action_up (button_bit: int) (action: RoutedMouseAction) (state: FlyState) =
     set_mouse_hold button_bit false action state
 
-let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) (state: FlyState) =
+let apply_raw_mouse_button_transition_with_terminal
+    (terminal: bool)
+    (transition: RawMouseButtonTransition)
+    (state: FlyState)
+    =
     let keyboard_actions =
-        PlatformFlightKeyboard.apply_raw_mouse_button_transition transition
+        let actions = PlatformFlightKeyboard.apply_raw_mouse_button_transition transition
+
+        if terminal then
+            InputAccumulator.KeyboardAction.DeferredExit
+        else
+            actions
 
     let mouse = state.config.mouse
 
     let mutable effect =
         match
-            InputAccumulator.event_exit state.session_mode.lifetime mouse.exit_buttons keyboard_actions transition.event
+            if PlatformFlightKeyboard.ordered_exit_protocol () then
+                None
+            else
+                InputAccumulator.event_exit
+                    state.session_mode.lifetime
+                    mouse.exit_buttons
+                    keyboard_actions
+                    transition.event
         with
         | Some reason ->
             let reason =
@@ -201,7 +219,10 @@ let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) (st
             InputEffect.none
         | None -> apply_keyboard_actions keyboard_actions state
 
-    if FlyState.is_running state then
+    if
+        FlyState.is_running state
+        && not (has_keyboard_action keyboard_actions InputAccumulator.KeyboardAction.DeferredExit)
+    then
         match transition.event with
         | RawMouseButtonEvent.MiddleDown ->
             effect <-
@@ -233,6 +254,9 @@ let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) (st
     else
         { effect with
             pointer_rebase_required = true }
+
+let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) (state: FlyState) =
+    apply_raw_mouse_button_transition_with_terminal false transition state
 
 let apply_wheel_delta (wheel_delta: int64) (state: FlyState) =
     if wheel_delta = 0L then

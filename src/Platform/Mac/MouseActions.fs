@@ -20,6 +20,7 @@ type Request =
       point: ViewportClientPoint
       button: int
       pair: int64
+      entry_press: MouseEntryPress
       mutable deadline: int64
       action: Action
       use_cursor: bool }
@@ -55,7 +56,7 @@ let held (request: Request) =
     pairs[request.button] = request.pair
     && not released[request.button]
     && (match MacNavigationInput.current with
-        | Some session when session.active && session.ready && session.worker ->
+        | Some session when session.active && session.begun && session.worker ->
             PlatformFlightKeyboard.key_is_down (128 + request.button)
         | _ -> MacNative.mouse_down request.button)
 
@@ -263,6 +264,10 @@ let observe (event: MacNative.InputEvent) =
                                 { host = cached.host
                                   button = button
                                   pair = pairs[button]
+                                  entry_press =
+                                    { button = button
+                                      id = event.press_id
+                                      source_time = event.source_time }
                                   deadline =
                                     match action with
                                     | Flight(_, false) -> 0L

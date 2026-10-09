@@ -25,6 +25,7 @@ static _Atomic uint32_t motion_source;
 static _Atomic bool queue_drained;
 static bool drain_requested;
 static RcfPointerWorker *pointer_worker;
+static RcfPointerWorker *last_worker;
 static double started_at;
 
 static bool foreign_handlers(GCMouseInput *input) {
@@ -83,8 +84,7 @@ static void detach_mouse(RcfMouse *item) {
 uint32_t rcf_mac_raw_available(void) {
     if (!atomic_load_explicit(&accepting, memory_order_acquire)) return 0;
     if (pointer_worker) {
-        uint32_t state = rcf_pointer_state(pointer_worker);
-        return state == RCF_RAW_RUNNING;
+        return rcf_pointer_validate(pointer_worker);
     }
     return atomic_load(&motion_source) == RCF_RAW_POINTER ? 1 : atomic_load(&count);
 }
@@ -99,7 +99,7 @@ uint32_t rcf_mac_raw_drain(void) {
     if (![NSThread isMainThread]) return RCF_INPUT_FAILED;
     if (!pointer_worker) return RCF_INPUT_EMPTY;
     if (!receiver || !atomic_load_explicit(&accepting, memory_order_acquire)) return RCF_INPUT_FAILED;
-    return rcf_pointer_pump(pointer_worker, receiver, rcf_mac_raw_release);
+    return rcf_pointer_pump(pointer_worker, rcf_mac_raw_input);
 }
 
 double rcf_mac_raw_boundary(void) {
@@ -115,7 +115,7 @@ void rcf_mac_raw_discard(void) {
 }
 
 void rcf_mac_raw_reconcile(uint32_t code) {
-    if ([NSThread isMainThread] && pointer_worker) rcf_pointer_reconcile(pointer_worker, code);
+    (void)code;
 }
 
 uint32_t rcf_mac_raw_initial_key(uint32_t code) {
@@ -130,13 +130,72 @@ double rcf_mac_raw_started_at(void) {
     return pointer_worker ? rcf_pointer_started_at(pointer_worker) : started_at;
 }
 
-int32_t rcf_mac_raw_before_event(NSEvent *event) {
-    if (![NSThread isMainThread] || !pointer_worker || !receiver ||
-        !atomic_load_explicit(&accepting, memory_order_acquire) || event.timestamp < started_at) return 0;
-    int32_t result = rcf_pointer_drain(pointer_worker, event.CGEvent, receiver, rcf_mac_raw_release);
-    if (result < 0)
-        atomic_store_explicit(&accepting, false, memory_order_release);
-    return result;
+int32_t rcf_mac_raw_activate(const RcfCaptureConfig *config, void *expected_window) {
+    if (![NSThread isMainThread] || !pointer_worker || !config || !expected_window) return -1;
+    RcfCaptureConfig prepared = *config;
+    prepared.window = (uint32_t)((__bridge NSWindow *)expected_window).windowNumber;
+    return rcf_pointer_activate(pointer_worker, &prepared);
+}
+
+void rcf_mac_raw_revoke(void) {
+    if (pointer_worker) rcf_pointer_end(pointer_worker);
+}
+
+int32_t rcf_mac_raw_finish(uint32_t reason) {
+    if (![NSThread isMainThread] || !pointer_worker) return -1;
+    return rcf_pointer_finish(pointer_worker, reason);
+}
+
+uint32_t rcf_mac_raw_diagnostics(char *destination, uint32_t capacity) {
+    return last_worker ? rcf_pointer_diagnostics(last_worker, destination, capacity) : 0;
+}
+
+uint32_t rcf_mac_raw_guards_pending(void) {
+    return last_worker ? rcf_pointer_guards_pending(last_worker) : 0;
+}
+
+uint32_t rcf_mac_raw_guard(NSEvent *event) {
+    if (!last_worker) return 0;
+    RcfCaptureEvent value = {0};
+
+    switch (event.type) {
+        case NSEventTypeKeyDown: case NSEventTypeKeyUp:
+            value.kind = RCF_CAPTURE_KEY;
+            value.code = event.keyCode;
+            value.down = event.type == NSEventTypeKeyDown;
+            value.repeated = event.isARepeat;
+            break;
+        case NSEventTypeLeftMouseDown: case NSEventTypeRightMouseDown: case NSEventTypeOtherMouseDown:
+        case NSEventTypeLeftMouseUp: case NSEventTypeRightMouseUp: case NSEventTypeOtherMouseUp:
+            value.kind = RCF_CAPTURE_BUTTON;
+            value.code = (uint32_t)event.buttonNumber;
+            value.press_id = event.CGEvent ? (uint64_t)CGEventGetIntegerValueField(event.CGEvent, kCGMouseEventNumber) : (uint64_t)event.eventNumber;
+            value.down = event.type == NSEventTypeLeftMouseDown || event.type == NSEventTypeRightMouseDown ||
+                event.type == NSEventTypeOtherMouseDown;
+            break;
+        case NSEventTypeScrollWheel:
+            value.kind = RCF_CAPTURE_WHEEL;
+            value.phase = ((event.phase & NSEventPhaseBegan) ? RCF_SCROLL_BEGAN : 0u) |
+                ((event.phase & NSEventPhaseChanged) ? RCF_SCROLL_CHANGED : 0u) |
+                ((event.phase & NSEventPhaseEnded) ? RCF_SCROLL_ENDED : 0u) |
+                ((event.phase & NSEventPhaseCancelled) ? RCF_SCROLL_CANCELLED : 0u) |
+                ((event.phase & NSEventPhaseMayBegin) ? RCF_SCROLL_MAY_BEGIN : 0u);
+            value.momentum = (event.momentumPhase & NSEventPhaseBegan) ? RCF_MOMENTUM_BEGAN :
+                (event.momentumPhase & NSEventPhaseChanged) ? RCF_MOMENTUM_CHANGED :
+                (event.momentumPhase & (NSEventPhaseEnded | NSEventPhaseCancelled)) ? RCF_MOMENTUM_ENDED : 0u;
+            if (event.CGEvent) {
+                uint32_t phase = (uint32_t)CGEventGetIntegerValueField(event.CGEvent, kCGScrollWheelEventScrollPhase);
+                uint32_t momentum = (uint32_t)CGEventGetIntegerValueField(event.CGEvent, kCGScrollWheelEventMomentumPhase);
+                if (phase) value.phase = phase;
+                if (momentum) value.momentum = momentum;
+            }
+            break;
+        default: return 0;
+    }
+
+    value.source_time = event.CGEvent ? CGEventGetTimestamp(event.CGEvent) : 0;
+    value.modifiers = event.CGEvent ? CGEventGetFlags(event.CGEvent) : event.modifierFlags;
+    return rcf_pointer_guard(last_worker, value);
 }
 
 void rcf_mac_raw_motion(NSEvent *event) {
@@ -162,8 +221,7 @@ uint32_t rcf_mac_raw_validate(void) {
     if (!atomic_load_explicit(&accepting, memory_order_acquire)) return 0;
     @try {
         if ([NSThread isMainThread] && pointer_worker)
-            return rcf_pointer_validate(pointer_worker, NSProcessInfo.processInfo.systemUptime,
-                NSApp.modalWindow || [NSRunLoop.currentRunLoop.currentMode isEqualToString:NSEventTrackingRunLoopMode]);
+            return rcf_pointer_validate(pointer_worker);
 
         if ([NSThread isMainThread]) {
             for (RcfMouse *item in attached) {
@@ -239,6 +297,7 @@ int32_t rcf_mac_raw_begin(RcfRelativeMotionHandler handler, RcfMacNotify notify,
 
             if (backend == RCF_RAW_WORKER) {
                 pointer_worker = rcf_pointer_begin(notify);
+                if (pointer_worker) last_worker = pointer_worker;
                 if (!pointer_worker) { rcf_mac_raw_end(); return -1; }
                 return RCF_RAW_WORKER;
             }

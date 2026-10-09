@@ -1,16 +1,9 @@
 #pragma once
 #include <stdint.h>
 #include "../relative-motion.h"
+#include "capture.h"
 
-typedef struct {
-    uint32_t kind, code, down, repeated;
-    uint64_t modifiers;
-    double timestamp, dx, dy, wheel;
-    uint32_t precise, inverted;
-    void *window;
-    double screen_x, screen_y;
-    uint32_t buttons, content;
-} RcfMacEvent;
+typedef RcfCaptureEvent RcfMacEvent;
 
 typedef uint32_t (*RcfMacHandler)(const RcfMacEvent *event);
 typedef void (*RcfMacNotify)(void);
@@ -47,11 +40,17 @@ void rcf_mac_raw_reconcile(uint32_t code);
 uint32_t rcf_mac_raw_initial_key(uint32_t code);
 uint32_t rcf_mac_raw_error(void);
 double rcf_mac_raw_started_at(void);
+int32_t rcf_mac_raw_activate(const RcfCaptureConfig *config, void *expected_window);
+int32_t rcf_mac_raw_finish(uint32_t reason);
+void rcf_mac_raw_revoke(void);
+uint32_t rcf_mac_entry_context(RcfMacEvent *event);
+uint32_t rcf_mac_capture_config_size(void);
+uint32_t rcf_mac_raw_diagnostics(char *destination, uint32_t capacity);
+uint32_t rcf_mac_raw_guards_pending(void);
+uint32_t rcf_mac_raw_input(const RcfMacEvent *event);
 
 #ifdef __OBJC__
 @class NSEvent;
 void rcf_mac_raw_motion(NSEvent *event);
-// -1: ordering failure, 0: accepted, 1: acknowledge but discard wheel payload.
-int32_t rcf_mac_raw_before_event(NSEvent *event);
-void rcf_mac_raw_release(uint32_t code, double timestamp);
+uint32_t rcf_mac_raw_guard(NSEvent *event);
 #endif

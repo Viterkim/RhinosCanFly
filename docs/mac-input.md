@@ -1,0 +1,19 @@
+# Mac input
+
+Flight uses the process tap on a native thread. Each accepted record gets a session, a sequence and a monotonic receipt time. The original Quartz timestamp stays with it for diagnostics. Sequence decides order, including equal or regressing source times. This describes events reaching our tap, not every hardware report.
+
+Activation is a serialized Begin record after the main thread prepares the viewport. Its snapshot seeds held controls without pressing toggle bindings. Command entry excludes the initiating key and its participating modifiers until their releases. Unknown command entry excludes held configured keys. Mouse entry keeps intentional held movement keys.
+
+A press passed to Rhino keeps its host owned release. Accepted preheld movement keys have their repeats consumed during flight. An excluded Command chord stays excluded through its repeats and release. A native consumed press keeps its release obligation across flight exit. An AppKit consumed entry press passes through the tap to its existing AppKit release guard. Physical release recovery repairs navigation but keeps the real release obligation. Mouse event numbers identify a delayed release from an older press. Keyboard events lack that identity, so a fresh press with unresolved history revokes active navigation and starts a host owned cycle. After flight ends, that new cycle retires abandoned keyboard history so ordinary typing can resume. Source timestamps alone cannot establish pairing.
+
+The native callback only routes and records input. A native source wakes the main thread, where managed replay runs. A batch frontier pairs a completed receipt time with its sequence. A partial drain cannot advance past records it has not replayed.
+
+Replay keeps motion samples in order. Ordinary elapsed movement is integrated in steps of at most 50 ms. A gap over one second intentionally pauses movement and reports that pause. Focus loss, sleep and broken capture immediately revoke camera permission and discard uncommitted work. An ordinary exit replays preceding input before keeping or restoring the camera.
+
+Ordinary replay changes camera state in memory. Publication happens at batch completion and before viewport dependent picking, projection or navigation changes. Pointer rebases discard pending pointer and wheel payloads while keeping control transitions.
+
+Modifiers remain visible to Rhino. Navigation uses its own eligible modifier state, so shortcut exclusion does not rewrite forwarded event flags. Command shortcuts pass through unless a binding explicitly uses Command. Wheel records retain units and Quartz phase metadata. MayBegin can lead to scrolling, cancellation or ending without scrolling. A host gesture continuation revokes flight before passing through. Direct End completes the gesture without waiting for momentum. A retained tail guard consumes optional momentum until its End or the next direct Begin establishes a new owner. Momentum follows the same adjustment policy as direct scrolling.
+
+Flags on ordinary events repair missing modifier notifications. Caps Lock follows its lock flag and Fn follows its modifier flag, without owning a normal press and release pair.
+
+The router survives flight sessions to finish owned releases. Its callback and wake source live with the native library. AppKit supplies focus and window lifecycle and handles ordinary interaction while flight is inactive. Its monitor stays installed while release or momentum guards remain, including healthy idle capture. A timed out tap retries for release handling with flight permission revoked. User disabling requires a fresh flight request. AppKit fallback can only protect events delivered to its monitor, so a broken tap during nested tracking cannot guarantee release coverage. Capture never synthesizes operating system input.

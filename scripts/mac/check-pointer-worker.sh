@@ -3,7 +3,7 @@
 set -euo pipefail
 source "$(dirname -- "$0")/common.sh"
 
-description='Checks pointer ordering and shutdown, then opens a test window for the monitor, tracking and Quartz/AppKit delivery. Real devices still need Rhino testing.'
+description='Runs native routing and Quartz adapter checks, including capture while replay is blocked. Live process tap and device delivery need a permitted Mac and Rhino.'
 
 read_options "$@"
 require_native_tools
@@ -26,10 +26,35 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+"$native_compiler" -isysroot "$native_sdk_path" -std=c11 -Wall -Wextra -Werror \
+    -fsanitize=address,undefined "$root/tools/check-mac-capture.c" "$root/native/mac/capture.c" \
+    -o "$stage/check-capture"
+
+if [ -n "${RCF_BINDING_FIXTURE:-}" ]; then
+    "$stage/check-capture" "$RCF_BINDING_FIXTURE" "$stage/mac-protocol.bin"
+
+    if [ -n "${RCF_MANAGED_PLUGIN:-}" ] && [ -n "${RCF_MANAGED_LIBRARIES:-}" ]; then
+        dotnet fsi --reference:"$RCF_MANAGED_LIBRARIES/RhinoCommon.dll" \
+            --reference:"$RCF_MANAGED_LIBRARIES/Eto.dll" --reference:"$RCF_MANAGED_PLUGIN" \
+            "$root/tools/manual/check-mac-protocol.fsx" -- "$stage/mac-protocol.bin"
+
+        dotnet fsi --reference:"$RCF_MANAGED_LIBRARIES/RhinoCommon.dll" \
+            --reference:"$RCF_MANAGED_LIBRARIES/Eto.dll" --reference:"$RCF_MANAGED_PLUGIN" \
+            "$root/tools/manual/check-mac-protocol.fsx" -- --managed-smoke
+    fi
+else
+    "$stage/check-capture"
+fi
+
 "$native_compiler" -isysroot "$native_sdk_path" -fobjc-arc -fblocks -Wall -Wextra \
     -Werror=implicit-function-declaration -Werror=incompatible-pointer-types \
     -Werror=objc-method-access -Werror=unguarded-availability -mmacosx-version-min=14.0 \
-    -framework AppKit -framework CoreGraphics -framework CoreFoundation -framework GameController \
-    "$root/tools/manual/check-mac-pointer.m" -o "$stage/check-pointer"
+    -framework AppKit -framework CoreGraphics -framework CoreFoundation -framework GameController -framework ApplicationServices \
+    "$root/tools/manual/check-mac-pointer.m" "$root/native/mac/capture.c" -o "$stage/check-pointer"
 
-"$stage/check-pointer"
+result=0
+"$stage/check-pointer" --live || result=$?
+
+if [ "$result" -ne 0 ] && [ "$result" -ne 78 ]; then
+    exit "$result"
+fi

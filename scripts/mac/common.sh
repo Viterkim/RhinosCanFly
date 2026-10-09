@@ -69,7 +69,7 @@ read_options() {
                     "$(basename -- "$0")"
 
                 if [ "${install_options:-false}" = true ]; then
-                    printf '       [--rhino-app "/Applications/Rhino 8.app"] [--replace --rollback-package previous.yak]\n'
+                    printf '       [--rhino-app "/Applications/Rhino 8.app"] [--replace] [--rollback-package previous.yak]\n'
                 fi
 
                 if [ "${package_options:-false}" = true ]; then

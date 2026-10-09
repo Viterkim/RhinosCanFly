@@ -95,6 +95,7 @@ let create
       mouse_pivot_hold_buttons = 0
       mouse_pan_hold_buttons = 0
       projection = original_camera.projection
+      parallel_width = 0.
       perspective_projection = perspective_projection
       perspective_lens_length = perspective_lens_length
       exit_reason = None

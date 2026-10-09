@@ -11,16 +11,15 @@ let keyboard_pivot_radians_per_second = Math.PI / 6.
 let maximum_pitch_radians = RhinoMath.ToRadians 89.
 
 let camera_basis (direction: Vector3d) (requested_up: Vector3d) =
-    let mutable normalized_direction = direction
-
-    if not (normalized_direction.Unitize()) then
-        failwith "The viewport has an invalid camera direction."
+    let normalized_direction =
+        CameraState.unit_vector direction
+        |> ValueOption.defaultWith (fun () -> failwith "The viewport has an invalid camera direction.")
 
     let mutable normalized_up =
         requested_up
         - normalized_direction * Vector3d.Multiply(requested_up, normalized_direction)
 
-    if not (normalized_up.Unitize()) then
+    if ValueOption.isNone (CameraState.unit_vector normalized_up) then
         let fallback_up =
             if abs normalized_direction.Z < 0.9 then
                 Vector3d.ZAxis
@@ -31,18 +30,15 @@ let camera_basis (direction: Vector3d) (requested_up: Vector3d) =
             fallback_up
             - normalized_direction * Vector3d.Multiply(fallback_up, normalized_direction)
 
-        if not (normalized_up.Unitize()) then
-            failwith "The viewport has an invalid camera orientation."
+    let normalized_up =
+        CameraState.unit_vector normalized_up
+        |> ValueOption.defaultWith (fun () -> failwith "The viewport has an invalid camera orientation.")
 
     struct (normalized_direction, normalized_up)
 
 let camera_right (camera: CameraState) =
-    let mutable right = Vector3d.CrossProduct(camera.direction, camera.up)
-
-    if not (right.Unitize()) then
-        failwith "The flight camera has an invalid orientation."
-
-    right
+    CameraState.unit_vector (Vector3d.CrossProduct(camera.direction, camera.up))
+    |> ValueOption.defaultWith (fun () -> failwith "The flight camera has an invalid orientation.")
 
 let pitch (camera: CameraState) =
     Math.Asin(clamp -1. 1. camera.direction.Z)
@@ -190,9 +186,14 @@ let clamped_mouse_angle_deltas
     { deltas with pitch_delta = allowed }
 
 let rotate_vector (axis: Vector3d) (angle: float) (vector: Vector3d) =
-    let mutable rotated = vector
+    match CameraState.unit_vector axis with
+    | ValueSome axis when not (Double.IsNaN angle || Double.IsInfinity angle) ->
+        let cosine = Math.Cos angle
 
-    if rotated.Rotate(angle, axis) then rotated else vector
+        vector * cosine
+        + Vector3d.CrossProduct(axis, vector) * Math.Sin angle
+        + axis * (Vector3d.Multiply(axis, vector) * (1. - cosine))
+    | _ -> vector
 
 let screen_yaw_delta (camera: CameraState) (yaw_delta: float) =
     if camera.up.Z < 0. then -yaw_delta else yaw_delta
@@ -306,19 +307,18 @@ let step
             let normal = plane.Normal
             let camera_right = camera_right camera
 
-            let mutable walking_forward =
-                camera.direction - normal * Vector3d.Multiply(camera.direction, normal)
+            let walking_forward =
+                match
+                    CameraState.unit_vector (camera.direction - normal * Vector3d.Multiply(camera.direction, normal))
+                with
+                | ValueSome forward -> forward
+                | ValueNone ->
+                    CameraState.unit_vector (camera.up - normal * Vector3d.Multiply(camera.up, normal))
+                    |> ValueOption.defaultValue plane.YAxis
 
-            if not (walking_forward.Unitize()) then
-                walking_forward <- camera.up - normal * Vector3d.Multiply(camera.up, normal)
-
-                if not (walking_forward.Unitize()) then
-                    walking_forward <- plane.YAxis
-
-            let mutable walking_right = Vector3d.CrossProduct(walking_forward, normal)
-
-            if not (walking_right.Unitize()) then
-                failwith "The walking CPlane has an invalid orientation."
+            let mutable walking_right =
+                CameraState.unit_vector (Vector3d.CrossProduct(walking_forward, normal))
+                |> ValueOption.defaultWith (fun () -> failwith "The walking CPlane has an invalid orientation.")
 
             if Vector3d.Multiply(walking_right, camera_right) < 0. then
                 walking_right <- -walking_right

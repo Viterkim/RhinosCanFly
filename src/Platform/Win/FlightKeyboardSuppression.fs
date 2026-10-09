@@ -1,5 +1,7 @@
 module RhinosCanFly.PlatformFlightKeyboard
 
+let ordered_exit_protocol () = false
+
 open System
 open System.Collections.Generic
 open System.Diagnostics
@@ -7,6 +9,14 @@ open System.Threading
 open Rhino
 open RhinosCanFly
 open RhinosCanFly.Platform.Win
+
+let prepare_entry (_mouse: bool) = ()
+let record_long_pause () = ()
+let record_camera_publication () = ()
+let record_redraw () = ()
+
+let input_status () =
+    "Native capture diagnostics are available on Mac."
 
 type ConfiguredKeys =
     { exact: HashSet<int>
@@ -330,7 +340,9 @@ let handle_event (event: Win32.KeyboardHookEvent) =
 
 let collect_actions () =
     match state.actions with
-    | Some actions -> FlightBindingActions.collect binding_is_down actions
+    | Some actions ->
+        FlightBindingActions.collect binding_is_down actions
+        |> FlightBindingActions.arbitrate_terminal false
     | None -> InputAccumulator.KeyboardAction.None
 
 let admit_mouse_bindings (buttons: int) =

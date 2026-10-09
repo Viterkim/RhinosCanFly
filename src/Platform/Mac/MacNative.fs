@@ -6,7 +6,7 @@ open System.Runtime.InteropServices
 open RhinosCanFly
 
 [<Literal>]
-let BRIDGE_ABI = 2u
+let BRIDGE_ABI = 5u
 
 [<Literal>]
 let CORE_GRAPHICS = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
@@ -39,6 +39,58 @@ type InputEvent =
     val mutable screen_y: float
     val mutable buttons: uint32
     val mutable content: uint32
+    val mutable source_time: uint64
+    val mutable sequence: uint64
+    val mutable session: uint64
+    val mutable routing: uint32
+    val mutable phase: uint32
+    val mutable momentum: uint32
+    val mutable reserved: uint32
+    val mutable target_window: uint32
+    val mutable navigation_modifiers: uint64
+    val mutable press_id: uint64
+
+[<Struct; StructLayout(LayoutKind.Sequential)>]
+type CaptureBinding =
+    val mutable count: uint32
+
+    [<MarshalAs(UnmanagedType.ByValArray, SizeConst = 16)>]
+    val mutable keys: uint32 array
+
+[<Struct; StructLayout(LayoutKind.Sequential)>]
+type CaptureConfig =
+    val mutable session: uint64
+    val mutable window: uint32
+    val mutable exit_buttons: uint32
+    val mutable terminal_count: uint32
+    val mutable entry_buttons: uint32
+    val mutable command_count: uint32
+
+    [<MarshalAs(UnmanagedType.ByValArray, SizeConst = 133)>]
+    val mutable configured: byte array
+
+    [<MarshalAs(UnmanagedType.ByValArray, SizeConst = 133)>]
+    val mutable command_keys: byte array
+
+    [<MarshalAs(UnmanagedType.ByValArray, SizeConst = 133)>]
+    val mutable quarantine: byte array
+
+    [<MarshalAs(UnmanagedType.ByValArray, SizeConst = 133)>]
+    val mutable appkit_owned: byte array
+
+    [<MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)>]
+    val mutable terminal: CaptureBinding array
+
+    [<MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)>]
+    val mutable command: CaptureBinding array
+
+    val mutable held_buttons: uint32
+    val mutable entry_code: uint32
+    val mutable entry_source_time: uint64
+    val mutable entry_modifiers: uint64
+    val mutable entry_mouse_button: uint32
+    val mutable entry_mouse_press_id: uint64
+    val mutable entry_mouse_source_time: uint64
 
 [<DllImport(CORE_GRAPHICS)>]
 extern int CGAssociateMouseAndMouseCursorPosition(uint32 connected)
@@ -120,6 +172,18 @@ type InitialKey = delegate of uint32 -> uint32
 [<UnmanagedFunctionPointer(CallingConvention.Cdecl)>]
 type Reconcile = delegate of uint32 -> unit
 
+[<UnmanagedFunctionPointer(CallingConvention.Cdecl)>]
+type Activate = delegate of byref<CaptureConfig> * nativeint -> int32
+
+[<UnmanagedFunctionPointer(CallingConvention.Cdecl)>]
+type Finish = delegate of uint32 -> int32
+
+[<UnmanagedFunctionPointer(CallingConvention.Cdecl)>]
+type EntryContext = delegate of byref<InputEvent> -> uint32
+
+[<UnmanagedFunctionPointer(CallingConvention.Cdecl)>]
+type Diagnostics = delegate of [<Out>] destination: byte array * capacity: uint32 -> uint32
+
 type Api =
     { foreground_window: Window
       view_window: ViewWindow
@@ -140,6 +204,12 @@ type Api =
       raw_initial_key: InitialKey
       raw_error: Size
       raw_started_at: Time
+      raw_activate: Activate
+      raw_finish: Finish
+      raw_revoke: Discard
+      entry_context: EntryContext
+      raw_diagnostics: Diagnostics
+      raw_guards_pending: Size
       uptime: Time
       keyboard_boundary: Time
       capture_key: Size
@@ -149,6 +219,15 @@ let mutable api: Api option = None
 
 let export<'t when 't :> Delegate> (library: nativeint) (name: string) =
     Marshal.GetDelegateForFunctionPointer<'t>(NativeLibrary.GetExport(library, name))
+
+let validate_bridge (expected: uint32) (abi: uint32) (event_size: uint32) (motion_size: uint32) (config_size: uint32) =
+    if
+        abi <> expected
+        || event_size <> uint32 (Marshal.SizeOf<InputEvent>())
+        || motion_size <> uint32 (Marshal.SizeOf<RelativeMotion.Packet>())
+        || config_size <> uint32 (Marshal.SizeOf<CaptureConfig>())
+    then
+        invalidOp "The Mac input bridge does not match this build."
 
 let load () =
     match api with
@@ -166,14 +245,12 @@ let load () =
             NativeLibrary.Load(Path.Combine(directory, "libRhinosCanFlyMac.dylib"))
 
         try
-            if
-                (export<Size> library "rcf_mac_abi").Invoke() <> BRIDGE_ABI
-                || (export<Size> library "rcf_mac_event_size").Invoke()
-                   <> uint32 (Marshal.SizeOf<InputEvent>())
-                || (export<Size> library "rcf_mac_motion_size").Invoke()
-                   <> uint32 (Marshal.SizeOf<RelativeMotion.Packet>())
-            then
-                invalidOp "The Mac input bridge does not match this build."
+            validate_bridge
+                BRIDGE_ABI
+                ((export<Size> library "rcf_mac_abi").Invoke())
+                ((export<Size> library "rcf_mac_event_size").Invoke())
+                ((export<Size> library "rcf_mac_motion_size").Invoke())
+                ((export<Size> library "rcf_mac_capture_config_size").Invoke())
 
             let loaded =
                 { foreground_window = export<Window> library "rcf_mac_foreground_window"
@@ -195,6 +272,12 @@ let load () =
                   raw_initial_key = export<InitialKey> library "rcf_mac_raw_initial_key"
                   raw_error = export<Size> library "rcf_mac_raw_error"
                   raw_started_at = export<Time> library "rcf_mac_raw_started_at"
+                  raw_activate = export<Activate> library "rcf_mac_raw_activate"
+                  raw_finish = export<Finish> library "rcf_mac_raw_finish"
+                  raw_revoke = export<Discard> library "rcf_mac_raw_revoke"
+                  entry_context = export<EntryContext> library "rcf_mac_entry_context"
+                  raw_diagnostics = export<Diagnostics> library "rcf_mac_raw_diagnostics"
+                  raw_guards_pending = export<Size> library "rcf_mac_raw_guards_pending"
                   uptime = export<Time> library "rcf_mac_uptime"
                   keyboard_boundary = export<Time> library "rcf_mac_keyboard_boundary"
                   capture_key = export<Size> library "rcf_mac_capture_key"
