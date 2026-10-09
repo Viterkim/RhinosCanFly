@@ -20,6 +20,26 @@ let mutable entry_releases = 0u
 let mutable cancel_observed = false
 let mutable exit_observed = false
 let mutable ordered_releases = false
+let mutable worker_timeline = false
+
+let mutable pending_entry: struct (bool * Platform.Mac.MacNative.InputEvent option) =
+    struct (false, None)
+
+let prepare_entry (mouse: bool) =
+    let mutable event = Unchecked.defaultof<Platform.Mac.MacNative.InputEvent>
+
+    let context =
+        if not mouse && (Platform.Mac.MacNative.load ()).entry_context.Invoke(&event) <> 0u then
+            Some event
+        else
+            None
+
+    pending_entry <- struct (mouse, context)
+
+let take_entry () =
+    let entry = pending_entry
+    pending_entry <- struct (false, None)
+    entry
 
 let key_state (keys: bool array) (code: int) =
     match code with
@@ -64,8 +84,13 @@ let binding_uses_key (code: int) (binding: KeyBinding) =
 
 let collect_actions () =
     match actions with
-    | Some actions -> FlightBindingActions.collect binding_is_down actions
+    | Some actions ->
+        let collected = FlightBindingActions.collect binding_is_down actions
+
+        FlightBindingActions.arbitrate_terminal worker_timeline collected
     | None -> InputAccumulator.KeyboardAction.None
+
+let ordered_exit_protocol () = worker_timeline
 
 let configure
     (config: FlyConfig)
@@ -177,7 +202,7 @@ let prepare_transition (code: int) (held: bool) (repeated: bool) =
                             | _ -> ()
             | None -> ()
 
-let observe (timestamp: int64) (code: int) (held: bool) =
+let observe_event (timestamp: int64) (code: int) (held: bool) (terminal: bool) =
     prepare_transition code held false
 
     if code >= 0 && code < observed.Length && observed[code] <> held then
@@ -185,8 +210,10 @@ let observe (timestamp: int64) (code: int) (held: bool) =
         key_revision <- key_revision + 1L
 
         match input with
-        | Some input -> InputAccumulator.add_keyboard_transition timestamp code held input
+        | Some input -> InputAccumulator.add_keyboard_transition_with_terminal timestamp code held terminal input
         | None -> ()
+
+let observe (timestamp: int64) (code: int) (held: bool) = observe_event timestamp code held false
 
 let apply_keyboard_transition (key: int) (held: bool) =
     if key >= 0 && key < down.Length then
@@ -215,8 +242,6 @@ let apply_raw_mouse_button_transition (transition: RawMouseButtonTransition) =
     else
         collect_actions ()
 
-let terminal_timeline = InputAccumulator.timeline_buffer ()
-
 let resolve_pending_exit
     (lifetime: FlightLifetime)
     (exit_buttons: MouseExitConfig)
@@ -224,6 +249,8 @@ let resolve_pending_exit
     =
     match input with
     | Some input when obj.ReferenceEquals(input, accumulator) ->
+        let terminal_timeline = InputAccumulator.timeline_buffer_for input
+
         let struct (count, overflowed) =
             InputAccumulator.drain_timeline terminal_timeline input
 
@@ -270,7 +297,7 @@ let binding_exit (lifetime: FlightLifetime) (exit_buttons: MouseExitConfig) (acc
             None
     | None -> None
 
-let observe_mouse (timestamp: int64) (transition: RawMouseButtonTransition) =
+let observe_mouse_event (timestamp: int64) (transition: RawMouseButtonTransition) (terminal: bool) =
     let event = int transition.event
 
     if event >= 1 && event <= 10 then
@@ -285,7 +312,8 @@ let observe_mouse (timestamp: int64) (transition: RawMouseButtonTransition) =
             observed[code] <- held
 
             match input with
-            | Some input when entry_release -> InputAccumulator.add_keyboard_transition timestamp code false input
+            | Some input when entry_release ->
+                InputAccumulator.add_keyboard_transition_with_terminal timestamp code false terminal input
             | Some input ->
                 InputAccumulator.add_boundary_event
                     { kind = InputAccumulator.TimelineEventKind.RawMouseButton
@@ -295,14 +323,20 @@ let observe_mouse (timestamp: int64) (transition: RawMouseButtonTransition) =
                       wheel = 0L
                       button = transition
                       key = 0
-                      key_down = false }
+                      key_down = false
+                      terminal = terminal }
                     input
             | None -> ()
+
+let observe_mouse (timestamp: int64) (transition: RawMouseButtonTransition) =
+    observe_mouse_event timestamp transition false
 
 let reconcile_physical_keys () =
     let native = Platform.Mac.MacNative.load ()
 
-    if ordered_releases then
+    if worker_timeline then
+        ()
+    elif ordered_releases then
         for code = 0 to observed.Length - 1 do
             if observed[code] then
                 native.raw_reconcile.Invoke(uint32 code)
@@ -335,7 +369,7 @@ let movement_boundary () =
     let transport = native.raw_boundary.Invoke()
 
     let pending =
-        if keyboard = 0. then transport
+        if worker_timeline || keyboard = 0. then transport
         elif transport = 0. then keyboard
         else min keyboard transport
 
@@ -344,6 +378,8 @@ let movement_boundary () =
     let boundary =
         if pending > 0. then
             min now (timestamp_offset + int64 (pending * float Stopwatch.Frequency))
+        elif worker_timeline then
+            timestamp_offset
         else
             now
 
@@ -355,6 +391,7 @@ let discard_pointer_input () =
 let allow_passthrough () = accept_new_keys <- false
 
 let stop () =
+    worker_timeline <- false
     accept_new_keys <- false
     entry_releases <- 0u
     actions <- None

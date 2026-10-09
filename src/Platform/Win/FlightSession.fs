@@ -800,6 +800,8 @@ let run
     (config: FlyConfig)
     (session_mode: FlightSessionMode)
     (held_entry: (unit -> bool) option)
+    (_held_buttons: uint32)
+    (_entry_press: MouseEntryPress option)
     (valid: unit -> bool)
     =
     match session_state with

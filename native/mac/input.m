@@ -3,8 +3,9 @@
 #include <dlfcn.h>
 #include <stdbool.h>
 #include "input.h"
+#include "pointer-worker.h"
 
-_Static_assert(sizeof(RcfMacEvent) == 96, "Mac event ABI must remain 96 bytes");
+_Static_assert(sizeof(RcfMacEvent) == 160, "Mac event ABI must remain 160 bytes");
 #define RCF_EVENT_OFFSET(field, offset) \
     _Static_assert(offsetof(RcfMacEvent, field) == offset, "Mac event field offset: " #field)
 RCF_EVENT_OFFSET(kind, 0);
@@ -23,6 +24,16 @@ RCF_EVENT_OFFSET(screen_x, 72);
 RCF_EVENT_OFFSET(screen_y, 80);
 RCF_EVENT_OFFSET(buttons, 88);
 RCF_EVENT_OFFSET(content, 92);
+RCF_EVENT_OFFSET(source_time, 96);
+RCF_EVENT_OFFSET(sequence, 104);
+RCF_EVENT_OFFSET(session, 112);
+RCF_EVENT_OFFSET(routing, 120);
+RCF_EVENT_OFFSET(phase, 124);
+RCF_EVENT_OFFSET(momentum, 128);
+RCF_EVENT_OFFSET(reserved, 132);
+RCF_EVENT_OFFSET(target_window, 136);
+RCF_EVENT_OFFSET(navigation_modifiers, 144);
+RCF_EVENT_OFFSET(press_id, 152);
 #undef RCF_EVENT_OFFSET
 
 static id monitor;
@@ -35,26 +46,43 @@ static NSWindow *window;
 static BOOL previous_mouse_moved;
 static RcfMacHandler callback;
 
-void rcf_mac_raw_release(uint32_t code, double timestamp) {
-    RcfMacEvent value = {0};
-    value.kind = 7; value.code = code; value.timestamp = timestamp;
-    if (callback) callback(&value);
-}
-
 static void tracking_began(CFRunLoopObserverRef sender, CFRunLoopActivity activity, void *context) {
     (void)sender; (void)activity; (void)context;
     uint32_t state = rcf_mac_raw_state();
     if (callback && (state == RCF_RAW_RUNNING || state == RCF_RAW_STARTING) && (NSApp.modalWindow ||
         [NSRunLoop.currentRunLoop.currentMode isEqualToString:NSEventTrackingRunLoopMode])) {
         RcfMacEvent value = {0}; value.kind = 6;
+        rcf_mac_raw_revoke();
         callback(&value);
     }
 }
 
 uint32_t rcf_mac_event_size(void) { return (uint32_t)sizeof(RcfMacEvent); }
 uint32_t rcf_mac_motion_size(void) { return (uint32_t)sizeof(RcfRelativeMotion); }
-uint32_t rcf_mac_abi(void) { return 2; }
-double rcf_mac_uptime(void) { return NSProcessInfo.processInfo.systemUptime; }
+uint32_t rcf_mac_abi(void) { return RCF_BRIDGE_ABI; }
+uint32_t rcf_mac_capture_config_size(void) { return (uint32_t)sizeof(RcfCaptureConfig); }
+double rcf_mac_uptime(void) { return rcf_pointer_clock(); }
+
+uint32_t rcf_mac_raw_input(const RcfMacEvent *event) {
+    return callback ? callback(event) : 0;
+}
+
+uint32_t rcf_mac_entry_context(RcfMacEvent *value) {
+    if (![NSThread isMainThread] || !value) return 0;
+    NSEvent *event = NSApp.currentEvent;
+    if (!event || (event.type != NSEventTypeKeyDown && event.type != NSEventTypeKeyUp)) return 0;
+    if (event.keyCode >= 128) return 0;
+    if (NSProcessInfo.processInfo.systemUptime - event.timestamp > 0.25) return 0;
+    *value = (RcfMacEvent){0};
+    value->kind = 3;
+    value->code = event.keyCode;
+    value->down = event.type == NSEventTypeKeyDown;
+    value->repeated = event.isARepeat;
+    value->modifiers = event.CGEvent ? CGEventGetFlags(event.CGEvent) : event.modifierFlags;
+    value->timestamp = event.timestamp;
+    value->source_time = event.CGEvent ? CGEventGetTimestamp(event.CGEvent) : 0;
+    return 1;
+}
 
 uint32_t rcf_mac_capture_key(void) {
     if (![NSThread isMainThread]) return UINT32_MAX;
@@ -190,13 +218,18 @@ int32_t rcf_mac_monitor_begin(RcfMacHandler handler, void *expected_window) {
             NSEventMaskMouseMoved | NSEventMaskLeftMouseDragged | NSEventMaskRightMouseDragged |
             NSEventMaskOtherMouseDragged | NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown |
             NSEventMaskOtherMouseDown | NSEventMaskLeftMouseUp | NSEventMaskRightMouseUp |
-            NSEventMaskOtherMouseUp | NSEventMaskScrollWheel;
+            NSEventMaskOtherMouseUp | NSEventMaskScrollWheel | NSEventMaskMagnify | NSEventMaskRotate | NSEventMaskSwipe;
         monitor = [NSEvent addLocalMonitorForEventsMatchingMask:mask handler:^NSEvent *(NSEvent *event) {
             if (monitor_generation != generation) return event;
-            int32_t disposition = 0;
-            if (window && (!event.window || event.window == window) &&
-                rcf_mac_foreground_window() == (__bridge void *)window) disposition = rcf_mac_raw_before_event(event);
+            if (rcf_mac_raw_guard(event)) return nil;
+
             switch (event.type) {
+                case NSEventTypeMagnify: case NSEventTypeRotate: case NSEventTypeSwipe: {
+                    rcf_mac_raw_revoke();
+                    RcfMacEvent lost = {0}; lost.kind = 6;
+                    if (callback) callback(&lost);
+                    return event;
+                }
                 case NSEventTypeMouseMoved: case NSEventTypeLeftMouseDragged:
                 case NSEventTypeRightMouseDragged: case NSEventTypeOtherMouseDragged:
                     if (window && event.window == window &&
@@ -209,13 +242,13 @@ int32_t rcf_mac_monitor_begin(RcfMacHandler handler, void *expected_window) {
             }
             RcfMacEvent value = {0};
             value.timestamp = event.timestamp;
+            value.source_time = event.CGEvent ? CGEventGetTimestamp(event.CGEvent) : 0;
             value.modifiers = event.modifierFlags;
             value.window = (__bridge void *)event.window;
             value.buttons = (uint32_t)NSEvent.pressedMouseButtons;
             switch (event.type) {
                 case NSEventTypeScrollWheel:
                     value.kind = 2; value.wheel = event.scrollingDeltaY;
-                    if (disposition > 0) value.wheel = 0;
                     value.precise = event.hasPreciseScrollingDeltas;
                     value.inverted = event.isDirectionInvertedFromDevice; break;
                 case NSEventTypeKeyDown: case NSEventTypeKeyUp:
@@ -226,6 +259,7 @@ int32_t rcf_mac_monitor_begin(RcfMacHandler handler, void *expected_window) {
                 case NSEventTypeLeftMouseDown: case NSEventTypeRightMouseDown: case NSEventTypeOtherMouseDown:
                 case NSEventTypeLeftMouseUp: case NSEventTypeRightMouseUp: case NSEventTypeOtherMouseUp:
                     value.kind = 4; value.code = (uint32_t)event.buttonNumber;
+                    value.press_id = event.CGEvent ? (uint64_t)CGEventGetIntegerValueField(event.CGEvent, kCGMouseEventNumber) : (uint64_t)event.eventNumber;
                     value.down = event.type == NSEventTypeLeftMouseDown || event.type == NSEventTypeRightMouseDown ||
                         event.type == NSEventTypeOtherMouseDown; break;
                 default: return event;
@@ -258,7 +292,10 @@ int32_t rcf_mac_monitor_begin(RcfMacHandler handler, void *expected_window) {
         void (^lost_focus)(NSNotification *) = ^(NSNotification *notification) {
             (void)notification;
             RcfMacEvent value = {0}; value.kind = 6;
-            if (monitor_generation == generation && callback) callback(&value);
+            if (monitor_generation == generation && callback) {
+                rcf_mac_raw_revoke();
+                callback(&value);
+            }
         };
         observer = [[NSNotificationCenter defaultCenter]
             addObserverForName:NSApplicationDidResignActiveNotification object:NSApp
@@ -268,6 +305,7 @@ int32_t rcf_mac_monitor_begin(RcfMacHandler handler, void *expected_window) {
             if ((!window || notification.object == window) && monitor_generation == generation && callback) {
                 RcfMacEvent value = {0}; value.kind = 6;
                 value.window = (__bridge void *)notification.object;
+                rcf_mac_raw_revoke();
                 callback(&value);
             }
         };

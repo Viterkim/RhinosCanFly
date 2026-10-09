@@ -7,12 +7,13 @@ open Rhino.Geometry
 let full_turn = 2. * Math.PI
 
 let rotate_vector (axis: Vector3d) (angle: float) (vector: Vector3d) =
-    let mutable rotated = vector
-
-    if rotated.Rotate(angle, axis) then
-        rotated
-    else
+    if
+        ValueOption.isNone (CameraState.unit_vector axis)
+        || not (RhinoMath.IsValidDouble angle)
+    then
         failwith "The pivot drag could not rotate the camera."
+
+    Movement.rotate_vector axis angle vector
 
 let validate_scale (name: string) (value: float) =
     if not (RhinoMath.IsValidDouble value) then

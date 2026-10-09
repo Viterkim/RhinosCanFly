@@ -120,6 +120,24 @@ let create (config: FlyConfig) (is_down: KeyBinding -> bool) =
                 is_down binding)
         |> Seq.toArray }
 
+let arbitrate_terminal (ordered: bool) (actions: InputAccumulator.KeyboardAction) =
+    let cancel =
+        actions &&& InputAccumulator.KeyboardAction.CancelAndRestore
+        <> InputAccumulator.KeyboardAction.None
+
+    let exit =
+        actions &&& InputAccumulator.KeyboardAction.Exit
+        <> InputAccumulator.KeyboardAction.None
+
+    if ordered && (cancel || exit) then
+        InputAccumulator.KeyboardAction.DeferredExit
+    elif cancel then
+        InputAccumulator.KeyboardAction.CancelAndRestore
+    elif exit then
+        InputAccumulator.KeyboardAction.Exit
+    else
+        actions
+
 let collect (is_down: KeyBinding -> bool) (state: State) =
     let mutable actions = 0
 

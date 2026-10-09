@@ -54,9 +54,9 @@ trap 'exit 143' TERM
     -Werror=implicit-function-declaration -Werror=incompatible-pointer-types \
     -Werror=objc-method-access -Werror=unguarded-availability \
     "${architectures[@]}" "${optimization[@]}" -mmacosx-version-min=14.0 \
-    -framework AppKit -framework CoreGraphics -framework CoreFoundation -framework GameController \
+    -framework AppKit -framework CoreGraphics -framework CoreFoundation -framework GameController -framework ApplicationServices \
     -install_name @rpath/libRhinosCanFlyMac.dylib \
-    "$root/native/mac/input.m" "$root/native/mac/raw.m" "$root/native/mac/pointer-worker.m" \
+    "$root/native/mac/input.m" "$root/native/mac/raw.m" "$root/native/mac/pointer-worker.m" "$root/native/mac/capture.c" \
     -o "$stage/libRhinosCanFlyMac.dylib"
 
 codesign --force --sign - "$stage/libRhinosCanFlyMac.dylib"

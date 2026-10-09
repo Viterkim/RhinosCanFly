@@ -7,6 +7,8 @@ open Rhino.Display
 type Permission =
     { mode: FlightMode
       held: (unit -> bool) option
+      held_buttons: uint32
+      entry_press: MouseEntryPress option
       valid: unit -> bool }
 
 type Request =
@@ -18,7 +20,9 @@ type Request =
       mutable focus_watch: IDisposable option
       is_current: unit -> bool
       mode: FlightMode
-      held: (unit -> bool) option }
+      held: (unit -> bool) option
+      held_buttons: uint32
+      entry_press: MouseEntryPress option }
 
 let mutable pending: Request option = None
 let mutable generation = 0L
@@ -70,6 +74,8 @@ let queue
     (host: ViewportHostIdentity)
     (mode: FlightMode)
     (held: (unit -> bool) option)
+    (held_buttons: uint32)
+    (entry_press: MouseEntryPress option)
     (deadline: int64)
     (is_current: unit -> bool)
     =
@@ -81,6 +87,8 @@ let queue
           host = host
           mode = mode
           held = held
+          held_buttons = held_buttons
+          entry_press = entry_press
           deadline = deadline
           generation = generation
           is_current = is_current
@@ -110,6 +118,8 @@ let consume (view: RhinoView) (id: Guid) =
             Some
                 { mode = request.mode
                   held = request.held
+                  held_buttons = request.held_buttons
+                  entry_press = request.entry_press
                   valid = fun () -> request_is_valid request view }
         else
             None

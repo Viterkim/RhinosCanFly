@@ -34,9 +34,7 @@ if [ -n "$rhino_app" ]; then
     arguments+=(--rhino-app "$rhino_app")
 fi
 
-if [ "$replace" = true ]; then
-    arguments+=(--replace)
-fi
+arguments+=(--replace)
 
 if [ -n "$rollback_package" ]; then
     arguments+=(--rollback-package "$rollback_package")

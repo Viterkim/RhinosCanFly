@@ -398,6 +398,8 @@ let dispatch_entry_with
             entry.host
             (DefaultFlightMode.flight_mode entry.default_flight_mode)
             held_entry
+            (if Option.isSome held_entry then 2u else 0u)
+            None
             deadline
             (fun () ->
                 navigation.lifecycle = Available

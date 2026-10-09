@@ -57,10 +57,6 @@ try {
             "--highest-minor"
         )
 
-        if ($major -eq 9) {
-            $outdatedArguments += "--include-prerelease"
-        }
-
         Invoke-Check -Name "Rhino $major package updates" -Arguments $outdatedArguments
 
         Invoke-Check -Name "Rhino $major package vulnerabilities" -Arguments @(
