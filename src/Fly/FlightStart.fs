@@ -9,6 +9,8 @@ open Rhino.Input.Custom
 let run_with_permission
     (valid: unit -> bool)
     (held_entry: (unit -> bool) option)
+    (held_buttons: uint32)
+    (entry_press: MouseEntryPress option)
     (session_mode: FlightSessionMode)
     (document: RhinoDoc)
     =
@@ -38,14 +40,22 @@ let run_with_permission
                 RhinoApp.WriteLine "RhinosCanFly is disabled for this viewport."
                 Result.Cancel
             else
-                match FlightSession.run view loaded.config session_mode held_entry with
+                let authorized () =
+                    valid ()
+                    && not (RuntimeSettings.input_suspended ())
+                    && RuntimeSettings.runtime_enabled ()
+
+                match
+                    FlightSession.run view loaded.config session_mode held_entry held_buttons entry_press authorized
+                with
                 | Ok() -> Result.Success
                 | Error error ->
                     RhinoApp.WriteLine $"RhinosCanFly failed: {error}"
                     Result.Failure)
 
 let run (session_mode: FlightSessionMode) (document: RhinoDoc) =
-    run_with_permission (fun () -> true) None session_mode document
+    PlatformFlightKeyboard.prepare_entry false
+    run_with_permission (fun () -> true) None 0u None session_mode document
 
 let run_mouse (document: RhinoDoc) (run_mode: RunMode) =
     if run_mode <> RunMode.Scripted then
@@ -74,10 +84,18 @@ let run_mouse (document: RhinoDoc) (run_mode: RunMode) =
             match PlatformMouseActions.consume_mouse_flight_entry document.Views.ActiveView request_id with
             | None -> Result.Cancel
             | Some permission ->
+                PlatformFlightKeyboard.prepare_entry true
+
                 let mode =
                     if Option.isSome permission.held then
                         FlightSessionMode.while_right_mouse_held permission.mode
                     else
                         FlightSessionMode.until_exit permission.mode
 
-                run_with_permission permission.valid permission.held mode document
+                run_with_permission
+                    permission.valid
+                    permission.held
+                    permission.held_buttons
+                    permission.entry_press
+                    mode
+                    document

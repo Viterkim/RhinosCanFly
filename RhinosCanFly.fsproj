@@ -68,6 +68,7 @@
     <Compile Include="src/Platform/Win/Win32.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Win/EntryFocus.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Mac/MacNative.fs" Condition="'$(RhinosCanFlyPlatform)' == 'mac'" />
+    <Compile Include="src/Platform/Mac/InputWake.fs" Condition="'$(RhinosCanFlyPlatform)' == 'mac'" />
     <Compile Include="src/Platform/Win/PlatformInput.fs" Condition="'$(RhinosCanFlyPlatform)' == 'win'" />
     <Compile Include="src/Platform/Mac/PlatformInput.fs" Condition="'$(RhinosCanFlyPlatform)' == 'mac'" />
     <Compile Include="src/Navigation/MouseFlightEntry.fs" />

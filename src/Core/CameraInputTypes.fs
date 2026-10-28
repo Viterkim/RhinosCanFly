@@ -2,11 +2,18 @@ namespace RhinosCanFly
 
 open Rhino.DocObjects
 open Rhino.Geometry
+open System
+
+type MouseEntryPress =
+    { button: int
+      id: uint64
+      source_time: uint64 }
 
 type FlightExitReason =
     | ExplicitKeepCamera
     | ExplicitRestoreCamera
     | RightMouseReleased
+    | EntryCancelled
     | FocusLost
     | HostInvalid
     | SessionFailure of error: string
@@ -18,6 +25,7 @@ module FlightExitReason =
         | ExplicitRestoreCamera
         | RightMouseReleased -> true
         | FocusLost
+        | EntryCancelled
         | HostInvalid
         | SessionFailure _ -> false
 
@@ -28,9 +36,11 @@ module FlightExitReason =
         | SessionFailure _ -> true
         | ExplicitKeepCamera
         | ExplicitRestoreCamera
-        | RightMouseReleased -> false
+        | RightMouseReleased
+        | EntryCancelled -> false
 
-    let restores_camera (reason: FlightExitReason) = reason = ExplicitRestoreCamera
+    let restores_camera (reason: FlightExitReason) =
+        reason = ExplicitRestoreCamera || reason = EntryCancelled
 
 [<Struct>]
 type CameraState =
@@ -40,6 +50,21 @@ type CameraState =
       up: Vector3d }
 
 module CameraState =
+    let unit_vector (vector: Vector3d) =
+        let scale = max (abs vector.X) (max (abs vector.Y) (abs vector.Z))
+
+        if
+            not vector.IsValid
+            || scale = 0.
+            || Double.IsNaN scale
+            || Double.IsInfinity scale
+        then
+            ValueNone
+        else
+            let scaled = vector / scale
+            let length = Math.Sqrt scaled.SquareLength
+            ValueSome(scaled / length)
+
     let valid_basis (direction: Vector3d) (up: Vector3d) =
         direction.IsValid
         && up.IsValid
@@ -48,13 +73,12 @@ module CameraState =
         && abs (Vector3d.Multiply(direction, up)) < 0.00000001
 
     let valid (camera: CameraState) =
-        let mutable target_direction = camera.target - camera.position
-
         camera.position.IsValid
         && camera.target.IsValid
         && valid_basis camera.direction camera.up
-        && target_direction.Unitize()
-        && Vector3d.Multiply(target_direction, camera.direction) > 0.999999
+        && (unit_vector (camera.target - camera.position)
+            |> ValueOption.exists (fun (target_direction: Vector3d) ->
+                Vector3d.Multiply(target_direction, camera.direction) > 0.999999))
 
 [<RequireQualifiedAccess>]
 type ViewProjectionKind =

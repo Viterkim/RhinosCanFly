@@ -547,7 +547,7 @@ let update_mouse_flight_entry () =
                     let host_revision = state.host_revision
 
                     let id =
-                        MouseFlightEntry.queue entry.host entry.mode None entry.admission.deadline (fun () ->
+                        MouseFlightEntry.queue entry.host entry.mode None 0u None entry.admission.deadline (fun () ->
                             state.lifecycle = Available && state.host_revision = host_revision)
 
                     try

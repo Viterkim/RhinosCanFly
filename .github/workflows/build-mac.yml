@@ -33,6 +33,27 @@ jobs:
             bash scripts/mac/package.sh --rhino-version "$version" --yak "$RUNNER_TEMP/yak"
           done
 
+      - name: Compiled keyboard and camera replay tests
+        run: |
+          for version in 8 9; do
+            framework=net8.0
+            references=net7.0
+            if [ "$version" = 9 ]; then framework=net10.0; references=net8.0; fi
+            cp "bin/mac/rh$version/Release/$framework/RhinosCanFly.rhp" "$RUNNER_TEMP/RhinosCanFly.dll"
+            package=$(dotnet msbuild RhinosCanFly.fsproj -p:RhinosCanFlyPlatform=mac -p:RhinoMajorVersion="$version" -getProperty:RhinoCommonPackageVersion)
+            libraries="$HOME/.nuget/packages/rhinocommon/$package/lib/$references"
+
+            dotnet fsi --reference:"$libraries/RhinoCommon.dll" --reference:"$libraries/Eto.dll" \
+              --reference:"$RUNNER_TEMP/RhinosCanFly.dll" tools/manual/check-mac-keyboard.fsx
+            dotnet fsi --reference:"$libraries/RhinoCommon.dll" --reference:"$libraries/Eto.dll" \
+              --reference:"$RUNNER_TEMP/RhinosCanFly.dll" tools/manual/check-mac-replay.fsx \
+              -- --binding-fixture "$RUNNER_TEMP/mac-bindings.bin"
+
+            RCF_BINDING_FIXTURE="$RUNNER_TEMP/mac-bindings.bin" \
+              RCF_MANAGED_PLUGIN="$RUNNER_TEMP/RhinosCanFly.dll" RCF_MANAGED_LIBRARIES="$libraries" \
+              bash scripts/mac/check-pointer-worker.sh
+          done
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: RhinosCanFly-mac-${{ github.sha }}

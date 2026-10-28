@@ -23,6 +23,7 @@ type FlyState =
       mutable mouse_pivot_hold_buttons: int
       mutable mouse_pan_hold_buttons: int
       mutable projection: ViewProjectionKind
+      mutable parallel_width: float
       mutable perspective_projection: ViewProjectionKind
       mutable perspective_lens_length: PerspectiveLensLengthMm
       mutable exit_reason: FlightExitReason option
@@ -39,6 +40,10 @@ module FlyState =
 
     let can_write_camera (state: FlyState) =
         is_running state && state.camera_write_allowed ()
+
+    let validate_camera_host (state: FlyState) =
+        can_write_camera state
+        && PlatformInput.viewport_host_is_foreground state.host_identity state.view
 
     let request_exit (reason: FlightExitReason) (state: FlyState) =
         if Option.isNone state.exit_reason then
