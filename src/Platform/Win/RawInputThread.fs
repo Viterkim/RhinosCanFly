@@ -28,6 +28,8 @@ type SessionRequest =
       stopped: ManualResetEventSlim
       result: ThreadResult
       mutable registration: RawInputNative.MouseRegistrationLease option
+      mutable flush_requested: int64
+      mutable flush_completed: int64
       mutable cancelled: int
       mutable ready_disposed: bool
       mutable stopped_disposed: bool }
@@ -35,6 +37,7 @@ type SessionRequest =
 type WorkerCommand =
     | StartSession of SessionRequest
     | StopSession of int64
+    | FlushSession of session_id: int64 * revision: int64
     | FinishSession of int64
     | ShutdownWorker
 
@@ -293,6 +296,23 @@ let run_worker (worker: WorkerState) =
                     else
                         begin_session request
                 | StopSession session_id -> stop_session session_id
+                | FlushSession(session_id, revision) ->
+                    match current_request, receiver with
+                    | Some request, Some created when
+                        request.id = session_id && revision > Volatile.Read(&request.flush_completed)
+                        ->
+                        match created.FlushInput() with
+                        | ValueSome true ->
+                            Volatile.Write(&request.flush_completed, revision)
+                            request.input_available.Invoke()
+                        | ValueSome false ->
+                            worker.commands.Enqueue(FlushSession(session_id, revision))
+
+                            match RawInputNative.post_control worker.window_handle with
+                            | Ok() -> draining <- false
+                            | Error error -> invalidOp error
+                        | ValueNone -> ()
+                    | _ -> ()
                 | FinishSession session_id -> finish_current session_id
                 | ShutdownWorker ->
                     shutdown_requested <- true
@@ -384,6 +404,7 @@ let run_worker (worker: WorkerState) =
                 request.ready.Set()
                 acknowledge_stop request
             | StopSession _
+            | FlushSession _
             | FinishSession _
             | ShutdownWorker -> ()
 
@@ -513,6 +534,23 @@ let clear_active_session (session_id: int64) =
         | SessionActive _
         | SessionStarting
         | NoSession -> ())
+
+let request_flush (session: Session) =
+    let revision = Interlocked.Increment(&session.request.flush_requested)
+
+    match enqueue_command session.worker (FlushSession(session.request.id, revision)) with
+    | Ok Posted -> revision
+    | Ok(QueuedWithoutWake error)
+    | Error error -> invalidOp $"Could not request the raw-input drain: {error}"
+
+let flush_completed (session: Session) (revision: int64) =
+    if
+        session.worker.stopped.IsSet
+        || Option.isSome (runtime_error session.request.result)
+    then
+        invalidOp "The raw-input worker failed before completing the input drain."
+
+    Volatile.Read(&session.request.flush_completed) >= revision
 
 let request_stop_core (session: Session) =
     if session.stop_request_sent then
@@ -709,6 +747,8 @@ let start (buttons_swapped: bool) (admit: unit -> bool) (input: InputAccumulator
                   stopped = new ManualResetEventSlim(false)
                   result = result
                   registration = None
+                  flush_requested = 0L
+                  flush_completed = 0L
                   cancelled = 0
                   ready_disposed = false
                   stopped_disposed = false }

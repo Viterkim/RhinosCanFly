@@ -30,7 +30,7 @@ https://github.com/user-attachments/assets/52dc3237-e12b-4a54-8776-88f6b6475fac
 
 Main focus is flying as a workflow for editing, which includes things like: teleporting / syncing other views via retarget, pivot/pan toggleable buttons, parallel/iso flying behaviour and toggle, retarget options, everything configurable and supports mouse 4/5 stuff.
 
-Walking is not the point of the project, and it won't have collision, the idea is more of a full workflow inspired by old editor workflows with shortcuts that makes things like retarget/zoom to target fast. The walk command starts at a given height in document units and keeps forward/sideways movement along the CPlane. Up/Down, pan and pivot still work normally.
+Walking is not the point of the project, and it won't have collision, the idea is more of a full workflow inspired by old editor workflows with shortcuts that makes things like retarget/zoom to target fast.
 
 ## Extra Commands
 

@@ -20,11 +20,22 @@ let admission_is_current
     (host: ViewportHostIdentity)
     (admission: MouseAdmission)
     =
+    // The click can arrive while Windows briefly reports no foreground window.
+    let activation_pending = admission.activation = MouseActivation.Pending
+
+    if
+        activation_pending
+        && admission.foreground = RootWindow 0n
+        && foreground <> RootWindow 0n
+    then
+        admission.foreground <- foreground
+
     (admission.deadline = 0L || now < admission.deadline)
-    && (foreground = host.root_window
-        || (not admission.activation_attempted && foreground = admission.foreground))
+    && (foreground = RootWindow 0n
+        || foreground = host.root_window
+        || (activation_pending && foreground = admission.foreground))
     && (state.host_revision = admission.host_revision
-        || (not admission.activation_attempted
+        || (activation_pending
             && state.host_revision = admission.host_revision + 1L
             && state.active_host = ValueSome host))
 
@@ -221,7 +232,7 @@ let foreground_root_window () =
 let create_admission (state: State) =
     { foreground = foreground_root_window ()
       host_revision = state.host_revision
-      activation_attempted = false
+      activation = MouseActivation.Pending
       deadline = Stopwatch.GetTimestamp() + 2L * Stopwatch.Frequency }
 
 let try_bring_root_window_to_foreground (window: RootWindow) =

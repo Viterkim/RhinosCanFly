@@ -17,7 +17,7 @@ let check (name: string) (expected: 'T) (actual: 'T) =
 let near (name: string) (expected: float) (actual: float) =
     checks <- checks + 1
 
-    if abs (actual - expected) > 1e-10 then
+    if not (abs (actual - expected) <= 1e-10) then
         failwithf "%s: expected %g, got %g" name expected actual
 
 let config =

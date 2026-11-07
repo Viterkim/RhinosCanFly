@@ -365,12 +365,7 @@ let try_prepare_entry_view (navigation: State) (state: RightClickState) (entry: 
     | GestureNavigationTransitions.ActionViewDeferred -> EntryDeferred
     | GestureNavigationTransitions.ActionViewUnavailable _ -> EntryUnavailable
 
-let dispatch_entry_with
-    (dispatch: uint32 -> string -> bool)
-    (navigation: State)
-    (state: RightClickState)
-    (entry: FlyEntry)
-    =
+let dispatch_entry (navigation: State) (state: RightClickState) (entry: FlyEntry) =
     let pair_id = state.pair_id
     let held = entry_while_held entry.entry_mode
     let host_revision = navigation.host_revision
@@ -417,19 +412,12 @@ let dispatch_entry_with
         | _ -> ()
 
     try
-        if not (dispatch entry.host.document_serial_number command) then
+        if not (RhinoApp.RunScript(entry.host.document_serial_number, command, false)) then
             clear_dispatched_request ()
             Debug.WriteLine "RhinosCanFly right-click flight command was rejected by Rhino."
     with _ ->
         clear_dispatched_request ()
         reraise ()
-
-let dispatch_entry (navigation: State) (state: RightClickState) (entry: FlyEntry) =
-    dispatch_entry_with
-        (fun (document: uint32) (command: string) -> RhinoApp.RunScript(document, command, false))
-        navigation
-        state
-        entry
 
 let projection_allows_entry (navigation: State) (view: RhinoView) =
     let viewport = view.ActiveViewport
@@ -455,6 +443,9 @@ let try_dispatch_entry (navigation: State) (state: RightClickState) (command_act
     if navigation.lifecycle <> Available then
         clear_action state
     else
+        state.admission
+        |> Option.iter (MouseOverrideState.start_admission_deadline (Stopwatch.GetTimestamp()))
+
         let pair_id = state.pair_id
         let pending_gesture = state.gesture
 
@@ -557,7 +548,17 @@ let update (navigation: State) (state: RightClickState) (command_active: bool) =
     | ButtonReleasedBeforeHandling(EnterFlight entry) -> try_dispatch_entry navigation state command_active entry
     | ButtonDown(EnterFlight entry) when entry_while_held entry.entry_mode ->
         try_dispatch_entry navigation state command_active entry
-    | ButtonDown(EnterFlight _) -> ()
+    | ButtonDown(EnterFlight entry) ->
+        match state.admission with
+        | Some admission when admission.activation <> MouseActivation.Ready ->
+            // Our swallowed Down also skips Windows' normal click activation.
+            let pair_id = state.pair_id
+            let pending_gesture = state.gesture
+
+            match try_prepare_entry_view navigation state entry with
+            | EntryUnavailable when state.pair_id = pair_id && state.gesture = pending_gesture -> clear_action state
+            | _ -> ()
+        | _ -> ()
     | ButtonReleased(NavigateView _) ->
         GestureNavigationTransitions.release navigation GestureOwner.ModifiedRightClick
         clear_action state

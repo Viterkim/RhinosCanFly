@@ -45,3 +45,12 @@ Build a package in `dist`:
 ```
 
 Add `-Publish Test` for the test server or `-Publish Production` for the real one.
+
+For a full release:
+
+```powershell
+.\scripts\win\build-all-prod.ps1
+.\scripts\win\build-all-prod-push.ps1
+```
+
+Put the Mac ZIPs and Yaks for the same version into `dist` before the push command and it publishes those too. An incomplete Mac download stops it before anything uploads. Add `-CheckOnly` to validate without publishing.

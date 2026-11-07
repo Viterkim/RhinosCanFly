@@ -115,7 +115,7 @@ type RawInputReceiver(process_control: Action) as self =
                     offset <- offset + step
                     index <- index + 1u
 
-        work_added
+        struct (work_added, not draining)
 
     let registration_relinquished () =
         match registration_lease with
@@ -243,7 +243,7 @@ type RawInputReceiver(process_control: Action) as self =
         match active_session with
         | Some session when not session_finished_notified ->
             let current_added = process_current_input session raw_input
-            let buffered_added = process_buffered_input 8 session
+            let struct (buffered_added, _) = process_buffered_input 8 session
 
             if current_added || buffered_added then
                 session.SignalInputAvailable()
@@ -311,6 +311,17 @@ type RawInputReceiver(process_control: Action) as self =
             Some error
 
     member _.RequestStop() = request_stop ()
+
+    member _.FlushInput() =
+        match active_session with
+        | Some session when not session_finished_notified ->
+            let struct (added, empty) = process_buffered_input 8 session
+
+            if added then
+                session.SignalInputAvailable()
+
+            ValueSome empty
+        | _ -> ValueNone
 
     member _.HasSession = Option.isSome active_session || Option.isSome session_finished
 

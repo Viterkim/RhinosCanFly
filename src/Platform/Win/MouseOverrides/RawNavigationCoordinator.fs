@@ -30,6 +30,7 @@ type ActiveNavigation =
       mutable pointer_input_valid: bool
       mutable pivot_drag: PivotDragState voption
       mutable processing: bool
+      mutable button_revision: int64
       mutable next_host_validation_at: int64 }
 
 type NavigationSession =
@@ -477,6 +478,9 @@ let drain_core (state: State) =
                 while index < result.count && active.transport.IsActive do
                     let event = active.timeline[index]
 
+                    if event.kind = InputAccumulator.TimelineEventKind.RawMouseButton then
+                        active.button_revision <- active.button_revision + 1L
+
                     match event.kind with
                     | InputAccumulator.TimelineEventKind.Movement when
                         active.pointer_input_valid && accept_pointer_input
@@ -527,6 +531,56 @@ let drain (state: State) =
         finally
             active.processing <- false
     | _ -> ()
+
+let released_button_mask (state: State) =
+    let navigation = state.navigation
+    let mutable released = 0
+
+    if
+        state.right_click.button_ownership = Owned
+        && not (Win32.key_down Win32Native.VK_RBUTTON)
+    then
+        released <- released ||| (1 <<< Win32Native.VK_RBUTTON)
+
+    if
+        navigation.side_button_hook_capture.middle = Owned
+        && not (SideButtonTransitions.is_down Middle)
+    then
+        released <- released ||| (1 <<< Win32Native.VK_MBUTTON)
+
+    if
+        navigation.side_button_hook_capture.mouse4 = Owned
+        && not (SideButtonTransitions.is_down Mouse4)
+    then
+        released <- released ||| (1 <<< Win32Native.VK_XBUTTON1)
+
+    if
+        navigation.side_button_hook_capture.mouse5 = Owned
+        && not (SideButtonTransitions.is_down Mouse5)
+    then
+        released <- released ||| (1 <<< Win32Native.VK_XBUTTON2)
+
+    released
+
+let recoverable_releases (state: State) =
+    let candidates = released_button_mask state
+
+    match state.session with
+    | Some(ActiveTransport active) ->
+        let generation = active.button_revision
+        let ready = active.transport.RecoverableReleases(candidates, generation)
+
+        if ready <> 0 then
+            // The worker publishes before acknowledging. Apply that input before polling can stop us.
+            drain state
+
+            if active.transport.IsActive && active.button_revision = generation then
+                ready &&& released_button_mask state
+            else
+                0
+        else
+            0
+    | _ -> candidates
 
 let start (state: State) (requested: DesiredNavigation) =
     let failed = Action state.request_exit
@@ -600,6 +654,7 @@ let start (state: State) (requested: DesiredNavigation) =
                   pointer_input_valid = true
                   pivot_drag = pivot_drag
                   processing = false
+                  button_revision = 0L
                   next_host_validation_at = Stopwatch.GetTimestamp() + host_validation_interval_ticks }
 
             match state.session with

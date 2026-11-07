@@ -1,8 +1,11 @@
+param([switch] $CheckOnly)
+
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $buildSetup = Join-Path $PSScriptRoot "build-setup.ps1"
 $dist = Join-Path $projectRoot "dist"
 $version = & (Join-Path $PSScriptRoot 'set-versions.ps1') -Check
+$macPublisher = Join-Path $PSScriptRoot 'publish-mac.ps1'
 
 . $buildSetup -Quiet
 
@@ -26,6 +29,26 @@ foreach ($rhinoVersion in $ReleaseRhinoVersions) {
 & (Join-Path $projectRoot 'tools\manual\check-runtime-payload.ps1')
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+$macPackages = @(
+    Get-ChildItem -LiteralPath $dist -File | Where-Object {
+        $_.Name -like "rhinoscanfly-$version-rh*-mac.yak" -or
+        $_.Name -like "RhinosCanFly-$version-rh*-mac.zip"
+    }
+)
+
+if ($macPackages.Count -gt 0) {
+    & $macPublisher -CheckOnly
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+else {
+    Write-Host "No Mac packages for version $version in dist. Using Windows packages."
+}
+
+if ($CheckOnly) {
+    Write-Host "Release packages for version $version passed. Nothing uploaded."
+    return
+}
+
 foreach ($package in $packages) {
     Write-Host "Pushing to production: $($package.FullName)"
     & $YakPath push $package.FullName
@@ -35,5 +58,10 @@ foreach ($package in $packages) {
     }
 }
 
-$releaseNames = ($ReleaseRhinoVersions | ForEach-Object { "Rhino $_" }) -join " and "
-Write-Host "Published $releaseNames packages for version $version."
+if ($macPackages.Count -gt 0) {
+    & $macPublisher
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+$platforms = if ($macPackages.Count -gt 0) { "Windows and Mac" } else { "Windows" }
+Write-Host "Published $platforms packages for version $version."
