@@ -11,10 +11,16 @@ type SideButton =
     | Mouse4
     | Mouse5
 
+[<RequireQualifiedAccess>]
+type MouseActivation =
+    | Pending
+    | ViewRequested
+    | Ready
+
 type MouseAdmission =
-    { foreground: RootWindow
+    { mutable foreground: RootWindow
       mutable host_revision: int64
-      mutable activation_attempted: bool
+      mutable activation: MouseActivation
       mutable deadline: int64 }
 
 [<Struct>]

@@ -22,33 +22,39 @@ type ActionViewPreparation =
 
 let prepare_action_view (state: State) (host: ViewportHostIdentity) (admission: MouseAdmission) =
     let now = Stopwatch.GetTimestamp()
-    MouseOverrideState.start_admission_deadline now admission
     let foreground = MouseOverrideState.foreground_root_window ()
-    let activation_allowed = not admission.activation_attempted
+    let activation_allowed = admission.activation = MouseActivation.Pending
+
+    let admission_current =
+        MouseOverrideState.admission_is_current now foreground state host admission
 
     let foreground_ready =
-        MouseOverrideState.admission_is_current now foreground state host admission
+        admission_current
+        && foreground <> RootWindow 0n
         && (foreground = host.root_window
             || (activation_allowed
                 && MouseOverrideState.try_bring_root_window_to_foreground host.root_window))
 
-    if not foreground_ready then
+    if not admission_current then
+        ActionViewUnavailable "The navigation request is no longer current."
+    elif foreground = RootWindow 0n then
+        ActionViewDeferred
+    elif
+        not foreground_ready
+        && MouseOverrideState.foreground_root_window () = RootWindow 0n
+    then
+        ActionViewDeferred
+    elif not foreground_ready then
         ActionViewUnavailable "The navigation window could not be activated."
     else
         let view = RhinoView.FromRuntimeSerialNumber host.view_serial_number
         let document = if isNull view then null else view.Document
         let active_document = RhinoDoc.ActiveDoc
         let (ViewWindowHandle expected_window) = host.view_window
+        let foreground = MouseOverrideState.foreground_root_window ()
 
         if
-            not (
-                MouseOverrideState.admission_is_current
-                    (Stopwatch.GetTimestamp())
-                    (MouseOverrideState.foreground_root_window ())
-                    state
-                    host
-                    admission
-            )
+            not (MouseOverrideState.admission_is_current (Stopwatch.GetTimestamp()) foreground state host admission)
             || isNull view
             || isNull document
             || isNull active_document
@@ -59,6 +65,10 @@ let prepare_action_view (state: State) (host: ViewportHostIdentity) (admission: 
             || view.ActiveViewportID <> host.viewport_id
         then
             ActionViewUnavailable "The navigation viewport is unavailable."
+        elif foreground = RootWindow 0n then
+            ActionViewDeferred
+        elif foreground <> host.root_window then
+            ActionViewUnavailable "The navigation window lost focus."
         else
             let active_view = document.Views.ActiveView
 
@@ -68,7 +78,7 @@ let prepare_action_view (state: State) (host: ViewportHostIdentity) (admission: 
             then
                 if activation_allowed then
                     let revision = state.host_revision
-                    admission.activation_attempted <- true
+                    admission.activation <- MouseActivation.ViewRequested
                     document.Views.ActiveView <- view
 
                     if
@@ -83,7 +93,7 @@ let prepare_action_view (state: State) (host: ViewportHostIdentity) (admission: 
                 else
                     ActionViewUnavailable "The navigation viewport changed."
             else
-                admission.activation_attempted <- true
+                admission.activation <- MouseActivation.Ready
                 admission.host_revision <- state.host_revision
                 ActionViewReady(view, host)
 
@@ -378,11 +388,19 @@ let owner_button_down (owner: GestureOwner) =
     | GestureOwner.Mouse4 -> Win32Native.GetAsyncKeyState Win32Native.VK_XBUTTON1 < 0s
     | GestureOwner.Mouse5 -> Win32Native.GetAsyncKeyState Win32Native.VK_XBUTTON2 < 0s
 
-let poll (state: State) =
+let poll (released_buttons: int) (state: State) =
     match state.gesture_navigation with
     | NoGestureNavigation -> ()
     | GestureNavigationActive session ->
         if MouseOverrideState.foreground_root_window () <> session.host.root_window then
             stop state
-        elif session.lifetime = GestureLifetime.Hold && not (owner_button_down session.owner) then
-            stop state
+        elif session.lifetime = GestureLifetime.Hold then
+            let key =
+                match session.owner with
+                | GestureOwner.ModifiedRightClick -> Win32Native.VK_RBUTTON
+                | GestureOwner.Middle -> Win32Native.VK_MBUTTON
+                | GestureOwner.Mouse4 -> Win32Native.VK_XBUTTON1
+                | GestureOwner.Mouse5 -> Win32Native.VK_XBUTTON2
+
+            if released_buttons &&& (1 <<< key) <> 0 then
+                stop state

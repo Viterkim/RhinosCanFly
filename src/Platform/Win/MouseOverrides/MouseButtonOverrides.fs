@@ -425,19 +425,19 @@ do
 let mouse_hook_needs_reconciliation () =
     MouseHook.needs_reconciliation mouse_hook mouse_hook_environment (mouse_hook_needed ())
 
-let prune_released_side_buttons () =
-    if not (SideButtonTransitions.is_down Middle) then
+let prune_released_side_buttons (released: int) =
+    if released &&& (1 <<< Win32Native.VK_MBUTTON) <> 0 then
         MouseOverrideState.observe_hook_button_released state Middle
 
-    if not (SideButtonTransitions.is_down Mouse4) then
+    if released &&& (1 <<< Win32Native.VK_XBUTTON1) <> 0 then
         MouseOverrideState.observe_hook_button_released state Mouse4
 
-    if not (SideButtonTransitions.is_down Mouse5) then
+    if released &&& (1 <<< Win32Native.VK_XBUTTON2) <> 0 then
         MouseOverrideState.observe_hook_button_released state Mouse5
 
 let reconcile_button_ownership_after_suspension () =
     RightClickTransitions.reconcile_physical_button right_click
-    prune_released_side_buttons ()
+    prune_released_side_buttons (RawNavigationCoordinator.released_button_mask raw_navigation)
 
 let release_after_timer_error (error: exn) =
     log_exception "mouse override timer" error
@@ -519,15 +519,19 @@ let activate_available () =
 let update_mouse_flight_entry () =
     match state.pending_flight_entry with
     | None -> ()
-    | Some entry when
-        state.lifecycle <> Available
-        || MouseOverrideState.foreground_root_window () <> entry.host.root_window
-        ->
-        state.pending_flight_entry <- None
     | Some entry ->
+        let now = Stopwatch.GetTimestamp()
+        let foreground = MouseOverrideState.foreground_root_window ()
         let button_down = GestureNavigationTransitions.owner_button_down entry.owner
 
-        if entry.released && button_down then
+        if not button_down then
+            MouseOverrideState.start_admission_deadline now entry.admission
+
+        if
+            state.lifecycle <> Available
+            || (foreground <> RootWindow 0n && foreground <> entry.host.root_window)
+            || (entry.released && button_down)
+        then
             state.pending_flight_entry <- None
         elif not button_down then
             match GestureNavigationTransitions.prepare_action_view state entry.host entry.admission with
@@ -586,11 +590,16 @@ let maintain_navigation () =
             let mutable navigation_cleanup_failed = false
 
             try
-                // Consume the canonical final movement/Up before missing-release polling.
+                // Drain published input before checking for missed releases.
                 RawNavigationCoordinator.drain raw_navigation
                 SideButtonTransitions.process_hook_events state
-                prune_released_side_buttons ()
-                RightClickTransitions.reconcile_physical_button right_click
+
+                let released_buttons = RawNavigationCoordinator.recoverable_releases raw_navigation
+                prune_released_side_buttons released_buttons
+
+                if released_buttons &&& (1 <<< Win32Native.VK_RBUTTON) <> 0 then
+                    RightClickTransitions.observe_physical_button right_click false
+
                 RightClickTransitions.update state right_click (command_depth > 0)
 
                 let foreground = MouseOverrideState.foreground_root_window ()
@@ -613,7 +622,7 @@ let maintain_navigation () =
                         navigation_cleanup_failed <- true
                         Debug.WriteLine $"RhinosCanFly mouse override exit: {error}"
                 else
-                    GestureNavigationTransitions.poll state
+                    GestureNavigationTransitions.poll released_buttons state
 
                     ViewLatchTransitions.update state
 

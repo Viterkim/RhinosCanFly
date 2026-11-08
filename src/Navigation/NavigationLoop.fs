@@ -23,6 +23,6 @@ let run
         if is_running () then
             step ()
 
-        // Finish the UI boundary even when processing input ended the session.
+        // Rhino still needs its pump after input ends navigation.
         if pump_after_input then
             RhinoApp.Wait()

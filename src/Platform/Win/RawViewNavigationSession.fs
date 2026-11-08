@@ -46,6 +46,7 @@ type Session
     let mutable cursor_restored = false
     let mutable cursor_hidden = true
     let mutable wake_disposed = false
+    let mutable release_flush: struct (int * int64 * int64) voption = ValueNone
 
     member _.NotifyFailure() =
         if active && not failure_notified then
@@ -69,6 +70,23 @@ type Session
 
     member _.RawInputRegistrationIsCurrent() =
         PlatformRawInput.registration_is_current raw
+
+    member _.RecoverableReleases(candidates: int, button_revision: int64) =
+        if candidates = 0 || not active then
+            release_flush <- ValueNone
+            0
+        else
+            match release_flush with
+            | ValueSome(struct (buttons, generation, revision)) when
+                generation = button_revision && buttons = candidates
+                ->
+                if PlatformRawInput.flush_completed raw revision then
+                    buttons &&& candidates
+                else
+                    0
+            | _ ->
+                release_flush <- ValueSome(struct (candidates, button_revision, PlatformRawInput.request_flush raw))
+                0
 
     member _.DiscardPointerInput() =
         InputAccumulator.discard_pointer_input input

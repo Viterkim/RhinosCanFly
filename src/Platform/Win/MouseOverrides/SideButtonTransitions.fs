@@ -18,8 +18,8 @@ let owner (button: SideButton) =
     | Mouse4 -> GestureOwner.Mouse4
     | Mouse5 -> GestureOwner.Mouse5
 
-let process_hook_events_with (handle: SideButtonHookEvent -> GestureNavigationTransitions.PressResult) (state: State) =
-    if not state.processing_side_buttons then
+let process_hook_events (state: State) =
+    if not state.processing_side_buttons && state.pending_side_button_events.Count > 0 then
         state.processing_side_buttons <- true
 
         try
@@ -29,7 +29,20 @@ let process_hook_events_with (handle: SideButtonHookEvent -> GestureNavigationTr
                   && state.lifecycle = Available
                   && state.pending_side_button_events.Count > 0 do
                 let node = state.pending_side_button_events.First
-                let result = handle node.Value
+
+                let result =
+                    match node.Value with
+                    | ButtonDown(button, host, point, admission) ->
+                        GestureNavigationTransitions.press
+                            state
+                            (owner button)
+                            (MouseOverrideState.action_for state button)
+                            host
+                            point
+                            admission
+                    | ButtonUp button ->
+                        GestureNavigationTransitions.release state (owner button)
+                        GestureNavigationTransitions.Applied
 
                 match result with
                 | GestureNavigationTransitions.Deferred -> processing <- false
@@ -47,23 +60,3 @@ let process_hook_events_with (handle: SideButtonHookEvent -> GestureNavigationTr
         MouseOverrideState.keep_timer_running state
     else
         MouseOverrideState.stop_timer_if_idle state
-
-let process_hook_events (state: State) =
-    if state.pending_side_button_events.Count = 0 then
-        MouseOverrideState.stop_timer_if_idle state
-    else
-        process_hook_events_with
-            (fun (event: SideButtonHookEvent) ->
-                match event with
-                | ButtonDown(button, host, point, admission) ->
-                    GestureNavigationTransitions.press
-                        state
-                        (owner button)
-                        (MouseOverrideState.action_for state button)
-                        host
-                        point
-                        admission
-                | ButtonUp button ->
-                    GestureNavigationTransitions.release state (owner button)
-                    GestureNavigationTransitions.Applied)
-            state
